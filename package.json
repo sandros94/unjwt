@@ -6,6 +6,10 @@
   "license": "MIT",
   "sideEffects": false,
   "type": "module",
+  "author": {
+    "name": "Sandro Circi",
+    "email": "sandro.circi@digitoolmedia.com"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
@@ -14,10 +18,6 @@
     "./jwe": {
       "types": "./dist/jwe.d.mts",
       "default": "./dist/jwe.mjs"
-    },
-    "./jws": {
-      "types": "./dist/jws.d.mts",
-      "default": "./dist/jws.mjs"
     }
   },
   "main": "./dist/index.mjs",
