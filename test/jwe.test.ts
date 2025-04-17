@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { seal, unseal } from "../src/jwe";
 import { textEncoder } from "../src/utils";
-import type { JWEHeaderParameters } from "../src/types";
+import type {
+  JWEHeaderParameters,
+  KeyWrappingAlgorithmType,
+  ContentEncryptionAlgorithmType,
+} from "../src/types";
+import {
+  KEY_WRAPPING_ALGORITHMS,
+  CONTENT_ENCRYPTION_ALGORITHMS,
+} from "../src/utils/defaults";
 
 describe("JWE seal and unseal", () => {
   const plaintext = "Hello, JWE!";
@@ -133,10 +141,10 @@ describe("JWE seal and unseal", () => {
     );
   });
 
-  it("should handle different PBES2 algorithms", async () => {
-    const algs: Array<
-      keyof typeof import("../src/utils/defaults").KEY_WRAPPING_ALGORITHMS
-    > = ["PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW"];
+  it("should handle different algorithms", async () => {
+    const algs = Object.keys(
+      KEY_WRAPPING_ALGORITHMS,
+    ) as KeyWrappingAlgorithmType[];
     for (const alg of algs) {
       const token = await seal(plaintext, password, {
         protectedHeader: { alg },
@@ -146,10 +154,10 @@ describe("JWE seal and unseal", () => {
     }
   });
 
-  it("should handle different AES-GCM algorithms", async () => {
-    const encs: Array<
-      keyof typeof import("../src/utils/defaults").CONTENT_ENCRYPTION_ALGORITHMS
-    > = ["A128GCM", "A192GCM", "A256GCM"];
+  it("should handle different algorithms", async () => {
+    const encs = Object.keys(
+      CONTENT_ENCRYPTION_ALGORITHMS,
+    ) as ContentEncryptionAlgorithmType[];
     for (const enc of encs) {
       const token = await seal(plaintext, password, {
         protectedHeader: { enc },
