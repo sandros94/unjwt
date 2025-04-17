@@ -25,4 +25,10 @@ export interface JoseHeaderParameters {
 
   /** "cty" (Content Type) Header Parameter */
   cty?: string;
+
+  /** "crit" (Critical) Header Parameter */
+  crit?: string[];
+
+  /** Any other JWS/JWE Header member. */
+  [propName: string]: unknown;
 }
