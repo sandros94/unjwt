@@ -1,1 +1,1 @@
-export * from "./jwe";
+export * as jwe from "./jwe";

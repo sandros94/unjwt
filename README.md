@@ -20,18 +20,18 @@ npx nypm install unjwt
 
 Import:
 
-<!-- automd:jsimport cdn name="unjwt" imports="seal,unseal" -->
+<!-- automd:jsimport cdn name="unjwt/jwe" imports="seal,unseal" -->
 
 **ESM** (Node.js, Bun, Deno)
 
 ```js
-import { seal, unseal } from "unjwt";
+import { seal, unseal } from "unjwt/jwe";
 ```
 
 **CDN** (Deno, Bun and Browsers)
 
 ```js
-import { seal, unseal } from "https://esm.sh/unjwt";
+import { seal, unseal } from "https://esm.sh/unjwt/jwe";
 ```
 
 <!-- /automd -->
@@ -59,7 +59,7 @@ Returns a Promise resolving to the JWE token string in Compact Serialization for
 **Example:**
 
 ```typescript
-import { seal } from "unjwt";
+import { seal } from "unjwt/jwe";
 
 const plaintext = "My secret data";
 const password = "strongpassword";
@@ -89,7 +89,7 @@ Returns a Promise resolving to the decrypted data (string or `Uint8Array`).
 **Example:**
 
 ```typescript
-import { unseal } from "unjwt";
+import { unseal } from "unjwt/jwe";
 
 const token =
   "eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIiwicDJzIjoi..."; // From seal example

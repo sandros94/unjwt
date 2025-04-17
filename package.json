@@ -10,8 +10,19 @@
     ".": {
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
+    },
+    "./jwe": {
+      "types": "./dist/jwe.d.mts",
+      "default": "./dist/jwe.mjs"
+    },
+    "./jws": {
+      "types": "./dist/jws.d.mts",
+      "default": "./dist/jws.mjs"
     }
   },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "files": [
     "dist"
   ],
