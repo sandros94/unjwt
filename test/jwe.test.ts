@@ -74,6 +74,27 @@ describe("JWE seal and unseal", () => {
     expect(decryptedBytes).toEqual(plaintextBytes);
   });
 
+  it("should throw error if token or section has been tampered", async () => {
+    const token = await seal(plaintext, password);
+    const tokenParts = token.split(".");
+
+    // Tamper with the payload
+    const tamperedToken = [
+      ...tokenParts.slice(0, 2),
+      "tamperedPayload",
+      ...tokenParts.slice(3),
+    ].join(".");
+    await expect(unseal(tamperedToken, password)).rejects.toThrow();
+
+    // Tamper with the header
+    const tamperedHeader = [
+      ...tokenParts.slice(0, 1),
+      "tamperedHeader",
+      ...tokenParts.slice(2),
+    ].join(".");
+    await expect(unseal(tamperedHeader, password)).rejects.toThrow();
+  });
+
   it("should throw error if token is missing during unseal", async () => {
     // @ts-expect-error - Testing invalid input
     await expect(unseal(null, password)).rejects.toThrow("Missing JWE token");
