@@ -7,7 +7,11 @@
 
 <!-- /automd -->
 
-Low-level JWT utilities. Currently supports JWE (JSON Web Encryption) with password-based key derivation (PBES2).
+Low-level JWT utilities. Currently supports:
+
+- JWE (JSON Web Encryption) with password-based key derivation (PBES2).
+- JWS (JSON Web Signature) with symmetric keys (HMAC).
+- JWK (JSON Web Key) generation and import/export for symmetric keys (`oct`).
 
 ## Usage
 
@@ -20,21 +24,21 @@ npx nypm install unjwt
 
 Import:
 
-<!-- automd:jsimport cdn name="unjwt/jwe" imports="seal,unseal" -->
-
 **ESM** (Node.js, Bun, Deno)
 
 ```js
 import { seal, unseal } from "unjwt/jwe";
+import { sign, verify } from "unjwt/jws";
+import { generateKey, exportKey, importKey } from "unjwt/jwk";
 ```
 
 **CDN** (Deno, Bun and Browsers)
 
 ```js
 import { seal, unseal } from "https://esm.sh/unjwt/jwe";
+import { sign, verify } from "https://esm.sh/unjwt/jws";
+import { generateKey, exportKey, importKey } from "https://esm.sh/unjwt/jwk";
 ```
-
-<!-- /automd -->
 
 ### JWE (JSON Web Encryption)
 
@@ -102,6 +106,147 @@ console.log(decryptedString); // "My secret data"
 // Decrypt as Uint8Array
 const decryptedBytes = await unseal(token, password, { textOutput: false });
 console.log(decryptedBytes); // Uint8Array [ 77, 121, 32, ... ]
+```
+
+### JWS (JSON Web Signature)
+
+This library provides functions to sign (`sign`) and verify (`verify`) data according to the JWS specification using HMAC.
+
+#### `sign(data, key, options?)`
+
+Signs the provided data using a symmetric key.
+
+- `data`: The data to sign (string or `Uint8Array`).
+- `key`: The symmetric key to use for signing (string or `Uint8Array`).
+- `options` (optional):
+  - `protectedHeader`: An object containing JWS header parameters to include.
+    - `alg`: Signing Algorithm (default: `"HS256"`). Supported: `HS256`, `HS384`, `HS512`.
+    - Other standard JWS or custom header parameters can be added here.
+
+Returns a Promise resolving to the JWS token string in Compact Serialization format.
+
+**Example:**
+
+```typescript
+import { sign } from "unjwt/jws";
+
+const data = "My important data";
+const key = "supersecretkey";
+
+const token = await sign(data, key, {
+  protectedHeader: {
+    alg: "HS512",
+  },
+});
+
+console.log(token);
+// eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9...
+```
+
+#### `verify(token, key, options?)`
+
+Verifies a JWS token using a symmetric key.
+
+- `token`: The JWS token string (Compact Serialization).
+- `key`: The symmetric key used for signing (string or `Uint8Array`).
+- `options` (optional):
+  - `textOutput`: If `false`, returns the verified data as a `Uint8Array` instead of a string (default: `true`).
+
+Returns a Promise resolving to the verified data (string or `Uint8Array`).
+
+**Example:**
+
+```typescript
+import { verify } from "unjwt/jws";
+
+const token = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9..."; // From sign example
+const key = "supersecretkey";
+
+// Verify as string (default)
+const verifiedString = await verify(token, key);
+console.log(verifiedString); // "My important data"
+
+// Verify as Uint8Array
+const verifiedBytes = await verify(token, key, { textOutput: false });
+console.log(verifiedBytes); // Uint8Array [ 77, 121, 32, ... ]
+```
+
+### JWK (JSON Web Key)
+
+This library provides functions to generate (`generateKey`), export (`exportKey`), and import (`importKey`) symmetric keys according to the JWK specification.
+
+#### `generateKey(options?)`
+
+Generates a new symmetric key.
+
+- `options` (optional):
+  - `alg`: Algorithm for the key (default: `"HS256"`). Supported: `HS256`, `HS384`, `HS512`.
+  - `keySize`: Size of the key in bits (default: `256`).
+
+Returns a Promise resolving to the generated key as a `Uint8Array`.
+
+**Example:**
+
+```typescript
+import { generateKey } from "unjwt/jwk";
+
+const key = await generateKey({
+  alg: "HS512",
+  keySize: 512,
+});
+
+console.log(key);
+// Uint8Array [ 123, 45, 67, ... ]
+```
+
+#### `exportKey(key, options?)`
+
+Exports a symmetric key to JWK format.
+
+- `key`: The symmetric key to export (`Uint8Array`).
+- `options` (optional):
+  - `alg`: Algorithm for the key (default: `"HS256"`). Supported: `HS256`, `HS384`, `HS512`.
+
+Returns a Promise resolving to the exported key as a JWK object.
+
+**Example:**
+
+```typescript
+import { exportKey } from "unjwt/jwk";
+
+const key = new Uint8Array([123, 45, 67 /*...*/]);
+
+const jwk = await exportKey(key, {
+  alg: "HS512",
+});
+
+console.log(jwk);
+// { kty: "oct", alg: "HS512", k: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9..." }
+```
+
+#### `importKey(jwk)`
+
+Imports a symmetric key from JWK format.
+
+- `jwk`: The JWK object to import.
+
+Returns a Promise resolving to the imported key as a `Uint8Array`.
+
+**Example:**
+
+```typescript
+import { importKey } from "unjwt/jwk";
+
+const jwk = {
+  kty: "oct",
+  alg: "HS512",
+  k: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9...",
+};
+
+const key = await importKey(jwk);
+
+console.log(key);
+// Uint8Array [ 123, 45, 67, ... ]
 ```
 
 ## Development
