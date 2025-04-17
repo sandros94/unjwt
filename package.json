@@ -1,7 +1,7 @@
 {
   "name": "unjwt",
   "version": "0.0.0",
-  "description": "Low-level JWT utilities using unjs dependencies",
+  "description": "Low-level JWT utilities",
   "repository": "sandros94/unjwt",
   "license": "MIT",
   "sideEffects": false,
