@@ -20,7 +20,10 @@ export function base64UrlDecode(str?: string): Uint8Array {
   }
   str = str.replace(/-/g, "+").replace(/_/g, "/");
   while (str.length % 4) str += "=";
-  return Buffer.from(str, "base64");
+  const { buffer, byteLength, byteOffset } = Buffer.from(str, "base64");
+
+  // Return a Uint8Array copy instead of the Buffer instance
+  return new Uint8Array(buffer, byteOffset, byteLength);
 }
 
 // Generate a random Uint8Array of specified length
@@ -44,4 +47,17 @@ export function concatUint8Arrays(...arrays: Uint8Array[]): Uint8Array {
   }
 
   return result;
+}
+
+/** Encodes a string to a Uint8Array using UTF-8 */
+export function stringToBytes(str: string): Uint8Array {
+  const { buffer, byteLength, byteOffset } = Buffer.from(str, "utf8");
+
+  // Return a Uint8Array copy instead of the Buffer instance
+  return new Uint8Array(buffer, byteOffset, byteLength);
+}
+
+/** Decodes a Uint8Array to a string using UTF-8 */
+export function bytesToString(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("utf8");
 }

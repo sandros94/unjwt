@@ -17,6 +17,15 @@ export const KEY_WRAPPING_ALGORITHMS = /* @__PURE__ */ Object.freeze({
 });
 
 /**
+ * Supported JWS symmetric algorithms
+ */
+export const JWS_SYMMETRIC_ALGORITHMS = /* @__PURE__ */ Object.freeze({
+  HS256: { hash: "SHA-256" },
+  HS384: { hash: "SHA-384" },
+  HS512: { hash: "SHA-512" },
+});
+
+/**
  * Supported content encryption algorithms
  */
 export const CONTENT_ENCRYPTION_ALGORITHMS = /* @__PURE__ */ Object.freeze({

@@ -18,6 +18,14 @@
     "./jwe": {
       "types": "./dist/jwe.d.mts",
       "default": "./dist/jwe.mjs"
+    },
+    "./jwk": {
+      "types": "./dist/jwk.d.mts",
+      "default": "./dist/jwk.mjs"
+    },
+    "./jws": {
+      "types": "./dist/jws.d.mts",
+      "default": "./dist/jws.mjs"
     }
   },
   "main": "./dist/index.mjs",

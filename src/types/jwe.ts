@@ -1,4 +1,4 @@
-import type { JWSHeaderParameters } from "./jws";
+import type { JoseHeaderParameters } from "./jwt"; // Import JoseHeaderParameters
 
 import type {
   KEY_WRAPPING_ALGORITHMS,
@@ -9,7 +9,7 @@ export type KeyWrappingAlgorithmType = keyof typeof KEY_WRAPPING_ALGORITHMS;
 export type ContentEncryptionAlgorithmType =
   keyof typeof CONTENT_ENCRYPTION_ALGORITHMS;
 
-export interface JWEHeaderParameters extends JWSHeaderParameters {
+export interface JWEHeaderParameters extends JoseHeaderParameters {
   /**
    * `alg` (Algorithm): Header Parameter
    *
