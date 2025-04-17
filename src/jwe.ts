@@ -1,5 +1,3 @@
-import { subtle } from "uncrypto";
-
 import type {
   JWEOptions,
   KeyWrappingAlgorithmType,
@@ -260,7 +258,7 @@ async function deriveKeyFromPassword(
 
   const algConfig = validateKeyWrappingAlgorithm(alg);
 
-  const baseKey = await subtle.importKey(
+  const baseKey = await crypto.subtle.importKey(
     "raw",
     typeof password === "string" ? textEncoder.encode(password) : password,
     { name: "PBKDF2" },
@@ -275,7 +273,7 @@ async function deriveKeyFromPassword(
     saltInput,
   );
 
-  return subtle.deriveKey(
+  return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       hash: algConfig.hash,
@@ -334,14 +332,14 @@ async function generateAndWrapCEK(
 }> {
   if (encConfig.type === "gcm") {
     // For GCM, use the WebCrypto API to generate a key
-    const cek = await subtle.generateKey(
+    const cek = await crypto.subtle.generateKey(
       { name: "AES-GCM", length: encConfig.keyLength },
       true,
       ["encrypt", "decrypt", "wrapKey", "unwrapKey"],
     );
 
     // Wrap the key
-    const wrappedKey = await subtle.wrapKey("raw", cek, derivedKey, {
+    const wrappedKey = await crypto.subtle.wrapKey("raw", cek, derivedKey, {
       name: "AES-KW",
     });
 
@@ -367,7 +365,7 @@ async function unwrapCEK(
 ): Promise<CryptoKey | Uint8Array> {
   if (encConfig.type === "gcm") {
     // For GCM, unwrap to AES-GCM key
-    return subtle.unwrapKey(
+    return crypto.subtle.unwrapKey(
       "raw",
       wrappedKey,
       derivedKey,
@@ -399,7 +397,7 @@ async function encryptGCM(
   aad: Uint8Array,
   encConfig: (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType],
 ): Promise<{ ciphertext: Uint8Array; tag: Uint8Array }> {
-  const ciphertext = await subtle.encrypt(
+  const ciphertext = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
       iv,
@@ -436,7 +434,7 @@ async function decryptGCM(
   const encryptedData = concatUint8Arrays(ciphertext, tag);
 
   // Decrypt the data
-  const decrypted = await subtle.decrypt(
+  const decrypted = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
       iv,

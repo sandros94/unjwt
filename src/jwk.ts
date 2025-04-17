@@ -1,4 +1,3 @@
-import { subtle } from "uncrypto";
 import type { JWK } from "./types";
 import {
   base64UrlEncode,
@@ -47,7 +46,7 @@ export async function exportSymmetricKey(key: CryptoKey): Promise<JWK> {
 
   // Try exporting as JWK first
   try {
-    const jwk = await subtle.exportKey("jwk", key);
+    const jwk = await crypto.subtle.exportKey("jwk", key);
     if (jwk.kty === "oct" && jwk.k) {
       return jwk as JWK;
     }
@@ -56,7 +55,7 @@ export async function exportSymmetricKey(key: CryptoKey): Promise<JWK> {
   }
 
   // Manual construction using 'raw' export
-  const rawKey = await subtle.exportKey("raw", key);
+  const rawKey = await crypto.subtle.exportKey("raw", key);
   const jwk: JWK = {
     kty: "oct",
     k: base64UrlEncode(new Uint8Array(rawKey)),
@@ -90,7 +89,13 @@ export async function importSymmetricKey(
     throw new Error("JWK must be of type 'oct' and contain the 'k' parameter");
   }
   const keyData = base64UrlDecode(jwk.k);
-  return subtle.importKey("raw", keyData, algorithm, extractable, keyUsages);
+  return crypto.subtle.importKey(
+    "raw",
+    keyData,
+    algorithm,
+    extractable,
+    keyUsages,
+  );
 }
 
 /**
@@ -111,5 +116,11 @@ export async function importRawSymmetricKey(
 ): Promise<CryptoKey> {
   const keyData =
     typeof secret === "string" ? textEncoder.encode(secret) : secret;
-  return subtle.importKey("raw", keyData, algorithm, extractable, keyUsages);
+  return crypto.subtle.importKey(
+    "raw",
+    keyData,
+    algorithm,
+    extractable,
+    keyUsages,
+  );
 }

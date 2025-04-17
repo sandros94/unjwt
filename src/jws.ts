@@ -1,4 +1,3 @@
-import { subtle } from "uncrypto";
 import type {
   JWSSignOptions,
   JWSHeaderParameters,
@@ -62,7 +61,7 @@ export async function sign(
   const cryptoKey = await importSymmetricKey(secret, algConfig.hash, ["sign"]);
 
   // Sign the input
-  const signature = await subtle.sign(
+  const signature = await crypto.subtle.sign(
     { name: "HMAC" },
     cryptoKey,
     signingInput,
@@ -162,7 +161,7 @@ export async function verify(
   ]);
 
   // Verify the signature
-  const isValid = await subtle.verify(
+  const isValid = await crypto.subtle.verify(
     { name: "HMAC" },
     cryptoKey,
     signature,
@@ -209,7 +208,7 @@ async function importSymmetricKey(
 ): Promise<CryptoKey> {
   const keyData =
     typeof secret === "string" ? textEncoder.encode(secret) : secret;
-  return subtle.importKey(
+  return crypto.subtle.importKey(
     "raw",
     keyData,
     { name: "HMAC", hash },

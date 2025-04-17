@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { subtle } from "uncrypto";
 import {
   generateSymmetricKey,
   exportSymmetricKey,
@@ -60,7 +59,7 @@ describe("JWK Utilities (Symmetric)", () => {
     it("should export an imported AES-KW key to JWK", async () => {
       const keyBytes = randomBytes(16); // 128 bits
       const alg = { name: "AES-KW" };
-      const key = await subtle.importKey("raw", keyBytes, alg, true, [
+      const key = await crypto.subtle.importKey("raw", keyBytes, alg, true, [
         "wrapKey",
       ]);
 

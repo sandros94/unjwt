@@ -6,6 +6,7 @@ export default unjs({
   ],
   rules: {
     "unicorn/no-null": "off",
+    "unicorn/prefer-node-protocol": "off",
   },
   markdown: {
     rules: {

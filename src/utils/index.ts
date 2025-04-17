@@ -1,5 +1,4 @@
-import { Buffer } from "node:buffer";
-import { getRandomValues } from "uncrypto";
+import { Buffer } from "buffer";
 
 export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
@@ -28,7 +27,7 @@ export function base64UrlDecode(str?: string): Uint8Array {
 
 // Generate a random Uint8Array of specified length
 export function randomBytes(length: number): Uint8Array {
-  return getRandomValues(new Uint8Array(length));
+  return crypto.getRandomValues(new Uint8Array(length));
 }
 
 /**
