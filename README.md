@@ -27,6 +27,7 @@ Import:
 **ESM** (Node.js, Bun, Deno)
 
 ```js
+import { jws, jwe, jwk } from "unjwt";
 import { seal, unseal } from "unjwt/jwe";
 import { sign, verify } from "unjwt/jws";
 import { generateKey, exportKey, importKey } from "unjwt/jwk";
@@ -35,6 +36,7 @@ import { generateKey, exportKey, importKey } from "unjwt/jwk";
 **CDN** (Deno, Bun and Browsers)
 
 ```js
+import { jws, jwe, jwk } from "https://esm.sh/unjwt";
 import { seal, unseal } from "https://esm.sh/unjwt/jwe";
 import { sign, verify } from "https://esm.sh/unjwt/jws";
 import { generateKey, exportKey, importKey } from "https://esm.sh/unjwt/jwk";
