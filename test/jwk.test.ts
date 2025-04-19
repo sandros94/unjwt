@@ -97,7 +97,7 @@ describe("JWK Utilities (Symmetric)", () => {
     it("should import a valid oct JWK for HMAC", async () => {
       const jwk: JWK = {
         kty: "oct",
-        k: "AyMFAwQAAPszb3x2ZMR2V9T5Q", // Example base64url key
+        k: "AyMFAwQAAPszb3x2ZMR2V9T5QA", // Example base64url key
         alg: "HS256",
         key_ops: ["sign", "verify"],
         ext: true,

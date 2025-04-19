@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { seal, unseal } from "../src/jwe";
-import { textEncoder } from "../src/utils";
 import type {
   JWEHeaderParameters,
   KeyWrappingAlgorithmType,
@@ -14,8 +13,8 @@ import {
 describe("JWE seal and unseal", () => {
   const plaintext = "Hello, JWE!";
   const password = "supersecretpassword";
-  const plaintextBytes = textEncoder.encode(plaintext);
-  const passwordBytes = textEncoder.encode(password);
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+  const passwordBytes = new TextEncoder().encode(password);
 
   it("should seal and unseal data with default options (string)", async () => {
     const token = await seal(plaintext, password);

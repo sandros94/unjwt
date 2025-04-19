@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { sign, verify } from "../src/jws";
-import { base64UrlEncode, textEncoder } from "../src/utils";
+import { base64UrlEncode } from "../src/utils";
 import type { JWSSymmetricAlgorithm } from "../src/types";
 import { JWS_SYMMETRIC_ALGORITHMS } from "../src/utils/defaults";
 
@@ -8,8 +8,8 @@ describe("JWS sign and verify (symmetric)", () => {
   const payload = { message: "Hello, JWS!" };
   const payloadString = JSON.stringify(payload);
   const secret = "supersecretkey";
-  const payloadBytes = textEncoder.encode(payloadString);
-  const secretBytes = textEncoder.encode(secret);
+  const payloadBytes = new TextEncoder().encode(payloadString);
+  const secretBytes = new TextEncoder().encode(secret);
 
   it("should sign and verify data with default options (string)", async () => {
     const token = await sign(payloadString, secret);
@@ -79,7 +79,7 @@ describe("JWS sign and verify (symmetric)", () => {
     const token = await sign(payloadString, secret);
     const [header, _payload, signature] = token.split(".");
     const tamperedPayload = base64UrlEncode(
-      textEncoder.encode('{"tampered":true}'), // Tamper payload
+      new TextEncoder().encode('{"tampered":true}'), // Tamper payload
     );
     const tamperedToken = `${header}.${tamperedPayload}.${signature}`;
 
@@ -92,7 +92,7 @@ describe("JWS sign and verify (symmetric)", () => {
     const token = await sign(payloadString, secret);
     const [_header, payload, signature] = token.split(".");
     const tamperedHeader = base64UrlEncode(
-      textEncoder.encode('{"alg":"HS512"}'), // Change alg
+      new TextEncoder().encode('{"alg":"HS512"}'), // Change alg
     );
     const tamperedToken = `${tamperedHeader}.${payload}.${signature}`;
 
@@ -141,7 +141,7 @@ describe("JWS sign and verify (symmetric)", () => {
     );
     badHeader.alg = "UNSUPPORTED_ALG";
     const badEncodedHeader = base64UrlEncode(
-      textEncoder.encode(JSON.stringify(badHeader)),
+      new TextEncoder().encode(JSON.stringify(badHeader)),
     );
     const badToken = `${badEncodedHeader}.${payload}.${signature}`;
 
