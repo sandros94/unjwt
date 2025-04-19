@@ -5,7 +5,7 @@ import {
   importSymmetricKey,
   importRawSymmetricKey,
 } from "../src/jwk";
-import { base64UrlDecode, randomBytes } from "../src/utils";
+import { base64UrlEncode, base64UrlDecode, randomBytes } from "../src/utils";
 import type { JWK } from "../src/types";
 
 describe("JWK Utilities (Symmetric)", () => {
@@ -95,9 +95,12 @@ describe("JWK Utilities (Symmetric)", () => {
 
   describe("importSymmetricKey", () => {
     it("should import a valid oct JWK for HMAC", async () => {
+      const rawKeyBytes = randomBytes(32); // Generate a 256-bit key
+      const k = base64UrlEncode(rawKeyBytes);
+
       const jwk: JWK = {
         kty: "oct",
-        k: "AyMFAwQAAPszb3x2ZMR2V9T5QA", // Example base64url key
+        k,
         alg: "HS256",
         key_ops: ["sign", "verify"],
         ext: true,
@@ -111,22 +114,31 @@ describe("JWK Utilities (Symmetric)", () => {
       expect(key.usages).toContain("sign");
       expect(key.usages).toContain("verify");
       expect(key.extractable).toBe(true);
+
+      const exportedRaw = await crypto.subtle.exportKey("raw", key);
+      expect(new Uint8Array(exportedRaw)).toEqual(rawKeyBytes);
     });
 
     it("should import a valid oct JWK for AES-KW", async () => {
+      const rawKeyBytes = randomBytes(16); // Generate a 128-bit key
+      const k = base64UrlEncode(rawKeyBytes);
+
       const jwk: JWK = {
         kty: "oct",
-        k: "GawgguFyGrWKav7AX4VKUg", // 128-bit key
+        k,
         alg: "A128KW",
         ext: true,
       };
       const alg = { name: "AES-KW" };
-      const key = await importSymmetricKey(jwk, alg, false, ["wrapKey"]);
+      const key = await importSymmetricKey(jwk, alg, true, ["wrapKey"]);
 
       expect(key.type).toBe("secret");
       expect(key.algorithm.name).toBe("AES-KW");
       expect(key.usages).toEqual(["wrapKey"]);
-      expect(key.extractable).toBe(false);
+      expect(key.extractable).toBe(true);
+
+      const exportedRaw = await crypto.subtle.exportKey("raw", key);
+      expect(new Uint8Array(exportedRaw)).toEqual(rawKeyBytes);
     });
 
     it("should throw error for invalid JWK type", async () => {
