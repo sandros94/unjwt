@@ -47,39 +47,32 @@ describe("Utility Functions", () => {
   });
 
   describe("base64UrlEncode and base64UrlDecode", () => {
-    it("should encode correctly", () => {
-      const uint8Array = new TextEncoder().encode("hello world");
-      const encoded = base64UrlEncode(uint8Array);
+    const vectors: string[] = [
+      "",
+      "f",
+      "fo",
+      "foo",
+      "foob",
+      "fooba",
+      "foobar",
+      "\u00FB\u00FF",
+      "Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.",
+    ];
 
-      expect(encoded).toBeTypeOf("string");
-      expect(encoded).toEqual(b64Encode(uint8Array));
-    });
+    for (const input of vectors) {
+      it(`should correctly encode and decode: "${input.slice(0, 10)}..."`, () => {
+        const uint8Array = new TextEncoder().encode(input);
 
-    it("should decode correctly", () => {
-      const encoded = "aGVsbG8gd29ybGQ";
-      const decoded = base64UrlDecode(encoded);
+        const encoded = base64UrlEncode(uint8Array);
+        expect(encoded).toBeTypeOf("string");
+        const localEncoded = b64Encode(uint8Array);
+        expect(encoded).toEqual(localEncoded);
 
-      expect(decoded).toBeInstanceOf(Uint8Array);
-      expect(decoded).toEqual(b64Decode(encoded));
-    });
-
-    it("should support empty strings", () => {
-      const decoded = base64UrlDecode("");
-
-      expect(decoded).toBeInstanceOf(Uint8Array);
-      expect(decoded.length).toBe(0);
-    });
-
-    it("should handle non-UTF-8 characters", () => {
-      const str = "hello \uD83D\uDE00";
-      const uint8Array = textEncoder.encode(str);
-      const encoded = base64UrlEncode(uint8Array);
-      const decoded = base64UrlDecode(encoded);
-
-      expect(decoded).toBeInstanceOf(Uint8Array);
-      expect(decoded.length).toBe(uint8Array.length);
-      expect(decoded).toEqual(uint8Array);
-    });
+        const decoded = base64UrlDecode(encoded);
+        expect(decoded).toBeInstanceOf(Uint8Array);
+        expect(decoded).toEqual(b64Decode(localEncoded));
+      });
+    }
   });
 });
 
