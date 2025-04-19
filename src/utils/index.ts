@@ -1,12 +1,9 @@
-import { Buffer } from "buffer";
-
 export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
 
 // Base64 URL encoding function
 export function base64UrlEncode(data: Uint8Array): string {
-  return Buffer.from(data)
-    .toString("base64")
+  return btoa(String.fromCodePoint(...data))
     .replace(/=/g, "")
     .replace(/\+/g, "-")
     .replace(/\//g, "_");
@@ -19,10 +16,7 @@ export function base64UrlDecode(str?: string): Uint8Array {
   }
   str = str.replace(/-/g, "+").replace(/_/g, "/");
   while (str.length % 4) str += "=";
-  const { buffer, byteLength, byteOffset } = Buffer.from(str, "base64");
-
-  // Return a Uint8Array copy instead of the Buffer instance
-  return new Uint8Array(buffer, byteOffset, byteLength);
+  return Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
 }
 
 // Generate a random Uint8Array of specified length
@@ -46,17 +40,4 @@ export function concatUint8Arrays(...arrays: Uint8Array[]): Uint8Array {
   }
 
   return result;
-}
-
-/** Encodes a string to a Uint8Array using UTF-8 */
-export function stringToBytes(str: string): Uint8Array {
-  const { buffer, byteLength, byteOffset } = Buffer.from(str, "utf8");
-
-  // Return a Uint8Array copy instead of the Buffer instance
-  return new Uint8Array(buffer, byteOffset, byteLength);
-}
-
-/** Decodes a Uint8Array to a string using UTF-8 */
-export function bytesToString(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("utf8");
 }
