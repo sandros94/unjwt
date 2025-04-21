@@ -265,6 +265,10 @@ console.log(key);
 
 </details>
 
+## Credits
+
+Originally developed by [Johann Schopplich](https://github.com/johannschopplich/unjwt).
+
 ## License
 
 <!-- automd:contributors license=MIT -->
