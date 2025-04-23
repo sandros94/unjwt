@@ -15,6 +15,7 @@ import {
   KEY_WRAPPING_ALGORITHMS,
   CONTENT_ENCRYPTION_ALGORITHMS,
 } from "./utils/defaults";
+import { lookupAlgorithm } from "./utils/algorithms";
 
 /** The default settings. */
 export const JWE_DEFAULTS = /* @__PURE__ */ Object.freeze({
@@ -293,12 +294,10 @@ async function deriveKeyFromPassword(
  * @returns The algorithm configuration
  * @throws Error if the algorithm is not supported
  */
-function validateKeyWrappingAlgorithm(alg: string) {
-  const config = KEY_WRAPPING_ALGORITHMS[alg as KeyWrappingAlgorithmType];
-  if (!config) {
-    throw new Error(`Unsupported key wrapping algorithm: ${alg}`);
-  }
-  return { alg, ...config };
+function validateKeyWrappingAlgorithm(
+  alg: keyof typeof KEY_WRAPPING_ALGORITHMS,
+) {
+  return lookupAlgorithm(alg, KEY_WRAPPING_ALGORITHMS, "key wrapping");
 }
 
 /**
@@ -307,13 +306,14 @@ function validateKeyWrappingAlgorithm(alg: string) {
  * @returns The algorithm configuration
  * @throws Error if the algorithm is not supported
  */
-function validateContentEncryptionAlgorithm(enc: string) {
-  const config =
-    CONTENT_ENCRYPTION_ALGORITHMS[enc as ContentEncryptionAlgorithmType];
-  if (!config) {
-    throw new Error(`Unsupported content encryption algorithm: ${enc}`);
-  }
-  return { enc, ...config };
+function validateContentEncryptionAlgorithm(
+  enc: keyof typeof CONTENT_ENCRYPTION_ALGORITHMS,
+) {
+  return lookupAlgorithm(
+    enc,
+    CONTENT_ENCRYPTION_ALGORITHMS,
+    "content encryption",
+  );
 }
 
 /**

@@ -11,6 +11,9 @@ import {
   base64UrlDecode,
 } from "./utils";
 import { JWS_SYMMETRIC_ALGORITHMS } from "./utils/defaults";
+import { lookupAlgorithm } from "./utils/algorithms";
+
+import { importRawSymmetricKey } from "./jwk";
 
 /** The default JWS algorithm. */
 export const JWS_DEFAULTS = /* @__PURE__ */ Object.freeze({
@@ -58,7 +61,12 @@ export async function sign(
   const signingInput = textEncoder.encode(`${encodedHeader}.${encodedPayload}`);
 
   // Import key
-  const cryptoKey = await importSymmetricKey(secret, algConfig.hash, ["sign"]);
+  const cryptoKey = await importRawSymmetricKey(
+    secret,
+    { name: "HMAC", hash: algConfig.hash },
+    false,
+    ["sign"],
+  );
 
   // Sign the input
   const signature = await crypto.subtle.sign(
@@ -156,9 +164,12 @@ export async function verify(
   const signature = base64UrlDecode(encodedSignature);
 
   // Import key
-  const cryptoKey = await importSymmetricKey(secret, algConfig.hash, [
-    "verify",
-  ]);
+  const cryptoKey = await importRawSymmetricKey(
+    secret,
+    { name: "HMAC", hash: algConfig.hash },
+    false,
+    ["verify"],
+  );
 
   // Verify the signature
   const isValid = await crypto.subtle.verify(
@@ -185,34 +196,9 @@ export async function verify(
  * @returns The algorithm configuration.
  * @throws Error if the algorithm is not supported or not symmetric.
  */
-function validateSymmetricAlgorithm(alg: string) {
-  const config = JWS_SYMMETRIC_ALGORITHMS[alg as JWSSymmetricAlgorithm];
-  if (!config) {
-    // TODO: Check asymmetric algorithms when added
-    throw new Error(`Unsupported JWS algorithm: ${alg}`);
-  }
-  return { alg, ...config };
-}
-
-/**
- * Imports a symmetric key for HMAC operations.
- * @param secret The raw key material.
- * @param hash The hash algorithm associated with the JWS alg.
- * @param usages Key usages (sign or verify).
- * @returns Promise resolving to the imported CryptoKey.
- */
-async function importSymmetricKey(
-  secret: string | Uint8Array,
-  hash: string,
-  usages: KeyUsage[],
-): Promise<CryptoKey> {
-  const keyData =
-    typeof secret === "string" ? textEncoder.encode(secret) : secret;
-  return crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash },
-    false,
-    usages,
-  );
+function validateSymmetricAlgorithm(
+  alg: keyof typeof JWS_SYMMETRIC_ALGORITHMS,
+) {
+  // TODO: Check asymmetric algorithms when added
+  return lookupAlgorithm(alg, JWS_SYMMETRIC_ALGORITHMS, "JWS");
 }
