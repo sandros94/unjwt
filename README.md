@@ -7,11 +7,11 @@
 
 <!-- /automd -->
 
-Low-level JWT utilities. Currently supports:
+Low-level JWT utilities using the Web Crypto API. Currently supports:
 
 - JWE (JSON Web Encryption) with password-based key derivation (PBES2).
 - JWS (JSON Web Signature) with symmetric keys (HMAC).
-- JWK (JSON Web Key) generation and import/export for symmetric keys (`oct`).
+- JWK (JSON Web Key) generation, import, and export for symmetric keys (`oct`).
 
 ## Usage
 
@@ -30,7 +30,7 @@ Import:
 import { jws, jwe, jwk } from "unjwt";
 import { seal, unseal } from "unjwt/jwe";
 import { sign, verify } from "unjwt/jws";
-import { generateKey, exportKey, importKey } from "unjwt/jwk";
+import { generateSymmetricKey, exportSymmetricKey, importKey } from "unjwt/jwk";
 ```
 
 **CDN** (Deno, Bun and Browsers)
@@ -39,12 +39,12 @@ import { generateKey, exportKey, importKey } from "unjwt/jwk";
 import { jws, jwe, jwk } from "https://esm.sh/unjwt";
 import { seal, unseal } from "https://esm.sh/unjwt/jwe";
 import { sign, verify } from "https://esm.sh/unjwt/jws";
-import { generateKey, exportKey, importKey } from "https://esm.sh/unjwt/jwk";
+import { generateSymmetricKey, exportSymmetricKey, importKey } from "https://esm.sh/unjwt/jwk";
 ```
 
 ### JWE (JSON Web Encryption)
 
-This library provides functions to encrypt (`seal`) and decrypt (`unseal`) data according to the JWE specification using password-based encryption.
+This library provides functions to encrypt (seal) and decrypt (unseal) data according to the JWE specification using password-based encryption.
 
 #### `seal(data, password, options?)`
 
@@ -56,15 +56,15 @@ Encrypts the provided data using a password.
   - `iterations`: Number of PBKDF2 iterations (default: `2048`).
   - `saltSize`: Size of the random salt in bytes (default: `16`).
   - `protectedHeader`: An object containing JWE header parameters to include.
-    - `alg`: Key Wrapping Algorithm (default: `"PBES2-HS256+A128KW"`). Supported: `PBES2-HS256+A128KW`, `PBES2-HS384+A192KW`, `PBES2-HS512+A256KW`.
-    - `enc`: Content Encryption Algorithm (default: `"A256GCM"`). Supported: `A128GCM`, `A192GCM`, `A256GCM`.
+    - `alg`: Key Wrapping Algorithm (default: `PBES2-HS256+A128KW`). Supported: `PBES2-HS256+A128KW`, `PBES2-HS384+A192KW`, `PBES2-HS512+A256KW`.
+    - `enc`: Content Encryption Algorithm (default: `A256GCM`). Supported: `A128GCM`, `A192GCM`, `A256GCM`, `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`.
     - Other standard JWE or custom header parameters can be added here.
 
 Returns a Promise resolving to the JWE token string in Compact Serialization format.
 
 **Example:**
 
-```typescript
+```ts
 import { seal } from "unjwt/jwe";
 
 const plaintext = "My secret data";
@@ -94,7 +94,7 @@ Returns a Promise resolving to the decrypted data (string or `Uint8Array`).
 
 **Example:**
 
-```typescript
+```ts
 import { unseal } from "unjwt/jwe";
 
 const token =
@@ -112,30 +112,33 @@ console.log(decryptedBytes); // Uint8Array [ 77, 121, 32, ... ]
 
 ### JWS (JSON Web Signature)
 
-This library provides functions to sign (`sign`) and verify (`verify`) data according to the JWS specification using HMAC.
+This library provides functions to sign (sign) and verify (verify) data according to the JWS specification using HMAC with symmetric keys.
 
-#### `sign(data, key, options?)`
+#### `sign(data, secret, options?)`
 
-Signs the provided data using a symmetric key.
+Signs the provided payload using a symmetric secret.
 
-- `data`: The data to sign (string or `Uint8Array`).
-- `key`: The symmetric key to use for signing (string or `Uint8Array`).
+- `payload`: The data to sign (string or `Uint8Array`).
+- `secret`: The symmetric secret key to use for signing. Can be:
+  - A `string`.
+  - A `Uint8Array` containing the raw key bytes.
+  - A symmetric JSON Web Key (`JWK`) object (with `kty: "oct"`).
 - `options` (optional):
   - `protectedHeader`: An object containing JWS header parameters to include.
-    - `alg`: Signing Algorithm (default: `"HS256"`). Supported: `HS256`, `HS384`, `HS512`.
+    - alg: Signing Algorithm (default: `HS256`). Supported: `HS256`, `HS384`, `HS512`.
     - Other standard JWS or custom header parameters can be added here.
 
 Returns a Promise resolving to the JWS token string in Compact Serialization format.
 
-**Example:**
+**Example (using string secret):**
 
-```typescript
+```ts
 import { sign } from "unjwt/jws";
 
-const data = "My important data";
-const key = "supersecretkey";
+const payload = JSON.stringify({ message: "My important data" });
+const secret = "supersecretkey";
 
-const token = await sign(data, key, {
+const token = await sign(payload, secret, {
   protectedHeader: {
     alg: "HS512",
   },
@@ -145,110 +148,183 @@ console.log(token);
 // eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### `verify(token, key, options?)`
+**Example (using JWK secret):**
 
-Verifies a JWS token using a symmetric key.
+```ts
+import { sign } from "unjwt/jws";
+import { generateSymmetricKey } from "unjwt/jwk";
+
+const payload = JSON.stringify({ message: "Data signed with JWK" });
+// Generate a JWK suitable for HS256
+const secretJwk = await generateSymmetricKey(256, "HS256");
+
+const token = await sign(payload, secretJwk); // alg defaults to HS256
+
+console.log(token);
+// eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### `verify(token, secret, options?)`
+
+Verifies a JWS token using a symmetric secret.
 
 - `token`: The JWS token string (Compact Serialization).
-- `key`: The symmetric key used for signing (string or `Uint8Array`).
+- `secret`: The symmetric secret key used for signing. Can be:
+  - A `string`.
+  - A `Uint8Array` containing the raw key bytes.
+  - A symmetric JSON Web Key (`JWK`) object (with `kty: "oct"`).
 - `options` (optional):
-  - `textOutput`: If `false`, returns the verified data as a `Uint8Array` instead of a string (default: `true`).
+  - `textOutput`: If `false`, returns the verified payload as a `Uint8Array` instead of a string (default: `true`).
 
-Returns a Promise resolving to the verified data (string or `Uint8Array`).
+Returns a Promise resolving to the verified payload (string or `Uint8Array`). Throws an error if the signature is invalid or the token is malformed.
 
-**Example:**
+**Example (using string secret):**
 
-```typescript
+```ts
 import { verify } from "unjwt/jws";
 
 const token = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9..."; // From sign example
-const key = "supersecretkey";
+const secret = "supersecretkey";
 
 // Verify as string (default)
-const verifiedString = await verify(token, key);
-console.log(verifiedString); // "My important data"
+const verifiedString = await verify(token, secret);
+console.log(verifiedString); // {"message":"My important data"}
 
 // Verify as Uint8Array
-const verifiedBytes = await verify(token, key, { textOutput: false });
-console.log(verifiedBytes); // Uint8Array [ 77, 121, 32, ... ]
+const verifiedBytes = await verify(token, secret, { textOutput: false });
+console.log(verifiedBytes); // Uint8Array [ 123, 34, ... ]
+```
+
+**Example (using JWK secret):**
+
+```ts
+import { verify } from "unjwt/jws";
+import { generateSymmetricKey } from "unjwt/jwk";
+
+const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."; // From sign example
+const secretJwk = { kty: "oct", k: "...", alg: "HS256" }; // Load or use the generated JWK
+
+const verifiedPayload = await verify(token, secretJwk);
+console.log(verifiedPayload); // {"message":"Data signed with JWK"}
 ```
 
 ### JWK (JSON Web Key)
 
-This library provides functions to generate (`generateKey`), export (`exportKey`), and import (`importKey`) symmetric keys according to the JWK specification.
+This library provides functions to generate (`generateSymmetricKey`), export (`exportSymmetricKey`), and import (`importKey`) symmetric keys (`kty: "oct"`) using the Web Crypto API.
 
-#### `generateKey(options?)`
+#### `generateSymmetricKey(length, alg?)`
 
-Generates a new symmetric key.
+Generates a new symmetric key as a JWK object.
 
-- `options` (optional):
-  - `alg`: Algorithm for the key (default: `"HS256"`). Supported: `HS256`, `HS384`, `HS512`.
-  - `keySize`: Size of the key in bits (default: `256`).
+- `length`: Key length in bits (e.g., `128`, `192`, `256`, `512`). Choose a length appropriate for the intended algorithm (e.g., >= 256 for HS256, >= 384 for HS384, >= 512 for HS512).
+- `alg` (optional): A JWA algorithm identifier (e.g., `HS256`, `A128KW`) to include in the generated JWK.
 
-Returns a Promise resolving to the generated key as a `Uint8Array`.
-
-**Example:**
-
-```typescript
-import { generateKey } from "unjwt/jwk";
-
-const key = await generateKey({
-  alg: "HS512",
-  keySize: 512,
-});
-
-console.log(key);
-// Uint8Array [ 123, 45, 67, ... ]
-```
-
-#### `exportKey(key, options?)`
-
-Exports a symmetric key to JWK format.
-
-- `key`: The symmetric key to export (`Uint8Array`).
-- `options` (optional):
-  - `alg`: Algorithm for the key (default: `"HS256"`). Supported: `HS256`, `HS384`, `HS512`.
-
-Returns a Promise resolving to the exported key as a JWK object.
+Returns a Promise resolving to the generated key as a JWK object (`{ kty: "oct", k: "...", ... }`).
 
 **Example:**
 
-```typescript
-import { exportKey } from "unjwt/jwk";
+```ts
+import { generateSymmetricKey } from "unjwt/jwk";
 
-const key = new Uint8Array([123, 45, 67 /*...*/]);
-
-const jwk = await exportKey(key, {
-  alg: "HS512",
-});
+// Generate a 512-bit key suitable for HS512
+const jwk = await generateSymmetricKey(512, "HS512");
 
 console.log(jwk);
-// { kty: "oct", alg: "HS512", k: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9..." }
+// {
+//   kty: 'oct',
+//   k: '...', // base64url encoded key material
+//   ext: true,
+//   alg: 'HS512'
+// }
 ```
 
-#### `importKey(jwk)`
+#### `exportSymmetricKey(key)`
 
-Imports a symmetric key from JWK format.
+Exports a symmetric `CryptoKey` to JWK format.
 
-- `jwk`: The JWK object to import.
+- `key`: The `CryptoKey` to export. It must be of type `"secret"` and `extractable`.
 
-Returns a Promise resolving to the imported key as a `Uint8Array`.
+Returns a Promise resolving to the exported key as a JWK object. The JWK will include `kty`, `k`, `key_ops`, `ext`, and potentially `alg` based on the `CryptoKey`'s algorithm.
 
 **Example:**
 
-```typescript
+```ts
+import { importKey, exportSymmetricKey } from "unjwt/jwk";
+
+// First, import or generate a CryptoKey
+const rawKeyBytes = new TextEncoder().encode("a-very-secure-secret-key-for-hmac");
+const cryptoKey = await importKey(
+  rawKeyBytes,
+  { name: "HMAC", hash: "SHA-256" },
+  true, // Must be extractable to export
+  ["sign", "verify"]
+);
+
+// Now export the CryptoKey to JWK
+const jwk = await exportSymmetricKey(cryptoKey);
+
+console.log(jwk);
+// {
+//   kty: 'oct',
+//   k: 'YS12ZXJ5LXNlY3VyZS1zZWNyZXQta2V5LWZvci1obWFj',
+//   alg: 'HS256',
+//   key_ops: [ 'sign', 'verify' ],
+//   ext: true
+// }
+```
+
+#### `importKey(key, algorithm, extractable, keyUsages)`
+
+Imports a symmetric key from various formats into a `CryptoKey` object.
+
+- `key`: The key material to import. Can be:
+  - A symmetric JSON Web Key (`JWK`) object (with `kty: "oct"` and a `k` property).
+  - A `string` representing the raw secret.
+  - A `Uint8Array` containing the raw key bytes.
+- `algorithm`: The Web Crypto `AlgorithmIdentifier` object specifying the algorithm the key will be used for (e.g., `{ name: "HMAC", hash: "SHA-256" }`, `{ name: "AES-GCM", length: 256 }`).
+- `extractable`: A boolean indicating whether the generated `CryptoKey` can be exported later (using `exportSymmetricKey` or `crypto.subtle.exportKey`).
+- `keyUsages`: An array of strings indicating the allowed operations for the key (e.g., `["sign", "verify"]`, `["encrypt", "decrypt"]`, `["wrapKey", "unwrapKey"]`).
+
+Returns a Promise resolving to the imported `CryptoKey` object.
+
+**Example (importing a JWK):**
+
+```ts
 import { importKey } from "unjwt/jwk";
 
 const jwk = {
   kty: "oct",
-  alg: "HS512",
-  k: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9...",
+  k: "AyMee--70a4a4xED9qS4sN0KxBas6KTMx7_Q9Gf6nvM", // Example base64url key
+  alg: "HS256", // Optional hint, but algorithm param below is definitive
 };
 
-const key = await importKey(jwk);
+const cryptoKey = await importKey(
+  jwk,
+  { name: "HMAC", hash: "SHA-256" }, // Algorithm for the CryptoKey
+  false, // Make this key non-extractable
+  ["verify"] // Allow only verification usage
+);
 
-console.log(key);
-// Uint8Array [ 123, 45, 67, ... ]
+console.log(cryptoKey);
+// CryptoKey { type: 'secret', extractable: false, algorithm: { ... }, usages: [ 'verify' ] }
+```
+
+**Example (importing a raw string):**
+
+```ts
+import { importKey } from "unjwt/jwk";
+
+const rawSecret = "my-raw-password-string";
+
+const cryptoKey = await importKey(
+  rawSecret,
+  { name: "HMAC", hash: "SHA-384" },
+  true,
+  ["sign"]
+);
+
+console.log(cryptoKey);
+// CryptoKey { type: 'secret', extractable: true, algorithm: { ... }, usages: [ 'sign' ] }
 ```
 
 ## Development
