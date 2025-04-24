@@ -7,11 +7,11 @@
 
 <!-- /automd -->
 
-Low-level JWT utilities using the Web Crypto API. Currently supports:
+A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519)) utilities using the Web Crypto API. Currently supports:
 
-- JWE (JSON Web Encryption) with password-based key derivation (PBES2).
-- JWS (JSON Web Signature) with symmetric keys (HMAC).
-- JWK (JSON Web Key) generation, import, and export for symmetric keys (`oct`).
+- JWS (JSON Web Signature, [RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515)) with symmetric keys (`HMAC`).
+- JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516)) with password-based key derivation (`PBES2`).
+- JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517)) generation, import, and export for symmetric keys (`oct`).
 
 ## Usage
 
@@ -42,75 +42,7 @@ import { sign, verify } from "https://esm.sh/unjwt/jws";
 import { generateKey, exportKey, importKey } from "https://esm.sh/unjwt/jwk";
 ```
 
-### JWE (JSON Web Encryption)
-
-This library provides functions to encrypt (seal) and decrypt (unseal) data according to the JWE specification using password-based encryption.
-
-#### `seal(data, password, options?)`
-
-Encrypts the provided data using a password.
-
-- `data`: The data to encrypt (string or `Uint8Array`).
-- `password`: The password to use for encryption (string or `Uint8Array`).
-- `options` (optional):
-  - `iterations`: Number of PBKDF2 iterations (default: `2048`).
-  - `saltSize`: Size of the random salt in bytes (default: `16`).
-  - `protectedHeader`: An object containing JWE header parameters to include.
-    - `alg`: Key Wrapping Algorithm (default: `PBES2-HS256+A128KW`). Supported: `PBES2-HS256+A128KW`, `PBES2-HS384+A192KW`, `PBES2-HS512+A256KW`.
-    - `enc`: Content Encryption Algorithm (default: `A256GCM`). Supported: `A128GCM`, `A192GCM`, `A256GCM`, `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`.
-    - Other standard JWE or custom header parameters can be added here.
-
-Returns a Promise resolving to the JWE token string in Compact Serialization format.
-
-**Example:**
-
-```ts
-import { seal } from "unjwt/jwe";
-
-const plaintext = "My secret data";
-const password = "strongpassword";
-
-const token = await seal(plaintext, password, {
-  protectedHeader: {
-    alg: "PBES2-HS512+A256KW",
-    enc: "A256GCM",
-  },
-});
-
-console.log(token);
-// eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIiwicDJzIjoi...
-```
-
-#### `unseal(token, password, options?)`
-
-Decrypts a JWE token using a password.
-
-- `token`: The JWE token string (Compact Serialization).
-- `password`: The password used for encryption (string or `Uint8Array`).
-- `options` (optional):
-  - `textOutput`: If `false`, returns the decrypted data as a `Uint8Array` instead of a string (default: `true`).
-
-Returns a Promise resolving to the decrypted data (string or `Uint8Array`).
-
-**Example:**
-
-```ts
-import { unseal } from "unjwt/jwe";
-
-const token =
-  "eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIiwicDJzIjoi..."; // From seal example
-const password = "strongpassword";
-
-// Decrypt as string (default)
-const decryptedString = await unseal(token, password);
-console.log(decryptedString); // "My secret data"
-
-// Decrypt as Uint8Array
-const decryptedBytes = await unseal(token, password, { textOutput: false });
-console.log(decryptedBytes); // Uint8Array [ 77, 121, 32, ... ]
-```
-
-### JWS (JSON Web Signature)
+### JWS (JSON Web Signature, [RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515))
 
 This library provides functions to sign (sign) and verify (verify) data according to the JWS specification using HMAC with symmetric keys.
 
@@ -208,7 +140,75 @@ const verifiedPayload = await verify(token, secretJwk);
 console.log(verifiedPayload); // {"message":"Data signed with JWK"}
 ```
 
-### JWK (JSON Web Key)
+### JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516))
+
+This library provides functions to encrypt (seal) and decrypt (unseal) data according to the JWE specification using password-based encryption.
+
+#### `seal(data, password, options?)`
+
+Encrypts the provided data using a password.
+
+- `data`: The data to encrypt (string or `Uint8Array`).
+- `password`: The password to use for encryption (string or `Uint8Array`).
+- `options` (optional):
+  - `iterations`: Number of PBKDF2 iterations (default: `2048`).
+  - `saltSize`: Size of the random salt in bytes (default: `16`).
+  - `protectedHeader`: An object containing JWE header parameters to include.
+    - `alg`: Key Wrapping Algorithm (default: `PBES2-HS256+A128KW`). Supported: `PBES2-HS256+A128KW`, `PBES2-HS384+A192KW`, `PBES2-HS512+A256KW`.
+    - `enc`: Content Encryption Algorithm (default: `A256GCM`). Supported: `A128GCM`, `A192GCM`, `A256GCM`, `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`.
+    - Other standard JWE or custom header parameters can be added here.
+
+Returns a Promise resolving to the JWE token string in Compact Serialization format.
+
+**Example:**
+
+```ts
+import { seal } from "unjwt/jwe";
+
+const plaintext = "My secret data";
+const password = "strongpassword";
+
+const token = await seal(plaintext, password, {
+  protectedHeader: {
+    alg: "PBES2-HS512+A256KW",
+    enc: "A256GCM",
+  },
+});
+
+console.log(token);
+// eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIiwicDJzIjoi...
+```
+
+#### `unseal(token, password, options?)`
+
+Decrypts a JWE token using a password.
+
+- `token`: The JWE token string (Compact Serialization).
+- `password`: The password used for encryption (string or `Uint8Array`).
+- `options` (optional):
+  - `textOutput`: If `false`, returns the decrypted data as a `Uint8Array` instead of a string (default: `true`).
+
+Returns a Promise resolving to the decrypted data (string or `Uint8Array`).
+
+**Example:**
+
+```ts
+import { unseal } from "unjwt/jwe";
+
+const token =
+  "eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIiwicDJzIjoi..."; // From seal example
+const password = "strongpassword";
+
+// Decrypt as string (default)
+const decryptedString = await unseal(token, password);
+console.log(decryptedString); // "My secret data"
+
+// Decrypt as Uint8Array
+const decryptedBytes = await unseal(token, password, { textOutput: false });
+console.log(decryptedBytes); // Uint8Array [ 77, 121, 32, ... ]
+```
+
+### JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517))
 
 This library provides functions to generate (`generateKey`), export (`exportKey`), and import (`importKey`) symmetric keys (`kty: "oct"`) using the Web Crypto API.
 
