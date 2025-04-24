@@ -1,8 +1,6 @@
 # Changelog
 
-
 ## v0.4.0
-
 
 ### 🚀 Enhancements
 
@@ -30,7 +28,7 @@
 
 - Init ([956100f](https://github.com/sandros94/unjwt/commit/956100f))
 - Fork `uncrypto` ([2cf8314](https://github.com/sandros94/unjwt/commit/2cf8314))
-- ⚠️  Set correct version ([1bb6131](https://github.com/sandros94/unjwt/commit/1bb6131))
+- ⚠️ Set correct version ([1bb6131](https://github.com/sandros94/unjwt/commit/1bb6131))
 - Drop `Buffer` support ([748d505](https://github.com/sandros94/unjwt/commit/748d505))
 
 ### ✅ Tests
@@ -41,10 +39,9 @@
 
 #### ⚠️ Breaking Changes
 
-- ⚠️  Set correct version ([1bb6131](https://github.com/sandros94/unjwt/commit/1bb6131))
+- ⚠️ Set correct version ([1bb6131](https://github.com/sandros94/unjwt/commit/1bb6131))
 
 ### ❤️ Contributors
 
 - Sandro Circi ([@sandros94](https://github.com/sandros94))
 - Sandros94 ([@sandros94](https://github.com/sandros94))
-
