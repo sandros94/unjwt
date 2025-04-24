@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateKey, exportSymmetricKey, importKey } from "../src/jwk";
+import { generateKey, exportKey, importKey } from "../src/jwk";
 import { base64UrlEncode, base64UrlDecode, randomBytes } from "../src/utils";
 import type { JWK } from "../src/types";
 
@@ -48,7 +48,7 @@ describe("JWK Utilities (Symmetric)", () => {
       const alg = { name: "HMAC", hash: "SHA-256" };
       const key = await importKey(secret, alg, true, ["sign"]);
 
-      const jwk = await exportSymmetricKey(key);
+      const jwk = await exportKey(key);
 
       expect(jwk.kty).toBe("oct");
       expect(jwk.k).toBeTypeOf("string");
@@ -65,7 +65,7 @@ describe("JWK Utilities (Symmetric)", () => {
       const alg = { name: "AES-KW" };
       const key = await importKey(keyBytes, alg, true, ["wrapKey"]);
 
-      const jwk = await exportSymmetricKey(key);
+      const jwk = await exportKey(key);
 
       expect(jwk.kty).toBe("oct");
       expect(jwk.k).toBeTypeOf("string");
@@ -85,8 +85,8 @@ describe("JWK Utilities (Symmetric)", () => {
         false,
         ["verify"],
       );
-      await expect(exportSymmetricKey(key)).rejects.toThrow(
-        "Key must be a symmetric (secret) and extractable CryptoKey",
+      await expect(exportKey(key)).rejects.toThrow(
+        "Key must be extractable to export to JWK format.",
       );
     });
 

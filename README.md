@@ -30,7 +30,7 @@ Import:
 import { jws, jwe, jwk } from "unjwt";
 import { seal, unseal } from "unjwt/jwe";
 import { sign, verify } from "unjwt/jws";
-import { generateKey, exportSymmetricKey, importKey } from "unjwt/jwk";
+import { generateKey, exportKey, importKey } from "unjwt/jwk";
 ```
 
 **CDN** (Deno, Bun and Browsers)
@@ -39,11 +39,7 @@ import { generateKey, exportSymmetricKey, importKey } from "unjwt/jwk";
 import { jws, jwe, jwk } from "https://esm.sh/unjwt";
 import { seal, unseal } from "https://esm.sh/unjwt/jwe";
 import { sign, verify } from "https://esm.sh/unjwt/jws";
-import {
-  generateKey,
-  exportSymmetricKey,
-  importKey,
-} from "https://esm.sh/unjwt/jwk";
+import { generateKey, exportKey, importKey } from "https://esm.sh/unjwt/jwk";
 ```
 
 ### JWE (JSON Web Encryption)
@@ -214,7 +210,7 @@ console.log(verifiedPayload); // {"message":"Data signed with JWK"}
 
 ### JWK (JSON Web Key)
 
-This library provides functions to generate (`generateKey`), export (`exportSymmetricKey`), and import (`importKey`) symmetric keys (`kty: "oct"`) using the Web Crypto API.
+This library provides functions to generate (`generateKey`), export (`exportKey`), and import (`importKey`) symmetric keys (`kty: "oct"`) using the Web Crypto API.
 
 #### `generateKey(type, length, jwk?)`
 
@@ -243,18 +239,18 @@ console.log(jwk);
 // }
 ```
 
-#### `exportSymmetricKey(key)`
+#### `exportKey(key)`
 
 Exports a symmetric `CryptoKey` to JWK format.
 
-- `key`: The `CryptoKey` to export. It must be of type `"secret"` and `extractable`.
+- `key`: The `CryptoKey` to export. It must be `extractable` and currently only of type `"secret"`.
 
 Returns a Promise resolving to the exported key as a JWK object. The JWK will include `kty`, `k`, `key_ops`, `ext`, and potentially `alg` based on the `CryptoKey`'s algorithm.
 
 **Example:**
 
 ```ts
-import { importKey, exportSymmetricKey } from "unjwt/jwk";
+import { importKey, exportKey } from "unjwt/jwk";
 
 // First, import or generate a CryptoKey
 const rawKeyBytes = new TextEncoder().encode(
@@ -268,7 +264,7 @@ const cryptoKey = await importKey(
 );
 
 // Now export the CryptoKey to JWK
-const jwk = await exportSymmetricKey(cryptoKey);
+const jwk = await exportKey(cryptoKey);
 
 console.log(jwk);
 // {
@@ -289,7 +285,7 @@ Imports a symmetric key from various formats into a `CryptoKey` object.
   - A `string` representing the raw secret.
   - A `Uint8Array` containing the raw key bytes.
 - `algorithm`: The Web Crypto `AlgorithmIdentifier` object specifying the algorithm the key will be used for (e.g., `{ name: "HMAC", hash: "SHA-256" }`, `{ name: "AES-GCM", length: 256 }`).
-- `extractable`: A boolean indicating whether the generated `CryptoKey` can be exported later (using `exportSymmetricKey` or `crypto.subtle.exportKey`).
+- `extractable`: A boolean indicating whether the generated `CryptoKey` can be exported later (using `exportKey` or `crypto.subtle.exportKey`).
 - `keyUsages`: An array of strings indicating the allowed operations for the key (e.g., `["sign", "verify"]`, `["encrypt", "decrypt"]`, `["wrapKey", "unwrapKey"]`).
 
 Returns a Promise resolving to the imported `CryptoKey` object.
