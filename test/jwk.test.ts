@@ -3,14 +3,14 @@ import { generateKey, exportKey, importKey } from "../src/jwk";
 import { base64UrlEncode, base64UrlDecode, randomBytes } from "../src/utils";
 import type { JWK } from "../src/types";
 
-describe("JWK Utilities (Symmetric)", () => {
-  describe("generateKey", () => {
+describe("JWK Utilities", () => {
+  describe("generateKey (Symmetric)", () => {
     it("should generate an oct JWK with specified length", async () => {
       const jwk = await generateKey("oct", 256);
       expect(jwk.kty).toBe("oct");
       expect(jwk.k).toBeTypeOf("string");
       expect(jwk.ext).toBe(true);
-      expect(base64UrlDecode(jwk.k).length).toBe(32); // 256 bits = 32 bytes
+      expect(base64UrlDecode(jwk.k).length).toBe(32);
     });
 
     it("should generate an oct JWK with alg property", async () => {
@@ -27,23 +27,34 @@ describe("JWK Utilities (Symmetric)", () => {
 
       const jwk192 = await generateKey("oct", 192);
       expect(base64UrlDecode(jwk192.k).length).toBe(24);
+
+      const jwk512 = await generateKey("oct", 512);
+      expect(base64UrlDecode(jwk512.k).length).toBe(64);
     });
 
-    it("should throw error for invalid length", async () => {
-      await expect(generateKey("oct", 127 as any)).rejects.toThrow(
+    it("should throw error for invalid length option", async () => {
+      // @ts-expect-error - Testing invalid length
+      await expect(generateKey("oct", "1")).rejects.toThrow(
+        "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
+      );
+      await expect(
+        // @ts-expect-error - Testing invalid length
+        generateKey("oct", 1),
+      ).rejects.toThrow(
         "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
       );
     });
 
     it("should throw error for unsupported key type", async () => {
-      await expect(generateKey("unsupported" as any, 256)).rejects.toThrow(
-        "Unsupported key type for generation: unsupported",
-      );
+      await expect(
+        // @ts-expect-error - Testing invalid type
+        generateKey("unsupported", 256),
+      ).rejects.toThrow("Unsupported key type for generation: unsupported");
     });
   });
 
-  describe("import/export SymmetricKey", () => {
-    it("should export an imported HMAC key to JWK", async () => {
+  describe("exportKey (Symmetric)", () => {
+    it("should export an imported HMAC key to JWK (likely uses fallback)", async () => {
       const secret = "mysecretkeyforsigning";
       const alg = { name: "HMAC", hash: "SHA-256" };
       const key = await importKey(secret, alg, true, ["sign"]);
@@ -52,15 +63,18 @@ describe("JWK Utilities (Symmetric)", () => {
 
       expect(jwk.kty).toBe("oct");
       expect(jwk.k).toBeTypeOf("string");
+      // Fallback path correctly infers HS256 from HMAC SHA-256
       expect(jwk.alg).toBe("HS256");
       expect(jwk.key_ops).toEqual(["sign"]);
       expect(jwk.ext).toBe(true);
 
+      // Re-import the exported JWK
       const reimportedKey = await importKey(jwk, alg, true, ["sign"]);
       expect(reimportedKey.type).toBe("secret");
+      expect(reimportedKey.algorithm.name).toBe("HMAC");
     });
 
-    it("should export an imported AES-KW key (from raw) to JWK", async () => {
+    it("should export an imported AES-KW key to JWK (likely uses subtle.exportKey('jwk'))", async () => {
       const keyBytes = randomBytes(16); // 128 bits
       const alg = { name: "AES-KW" };
       const key = await importKey(keyBytes, alg, true, ["wrapKey"]);
@@ -72,25 +86,42 @@ describe("JWK Utilities (Symmetric)", () => {
       expect(jwk.alg).toBe("A128KW"); // JWA identifier
       expect(jwk.key_ops).toEqual(["wrapKey"]);
       expect(jwk.ext).toBe(true);
-      expect(base64UrlDecode(jwk.k)).toEqual(keyBytes); // Raw export should match for AES
-
+      // Verify key material by re-importing and exporting raw
       const reimportedKey = await importKey(jwk, alg, true, ["wrapKey"]);
-      expect(reimportedKey.type).toBe("secret");
+      const rawExported = await crypto.subtle.exportKey("raw", reimportedKey);
+      expect(new Uint8Array(rawExported)).toEqual(keyBytes);
+    });
+
+    it("should export an imported AES-GCM key to JWK, inferring alg if needed", async () => {
+      const keyBytes = randomBytes(32); // 256 bits
+      const alg = { name: "AES-GCM" };
+      const key = await importKey(keyBytes, alg, true, ["encrypt"]);
+
+      const jwk = await exportKey(key);
+
+      expect(jwk.kty).toBe("oct");
+      expect(jwk.k).toBeTypeOf("string");
+      expect(jwk.alg).toMatch(/A256GCM|AES-GCM/); // Allow either standard or generic name
+      expect(jwk.key_ops).toEqual(["encrypt"]);
+      expect(jwk.ext).toBe(true);
+
+      // Verify key material
+      const reimportedKey = await importKey(jwk, alg, true, ["encrypt"]);
+      const rawExported = await crypto.subtle.exportKey("raw", reimportedKey);
+      expect(new Uint8Array(rawExported)).toEqual(keyBytes);
     });
 
     it("should throw error if exporting non-extractable key", async () => {
       const key = await importKey(
         "nonextractable",
         { name: "HMAC", hash: "SHA-256" },
-        false,
+        false, // Not extractable
         ["verify"],
       );
       await expect(exportKey(key)).rejects.toThrow(
         "Key must be extractable to export to JWK format.",
       );
     });
-
-    // TODO: Add test for asymmetric key rejection later
   });
 
   describe("importKey (Symmetric)", () => {
@@ -187,7 +218,8 @@ describe("JWK Utilities (Symmetric)", () => {
 
     it("should throw error if JWK 'k' parameter is missing or not string", async () => {
       const jwkMissingK: JWK = { kty: "oct", alg: "HS256" }; // Missing 'k'
-      const jwkBadK: JWK = { kty: "oct", k: 12_345 as any }; // Invalid 'k' type
+      // @ts-expect-error - Testing invalid k type
+      const jwkBadK: JWK = { kty: "oct", k: 12_345 }; // Invalid 'k' type
       const alg = { name: "HMAC", hash: "SHA-256" };
 
       await expect(importKey(jwkMissingK, alg, true, ["sign"])).rejects.toThrow(
