@@ -108,13 +108,13 @@ export async function importKey(
         "Symmetric JWK must contain the 'k' parameter as a string",
       );
     }
+
     // The subtle.importKey API handles the base64url decoding internally for "jwk" format.
-    // We just need to pass the JWK object itself.
     const keyData = key as JsonWebKey; // Cast to Web Crypto's expected JsonWebKey type
 
     // Ensure required JWK properties for import are present if needed by the algorithm
     // (though subtle.importKey often infers or ignores some like alg, key_ops, ext)
-    // You might add more checks here depending on strictness required.
+    // TODO: I might add more checks here depending on strictness we want to achieve.
 
     return crypto.subtle.importKey(
       "jwk",
