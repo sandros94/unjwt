@@ -2,27 +2,55 @@ import type { JWK } from "./types";
 import { base64UrlEncode, textEncoder, randomBytes } from "./utils";
 
 /**
- * Generates a symmetric JWK (oct).
+ * Generates a new cryptographic key as a JWK object.
+ * Currently supports symmetric keys ('oct'). Future versions will support asymmetric keys.
  *
- * @param length Key length in bits (e.g., 128, 192, 256).
- * @param alg Optional algorithm identifier (e.g., "HS256", "A128KW").
+ * @param type The type of key to generate. Currently only 'oct' (symmetric) is supported.
+ *             For 'oct': requires `length` option.
+ *             Future types like 'RSA' or 'EC' will require different options.
+ * @param options Generation options specific to the key type.
+ * @param options.length For 'oct' keys: Key length in bits (e.g., 128, 192, 256, 512).
+ * @param options.alg Optional JWA algorithm identifier (e.g., "HS256", "A128KW") to include in the JWK.
  *
- * @returns Promise resolving to the generated JWK.
+ * @returns Promise resolving to the generated key as a JWK object.
+ * @throws Error if the key type or options are invalid/unsupported.
  */
-export async function generateSymmetricKey(
-  length: 128 | 192 | 256,
-  alg?: string,
+export async function generateKey(
+  type: "oct",
+  length: 128 | 192 | 256 | 512,
+  jwk?: Omit<JWK, "kty" | "k">,
+): Promise<JWK>;
+// TODO: Add overloads for asymmetric types ("RSA" | "EC")
+export async function generateKey(
+  type: string,
+  length: 128 | 192 | 256 | 512,
+  options?: Omit<JWK, "kty" | "k">,
 ): Promise<JWK> {
-  const keyBytes = randomBytes(length / 8);
-  const jwk: JWK = {
-    kty: "oct",
-    k: base64UrlEncode(keyBytes),
-    ext: true,
-  };
-  if (alg) {
-    jwk.alg = alg;
+  switch (type) {
+    case "oct": {
+      if (
+        !length ||
+        typeof length !== "number" ||
+        ![128, 192, 256, 512].includes(length)
+      ) {
+        throw new Error(
+          "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
+        );
+      }
+      const keyBytes = randomBytes(length / 8);
+      const jwk: JWK = {
+        ext: true, // Default extractable
+        ...options, // TODO: do we want to allow this level of control?
+        kty: "oct",
+        k: base64UrlEncode(keyBytes),
+      };
+      return jwk;
+    }
+    // Add cases for 'RSA', 'EC'
+    default: {
+      throw new Error(`Unsupported key type for generation: ${type}`);
+    }
   }
-  return jwk;
 }
 
 /**

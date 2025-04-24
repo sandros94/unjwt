@@ -30,7 +30,7 @@ Import:
 import { jws, jwe, jwk } from "unjwt";
 import { seal, unseal } from "unjwt/jwe";
 import { sign, verify } from "unjwt/jws";
-import { generateSymmetricKey, exportSymmetricKey, importKey } from "unjwt/jwk";
+import { generateKey, exportSymmetricKey, importKey } from "unjwt/jwk";
 ```
 
 **CDN** (Deno, Bun and Browsers)
@@ -40,7 +40,7 @@ import { jws, jwe, jwk } from "https://esm.sh/unjwt";
 import { seal, unseal } from "https://esm.sh/unjwt/jwe";
 import { sign, verify } from "https://esm.sh/unjwt/jws";
 import {
-  generateSymmetricKey,
+  generateKey,
   exportSymmetricKey,
   importKey,
 } from "https://esm.sh/unjwt/jwk";
@@ -156,11 +156,11 @@ console.log(token);
 
 ```ts
 import { sign } from "unjwt/jws";
-import { generateSymmetricKey } from "unjwt/jwk";
+import { generateKey } from "unjwt/jwk";
 
 const payload = JSON.stringify({ message: "Data signed with JWK" });
 // Generate a JWK suitable for HS256
-const secretJwk = await generateSymmetricKey(256, "HS256");
+const secretJwk = await generateKey("oct", 256, { alg: "HS256" });
 
 const token = await sign(payload, secretJwk); // alg defaults to HS256
 
@@ -203,7 +203,7 @@ console.log(verifiedBytes); // Uint8Array [ 123, 34, ... ]
 
 ```ts
 import { verify } from "unjwt/jws";
-import { generateSymmetricKey } from "unjwt/jwk";
+import { generateKey } from "unjwt/jwk";
 
 const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."; // From sign example
 const secretJwk = { kty: "oct", k: "...", alg: "HS256" }; // Load or use the generated JWK
@@ -214,24 +214,25 @@ console.log(verifiedPayload); // {"message":"Data signed with JWK"}
 
 ### JWK (JSON Web Key)
 
-This library provides functions to generate (`generateSymmetricKey`), export (`exportSymmetricKey`), and import (`importKey`) symmetric keys (`kty: "oct"`) using the Web Crypto API.
+This library provides functions to generate (`generateKey`), export (`exportSymmetricKey`), and import (`importKey`) symmetric keys (`kty: "oct"`) using the Web Crypto API.
 
-#### `generateSymmetricKey(length, alg?)`
+#### `generateKey(type, length, jwk?)`
 
-Generates a new symmetric key as a JWK object.
+Generates a new key as a JWK object.
 
-- `length`: Key length in bits (e.g., `128`, `192`, `256`, `512`). Choose a length appropriate for the intended algorithm (e.g., >= 256 for HS256, >= 384 for HS384, >= 512 for HS512).
-- `alg` (optional): A JWA algorithm identifier (e.g., `HS256`, `A128KW`) to include in the generated JWK.
+- `type`: The key type. Currently only supports `"oct"` (symmetric).
+- `length`(for `"oct"`): Key length in bits (e.g., `128`, `192`, `256`, `512`). Choose a length appropriate for the intended algorithm (e.g., >= 256 for HS256, >= 384 for HS384, >= 512 for HS512).
+- `jwk` (optional, for `"oct"`): Any valid JWK param such as a JWA algorithm identifier (e.g., `HS256`, `A128KW`) to include in the generated JWK.
 
 Returns a Promise resolving to the generated key as a JWK object (`{ kty: "oct", k: "...", ... }`).
 
 **Example:**
 
 ```ts
-import { generateSymmetricKey } from "unjwt/jwk";
+import { generateKey } from "unjwt/jwk";
 
 // Generate a 512-bit key suitable for HS512
-const jwk = await generateSymmetricKey(512, "HS512");
+const jwk = await generateKey("oct", 512, { alg: "HS512" });
 
 console.log(jwk);
 // {

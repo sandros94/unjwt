@@ -1,16 +1,12 @@
 import { describe, it, expect } from "vitest";
-import {
-  generateSymmetricKey,
-  exportSymmetricKey,
-  importKey,
-} from "../src/jwk";
+import { generateKey, exportSymmetricKey, importKey } from "../src/jwk";
 import { base64UrlEncode, base64UrlDecode, randomBytes } from "../src/utils";
 import type { JWK } from "../src/types";
 
 describe("JWK Utilities (Symmetric)", () => {
-  describe("generateSymmetricKey", () => {
+  describe("generateKey", () => {
     it("should generate an oct JWK with specified length", async () => {
-      const jwk = await generateSymmetricKey(256);
+      const jwk = await generateKey("oct", 256);
       expect(jwk.kty).toBe("oct");
       expect(jwk.k).toBeTypeOf("string");
       expect(jwk.ext).toBe(true);
@@ -19,18 +15,30 @@ describe("JWK Utilities (Symmetric)", () => {
 
     it("should generate an oct JWK with alg property", async () => {
       const alg = "HS256";
-      const jwk = await generateSymmetricKey(256, alg);
+      const jwk = await generateKey("oct", 256, { alg });
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe(alg);
       expect(base64UrlDecode(jwk.k).length).toBe(32);
     });
 
     it("should generate JWKs with different lengths", async () => {
-      const jwk128 = await generateSymmetricKey(128);
+      const jwk128 = await generateKey("oct", 128);
       expect(base64UrlDecode(jwk128.k).length).toBe(16);
 
-      const jwk192 = await generateSymmetricKey(192);
+      const jwk192 = await generateKey("oct", 192);
       expect(base64UrlDecode(jwk192.k).length).toBe(24);
+    });
+
+    it("should throw error for invalid length", async () => {
+      await expect(generateKey("oct", 127 as any)).rejects.toThrow(
+        "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
+      );
+    });
+
+    it("should throw error for unsupported key type", async () => {
+      await expect(generateKey("unsupported" as any, 256)).rejects.toThrow(
+        "Unsupported key type for generation: unsupported",
+      );
     });
   });
 
