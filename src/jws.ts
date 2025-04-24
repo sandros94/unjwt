@@ -3,6 +3,7 @@ import type {
   JWSHeaderParameters,
   JWSAlgorithm,
   JWSSymmetricAlgorithm,
+  JWK,
 } from "./types";
 import {
   textEncoder,
@@ -13,7 +14,7 @@ import {
 import { JWS_SYMMETRIC_ALGORITHMS } from "./utils/defaults";
 import { lookupAlgorithm } from "./utils/algorithms";
 
-import { importRawSymmetricKey } from "./jwk";
+import { importKey } from "./jwk";
 
 /** The default JWS algorithm. */
 export const JWS_DEFAULTS = /* @__PURE__ */ Object.freeze({
@@ -29,7 +30,7 @@ export const JWS_DEFAULTS = /* @__PURE__ */ Object.freeze({
  */
 export async function sign(
   payload: string | Uint8Array,
-  secret: string | Uint8Array,
+  secret: JWK | string | Uint8Array,
   options: JWSSignOptions = {},
 ): Promise<string> {
   if (!secret) {
@@ -40,7 +41,7 @@ export async function sign(
   const alg = (protectedHeader.alg || JWS_DEFAULTS.alg) as JWSAlgorithm;
 
   // Validate algorithm
-  const algConfig = validateSymmetricAlgorithm(alg);
+  const algConfig = validateJwsAlgorithm(alg);
 
   // Prepare header
   const header: JWSHeaderParameters = {
@@ -61,7 +62,7 @@ export async function sign(
   const signingInput = textEncoder.encode(`${encodedHeader}.${encodedPayload}`);
 
   // Import key
-  const cryptoKey = await importRawSymmetricKey(
+  const cryptoKey = await importKey(
     secret,
     { name: "HMAC", hash: algConfig.hash },
     false,
@@ -90,7 +91,7 @@ export async function sign(
  */
 export async function verify(
   token: string,
-  secret: string | Uint8Array,
+  secret: JWK | string | Uint8Array,
 ): Promise<string>;
 /**
  * Verifies a JWS token signed with a symmetric key (HMAC).
@@ -101,7 +102,7 @@ export async function verify(
  */
 export async function verify(
   token: string,
-  secret: string | Uint8Array,
+  secret: JWK | string | Uint8Array,
   options: { textOutput: true },
 ): Promise<string>;
 /**
@@ -113,7 +114,7 @@ export async function verify(
  */
 export async function verify(
   token: string,
-  secret: string | Uint8Array,
+  secret: JWK | string | Uint8Array,
   options: { textOutput: false },
 ): Promise<Uint8Array>;
 /**
@@ -125,7 +126,7 @@ export async function verify(
  */
 export async function verify(
   token: string,
-  secret: string | Uint8Array,
+  secret: JWK | string | Uint8Array,
   options: {
     /**
      * Whether to return the verified payload as a string (true) or as a Uint8Array (false).
@@ -157,14 +158,14 @@ export async function verify(
   const alg = header.alg as JWSAlgorithm;
 
   // Validate algorithm
-  const algConfig = validateSymmetricAlgorithm(alg);
+  const algConfig = validateJwsAlgorithm(alg);
 
   // Prepare data for verification
   const signingInput = textEncoder.encode(`${encodedHeader}.${encodedPayload}`);
   const signature = base64UrlDecode(encodedSignature);
 
   // Import key
-  const cryptoKey = await importRawSymmetricKey(
+  const cryptoKey = await importKey(
     secret,
     { name: "HMAC", hash: algConfig.hash },
     false,
@@ -191,14 +192,14 @@ export async function verify(
 }
 
 /**
- * Validates and returns information about a symmetric JWS algorithm.
+ * Validates and returns information about a JWS algorithm.
+ * Currently only supports symmetric algorithms.
+ *
  * @param alg The algorithm to validate.
  * @returns The algorithm configuration.
  * @throws Error if the algorithm is not supported or not symmetric.
  */
-function validateSymmetricAlgorithm(
-  alg: keyof typeof JWS_SYMMETRIC_ALGORITHMS,
-) {
+function validateJwsAlgorithm(alg: keyof typeof JWS_SYMMETRIC_ALGORITHMS) {
   // TODO: Check asymmetric algorithms when added
   return lookupAlgorithm(alg, JWS_SYMMETRIC_ALGORITHMS, "JWS");
 }

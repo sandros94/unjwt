@@ -1,10 +1,5 @@
 import type { JWK } from "./types";
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  textEncoder,
-  randomBytes,
-} from "./utils";
+import { base64UrlEncode, textEncoder, randomBytes } from "./utils";
 
 /**
  * Generates a symmetric JWK (oct).
@@ -70,57 +65,67 @@ export async function exportSymmetricKey(key: CryptoKey): Promise<JWK> {
 }
 
 /**
- * Imports a symmetric JWK (oct) to a CryptoKey.
+ * Imports a symmetric key from various formats (JWK, raw bytes, string) into a CryptoKey.
  *
- * @param jwk The JWK object (must be kty: "oct" with "k" property).
- * @param algorithm The Web Crypto AlgorithmIdentifier to import the key for.
+ * @param key The key material (JWK object, Uint8Array, or string).
+ * @param algorithm The Web Crypto AlgorithmIdentifier to import the key for (e.g., HmacImportParams, AesKeyAlgorithm).
  * @param extractable Whether the imported key should be extractable.
- * @param keyUsages The allowed key usages.
+ * @param keyUsages The allowed key usages for the imported CryptoKey.
  *
  * @returns Promise resolving to the imported CryptoKey.
+ * @throws Error if the key format is invalid or unsupported for symmetric import.
  */
-export async function importSymmetricKey(
-  jwk: JWK,
+export async function importKey(
+  key: JWK | string | Uint8Array,
   algorithm: AlgorithmIdentifier | HmacImportParams | AesKeyAlgorithm,
   extractable: boolean,
   keyUsages: KeyUsage[],
 ): Promise<CryptoKey> {
-  if (jwk.kty !== "oct" || typeof jwk.k !== "string") {
-    throw new Error("JWK must be of type 'oct' and contain the 'k' parameter");
-  }
-  const keyData = base64UrlDecode(jwk.k);
-  return crypto.subtle.importKey(
-    "raw",
-    keyData,
-    algorithm,
-    extractable,
-    keyUsages,
-  );
-}
+  if (typeof key === "string") {
+    // Raw string secret
+    const keyData = textEncoder.encode(key);
+    return crypto.subtle.importKey(
+      "raw",
+      keyData,
+      algorithm,
+      extractable,
+      keyUsages,
+    );
+  } else if (key instanceof Uint8Array) {
+    // Raw byte secret
+    const keyData = key;
+    return crypto.subtle.importKey(
+      "raw",
+      keyData,
+      algorithm,
+      extractable,
+      keyUsages,
+    );
+  } else if (typeof key === "object" && key !== null && key.kty === "oct") {
+    // Symmetric JWK
+    if (typeof key.k !== "string") {
+      throw new TypeError(
+        "Symmetric JWK must contain the 'k' parameter as a string",
+      );
+    }
+    // The subtle.importKey API handles the base64url decoding internally for "jwk" format.
+    // We just need to pass the JWK object itself.
+    const keyData = key as JsonWebKey; // Cast to Web Crypto's expected JsonWebKey type
 
-/**
- * Imports a raw symmetric key (e.g., from a password or stored secret).
- *
- * @param secret The raw key material.
- * @param algorithm The Web Crypto AlgorithmIdentifier to import the key for.
- * @param extractable Whether the imported key should be extractable.
- * @param keyUsages The allowed key usages.
- *
- * @returns Promise resolving to the imported CryptoKey.
- */
-export async function importRawSymmetricKey(
-  secret: string | Uint8Array,
-  algorithm: AlgorithmIdentifier | HmacImportParams | AesKeyAlgorithm,
-  extractable: boolean,
-  keyUsages: KeyUsage[],
-): Promise<CryptoKey> {
-  const keyData =
-    typeof secret === "string" ? textEncoder.encode(secret) : secret;
-  return crypto.subtle.importKey(
-    "raw",
-    keyData,
-    algorithm,
-    extractable,
-    keyUsages,
-  );
+    // Ensure required JWK properties for import are present if needed by the algorithm
+    // (though subtle.importKey often infers or ignores some like alg, key_ops, ext)
+    // You might add more checks here depending on strictness required.
+
+    return crypto.subtle.importKey(
+      "jwk",
+      keyData,
+      algorithm,
+      extractable,
+      keyUsages,
+    );
+  } else {
+    throw new Error(
+      "Invalid key format. Expected symmetric JWK (oct), Uint8Array, or string.",
+    );
+  }
 }
