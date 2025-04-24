@@ -39,7 +39,11 @@ import { generateSymmetricKey, exportSymmetricKey, importKey } from "unjwt/jwk";
 import { jws, jwe, jwk } from "https://esm.sh/unjwt";
 import { seal, unseal } from "https://esm.sh/unjwt/jwe";
 import { sign, verify } from "https://esm.sh/unjwt/jws";
-import { generateSymmetricKey, exportSymmetricKey, importKey } from "https://esm.sh/unjwt/jwk";
+import {
+  generateSymmetricKey,
+  exportSymmetricKey,
+  importKey,
+} from "https://esm.sh/unjwt/jwk";
 ```
 
 ### JWE (JSON Web Encryption)
@@ -252,12 +256,14 @@ Returns a Promise resolving to the exported key as a JWK object. The JWK will in
 import { importKey, exportSymmetricKey } from "unjwt/jwk";
 
 // First, import or generate a CryptoKey
-const rawKeyBytes = new TextEncoder().encode("a-very-secure-secret-key-for-hmac");
+const rawKeyBytes = new TextEncoder().encode(
+  "a-very-secure-secret-key-for-hmac",
+);
 const cryptoKey = await importKey(
   rawKeyBytes,
   { name: "HMAC", hash: "SHA-256" },
   true, // Must be extractable to export
-  ["sign", "verify"]
+  ["sign", "verify"],
 );
 
 // Now export the CryptoKey to JWK
@@ -302,7 +308,7 @@ const cryptoKey = await importKey(
   jwk,
   { name: "HMAC", hash: "SHA-256" }, // Algorithm for the CryptoKey
   false, // Make this key non-extractable
-  ["verify"] // Allow only verification usage
+  ["verify"], // Allow only verification usage
 );
 
 console.log(cryptoKey);
@@ -320,7 +326,7 @@ const cryptoKey = await importKey(
   rawSecret,
   { name: "HMAC", hash: "SHA-384" },
   true,
-  ["sign"]
+  ["sign"],
 );
 
 console.log(cryptoKey);
