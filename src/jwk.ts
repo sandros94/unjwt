@@ -16,15 +16,15 @@ import { base64UrlEncode, textEncoder, randomBytes } from "./utils";
  * @throws Error if the key type or options are invalid/unsupported.
  */
 export async function generateKey(
-  type: "oct",
-  length: 128 | 192 | 256 | 512,
-  jwk?: Omit<JWK, "kty" | "k">,
+  type: Readonly<"oct">,
+  length: Readonly<128 | 192 | 256 | 512>,
+  jwk?: Readonly<Omit<JWK, "kty" | "k">>,
 ): Promise<JWK>;
 // TODO: Add overloads for asymmetric types ("RSA" | "EC")
 export async function generateKey(
-  type: string,
-  length: 128 | 192 | 256 | 512,
-  options?: Omit<JWK, "kty" | "k">,
+  type: Readonly<string>,
+  length: Readonly<128 | 192 | 256 | 512>,
+  options?: Readonly<Omit<JWK, "kty" | "k">>,
 ): Promise<JWK> {
   switch (type) {
     case "oct": {
@@ -62,7 +62,7 @@ export async function generateKey(
  * @returns Promise resolving to the JWK representation.
  * @throws Error if the key is not extractable or its type is unsupported for export.
  */
-export async function exportKey(key: CryptoKey): Promise<JWK> {
+export async function exportKey(key: Readonly<CryptoKey>): Promise<JWK> {
   if (!key.extractable) {
     throw new Error("Key must be extractable to export to JWK format.");
   }

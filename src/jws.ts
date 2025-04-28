@@ -29,9 +29,9 @@ export const JWS_DEFAULTS = /* @__PURE__ */ Object.freeze({
  * @returns Promise resolving to the compact JWS token.
  */
 export async function sign(
-  payload: string | Uint8Array,
-  secret: JWK | string | Uint8Array,
-  options: JWSSignOptions = {},
+  payload: Readonly<string | Uint8Array>,
+  secret: Readonly<JWK | string | Uint8Array>,
+  options: Readonly<JWSSignOptions> = {},
 ): Promise<string> {
   if (!secret) {
     throw new Error("Missing secret key");
@@ -90,8 +90,8 @@ export async function sign(
  * @returns Promise resolving to the verified payload as a string.
  */
 export async function verify(
-  token: string,
-  secret: JWK | string | Uint8Array,
+  token: Readonly<string>,
+  secret: Readonly<JWK | string | Uint8Array>,
 ): Promise<string>;
 /**
  * Verifies a JWS token signed with a symmetric key (HMAC).
@@ -101,9 +101,9 @@ export async function verify(
  * @returns Promise resolving to the verified payload as a string.
  */
 export async function verify(
-  token: string,
-  secret: JWK | string | Uint8Array,
-  options: { textOutput: true },
+  token: Readonly<string>,
+  secret: Readonly<JWK | string | Uint8Array>,
+  options: Readonly<{ textOutput: true }>,
 ): Promise<string>;
 /**
  * Verifies a JWS token signed with a symmetric key (HMAC).
@@ -113,9 +113,9 @@ export async function verify(
  * @returns Promise resolving to the verified payload as a Uint8Array.
  */
 export async function verify(
-  token: string,
-  secret: JWK | string | Uint8Array,
-  options: { textOutput: false },
+  token: Readonly<string>,
+  secret: Readonly<JWK | string | Uint8Array>,
+  options: Readonly<{ textOutput: false }>,
 ): Promise<Uint8Array>;
 /**
  * Verifies a JWS token signed with a symmetric key (HMAC).
@@ -125,15 +125,15 @@ export async function verify(
  * @returns Promise resolving to the verified payload.
  */
 export async function verify(
-  token: string,
-  secret: JWK | string | Uint8Array,
-  options: {
+  token: Readonly<string>,
+  secret: Readonly<JWK | string | Uint8Array>,
+  options: Readonly<{
     /**
      * Whether to return the verified payload as a string (true) or as a Uint8Array (false).
      * @default true
      */
     textOutput?: boolean;
-  } = {},
+  }> = {},
 ): Promise<string | Uint8Array> {
   if (!token) {
     throw new Error("Missing JWS token");
@@ -199,7 +199,9 @@ export async function verify(
  * @returns The algorithm configuration.
  * @throws Error if the algorithm is not supported or not symmetric.
  */
-function validateJwsAlgorithm(alg: keyof typeof JWS_SYMMETRIC_ALGORITHMS) {
+function validateJwsAlgorithm(
+  alg: Readonly<keyof typeof JWS_SYMMETRIC_ALGORITHMS>,
+) {
   // TODO: Check asymmetric algorithms when added
   return lookupAlgorithm(alg, JWS_SYMMETRIC_ALGORITHMS, "JWS");
 }

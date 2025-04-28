@@ -33,9 +33,9 @@ export const JWE_DEFAULTS = /* @__PURE__ */ Object.freeze({
  * @returns Promise resolving to the compact JWE token
  */
 export async function seal(
-  data: string | Uint8Array,
-  password: string | Uint8Array,
-  options: JWEOptions = {},
+  data: Readonly<string | Uint8Array>,
+  password: Readonly<string | Uint8Array>,
+  options: Readonly<JWEOptions> = {},
 ): Promise<string> {
   // Configure options with defaults
   const protectedHeader = options.protectedHeader || {};
@@ -127,8 +127,8 @@ export async function seal(
  * @returns The decrypted content as a string
  */
 export async function unseal(
-  token: string,
-  password: string | Uint8Array,
+  token: Readonly<string>,
+  password: Readonly<string | Uint8Array>,
 ): Promise<string>;
 /**
  * Decrypts a JWE (JSON Web Encryption) token
@@ -138,9 +138,9 @@ export async function unseal(
  * @returns The decrypted content as a string
  */
 export async function unseal(
-  token: string,
-  password: string | Uint8Array,
-  options: { textOutput: true },
+  token: Readonly<string>,
+  password: Readonly<string | Uint8Array>,
+  options: Readonly<{ textOutput: true }>,
 ): Promise<string>;
 /**
  * Decrypts a JWE (JSON Web Encryption) token
@@ -150,9 +150,9 @@ export async function unseal(
  * @returns The decrypted content as a Uint8Array
  */
 export async function unseal(
-  token: string,
-  password: string | Uint8Array,
-  options: { textOutput: false },
+  token: Readonly<string>,
+  password: Readonly<string | Uint8Array>,
+  options: Readonly<{ textOutput: false }>,
 ): Promise<Uint8Array>;
 /**
  * Decrypts a JWE (JSON Web Encryption) token
@@ -162,15 +162,15 @@ export async function unseal(
  * @returns The decrypted content
  */
 export async function unseal(
-  token: string,
-  password: string | Uint8Array,
-  options: {
+  token: Readonly<string>,
+  password: Readonly<string | Uint8Array>,
+  options: Readonly<{
     /**
      * Whether to return the decrypted data as a string (true) or as a Uint8Array (false).
      * @default true
      */
     textOutput?: boolean;
-  } = {},
+  }> = {},
 ): Promise<string | Uint8Array> {
   if (!token) {
     throw new Error("Missing JWE token");
@@ -248,10 +248,10 @@ export async function unseal(
  * @returns Promise resolving to the derived CryptoKey
  */
 async function deriveKeyFromPassword(
-  password: string | Uint8Array,
-  saltInput: Uint8Array,
-  iterations: number,
-  alg: KeyWrappingAlgorithmType,
+  password: Readonly<string | Uint8Array>,
+  saltInput: Readonly<Uint8Array>,
+  iterations: Readonly<number>,
+  alg: Readonly<KeyWrappingAlgorithmType>,
 ): Promise<CryptoKey> {
   if (!password) {
     throw new Error("Missing password");
@@ -295,7 +295,7 @@ async function deriveKeyFromPassword(
  * @throws Error if the algorithm is not supported
  */
 function validateKeyWrappingAlgorithm(
-  alg: keyof typeof KEY_WRAPPING_ALGORITHMS,
+  alg: Readonly<keyof typeof KEY_WRAPPING_ALGORITHMS>,
 ) {
   return lookupAlgorithm(alg, KEY_WRAPPING_ALGORITHMS, "key wrapping");
 }
@@ -307,7 +307,7 @@ function validateKeyWrappingAlgorithm(
  * @throws Error if the algorithm is not supported
  */
 function validateContentEncryptionAlgorithm(
-  enc: keyof typeof CONTENT_ENCRYPTION_ALGORITHMS,
+  enc: Readonly<keyof typeof CONTENT_ENCRYPTION_ALGORITHMS>,
 ) {
   return lookupAlgorithm(
     enc,
@@ -323,8 +323,10 @@ function validateContentEncryptionAlgorithm(
  * @returns Promise resolving to the wrapped key and the raw CEK
  */
 async function generateAndWrapCEK(
-  derivedKey: CryptoKey,
-  encConfig: (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType],
+  derivedKey: Readonly<CryptoKey>,
+  encConfig: Readonly<
+    (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType]
+  >,
 ): Promise<{
   wrappedKey: ArrayBuffer;
   rawCek: Uint8Array | null;
@@ -359,9 +361,11 @@ async function generateAndWrapCEK(
  * @returns Promise resolving to the unwrapped key
  */
 async function unwrapCEK(
-  wrappedKey: Uint8Array,
-  derivedKey: CryptoKey,
-  encConfig: (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType],
+  wrappedKey: Readonly<Uint8Array>,
+  derivedKey: Readonly<CryptoKey>,
+  encConfig: Readonly<
+    (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType]
+  >,
 ): Promise<CryptoKey | Uint8Array> {
   if (encConfig.type === "gcm") {
     // For GCM, unwrap to AES-GCM key
@@ -391,11 +395,13 @@ async function unwrapCEK(
  * @returns Promise resolving to encrypted data with tag
  */
 async function encryptGCM(
-  plaintext: Uint8Array,
-  cek: CryptoKey,
-  iv: Uint8Array,
-  aad: Uint8Array,
-  encConfig: (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType],
+  plaintext: Readonly<Uint8Array>,
+  cek: Readonly<CryptoKey>,
+  iv: Readonly<Uint8Array>,
+  aad: Readonly<Uint8Array>,
+  encConfig: Readonly<
+    (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType]
+  >,
 ): Promise<{ ciphertext: Uint8Array; tag: Uint8Array }> {
   const ciphertext = await crypto.subtle.encrypt(
     {
@@ -424,11 +430,11 @@ async function encryptGCM(
  * @returns Promise resolving to decrypted data
  */
 async function decryptGCM(
-  ciphertext: Uint8Array,
-  tag: Uint8Array,
-  cek: CryptoKey,
-  iv: Uint8Array,
-  aad: Uint8Array,
+  ciphertext: Readonly<Uint8Array>,
+  tag: Readonly<Uint8Array>,
+  cek: Readonly<CryptoKey>,
+  iv: Readonly<Uint8Array>,
+  aad: Readonly<Uint8Array>,
 ): Promise<Uint8Array> {
   // Combine ciphertext and authentication tag
   const encryptedData = concatUint8Arrays(ciphertext, tag);

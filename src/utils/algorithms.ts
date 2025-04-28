@@ -1,7 +1,7 @@
 export function lookupAlgorithm<T extends Record<string, any>>(
-  alg: keyof T,
-  supportedAlgorithms: T,
-  algorithmType: string,
+  alg: Readonly<keyof T>,
+  supportedAlgorithms: Readonly<T>,
+  algorithmType: Readonly<string>,
 ): T[keyof T] & { alg: keyof T } {
   const config = supportedAlgorithms[alg as keyof T];
 
