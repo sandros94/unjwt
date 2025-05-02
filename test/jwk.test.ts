@@ -1,55 +1,32 @@
 import { describe, it, expect } from "vitest";
 import { generateKey, exportKey, importKey } from "../src/jwk";
-import { base64UrlEncode, base64UrlDecode, randomBytes } from "../src/utils";
+import { base64UrlEncode, randomBytes } from "../src/utils";
 import type { JWK } from "../src/types";
 
 describe("JWK Utilities", () => {
-  describe("generateKey (Symmetric)", () => {
+  describe("generateKey", () => {
     it("should generate an oct JWK with specified length", async () => {
-      const jwk = await generateKey("oct", 256);
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      expect(jwk.ext).toBe(true);
-      expect(base64UrlDecode(jwk.k).length).toBe(32);
+      const crypto = await generateKey("HS256");
+      expect(crypto).toBeInstanceOf(CryptoKey);
+      expect(crypto.algorithm).toStrictEqual({
+        hash: {
+          name: "SHA-256",
+        },
+        length: 512,
+        name: "HMAC",
+      });
+      expect(crypto.extractable).toBe(true);
+      expect(crypto.type).toBe("secret");
+      expect(crypto.usages).toEqual(["sign", "verify"]);
     });
 
-    it("should generate an oct JWK with alg property", async () => {
-      const alg = "HS256";
-      const jwk = await generateKey("oct", 256, { alg });
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.alg).toBe(alg);
-      expect(base64UrlDecode(jwk.k).length).toBe(32);
-    });
-
-    it("should generate JWKs with different lengths", async () => {
-      const jwk128 = await generateKey("oct", 128);
-      expect(base64UrlDecode(jwk128.k).length).toBe(16);
-
-      const jwk192 = await generateKey("oct", 192);
-      expect(base64UrlDecode(jwk192.k).length).toBe(24);
-
-      const jwk512 = await generateKey("oct", 512);
-      expect(base64UrlDecode(jwk512.k).length).toBe(64);
-    });
-
-    it("should throw error for invalid length option", async () => {
-      // @ts-expect-error - Testing invalid length
-      await expect(generateKey("oct", "1")).rejects.toThrow(
-        "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
-      );
-      await expect(
-        // @ts-expect-error - Testing invalid length
-        generateKey("oct", 1),
-      ).rejects.toThrow(
-        "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
-      );
-    });
-
-    it("should throw error for unsupported key type", async () => {
+    it("should throw error for unsupported algorithm", async () => {
       await expect(
         // @ts-expect-error - Testing invalid type
-        generateKey("unsupported", 256),
-      ).rejects.toThrow("Unsupported key type for generation: unsupported");
+        generateKey("unsupported"),
+      ).rejects.toThrow(
+        "Unsupported or unknown algorithm for key generation: unsupported",
+      );
     });
   });
 
