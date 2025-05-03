@@ -15,9 +15,9 @@ export const JWS_ALGORITHMS_ASYMMETRIC_RSA = /* @__PURE__ */ Object.freeze({
   RS384: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-384" },
   RS512: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" },
 
-  PS256: { name: "RSASSA-PSS", hash: "SHA-256", saltLength: 32 },
-  PS384: { name: "RSASSA-PSS", hash: "SHA-384", saltLength: 48 },
-  PS512: { name: "RSASSA-PSS", hash: "SHA-512", saltLength: 64 },
+  PS256: { name: "RSA-PSS", hash: "SHA-256", saltLength: 32 },
+  PS384: { name: "RSA-PSS", hash: "SHA-384", saltLength: 48 },
+  PS512: { name: "RSA-PSS", hash: "SHA-512", saltLength: 64 },
 } as const);
 
 /**
