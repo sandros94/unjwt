@@ -1,7 +1,7 @@
 import {
   JWS_ALGORITHMS_SYMMETRIC,
   JWS_ALGORITHMS_ASYMMETRIC_RSA,
-  JWE_KEY_WRAPPING_PBES2,
+  JWE_KEY_WRAPPING_HMAC,
   JWE_KEY_WRAPPING_RSA,
   JWE_CONTENT_ENCRYPTION_ALGORITHMS,
 } from "./utils/defaults";
@@ -96,8 +96,8 @@ export async function generateKey(
 
   // JWE Key Wrapping (PBES2 -> AES-KW)
   // Note: This generates the AES-KW key, not the PBES2 derived key itself.
-  if (alg in JWE_KEY_WRAPPING_PBES2) {
-    const algDetails = JWE_KEY_WRAPPING_PBES2[alg as AesKwWrapAlgorithm];
+  if (alg in JWE_KEY_WRAPPING_HMAC) {
+    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKwWrapAlgorithm];
     const keyGenParams: AesKeyGenParams = {
       name: "AES-KW",
       length: algDetails.keyLength,
@@ -159,16 +159,6 @@ export async function generateKey(
         crypto.subtle.generateKey(aesCbcParams, extractable, aesUsage),
         crypto.subtle.generateKey(hmacParams, extractable, hmacUsage),
       ]);
-
-      // Ensure both keys are CryptoKey objects
-      if (
-        !(encryptionKey instanceof CryptoKey) ||
-        !(macKey instanceof CryptoKey)
-      ) {
-        throw new TypeError(
-          "Internal error: Failed to generate composite keys correctly.",
-        );
-      }
 
       return { encryptionKey, macKey };
     }
@@ -256,10 +246,7 @@ export async function importKey(
     } as RsaHashedImportParams;
     // Default usages depend on whether it's a public or private key
     defaultUsages = jwk.d ? ["sign"] : ["verify"]; // Check for private exponent 'd'
-  } else if (alg in JWE_KEY_WRAPPING_PBES2) {
-    // JWK for AES-KW should have kty: "oct"
-    // The 'alg' here informs the *intended use* and expected key length,
-    // but the Web Crypto import name is "AES-KW".
+  } else if (alg in JWE_KEY_WRAPPING_HMAC) {
     if (jwk.kty !== "oct")
       throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
     algorithm = { name: "AES-KW" };

@@ -1,7 +1,7 @@
 import type {
   JWS_ALGORITHMS_SYMMETRIC,
   JWS_ALGORITHMS_ASYMMETRIC_RSA,
-  JWE_KEY_WRAPPING_PBES2,
+  JWE_KEY_WRAPPING_HMAC,
   JWE_KEY_WRAPPING_RSA,
   JWE_CONTENT_ENCRYPTION_ALGORITHMS,
 } from "../utils/defaults";
@@ -12,7 +12,7 @@ import type {
 export type HmacAlgorithm = keyof typeof JWS_ALGORITHMS_SYMMETRIC;
 
 /** Set of supported AES Key Wrap algorithm identifiers (used in PBES2). */
-export type AesKwWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_PBES2;
+export type AesKwWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_HMAC;
 
 /** Set of supported AES-GCM algorithm identifiers. */
 export type AesGcmAlgorithm = {

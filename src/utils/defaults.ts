@@ -30,9 +30,21 @@ export const JWS_ALGORITHMS = /* @__PURE__ */ Object.freeze({
 });
 
 /**
- * Supported key wrapping algorithms (PBES2)
+ * Supported key wrapping algorithms (HMAC)
  */
-export const JWE_KEY_WRAPPING_PBES2 = /* @__PURE__ */ Object.freeze({
+export const JWE_KEY_WRAPPING_HMAC = /* @__PURE__ */ Object.freeze({
+  A128KW: {
+    name: "AES-KW",
+    keyLength: 128,
+  },
+  A192KW: {
+    name: "AES-KW",
+    keyLength: 192,
+  },
+  A256KW: {
+    name: "AES-KW",
+    keyLength: 256,
+  },
   "PBES2-HS256+A128KW": {
     name: "PBES2",
     hash: "SHA-256",
@@ -80,7 +92,7 @@ export const JWE_KEY_WRAPPING_RSA = /* @__PURE__ */ Object.freeze({
  * Supported key wrapping algorithms
  */
 export const JWE_KEY_WRAPPING = /* @__PURE__ */ Object.freeze({
-  ...JWE_KEY_WRAPPING_PBES2,
+  ...JWE_KEY_WRAPPING_HMAC,
   ...JWE_KEY_WRAPPING_RSA,
 });
 
