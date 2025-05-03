@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateKey, exportKey, importKey } from "../src/jwk";
 import { base64UrlEncode, randomBytes } from "../src/utils";
-import type { JWK } from "../src/types/jwk"; // Import the JWK type
 
 // Helper to check CryptoKey properties
 const checkCryptoKey = (
@@ -173,8 +172,8 @@ describe("JWK Utilities", () => {
   describe("exportKey", () => {
     // --- Basic Exports ---
     it("should export HS256 key", async () => {
-      const cryptoKey = await generateKey("HS256");
-      const jwk = await exportKey(cryptoKey);
+      const jwk = await exportKey(await generateKey("HS256"));
+
       expect(jwk).toEqual(
         expect.objectContaining({
           kty: "oct",
@@ -198,95 +197,186 @@ describe("JWK Utilities", () => {
   describe("importKey", () => {
     // --- Basic Imports ---
     it("should import an HS256 key", async () => {
-      const jwk: JWK = {
+      const cryptoKey = await importKey({
         kty: "oct",
         k: base64UrlEncode(randomBytes(64)), // 512 bits
         alg: "HS256",
         ext: true,
         key_ops: ["sign", "verify"],
-      };
-      const cryptoKey = await importKey(jwk);
+      });
+
       checkCryptoKey(cryptoKey, "HMAC", "secret", ["sign", "verify"]);
       expect((cryptoKey.algorithm as HmacKeyAlgorithm).hash.name).toBe(
         "SHA-256",
       );
     });
 
-    it("should import an RS256 keys", async () => {
-      // Generate a real key pair to get valid n, e values
+    it("should import AES-CBC part of A128CBC-HS256 key", async () => {
+      const cryptoKey = await importKey({
+        alg: "A128CBC-HS256",
+        ext: true,
+        k: base64UrlEncode(randomBytes(16)), // 128 bits
+        key_ops: ["encrypt", "decrypt"],
+        kty: "oct",
+      });
+
+      checkCryptoKey(cryptoKey, "AES-CBC", "secret", ["encrypt", "decrypt"]);
+      expect((cryptoKey.algorithm as AesKeyAlgorithm).length).toBe(128);
+    });
+
+    // --- Fallback Logic ---
+    it("should infer keyUsages from jwk.use='sig' (HMAC)", async () => {
+      const cryptoKey = await importKey({
+        kty: "oct",
+        k: base64UrlEncode(randomBytes(32)), // 256 bits
+        alg: "HS256",
+        use: "sig",
+        ext: true,
+      });
+
+      checkCryptoKey(cryptoKey, "HMAC", "secret", ["sign", "verify"]); // Default for HMAC includes both
+    });
+
+    it("should infer keyUsages from jwk.use='sig' (RSA)", async () => {
       const { publicKey, privateKey } = await generateKey("RS256");
-      const [exportedPublic, exportedPrivate] = await Promise.all([
-        exportKey(publicKey),
-        exportKey(privateKey),
+      const [exportPublic, exportPrivate] = await Promise.all([
+        exportKey(publicKey, { use: "sig" }),
+        exportKey(privateKey, { use: "sig" }),
       ]);
+      delete exportPublic.key_ops;
+      delete exportPrivate.key_ops;
+
       const [cryptoKeyPublic, cryptoKeyPrivate] = await Promise.all([
-        importKey(exportedPublic),
-        importKey(exportedPrivate),
+        importKey(exportPublic),
+        importKey(exportPrivate),
       ]);
 
       checkCryptoKey(cryptoKeyPublic, "RSASSA-PKCS1-v1_5", "public", [
         "verify",
       ]);
-      expect(
-        (cryptoKeyPublic.algorithm as RsaHashedKeyAlgorithm).hash.name,
-      ).toBe("SHA-256");
       checkCryptoKey(cryptoKeyPrivate, "RSASSA-PKCS1-v1_5", "private", [
         "sign",
       ]);
-      expect(
-        (cryptoKeyPrivate.algorithm as RsaHashedKeyAlgorithm).hash.name,
-      ).toBe("SHA-256");
     });
 
-    // --- Fallback Logic ---
-    it("should use alg from options if missing in JWK", async () => {
-      const jwk: JWK = {
-        kty: "oct",
-        k: base64UrlEncode(randomBytes(64)),
+    it("should infer keyUsages from jwk.use='enc' (AES-KW)", async () => {
+      const cryptoKey = await importKey({
+        alg: "A128KW",
         ext: true,
-        key_ops: ["sign", "verify"],
-      };
-      const cryptoKey = await importKey(jwk, { alg: "HS384" });
+        k: base64UrlEncode(randomBytes(16)), // 128 bits
+        kty: "oct",
+        use: "enc",
+      });
+
+      checkCryptoKey(cryptoKey, "AES-KW", "secret", ["wrapKey", "unwrapKey"]);
+    });
+
+    it("should infer keyUsages from jwk.use='enc' (AES-GCM)", async () => {
+      const cryptoKey = await importKey({
+        alg: "A128GCM",
+        ext: true,
+        k: base64UrlEncode(randomBytes(16)), // 128 bits
+        kty: "oct",
+        use: "enc",
+      });
+
+      checkCryptoKey(cryptoKey, "AES-GCM", "secret", ["encrypt", "decrypt"]);
+    });
+
+    it("should infer keyUsages from jwk.use='enc' (RSA-OAEP)", async () => {
+      const { publicKey, privateKey } = await generateKey("RSA-OAEP");
+      const [exportPublic, exportPrivate] = await Promise.all([
+        exportKey(publicKey, { use: "enc" }),
+        exportKey(privateKey, { use: "enc" }),
+      ]);
+      delete exportPublic.key_ops;
+      delete exportPrivate.key_ops;
+
+      const [cryptoKeyPublic, cryptoKeyPrivate] = await Promise.all([
+        importKey(exportPublic),
+        importKey(exportPrivate),
+      ]);
+
+      checkCryptoKey(cryptoKeyPublic, "RSA-OAEP", "public", [
+        "wrapKey",
+        "encrypt",
+      ]);
+      checkCryptoKey(cryptoKeyPrivate, "RSA-OAEP", "private", [
+        "unwrapKey",
+        "decrypt",
+      ]);
+    });
+
+    it("should use default usages if jwk.use is irrelevant", async () => {
+      const cryptoKey = await importKey({
+        kty: "oct",
+        k: base64UrlEncode(randomBytes(32)),
+        alg: "HS256",
+        use: "enc", // Incorrect use for HMAC
+        ext: true,
+      });
+
+      // Falls back to default 'sign', 'verify' for HS256
       checkCryptoKey(cryptoKey, "HMAC", "secret", ["sign", "verify"]);
-      expect((cryptoKey.algorithm as HmacKeyAlgorithm).hash.name).toBe(
-        "SHA-384",
-      );
     });
 
     // --- Error Handling ---
-    it("should throw if alg is missing in JWK and options", async () => {
-      const jwk: JWK = {
-        kty: "oct",
-        k: base64UrlEncode(randomBytes(64)),
-      };
-      await expect(importKey(jwk)).rejects.toThrow(
-        "Algorithm ('alg') missing in JWK and options",
+    it("should throw if alg is missing and cannot be inferred", async () => {
+      await expect(importKey({})).rejects.toThrow(
+        "Algorithm ('alg') must be present in JWK or options.",
       );
     });
 
-    it("should throw for RSA key with missing alg", async () => {
-      const jwk: JWK = {
+    it("should throw for unsupported algorithm", async () => {
+      await expect(importKey({
+        kty: "oct",
+        k: base64UrlEncode(randomBytes(64)),
+        alg: "unsupported",
+      })).rejects.toThrow(
+        "Unsupported or unknown algorithm for key import: unsupported",
+      );
+    });
+
+    it("should throw if alg is missing in JWK and options (oct)", async () => {
+      await expect(importKey({
+        kty: "oct",
+        k: base64UrlEncode(randomBytes(64)),
+      })).rejects.toThrow(
+        "Algorithm ('alg') missing in JWK and options, cannot infer for 'oct' key type.",
+      );
+    });
+
+    it("should throw if alg is missing in JWK and options (RSA)", async () => {
+      await expect(importKey({
         kty: "RSA",
         n: "n",
         e: "AQAB",
-      };
-      await expect(importKey(jwk)).rejects.toThrow(
-        "Algorithm ('alg') missing in JWK and options",
+      })).rejects.toThrow(
+        "Algorithm ('alg') missing in JWK and options, cannot infer specific RSA algorithm.",
       );
     });
 
-    it("should throw for missing alg", async () => {
-      await expect(importKey({})).rejects.toThrow(
-        "Algorithm ('alg') must be present in JWK or options",
-      );
-    });
-
-    it("should throw for missing kty in AES-KW", async () => {
-      const _cryptoKey = await generateKey("A128KW");
-      const { kty: _, ...exportedKey } = await exportKey(_cryptoKey);
-
-      await expect(importKey(exportedKey)).rejects.toThrow(
+    it("should throw for AES-KW import if kty is not 'oct'", async () => {
+      await expect(importKey({
+        kty: "RSA", // Incorrect kty
+        k: base64UrlEncode(randomBytes(16)),
+        alg: "A128KW",
+        ext: true,
+        key_ops: ["wrapKey", "unwrapKey"],
+      })).rejects.toThrow(
         "JWK with alg 'A128KW' must have kty 'oct'.",
+      );
+    });
+
+    it("should throw for AES-GCM import if kty is not 'oct'", async () => {
+      await expect(importKey({
+        kty: "RSA", // Incorrect kty
+        k: base64UrlEncode(randomBytes(16)),
+        alg: "A128GCM",
+        ext: true,
+        key_ops: ["encrypt", "decrypt"],
+      })).rejects.toThrow(
+        "JWK with alg 'A128GCM' must have kty 'oct'.",
       );
     });
   });

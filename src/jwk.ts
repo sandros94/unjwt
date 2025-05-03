@@ -22,6 +22,7 @@ import type {
   CompositeKey,
   GenerateKeyOptions,
   ImportKeyOptions,
+  JWK,
 } from "./types/jwk";
 
 /**
@@ -176,16 +177,25 @@ export async function generateKey(
  * property set to `true`.
  *
  * @param key The CryptoKey to export.
+ * @param jwk Optional JWK object to merge with the exported key.
  * @returns A Promise resolving to the JsonWebKey object.
  * @throws Error if the key is not extractable or another export error occurs.
  */
-export async function exportKey(key: CryptoKey): Promise<JsonWebKey> {
+export async function exportKey(
+  key: CryptoKey,
+  jwk?: Partial<JWK>,
+): Promise<JWK> {
   if (!key.extractable) {
     throw new Error("Cannot export a non-extractable key.");
   }
 
-  const jwk = await crypto.subtle.exportKey("jwk", key);
-  return jwk;
+  const exportedJwk = await crypto.subtle.exportKey("jwk", key);
+  return {
+    ...exportedJwk,
+    ...jwk,
+    key_ops: jwk?.key_ops ?? exportedJwk.key_ops,
+    ext: jwk?.ext ?? exportedJwk.ext,
+  } as JWK;
 }
 
 /**
@@ -222,7 +232,7 @@ export async function importKey(
     }
     throw new Error("Algorithm ('alg') must be present in JWK or options.");
   }
-  const extractable = jwk.ext ?? options.extractable ?? false; // TODO: do we want to keep the default as `false`?
+  const extractable = jwk.ext ?? options.extractable ?? true;
 
   let algorithm:
     | AlgorithmIdentifier
@@ -244,8 +254,7 @@ export async function importKey(
       name: algDetails.name,
       hash: algDetails.hash,
     } as RsaHashedImportParams;
-    // Default usages depend on whether it's a public or private key
-    defaultUsages = jwk.d ? ["sign"] : ["verify"]; // Check for private exponent 'd'
+    defaultUsages = jwk.d ? ["sign"] : ["verify"];
   } else if (alg in JWE_KEY_WRAPPING_HMAC) {
     if (jwk.kty !== "oct")
       throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
@@ -269,97 +278,70 @@ export async function importKey(
 
     if (algDetails.type === "gcm") {
       algorithm = { name: "AES-GCM" };
-      defaultUsages = ["encrypt", "decrypt"];
     } else if (algDetails.type === "cbc") {
-      // This imports *either* the AES-CBC part *or* the HMAC part,
-      // depending on what the specific JWK represents.
-      // We need to differentiate based on the 'alg' or potentially key size if alg is ambiguous.
-      // Assuming the JWK 'alg' correctly identifies the key's direct purpose:
-      if (alg.startsWith("A") && alg.includes("CBC")) {
-        // e.g., A128CBC-HS256 used for the AES key
-        algorithm = { name: "AES-CBC" };
-        defaultUsages = ["encrypt", "decrypt"];
-      } else if (alg.startsWith("HS")) {
-        // e.g., HS256 used for the HMAC key
-        // Need to find the corresponding HMAC details
-        const hmacAlg = alg as HmacAlgorithm;
-        if (!(hmacAlg in JWS_ALGORITHMS_SYMMETRIC)) {
-          throw new Error(
-            `Cannot determine HMAC parameters for MAC key with alg '${alg}'.`,
-          );
-        }
-        const hmacDetails = JWS_ALGORITHMS_SYMMETRIC[hmacAlg];
-        algorithm = {
-          name: hmacDetails.name,
-          hash: hmacDetails.hash,
-        } as HmacImportParams;
-        defaultUsages = ["sign", "verify"];
-      } else {
-        // If alg is like "A128CBC-HS256", we need more info to know which key this JWK is.
-        // TODO: study a solution to inspect key length if 'alg' is composite.
-        throw new Error(
-          `Ambiguous or unsupported 'alg' ('${alg}') for importing a component of a composite CBC key.`,
-        );
-      }
+      algorithm = { name: "AES-CBC" };
+
+      /* v8 ignore next 5, should be unreachable leaving mostly for type safety */
     } else {
       throw new Error(
         `Unsupported JWE content encryption algorithm type: ${(algDetails as any).type}`,
       );
     }
+
+    defaultUsages = ["encrypt", "decrypt"];
   } else {
     throw new Error(`Unsupported or unknown algorithm for key import: ${alg}`);
   }
 
   // 2. Determine Key Usages
-  const keyUsages: KeyUsage[] =
-    (jwk.key_ops as KeyUsage[] | undefined) ??
-    options.keyUsages ??
-    defaultUsages;
-  if (!keyUsages || keyUsages.length === 0) {
-    // Try inferring from jwk.use as a last resort
+  let keyUsages: KeyUsage[] | undefined =
+    (jwk.key_ops as KeyUsage[] | undefined) ?? options.keyUsages;
+
+  if (!keyUsages) {
+    // If still undefined, try inferring from jwk.use or apply defaults
     if (jwk.use === "sig") {
-      if (algorithm.name.startsWith("RSA") || algorithm.name === "HMAC") {
-        // Infer sign/verify based on private/public
-        Object.assign(keyUsages, jwk.d ? ["sign"] : ["verify"]);
+      if (algorithm.name.startsWith("RSA")) {
+        keyUsages = jwk.d ? ["sign"] : ["verify"];
+      } else if (algorithm.name === "HMAC") {
+        keyUsages = ["sign", "verify"];
       }
     } else if (
       jwk.use === "enc" &&
       (algorithm.name.startsWith("RSA") || algorithm.name.startsWith("AES"))
     ) {
-      // Infer encrypt/decrypt or wrap/unwrap based on private/public/algorithm
       switch (algorithm.name) {
         case "AES-KW": {
-          Object.assign(keyUsages, ["wrapKey", "unwrapKey"]);
+          keyUsages = ["wrapKey", "unwrapKey"];
           break;
         }
         case "AES-GCM":
         case "AES-CBC": {
-          Object.assign(keyUsages, ["encrypt", "decrypt"]);
+          keyUsages = ["encrypt", "decrypt"];
           break;
         }
         case "RSA-OAEP": {
-          Object.assign(
-            keyUsages,
-            jwk.d ? ["unwrapKey", "decrypt"] : ["wrapKey", "encrypt"],
-          );
+          keyUsages = jwk.d ? ["unwrapKey", "decrypt"] : ["wrapKey", "encrypt"];
           break;
         }
-        // No default
       }
     }
 
-    // If still no usages, throw error as importKey requires it.
-    if (!keyUsages || keyUsages.length === 0) {
-      throw new Error(
-        `Key usages ('key_ops') could not be determined from JWK, options, or defaults for algorithm '${alg}'.`,
-      );
+    // If still no usages inferred, apply the defaults determined earlier
+    if (!keyUsages) {
+      keyUsages = defaultUsages;
     }
   }
 
-  // 3. Perform Import
+  // 3. Prepare JWK for native import (remove potentially conflicting fields)
+  const jwkForImport = { ...jwk };
+  delete jwkForImport.alg;
+  delete jwkForImport.use;
+  delete jwkForImport.key_ops;
+
+  // 4. Perform Import
   const cryptoKey = await crypto.subtle.importKey(
     "jwk",
-    jwk,
+    jwkForImport,
     algorithm,
     extractable,
     keyUsages,
