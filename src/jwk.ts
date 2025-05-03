@@ -6,67 +6,23 @@ import {
   JWE_CONTENT_ENCRYPTION_ALGORITHMS,
 } from "./utils/defaults";
 
-// --- Define specific algorithm types ---
-type SupportedHmacAlg = keyof typeof JWS_ALGORITHMS_SYMMETRIC;
-// AES-KW keys derived from PBES2 alg identifiers
-type SupportedAesKwAlg = keyof typeof JWE_KEY_WRAPPING_PBES2;
-// Filter GCM algorithms from JWE_CONTENT_ENCRYPTION_ALGORITHMS
-type SupportedAesGcmAlg = {
-  [K in keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS]: (typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS)[K]["type"] extends "gcm"
-    ? K
-    : never;
-}[keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS];
-// Filter CBC algorithms from JWE_CONTENT_ENCRYPTION_ALGORITHMS
-type SupportedCbcAlg = {
-  [K in keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS]: (typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS)[K]["type"] extends "cbc"
-    ? K
-    : never;
-}[keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS];
-
-type SupportedRsaSignAlg = keyof typeof JWS_ALGORITHMS_ASYMMETRIC_RSA;
-type SupportedRsaWrapAlg = keyof typeof JWE_KEY_WRAPPING_RSA;
-
-// --- Define composite types for overloads ---
-// Algorithms returning a single symmetric CryptoKey
-type SupportedSymSingleKeyAlg =
-  | SupportedHmacAlg
-  | SupportedAesKwAlg
-  | SupportedAesGcmAlg;
-// Algorithms returning an asymmetric CryptoKeyPair
-type SupportedAsymKeyPairAlg = SupportedRsaSignAlg | SupportedRsaWrapAlg;
-// All supported algorithms
-type SupportedJwkAlg =
-  | SupportedSymSingleKeyAlg
-  | SupportedAsymKeyPairAlg
-  | SupportedCbcAlg;
-
-// --- Define return type for composite CBC keys ---
-export type CompositeKey = {
-  /** The AES-CBC encryption/decryption key. */
-  encryptionKey: CryptoKey;
-  /** The HMAC key for integrity/authentication. */
-  macKey: CryptoKey;
-};
-
-interface GenerateKeyOptions {
-  /** Key usages for the generated key. */
-  keyUsage?: KeyUsage[];
-  /** Mark the key as extractable. Defaults to true. */
-  extractable?: boolean;
-  /** RSA modulus length. Defaults to 2048. */
-  modulusLength?: number;
-  /** RSA public exponent. Defaults to 65537 (0x010001). */
-  publicExponent?: Uint8Array;
-}
-
-interface ImportKeyOptions {
-  /** Fallback algorithm identifier if not present in the JWK. */
-  alg?: SupportedJwkAlg; // Use the existing comprehensive type
-  /** Fallback for key extractability if not present in the JWK. Defaults to false. */
-  extractable?: boolean;
-  /** Fallback for key usages if not present in the JWK. If still unspecified, defaults will be inferred. */
-  keyUsages?: KeyUsage[];
-}
+// Import types from their new locations
+import type {
+  HmacAlgorithm, // Renamed from SupportedHmacAlg
+  AesKwWrapAlgorithm, // Renamed from SupportedAesKwAlg
+  AesGcmAlgorithm, // Renamed from SupportedAesGcmAlg
+  AesCbcAlgorithm, // Renamed from SupportedCbcAlg
+  RsaSignAlgorithm, // Renamed from SupportedRsaSignAlg
+  RsaWrapAlgorithm, // Renamed from SupportedRsaWrapAlg
+  JoseSingleKeyAlgorithm, // Renamed from SupportedSymSingleKeyAlg
+  JoseKeyPairAlgorithm, // Renamed from SupportedAsymKeyPairAlg
+  JoseAlgorithm, // Renamed from SupportedJwkAlg
+} from "./types/defaults";
+import type {
+  CompositeKey,
+  GenerateKeyOptions,
+  ImportKeyOptions,
+} from "./types/jwk";
 
 /**
  * Generates composite keys (AES-CBC + HMAC) suitable for the specified JWE CBC algorithm.
@@ -77,7 +33,7 @@ interface ImportKeyOptions {
  * @throws Error if the algorithm is not supported.
  */
 export async function generateKey(
-  alg: SupportedCbcAlg,
+  alg: AesCbcAlgorithm,
   options?: GenerateKeyOptions, // Make options optional
 ): Promise<CompositeKey>;
 /**
@@ -89,7 +45,7 @@ export async function generateKey(
  * @throws Error if the algorithm is not supported.
  */
 export async function generateKey(
-  alg: SupportedSymSingleKeyAlg,
+  alg: JoseSingleKeyAlgorithm,
   options?: GenerateKeyOptions, // Make options optional
 ): Promise<CryptoKey>;
 /**
@@ -101,11 +57,11 @@ export async function generateKey(
  * @throws Error if the algorithm is not supported.
  */
 export async function generateKey(
-  alg: SupportedAsymKeyPairAlg,
+  alg: JoseKeyPairAlgorithm,
   options?: GenerateKeyOptions, // Make options optional
 ): Promise<CryptoKeyPair>;
 export async function generateKey(
-  alg: SupportedJwkAlg,
+  alg: JoseAlgorithm,
   options: GenerateKeyOptions = {},
 ): Promise<CryptoKey | CryptoKeyPair | CompositeKey> {
   const {
@@ -116,8 +72,7 @@ export async function generateKey(
 
   // JWS Symmetric (HMAC)
   if (alg in JWS_ALGORITHMS_SYMMETRIC) {
-    const algDetails =
-      JWS_ALGORITHMS_SYMMETRIC[alg as keyof typeof JWS_ALGORITHMS_SYMMETRIC];
+    const algDetails = JWS_ALGORITHMS_SYMMETRIC[alg as HmacAlgorithm];
     const keyGenParams: HmacKeyGenParams = {
       name: algDetails.name, // "HMAC"
       hash: algDetails.hash,
@@ -128,10 +83,7 @@ export async function generateKey(
 
   // JWS Asymmetric (RSA)
   if (alg in JWS_ALGORITHMS_ASYMMETRIC_RSA) {
-    const algDetails =
-      JWS_ALGORITHMS_ASYMMETRIC_RSA[
-        alg as keyof typeof JWS_ALGORITHMS_ASYMMETRIC_RSA
-      ];
+    const algDetails = JWS_ALGORITHMS_ASYMMETRIC_RSA[alg as RsaSignAlgorithm];
     const keyGenParams: RsaHashedKeyGenParams = {
       name: algDetails.name, // "RSASSA-PKCS1-v1_5" or "RSASSA-PSS"
       hash: algDetails.hash,
@@ -145,8 +97,7 @@ export async function generateKey(
   // JWE Key Wrapping (PBES2 -> AES-KW)
   // Note: This generates the AES-KW key, not the PBES2 derived key itself.
   if (alg in JWE_KEY_WRAPPING_PBES2) {
-    const algDetails =
-      JWE_KEY_WRAPPING_PBES2[alg as keyof typeof JWE_KEY_WRAPPING_PBES2];
+    const algDetails = JWE_KEY_WRAPPING_PBES2[alg as AesKwWrapAlgorithm];
     const keyGenParams: AesKeyGenParams = {
       name: "AES-KW",
       length: algDetails.keyLength,
@@ -157,8 +108,7 @@ export async function generateKey(
 
   // JWE Key Wrapping (RSA-OAEP)
   if (alg in JWE_KEY_WRAPPING_RSA) {
-    const algDetails =
-      JWE_KEY_WRAPPING_RSA[alg as keyof typeof JWE_KEY_WRAPPING_RSA];
+    const algDetails = JWE_KEY_WRAPPING_RSA[alg as RsaWrapAlgorithm];
     const keyGenParams: RsaHashedKeyGenParams = {
       name: algDetails.name, // "RSA-OAEP"
       hash: algDetails.hash,
@@ -178,7 +128,7 @@ export async function generateKey(
   if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
     const algDetails =
       JWE_CONTENT_ENCRYPTION_ALGORITHMS[
-        alg as keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS
+        alg as AesGcmAlgorithm | AesCbcAlgorithm
       ];
     let keyGenParams: AesKeyGenParams;
     if (algDetails.type === "gcm") {
@@ -292,18 +242,14 @@ export async function importKey(
   let defaultUsages: KeyUsage[] = [];
 
   if (alg in JWS_ALGORITHMS_SYMMETRIC) {
-    const algDetails =
-      JWS_ALGORITHMS_SYMMETRIC[alg as keyof typeof JWS_ALGORITHMS_SYMMETRIC];
+    const algDetails = JWS_ALGORITHMS_SYMMETRIC[alg as HmacAlgorithm];
     algorithm = {
       name: algDetails.name,
       hash: algDetails.hash,
     } as HmacImportParams;
     defaultUsages = ["sign", "verify"];
   } else if (alg in JWS_ALGORITHMS_ASYMMETRIC_RSA) {
-    const algDetails =
-      JWS_ALGORITHMS_ASYMMETRIC_RSA[
-        alg as keyof typeof JWS_ALGORITHMS_ASYMMETRIC_RSA
-      ];
+    const algDetails = JWS_ALGORITHMS_ASYMMETRIC_RSA[alg as RsaSignAlgorithm];
     algorithm = {
       name: algDetails.name,
       hash: algDetails.hash,
@@ -319,8 +265,7 @@ export async function importKey(
     algorithm = { name: "AES-KW" };
     defaultUsages = ["wrapKey", "unwrapKey"];
   } else if (alg in JWE_KEY_WRAPPING_RSA) {
-    const algDetails =
-      JWE_KEY_WRAPPING_RSA[alg as keyof typeof JWE_KEY_WRAPPING_RSA];
+    const algDetails = JWE_KEY_WRAPPING_RSA[alg as RsaWrapAlgorithm];
     algorithm = {
       name: algDetails.name,
       hash: algDetails.hash,
@@ -330,7 +275,7 @@ export async function importKey(
   } else if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
     const algDetails =
       JWE_CONTENT_ENCRYPTION_ALGORITHMS[
-        alg as keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS
+        alg as AesGcmAlgorithm | AesCbcAlgorithm
       ];
     if (jwk.kty !== "oct")
       throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
@@ -350,7 +295,7 @@ export async function importKey(
       } else if (alg.startsWith("HS")) {
         // e.g., HS256 used for the HMAC key
         // Need to find the corresponding HMAC details
-        const hmacAlg = alg as keyof typeof JWS_ALGORITHMS_SYMMETRIC;
+        const hmacAlg = alg as HmacAlgorithm;
         if (!(hmacAlg in JWS_ALGORITHMS_SYMMETRIC)) {
           throw new Error(
             `Cannot determine HMAC parameters for MAC key with alg '${alg}'.`,
