@@ -5,7 +5,7 @@ import type { JWK } from "../src/types";
 
 describe("JWK Utilities", () => {
   describe("generateKey", () => {
-    it("should generate an oct JWK with specified length", async () => {
+    it("should generate an HMAC key", async () => {
       const crypto = await generateKey("HS256");
       expect(crypto).toBeInstanceOf(CryptoKey);
       expect(crypto.algorithm).toStrictEqual({
