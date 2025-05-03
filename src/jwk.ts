@@ -357,24 +357,12 @@ export async function importKey(
   }
 
   // 3. Perform Import
-  try {
-    const cryptoKey = await crypto.subtle.importKey(
-      "jwk",
-      jwk,
-      algorithm,
-      extractable,
-      keyUsages,
-    );
-    return cryptoKey;
-  } catch (error) {
-    console.error("Key import failed. Details:", {
-      jwk,
-      algorithm,
-      extractable,
-      keyUsages,
-    });
-    throw new Error(
-      `Failed to import key: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  const cryptoKey = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    algorithm,
+    extractable,
+    keyUsages,
+  );
+  return cryptoKey;
 }
