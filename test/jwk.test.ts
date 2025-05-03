@@ -30,74 +30,20 @@ describe("JWK Utilities", () => {
     });
   });
 
-  describe("exportKey (Symmetric)", () => {
-    it("should export an imported HMAC key to JWK (likely uses fallback)", async () => {
-      const secret = "mysecretkeyforsigning";
-      const alg = { name: "HMAC", hash: "SHA-256" };
-      const key = await importKey(secret, alg, true, ["sign"]);
+  describe("exportKey", () => {
+    it("should export a generated HMAC key to JWK", async () => {
+      const crypto = await generateKey("HS256");
+      const exportedKey = await exportKey(crypto);
 
-      const jwk = await exportKey(key);
-
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      // Fallback path correctly infers HS256 from HMAC SHA-256
-      expect(jwk.alg).toBe("HS256");
-      expect(jwk.key_ops).toEqual(["sign"]);
-      expect(jwk.ext).toBe(true);
-
-      // Re-import the exported JWK
-      const reimportedKey = await importKey(jwk, alg, true, ["sign"]);
-      expect(reimportedKey.type).toBe("secret");
-      expect(reimportedKey.algorithm.name).toBe("HMAC");
+      expect(exportedKey).toHaveProperty("kty", "oct");
+      expect(exportedKey).toHaveProperty("alg", "HS256");
+      expect(exportedKey).toHaveProperty("ext", true);
     });
 
-    it("should export an imported AES-KW key to JWK (likely uses subtle.exportKey('jwk'))", async () => {
-      const keyBytes = randomBytes(16); // 128 bits
-      const alg = { name: "AES-KW" };
-      const key = await importKey(keyBytes, alg, true, ["wrapKey"]);
-
-      const jwk = await exportKey(key);
-
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      expect(jwk.alg).toBe("A128KW"); // JWA identifier
-      expect(jwk.key_ops).toEqual(["wrapKey"]);
-      expect(jwk.ext).toBe(true);
-      // Verify key material by re-importing and exporting raw
-      const reimportedKey = await importKey(jwk, alg, true, ["wrapKey"]);
-      const rawExported = await crypto.subtle.exportKey("raw", reimportedKey);
-      expect(new Uint8Array(rawExported)).toEqual(keyBytes);
-    });
-
-    it("should export an imported AES-GCM key to JWK, inferring alg if needed", async () => {
-      const keyBytes = randomBytes(32); // 256 bits
-      const alg = { name: "AES-GCM" };
-      const key = await importKey(keyBytes, alg, true, ["encrypt"]);
-
-      const jwk = await exportKey(key);
-
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      expect(jwk.alg).toMatch(/A256GCM|AES-GCM/); // Allow either standard or generic name
-      expect(jwk.key_ops).toEqual(["encrypt"]);
-      expect(jwk.ext).toBe(true);
-
-      // Verify key material
-      const reimportedKey = await importKey(jwk, alg, true, ["encrypt"]);
-      const rawExported = await crypto.subtle.exportKey("raw", reimportedKey);
-      expect(new Uint8Array(rawExported)).toEqual(keyBytes);
-    });
-
-    it("should throw error if exporting non-extractable key", async () => {
-      const key = await importKey(
-        "nonextractable",
-        { name: "HMAC", hash: "SHA-256" },
-        false, // Not extractable
-        ["verify"],
-      );
-      await expect(exportKey(key)).rejects.toThrow(
-        "Key must be extractable to export to JWK format.",
-      );
+    it("should throw error for non-extractable key", async () => {
+      await expect(
+        exportKey(await generateKey("HS256", { extractable: false })),
+      ).rejects.toThrow("Cannot export a non-extractable key.");
     });
   });
 

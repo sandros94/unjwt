@@ -1,6 +1,5 @@
 import type { JWK } from "./types";
-import { JOSE_ALGORITHMS } from "./utils/defaults";
-import { base64UrlEncode, textEncoder, randomBytes } from "./utils";
+import { textEncoder, randomBytes } from "./utils";
 
 import {
   JWS_ALGORITHMS_SYMMETRIC,
@@ -225,75 +224,22 @@ export async function generateKey(
 }
 
 /**
- * Exports a CryptoKey to its JWK representation.
- * Supports symmetric ('oct') keys. Future versions will support asymmetric keys.
+ * Exports a CryptoKey to its JSON Web Key (JWK) representation.
  *
- * @param key The CryptoKey to export. Must be extractable.
+ * Note: The CryptoKey must have been created with the `extractable`
+ * property set to `true`.
  *
- * @returns Promise resolving to the JWK representation.
- * @throws Error if the key is not extractable or its type is unsupported for export.
+ * @param key The CryptoKey to export.
+ * @returns A Promise resolving to the JsonWebKey object.
+ * @throws Error if the key is not extractable or another export error occurs.
  */
-export async function exportKey(key: Readonly<CryptoKey>): Promise<JWK> {
+export async function exportKey(key: CryptoKey): Promise<JsonWebKey> {
   if (!key.extractable) {
-    throw new Error("Key must be extractable to export to JWK format.");
+    throw new Error("Cannot export a non-extractable key.");
   }
 
-  if (key.type === "secret") {
-    try {
-      // Prefer standard 'jwk' export if available
-      const jwk = await crypto.subtle.exportKey("jwk", key);
-
-      if (jwk.kty === "oct" && typeof jwk.k === "string") {
-        const finalJwk: JWK = {
-          ...jwk,
-          kty: "oct",
-          key_ops: jwk.key_ops || key.usages,
-          ext: jwk.ext ?? key.extractable,
-        };
-
-        // Infer 'alg' if missing
-        if (!finalJwk.alg && (key.algorithm as any).name === "HMAC") {
-          finalJwk.alg = `HS${(key.algorithm as HmacKeyAlgorithm).hash.name.split("-")[1]}`;
-        } else if (!finalJwk.alg) {
-          finalJwk.alg = (key.algorithm as any).name; // Fallback to algorithm name
-        }
-        return finalJwk;
-      }
-    } catch {
-      // Ignore error and fall through to manual 'raw' export if 'jwk' format failed
-    }
-
-    // Manual construction using 'raw' export (fallback)
-    const rawKey = await crypto.subtle.exportKey("raw", key);
-    const jwk: JWK = {
-      kty: "oct",
-      k: base64UrlEncode(new Uint8Array(rawKey)),
-      // Infer JWA algorithm name
-      alg:
-        (key.algorithm as any).name === "HMAC"
-          ? `HS${(key.algorithm as HmacKeyAlgorithm).hash.name.split("-")[1]}`
-          : (key.algorithm as any).name, // Use algorithm name directly (e.g., AES-KW)
-      key_ops: key.usages,
-      ext: key.extractable,
-    };
-    return jwk;
-  } else if (key.type === "public" || key.type === "private") {
-    // TODO: Implement asymmetric key export (RSA, EC)
-    // This will likely involve exporting as 'jwk' directly,
-    // as 'raw'/'pkcs8'/'spki' don't map directly to all JWK fields.
-    try {
-      const jwk = await crypto.subtle.exportKey("jwk", key);
-      // TODO: Validate the structure based on expected kty (RSA/EC)
-      // and return the JWK object (potentially casting/adjusting fields).
-      // For private keys, this will contain private parameters (d, p, q, etc.).
-      // For public keys, it will contain only public parameters (n, e for RSA; x, y for EC).
-      return jwk as JWK; // Placeholder cast
-    } catch (error) {
-      throw new Error(`Failed to export asymmetric key to JWK: ${error}`);
-    }
-  } else {
-    throw new Error(`Unsupported CryptoKey type for export: ${key.type}`);
-  }
+  const jwk = await crypto.subtle.exportKey("jwk", key);
+  return jwk;
 }
 
 /**
