@@ -41,7 +41,7 @@
     "lint:fix": "automd && eslint . --fix && prettier -w .",
     "prepack": "pnpm build",
     "release": "pnpm test && pnpm prepack && changelogen --release --push --publish",
-    "test": "pnpm lint && pnpm test:types && vitest run --coverage",
+    "test": "pnpm lint && pnpm test:types && vitest run --coverage --slowTestThreshold=500",
     "test:types": "tsc --noEmit --skipLibCheck"
   },
   "devDependencies": {
