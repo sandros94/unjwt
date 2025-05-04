@@ -25,7 +25,7 @@ export interface GenerateKeyOptions {
 /** Options for the importKey function. */
 export interface ImportKeyOptions {
   /** Fallback algorithm identifier if not present in the JWK. */
-  alg?: JoseAlgorithm; // Use the renamed comprehensive type
+  alg?: JoseAlgorithm;
   /** Fallback for key extractability if not present in the JWK. Defaults to false. */
   extractable?: boolean;
   /** Fallback for key usages if not present in the JWK. If still unspecified, defaults will be inferred. */
@@ -38,7 +38,7 @@ export interface DeriveKeyBitsOptions {
    * The desired length of the derived key in bits.
    * This depends on the algorithm the key will be used for (e.g., 256 for HS256 or A128GCM).
    */
-  keyLength?: number; // Changed to optional
+  keyLength?: number;
   /**
    * The cryptographic salt. Should be unique for each password,
    * ideally cryptographically random. If not provided, a random 16-byte salt will be generated.
