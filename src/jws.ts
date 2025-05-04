@@ -179,11 +179,9 @@ export async function verify<ToString extends boolean | undefined>(
     toString?: ToString;
   },
 ): Promise<{
-  payload: string | Uint8Array;
+  payload: ToString extends false ? Uint8Array : string;
   protectedHeader: JWSHeaderParameters;
 }> {
-  const { toString } = { toString: true as ToString, ...options };
-
   // 1. Parse JWS
   const parts = jws.split(".");
   if (parts.length !== 3) {
@@ -196,7 +194,7 @@ export async function verify<ToString extends boolean | undefined>(
   // 2. Decode Header
   let protectedHeader: JWSHeaderParameters;
   try {
-    protectedHeader = JSON.parse(base64UrlDecode(encodedProtectedHeader, true));
+    protectedHeader = JSON.parse(base64UrlDecode(encodedProtectedHeader));
   } catch (error_) {
     throw new Error(
       "Invalid JWS: Failed to decode or parse protected header.",
@@ -241,7 +239,7 @@ export async function verify<ToString extends boolean | undefined>(
   }
 
   // 4. Decode Signature
-  const signature = base64UrlDecode(encodedSignature);
+  const signature = base64UrlDecode(encodedSignature, false);
 
   // 5. Construct Signing Input (same as in sign)
   const signingInput = concatUint8Arrays(
@@ -271,7 +269,7 @@ export async function verify<ToString extends boolean | undefined>(
   }
 
   // 8. Decode Payload
-  const payload = base64UrlDecode(encodedPayload, toString);
+  const payload = base64UrlDecode(encodedPayload, options?.toString);
 
   return { payload, protectedHeader };
 }

@@ -14,17 +14,17 @@ export function base64UrlEncode(data: Uint8Array | string): string {
 }
 
 /* Base64 URL decoding function */
-export function base64UrlDecode(): Uint8Array;
-export function base64UrlDecode(str?: string | undefined): Uint8Array;
+export function base64UrlDecode(): string;
+export function base64UrlDecode(str?: string | undefined): string;
 export function base64UrlDecode<T extends boolean | undefined>(
   str?: string | undefined,
   toString?: T,
-): T extends true ? string : Uint8Array;
+): T extends false ? Uint8Array : string;
 export function base64UrlDecode<T extends boolean | undefined>(
   str?: string | undefined,
   toString?: T,
 ): Uint8Array | string {
-  const decodeToString = toString === true;
+  const decodeToString = toString !== false;
 
   if (!str) {
     return decodeToString ? "" : new Uint8Array(0);

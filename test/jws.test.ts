@@ -42,9 +42,9 @@ const decodeJws = (jws: string) => {
   if (parts.length !== 3) throw new Error("Invalid JWS format");
   const [header, payload, signature] = parts;
   return {
-    header: JSON.parse(base64UrlDecode(header, true)),
-    payload: base64UrlDecode(payload, true), // Decode as string for easy comparison
-    signatureBytes: base64UrlDecode(signature),
+    header: JSON.parse(base64UrlDecode(header)),
+    payload: base64UrlDecode(payload), // Decode as string for easy comparison
+    signatureBytes: base64UrlDecode(signature, false),
     headerRaw: header,
     payloadRaw: payload,
     signatureRaw: signature,
@@ -72,14 +72,14 @@ describe("JWS Utilities", () => {
       const jws = await sign(payloadBytes, rs256KeyPair.privateKey); // Use Uint8Array
       const decoded = decodeJws(jws);
       expect(decoded.header.alg).toBe("RS256");
-      expect(base64UrlDecode(decoded.payloadRaw)).toEqual(payloadBytes);
+      expect(base64UrlDecode(decoded.payloadRaw, false)).toEqual(payloadBytes);
     });
 
     it("should sign with RS256 JWK (private)", async () => {
       const jws = await sign(payloadBuffer, rs256PrivateJwk); // Use ArrayBuffer
       const decoded = decodeJws(jws);
       expect(decoded.header.alg).toBe("RS256");
-      expect(base64UrlDecode(decoded.payloadRaw).buffer).toEqual(payloadBuffer);
+      expect(base64UrlDecode(decoded.payloadRaw, false).buffer).toEqual(payloadBuffer);
     });
 
     it("should sign with PS256 CryptoKey (private)", async () => {
@@ -174,13 +174,13 @@ describe("JWS Utilities", () => {
     it("should verify HS256 with CryptoKey", async () => {
       const { payload, protectedHeader } = await verify(hs256Jws, hs256Key);
       expect(protectedHeader.alg).toBe("HS256");
-      expect(JSON.parse(payload as string)).toEqual(payloadObject); // Default toString: true
+      expect(JSON.parse(payload)).toEqual(payloadObject); // Default toString: true
     });
 
     it("should verify HS256 with JWK", async () => {
       const { payload, protectedHeader } = await verify(hs256Jws, hs256Jwk);
       expect(protectedHeader.alg).toBe("HS256");
-      expect(JSON.parse(payload as string)).toEqual(payloadObject);
+      expect(JSON.parse(payload)).toEqual(payloadObject);
     });
 
     it("should verify RS256 with CryptoKey (public)", async () => {
