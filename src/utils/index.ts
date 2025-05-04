@@ -1,4 +1,4 @@
-import type { JWK, DeriveKeyBitsOptions, DerivedKeyBitsResult } from "../types";
+import type { JWK } from "../types";
 
 export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
@@ -59,68 +59,6 @@ export function concatUint8Arrays(
   }
 
   return result;
-}
-
-/**
- * Derives raw key bits from a password using PBKDF2.
- *
- * This function generates the raw cryptographic material. You will typically
- * need to import these bits using `importKey` for the specific cryptographic
- * algorithm you intend to use (e.g., "HS256" for signing, "AES-GCM" for encryption).
- *
- * @param password The password to derive the key from.
- * @param options Options controlling the derivation process, including the desired key length.
- * @returns A Promise resolving to an object containing the derived bits, salt, and iterations.
- */
-export async function deriveKeyBitsFromPassword(
-  password: string | Uint8Array,
-  options: DeriveKeyBitsOptions & { keyLength: number },
-): Promise<DerivedKeyBitsResult> {
-  const {
-    keyLength,
-    salt = randomBytes(16),
-    iterations = 2048,
-    hash = "SHA-256",
-  } = options;
-
-  if (!keyLength || keyLength <= 0) {
-    throw new Error("keyLength must be a positive number.");
-  }
-  if (salt.length === 0) {
-    throw new Error("Salt cannot be empty.");
-  }
-  if (iterations <= 0) {
-    throw new Error("Iterations must be positive.");
-  }
-
-  const passwordBuffer =
-    typeof password === "string" ? textEncoder.encode(password) : password;
-
-  // 1. Import the password as a base key for PBKDF2
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    passwordBuffer,
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"],
-  );
-
-  // 2. Define PBKDF2 parameters
-  const pbkdf2Params: Pbkdf2Params = {
-    name: "PBKDF2",
-    hash: hash,
-    salt: salt,
-    iterations: iterations,
-  };
-
-  // 3. Derive the key bits
-  const derivedBits = await crypto.subtle.deriveBits(
-    pbkdf2Params,
-    baseKey,
-    keyLength,
-  );
-
-  return { derivedBits, salt, iterations, keyLength, hash };
 }
 
 /* Type guard for JWK */

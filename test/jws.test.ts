@@ -79,7 +79,9 @@ describe("JWS Utilities", () => {
       const jws = await sign(payloadBuffer, rs256PrivateJwk); // Use ArrayBuffer
       const decoded = decodeJws(jws);
       expect(decoded.header.alg).toBe("RS256");
-      expect(base64UrlDecode(decoded.payloadRaw, false).buffer).toEqual(payloadBuffer);
+      expect(base64UrlDecode(decoded.payloadRaw, false).buffer).toEqual(
+        payloadBuffer,
+      );
     });
 
     it("should sign with PS256 CryptoKey (private)", async () => {

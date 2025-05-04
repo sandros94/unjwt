@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { generateKey, exportKey, importKey } from "../src/jwk";
 import {
-  base64UrlEncode,
-  randomBytes,
+  generateKey,
+  exportKey,
+  importKey,
   deriveKeyBitsFromPassword,
-} from "../src/utils";
+} from "../src/jwk";
+import { base64UrlEncode, randomBytes } from "../src/utils";
 
 // Helper to check CryptoKey properties
 const checkCryptoKey = (
