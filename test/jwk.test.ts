@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateKey, exportKey, importKey } from "../src/jwk";
-import { base64UrlEncode, randomBytes } from "../src/utils";
+import { base64UrlEncode, randomBytes, deriveKeyBitsFromPassword } from "../src/utils";
 
 // Helper to check CryptoKey properties
 const checkCryptoKey = (
@@ -222,6 +222,57 @@ describe("JWK Utilities", () => {
 
       checkCryptoKey(cryptoKey, "AES-CBC", "secret", ["encrypt", "decrypt"]);
       expect((cryptoKey.algorithm as AesKeyAlgorithm).length).toBe(128);
+    });
+
+    // --- Importing Raw Key Bits ---
+    it("should import raw key bits for HS256", async () => {
+      const derivedBits = new Uint8Array(32).buffer; // Example 256 bits for HS256
+      const cryptoKey = await importKey(derivedBits, {
+        alg: "HS256",
+        keyUsages: ["sign", "verify"],
+      });
+
+      expect(cryptoKey).toBeInstanceOf(CryptoKey);
+      expect(cryptoKey.algorithm.name).toBe("HMAC");
+      expect(cryptoKey.type).toBe("secret");
+      expect(cryptoKey.usages).toEqual(expect.arrayContaining(["sign", "verify"]));
+    });
+
+    it("should import a raw key bits which successfully encrypt and decrypt", async () => {
+      const password = "password123";
+      const { derivedBits } = await deriveKeyBitsFromPassword(password, {
+        keyLength: 128,
+        iterations: 16, // 16 iterations for testing
+      });
+
+      const cryptoKey = await importKey(derivedBits, {
+        alg: "A128GCM",
+        keyUsages: ["encrypt", "decrypt"],
+      });
+
+      const data = "Hello, World!";
+      const iv = randomBytes(12);
+      const encryptedData = await crypto.subtle.encrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+          tagLength: 128,
+        },
+        cryptoKey,
+        new TextEncoder().encode(data),
+      );
+      const decryptedData = await crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+          tagLength: 128,
+        },
+        cryptoKey,
+        encryptedData,
+      );
+
+      expect(encryptedData).toBeInstanceOf(ArrayBuffer);
+      expect(new TextDecoder().decode(decryptedData)).toBe(data);
     });
 
     // --- Fallback Logic ---

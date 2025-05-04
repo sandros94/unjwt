@@ -6,17 +6,16 @@ import {
   JWE_CONTENT_ENCRYPTION_ALGORITHMS,
 } from "./utils/defaults";
 
-// Import types from their new locations
 import type {
-  HmacAlgorithm, // Renamed from SupportedHmacAlg
-  AesKwWrapAlgorithm, // Renamed from SupportedAesKwAlg
-  AesGcmAlgorithm, // Renamed from SupportedAesGcmAlg
-  AesCbcAlgorithm, // Renamed from SupportedCbcAlg
-  RsaSignAlgorithm, // Renamed from SupportedRsaSignAlg
-  RsaWrapAlgorithm, // Renamed from SupportedRsaWrapAlg
-  JoseSingleKeyAlgorithm, // Renamed from SupportedSymSingleKeyAlg
-  JoseKeyPairAlgorithm, // Renamed from SupportedAsymKeyPairAlg
-  JoseAlgorithm, // Renamed from SupportedJwkAlg
+  HmacAlgorithm,
+  HmacWrapAlgorithm,
+  AesGcmAlgorithm,
+  AesCbcAlgorithm,
+  RsaSignAlgorithm,
+  RsaWrapAlgorithm,
+  JoseSingleKeyAlgorithm,
+  JoseKeyPairAlgorithm,
+  JoseAlgorithm,
 } from "./types/defaults";
 import type {
   CompositeKey,
@@ -98,7 +97,7 @@ export async function generateKey(
   // JWE Key Wrapping (PBES2 -> AES-KW)
   // Note: This generates the AES-KW key, not the PBES2 derived key itself.
   if (alg in JWE_KEY_WRAPPING_HMAC) {
-    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKwWrapAlgorithm];
+    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
     const keyGenParams: AesKeyGenParams = {
       name: "AES-KW",
       length: algDetails.keyLength,
@@ -199,22 +198,88 @@ export async function exportKey(
 }
 
 /**
- * Imports a JSON Web Key (JWK) into a CryptoKey object.
+ * Imports a cryptographic key from either its JSON Web Key (JWK) representation
+ * or from raw key bits (ArrayBuffer/Uint8Array).
  *
- * It prioritizes metadata within the JWK (`alg`, `ext`, `key_ops`).
- * Fallbacks can be provided via the options object.
- * Default key usages are inferred based on the algorithm and key type if not specified.
+ * When importing raw key bits (e.g., derived from a password using
+ * `deriveKeyBitsFromPassword`), the `alg` and `keyUsages` must be specified
+ * in the `options` parameter to define the key's intended algorithm and
+ * allowed operations.
  *
- * @param jwk The JsonWebKey object to import.
- * @param options Optional fallbacks for algorithm, extractability, and key usages.
+ * When importing a JWK, the function attempts to infer the algorithm and
+ * key usages from the JWK properties (`alg`, `use`, `key_ops`) if not
+ * explicitly provided in the `options`.
+ *
+ * @param keyData The key data, either as a JsonWebKey object or an ArrayBuffer/Uint8Array containing raw key bits.
+ * @param options Optional parameters for key import. Required when importing raw key bits.
+ * @param options.alg The algorithm identifier (e.g., "HS256", "RSA-OAEP", "A256GCM"). Mandatory if not present in the JWK or when importing raw bits.
+ * @param options.keyUsages An array of key usage strings (e.g., ["sign", "verify"], ["encrypt", "decrypt"]). Mandatory if not present in the JWK or when importing raw bits.
+ * @param options.extractable A boolean indicating whether the imported key should be extractable. Defaults to `true`.
  * @returns A Promise resolving to the imported CryptoKey.
- * @throws Error if the algorithm cannot be determined or is unsupported,
- *         or if key usages cannot be determined, or if import fails.
+ * @throws Error if required information (like `alg` or `keyUsages` for raw import) is missing or if the algorithm/key type combination is unsupported.
  */
 export async function importKey(
-  jwk: JsonWebKey,
+  keyData: ArrayBuffer,
+  options?: ImportKeyOptions,
+): Promise<CryptoKey>
+export async function importKey(
+  keyData: JsonWebKey,
+  options?: ImportKeyOptions,
+): Promise<CryptoKey>
+export async function importKey(
+  keyData: JsonWebKey | ArrayBuffer,
   options: ImportKeyOptions = {},
 ): Promise<CryptoKey> {
+  // --- Handle Password or Raw Key Bits Import ---
+  if (keyData instanceof ArrayBuffer || keyData instanceof Uint8Array) {
+    const { alg, keyUsages, extractable = true } = options;
+    if (!alg) {
+      throw new Error("Algorithm ('alg') must be specified in options when importing raw key bits.");
+    }
+    if (!keyUsages || keyUsages.length === 0) {
+      throw new Error("Key usages ('keyUsages') must be specified in options when importing raw key bits.");
+    }
+
+    let algorithm: AlgorithmIdentifier | RsaHashedImportParams | HmacImportParams | AesKeyAlgorithm;
+
+    // Determine algorithm parameters based on the provided 'alg'
+    if (alg in JWS_ALGORITHMS_SYMMETRIC) {
+      const algDetails = JWS_ALGORITHMS_SYMMETRIC[alg as HmacAlgorithm];
+      algorithm = { name: algDetails.name, hash: algDetails.hash } as HmacImportParams;
+    } else if (alg in JWE_KEY_WRAPPING_HMAC) {
+       // PBES2 itself isn't imported directly, treating as AES-KW key
+      const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
+      algorithm = "hash" in algDetails
+        ? { name: "AES-KW", hash: algDetails.hash }
+        : { name: "AES-KW" };
+    } else if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
+      const algDetails = JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as AesGcmAlgorithm | AesCbcAlgorithm]
+      if (algDetails.type === "gcm") {
+        algorithm = { name: "AES-GCM" };
+      } else if (algDetails.type === "cbc") {
+        algorithm = { name: "AES-CBC" };
+      } else {
+         /* v8 ignore next 2 */
+        throw new Error(`Unsupported JWE content encryption algorithm type for raw import: ${(algDetails as any).type}`);
+      }
+    } else {
+      // Note: Asymmetric keys (RSA) cannot typically be imported
+      // from raw bits directly. JWK format is preferred for them.
+      throw new Error(`Unsupported or unsuitable algorithm for raw key import: ${alg}`);
+    }
+
+    return crypto.subtle.importKey(
+      "raw",
+      keyData,
+      algorithm,
+      extractable,
+      keyUsages,
+    );
+  }
+
+  // --- Existing JWK Import Logic ---
+  const jwk = keyData;
+
   // 1. Determine Informations
   const alg = jwk.alg ?? options.alg;
   if (!alg) {
@@ -258,7 +323,10 @@ export async function importKey(
   } else if (alg in JWE_KEY_WRAPPING_HMAC) {
     if (jwk.kty !== "oct")
       throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
-    algorithm = { name: "AES-KW" };
+    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
+    algorithm = "hash" in algDetails
+      ? { name: "AES-KW", hash: algDetails.hash }
+      : { name: "AES-KW" };
     defaultUsages = ["wrapKey", "unwrapKey"];
   } else if (alg in JWE_KEY_WRAPPING_RSA) {
     const algDetails = JWE_KEY_WRAPPING_RSA[alg as RsaWrapAlgorithm];

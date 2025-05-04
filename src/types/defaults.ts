@@ -12,7 +12,7 @@ import type {
 export type HmacAlgorithm = keyof typeof JWS_ALGORITHMS_SYMMETRIC;
 
 /** Set of supported AES Key Wrap algorithm identifiers (used in PBES2). */
-export type AesKwWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_HMAC;
+export type HmacWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_HMAC;
 
 /** Set of supported AES-GCM algorithm identifiers. */
 export type AesGcmAlgorithm = {
@@ -39,7 +39,7 @@ export type RsaWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_RSA;
 /** Set of JOSE algorithms that typically use a single symmetric CryptoKey. */
 export type JoseSingleKeyAlgorithm =
   | HmacAlgorithm
-  | AesKwWrapAlgorithm
+  | HmacWrapAlgorithm
   | AesGcmAlgorithm;
 
 /** Set of JOSE algorithms that typically use an asymmetric CryptoKeyPair. */

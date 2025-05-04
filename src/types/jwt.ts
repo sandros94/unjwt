@@ -1,4 +1,4 @@
-import type { JWK } from "./jwk";
+import type { JWK_RSA_Public } from "./jwk";
 
 /** Header Parameters common to JWE and JWS */
 export interface JoseHeaderParameters {
@@ -18,7 +18,7 @@ export interface JoseHeaderParameters {
   jku?: string;
 
   /** "jwk" (JSON Web Key) Header Parameter */
-  jwk?: Pick<JWK, "kty" | "crv" | "x" | "y" | "e" | "n">;
+  jwk?: JWK_RSA_Public;
 
   /** "typ" (Type) Header Parameter */
   typ?: string;

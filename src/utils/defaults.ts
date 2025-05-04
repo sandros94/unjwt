@@ -69,22 +69,22 @@ export const JWE_KEY_WRAPPING_RSA = /* @__PURE__ */ Object.freeze({
   "RSA-OAEP": {
     name: "RSA-OAEP",
     hash: "SHA-1",
-    length: 256,
+    keyLength: 256,
   },
   "RSA-OAEP-256": {
     name: "RSA-OAEP",
     hash: "SHA-256",
-    length: 256,
+    keyLength: 256,
   },
   "RSA-OAEP-384": {
     name: "RSA-OAEP",
     hash: "SHA-384",
-    length: 384,
+    keyLength: 384,
   },
   "RSA-OAEP-512": {
     name: "RSA-OAEP",
     hash: "SHA-512",
-    length: 512,
+    keyLength: 512,
   },
 } as const);
 
