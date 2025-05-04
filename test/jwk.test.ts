@@ -49,7 +49,9 @@ describe("JWK Utilities", () => {
       expect((key.algorithm as AesKeyAlgorithm).length).toBe(128);
       expect(key.type).toBe("secret");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["wrapKey", "unwrapKey"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "unwrapKey"]),
+      );
     });
 
     it("should generate A256KW CryptoKey (from PBES2 alg)", async () => {
@@ -59,7 +61,9 @@ describe("JWK Utilities", () => {
       expect((key.algorithm as AesKeyAlgorithm).length).toBe(256);
       expect(key.type).toBe("secret");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["wrapKey", "unwrapKey"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "unwrapKey"]),
+      );
     });
 
     it("should generate A128GCM CryptoKey", async () => {
@@ -69,7 +73,9 @@ describe("JWK Utilities", () => {
       expect((key.algorithm as AesKeyAlgorithm).length).toBe(128);
       expect(key.type).toBe("secret");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["encrypt", "decrypt"]),
+      );
     });
 
     // --- Asymmetric Key Generation ---
@@ -87,8 +93,12 @@ describe("JWK Utilities", () => {
       expect(keyPair.privateKey.type).toBe("private");
       expect(keyPair.publicKey.extractable).toBe(true);
       expect(keyPair.privateKey.extractable).toBe(true);
-      expect(keyPair.publicKey.usages).toEqual(expect.arrayContaining(["verify"]));
-      expect(keyPair.privateKey.usages).toEqual(expect.arrayContaining(["sign"]));
+      expect(keyPair.publicKey.usages).toEqual(
+        expect.arrayContaining(["verify"]),
+      );
+      expect(keyPair.privateKey.usages).toEqual(
+        expect.arrayContaining(["sign"]),
+      );
     });
 
     it("should generate PS384 CryptoKeyPair with options", async () => {
@@ -107,8 +117,12 @@ describe("JWK Utilities", () => {
       ).toBe(3072);
       // expect(keyPair.publicKey.extractable).toBe(false); // TODO: doesn't work in webcrypto
       // expect(keyPair.privateKey.extractable).toBe(false); // TODO: doesn't work in webcrypto
-      expect(keyPair.publicKey.usages).toEqual(expect.arrayContaining(["verify"])); // Overrides custom usage for public
-      expect(keyPair.privateKey.usages).toEqual(expect.arrayContaining(["sign"])); // Overrides custom usage for private
+      expect(keyPair.publicKey.usages).toEqual(
+        expect.arrayContaining(["verify"]),
+      ); // Overrides custom usage for public
+      expect(keyPair.privateKey.usages).toEqual(
+        expect.arrayContaining(["sign"]),
+      ); // Overrides custom usage for private
     });
 
     it("should generate RSA-OAEP-256 CryptoKeyPair", async () => {
@@ -119,8 +133,12 @@ describe("JWK Utilities", () => {
       ).toBe("SHA-256");
       expect(keyPair.publicKey.type).toBe("public");
       expect(keyPair.privateKey.type).toBe("private");
-      expect(keyPair.publicKey.usages).toEqual(expect.arrayContaining(["wrapKey", "encrypt"]));
-      expect(keyPair.privateKey.usages).toEqual(expect.arrayContaining(["unwrapKey", "decrypt"]));
+      expect(keyPair.publicKey.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "encrypt"]),
+      );
+      expect(keyPair.privateKey.usages).toEqual(
+        expect.arrayContaining(["unwrapKey", "decrypt"]),
+      );
     });
 
     // --- Composite Key Generation ---
@@ -136,14 +154,18 @@ describe("JWK Utilities", () => {
         (compositeKey.encryptionKey.algorithm as AesKeyAlgorithm).length,
       ).toBe(128);
       expect(compositeKey.encryptionKey.extractable).toBe(true);
-      expect(compositeKey.encryptionKey.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+      expect(compositeKey.encryptionKey.usages).toEqual(
+        expect.arrayContaining(["encrypt", "decrypt"]),
+      );
 
       expect(compositeKey.macKey.algorithm.name).toBe("HMAC");
       expect(
         (compositeKey.macKey.algorithm as HmacKeyAlgorithm).hash.name,
       ).toBe("SHA-256");
       expect(compositeKey.macKey.extractable).toBe(true);
-      expect(compositeKey.macKey.usages).toEqual(expect.arrayContaining(["sign", "verify"]));
+      expect(compositeKey.macKey.usages).toEqual(
+        expect.arrayContaining(["sign", "verify"]),
+      );
     });
 
     it("should generate A192CBC-HS384 CompositeKey", async () => {
@@ -158,14 +180,18 @@ describe("JWK Utilities", () => {
         (compositeKey.encryptionKey.algorithm as AesKeyAlgorithm).length,
       ).toBe(192);
       expect(compositeKey.encryptionKey.extractable).toBe(true);
-      expect(compositeKey.encryptionKey.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+      expect(compositeKey.encryptionKey.usages).toEqual(
+        expect.arrayContaining(["encrypt", "decrypt"]),
+      );
 
       expect(compositeKey.macKey.algorithm.name).toBe("HMAC");
       expect(
         (compositeKey.macKey.algorithm as HmacKeyAlgorithm).hash.name,
       ).toBe("SHA-384");
       expect(compositeKey.macKey.extractable).toBe(true);
-      expect(compositeKey.macKey.usages).toEqual(expect.arrayContaining(["sign", "verify"]));
+      expect(compositeKey.macKey.usages).toEqual(
+        expect.arrayContaining(["sign", "verify"]),
+      );
     });
 
     it("should generate A256CBC-HS512 CompositeKey with extractable false", async () => {
@@ -326,7 +352,9 @@ describe("JWK Utilities", () => {
       expect(key).toBeInstanceOf(CryptoKey);
       expect(key.algorithm.name).toBe("AES-KW");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["wrapKey", "unwrapKey"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "unwrapKey"]),
+      );
     });
 
     it("should import A128GCM JWK", async () => {
@@ -334,7 +362,9 @@ describe("JWK Utilities", () => {
       expect(key).toBeInstanceOf(CryptoKey);
       expect(key.algorithm.name).toBe("AES-GCM");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["encrypt", "decrypt"]),
+      );
     });
 
     it("should import RSA-OAEP-256 public JWK", async () => {
@@ -343,7 +373,9 @@ describe("JWK Utilities", () => {
       expect(key.algorithm.name).toBe("RSA-OAEP");
       expect(key.type).toBe("public");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["wrapKey", "encrypt"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "encrypt"]),
+      );
     });
 
     it("should use alg from options if JWK alg is missing", async () => {
@@ -383,12 +415,16 @@ describe("JWK Utilities", () => {
       const jwkUseEnc = { ...a128kwJwk, use: "enc" } as JWK_oct;
       delete jwkUseEnc.key_ops;
       const key = await importKey(jwkUseEnc);
-      expect(key.usages).toEqual(expect.arrayContaining(["wrapKey", "unwrapKey"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "unwrapKey"]),
+      );
 
       const rsaJwkUseEnc = { ...rsaOaepPublicJwk, use: "enc" } as JWK_RSA;
       delete rsaJwkUseEnc.key_ops;
       const rsaKey = await importKey(rsaJwkUseEnc);
-      expect(rsaKey.usages).toEqual(expect.arrayContaining(["wrapKey", "encrypt"]));
+      expect(rsaKey.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "encrypt"]),
+      );
     });
 
     // --- Error Cases ---
@@ -470,7 +506,9 @@ describe("JWK Utilities", () => {
       expect(key).toBeInstanceOf(CryptoKey);
       expect(key.algorithm.name).toBe("AES-KW");
       expect(key.extractable).toBe(false);
-      expect(key.usages).toEqual(expect.arrayContaining(["wrapKey", "unwrapKey"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["wrapKey", "unwrapKey"]),
+      );
     });
 
     it("should import raw bits for A256GCM", async () => {
@@ -483,7 +521,9 @@ describe("JWK Utilities", () => {
       expect(key).toBeInstanceOf(CryptoKey);
       expect(key.algorithm.name).toBe("AES-GCM");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["encrypt", "decrypt"]),
+      );
     });
 
     it("should import raw bits for AES-CBC (encryption part)", async () => {
@@ -496,7 +536,9 @@ describe("JWK Utilities", () => {
       expect(key).toBeInstanceOf(CryptoKey);
       expect(key.algorithm.name).toBe("AES-CBC");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["encrypt", "decrypt"]),
+      );
     });
 
     it("should import raw bits for AES-CBC (from specific JWE alg)", async () => {
@@ -509,7 +551,9 @@ describe("JWK Utilities", () => {
       expect(key).toBeInstanceOf(CryptoKey);
       expect(key.algorithm.name).toBe("AES-CBC");
       expect(key.extractable).toBe(true);
-      expect(key.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+      expect(key.usages).toEqual(
+        expect.arrayContaining(["encrypt", "decrypt"]),
+      );
     });
 
     // --- Error Cases ---
