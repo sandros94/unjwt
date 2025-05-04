@@ -119,7 +119,7 @@ export interface JWKParameters {
   kid?: string;
 }
 
-/** Convenience interface for Public RSA JSON Web Keys */
+/** Public RSA JSON Web Keys */
 export interface JWK_RSA_Public extends JWKParameters {
   /** RSA JWK "e" (Exponent) Parameter */
   e: string;
@@ -128,7 +128,7 @@ export interface JWK_RSA_Public extends JWKParameters {
   oth?: RsaOtherPrimesInfo[];
 }
 
-/** Convenience interface for Private RSA JSON Web Keys */
+/** Private RSA JSON Web Keys */
 export interface JWK_RSA_Private extends JWK_RSA_Public, JWKParameters {
   /** RSA JWK "d" (Private Exponent) Parameter */
   d: string;
@@ -144,14 +144,16 @@ export interface JWK_RSA_Private extends JWK_RSA_Public, JWKParameters {
   qi: string;
 }
 
-/** Convenience interface for oct JSON Web Keys */
+/** RSA JSON Web Keys */
+export type JWK_RSA = JWK_RSA_Public | JWK_RSA_Private;
+
+/** oct JSON Web Keys */
 export interface JWK_oct extends JWKParameters {
   /** Oct JWK "k" (Key Value) Parameter */
   k: string;
 }
 
 /**
- * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA" and "oct"
- * key types are supported.
+ * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA" and "oct" key types are supported.
  */
-export type JWK = JWK_RSA_Public | JWK_RSA_Private | JWK_oct;
+export type JWK = JWK_RSA | JWK_oct;

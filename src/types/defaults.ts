@@ -28,6 +28,12 @@ export type AesCbcAlgorithm = {
     : never;
 }[keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS];
 
+/** Set of supported JWE Content Encryption algorithm identifiers. */
+export type KeyWrappingAlgorithm = HmacWrapAlgorithm | RsaWrapAlgorithm;
+
+/** Set of supported JWE Content Encryption algorithm identifiers. */
+export type ContentEncryptionAlgorithm = AesGcmAlgorithm | AesCbcAlgorithm;
+
 /** Set of supported RSA Signing algorithm identifiers. */
 export type RsaSignAlgorithm = keyof typeof JWS_ALGORITHMS_ASYMMETRIC_RSA;
 
@@ -49,4 +55,5 @@ export type JoseKeyPairAlgorithm = RsaSignAlgorithm | RsaWrapAlgorithm;
 export type JoseAlgorithm =
   | JoseSingleKeyAlgorithm
   | JoseKeyPairAlgorithm
-  | AesCbcAlgorithm;
+  | AesCbcAlgorithm
+  | "AES-CBC";

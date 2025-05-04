@@ -10,8 +10,8 @@ import { randomBytes, textEncoder } from "./utils";
 import type {
   HmacAlgorithm,
   HmacWrapAlgorithm,
-  AesGcmAlgorithm,
   AesCbcAlgorithm,
+  ContentEncryptionAlgorithm,
   RsaSignAlgorithm,
   RsaWrapAlgorithm,
   JoseSingleKeyAlgorithm,
@@ -130,9 +130,7 @@ export async function generateKey(
   // JWE Content Encryption (AES-GCM / AES-CBC)
   if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
     const algDetails =
-      JWE_CONTENT_ENCRYPTION_ALGORITHMS[
-        alg as AesGcmAlgorithm | AesCbcAlgorithm
-      ];
+      JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as ContentEncryptionAlgorithm];
     let keyGenParams: AesKeyGenParams;
     if (algDetails.type === "gcm") {
       // --- Generate AES-GCM Key ---
@@ -269,9 +267,7 @@ export async function importKey(
           : { name: "AES-KW" };
     } else if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
       const algDetails =
-        JWE_CONTENT_ENCRYPTION_ALGORITHMS[
-          alg as AesGcmAlgorithm | AesCbcAlgorithm
-        ];
+        JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as ContentEncryptionAlgorithm];
       if (algDetails.type === "gcm") {
         algorithm = { name: "AES-GCM" };
       } else if (algDetails.type === "cbc") {
@@ -282,6 +278,8 @@ export async function importKey(
           `Unsupported JWE content encryption algorithm type for raw import: ${(algDetails as any).type}`,
         );
       }
+    } else if (alg === "AES-CBC") {
+      algorithm = { name: "AES-CBC" };
     } else {
       // Note: Asymmetric keys (RSA) cannot typically be imported
       // from raw bits directly. JWK format is preferred for them.
@@ -361,9 +359,7 @@ export async function importKey(
     defaultUsages = jwk.d ? ["unwrapKey", "decrypt"] : ["wrapKey", "encrypt"];
   } else if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
     const algDetails =
-      JWE_CONTENT_ENCRYPTION_ALGORITHMS[
-        alg as AesGcmAlgorithm | AesCbcAlgorithm
-      ];
+      JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as ContentEncryptionAlgorithm];
     if (jwk.kty !== "oct")
       throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
 
