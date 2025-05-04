@@ -220,7 +220,7 @@ export async function exportKey(
  * @throws Error if required information (like `alg` or `keyUsages` for raw import) is missing or if the algorithm/key type combination is unsupported.
  */
 export async function importKey(
-  keyData: ArrayBuffer,
+  keyData: ArrayBuffer | Uint8Array,
   options?: ImportKeyOptions,
 ): Promise<CryptoKey>;
 export async function importKey(
@@ -228,7 +228,7 @@ export async function importKey(
   options?: ImportKeyOptions,
 ): Promise<CryptoKey>;
 export async function importKey(
-  keyData: JsonWebKey | ArrayBuffer,
+  keyData: JsonWebKey | ArrayBuffer | Uint8Array,
   options: ImportKeyOptions = {},
 ): Promise<CryptoKey> {
   // --- Handle Password or Raw Key Bits Import ---
