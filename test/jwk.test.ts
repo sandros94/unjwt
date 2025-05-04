@@ -142,7 +142,28 @@ describe("JWK Utilities", () => {
       expect(
         (compositeKey.macKey.algorithm as HmacKeyAlgorithm).hash.name,
       ).toBe("SHA-256");
-      // expect((compositeKey.macKey.algorithm as HmacKeyAlgorithm).length).toBe(128); // Length might not be directly available/standardized on algorithm object
+      expect(compositeKey.macKey.extractable).toBe(true);
+      expect(compositeKey.macKey.usages).toEqual(expect.arrayContaining(["sign", "verify"]));
+    });
+
+    it("should generate A192CBC-HS384 CompositeKey", async () => {
+      const compositeKey = await generateKey("A192CBC-HS384");
+      expect(compositeKey).toHaveProperty("encryptionKey");
+      expect(compositeKey).toHaveProperty("macKey");
+      expect(compositeKey.encryptionKey).toBeInstanceOf(CryptoKey);
+      expect(compositeKey.macKey).toBeInstanceOf(CryptoKey);
+
+      expect(compositeKey.encryptionKey.algorithm.name).toBe("AES-CBC");
+      expect(
+        (compositeKey.encryptionKey.algorithm as AesKeyAlgorithm).length,
+      ).toBe(192);
+      expect(compositeKey.encryptionKey.extractable).toBe(true);
+      expect(compositeKey.encryptionKey.usages).toEqual(expect.arrayContaining(["encrypt", "decrypt"]));
+
+      expect(compositeKey.macKey.algorithm.name).toBe("HMAC");
+      expect(
+        (compositeKey.macKey.algorithm as HmacKeyAlgorithm).hash.name,
+      ).toBe("SHA-384");
       expect(compositeKey.macKey.extractable).toBe(true);
       expect(compositeKey.macKey.usages).toEqual(expect.arrayContaining(["sign", "verify"]));
     });
