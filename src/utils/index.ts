@@ -20,9 +20,9 @@ export function base64UrlDecode<T extends boolean | undefined>(
   str?: string | undefined,
   toString?: T,
 ): T extends false ? Uint8Array : string;
-export function base64UrlDecode<T extends boolean | undefined>(
+export function base64UrlDecode(
   str?: string | undefined,
-  toString?: T,
+  toString?: boolean | undefined,
 ): Uint8Array | string {
   const decodeToString = toString !== false;
 
