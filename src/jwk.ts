@@ -301,7 +301,7 @@ export async function importKey(
   const jwk = keyData;
 
   // 1. Determine Informations
-  const alg = jwk.alg ?? options.alg;
+  const alg = options.alg ?? jwk.alg;
   if (!alg) {
     // Attempt basic inference for common types if alg is missing
     if (jwk.kty === "oct" && jwk.k) {
@@ -317,7 +317,7 @@ export async function importKey(
     }
     throw new Error("Algorithm ('alg') must be present in JWK or options.");
   }
-  const extractable = jwk.ext ?? options.extractable ?? true;
+  const extractable = options.extractable ?? jwk.ext ?? true;
 
   let algorithm:
     | AlgorithmIdentifier
@@ -382,7 +382,7 @@ export async function importKey(
 
   // 2. Determine Key Usages
   let keyUsages: KeyUsage[] | undefined =
-    (jwk.key_ops as KeyUsage[] | undefined) ?? options.keyUsages;
+    options.keyUsages ?? (jwk.key_ops as KeyUsage[] | undefined);
 
   if (!keyUsages) {
     // If still undefined, try inferring from jwk.use or apply defaults
