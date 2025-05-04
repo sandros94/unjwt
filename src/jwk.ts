@@ -221,11 +221,11 @@ export async function exportKey(
 export async function importKey(
   keyData: ArrayBuffer,
   options?: ImportKeyOptions,
-): Promise<CryptoKey>
+): Promise<CryptoKey>;
 export async function importKey(
   keyData: JsonWebKey,
   options?: ImportKeyOptions,
-): Promise<CryptoKey>
+): Promise<CryptoKey>;
 export async function importKey(
   keyData: JsonWebKey | ArrayBuffer,
   options: ImportKeyOptions = {},
@@ -234,38 +234,57 @@ export async function importKey(
   if (keyData instanceof ArrayBuffer || keyData instanceof Uint8Array) {
     const { alg, keyUsages, extractable = true } = options;
     if (!alg) {
-      throw new Error("Algorithm ('alg') must be specified in options when importing raw key bits.");
+      throw new Error(
+        "Algorithm ('alg') must be specified in options when importing raw key bits.",
+      );
     }
     if (!keyUsages || keyUsages.length === 0) {
-      throw new Error("Key usages ('keyUsages') must be specified in options when importing raw key bits.");
+      throw new Error(
+        "Key usages ('keyUsages') must be specified in options when importing raw key bits.",
+      );
     }
 
-    let algorithm: AlgorithmIdentifier | RsaHashedImportParams | HmacImportParams | AesKeyAlgorithm;
+    let algorithm:
+      | AlgorithmIdentifier
+      | RsaHashedImportParams
+      | HmacImportParams
+      | AesKeyAlgorithm;
 
     // Determine algorithm parameters based on the provided 'alg'
     if (alg in JWS_ALGORITHMS_SYMMETRIC) {
       const algDetails = JWS_ALGORITHMS_SYMMETRIC[alg as HmacAlgorithm];
-      algorithm = { name: algDetails.name, hash: algDetails.hash } as HmacImportParams;
+      algorithm = {
+        name: algDetails.name,
+        hash: algDetails.hash,
+      } as HmacImportParams;
     } else if (alg in JWE_KEY_WRAPPING_HMAC) {
-       // PBES2 itself isn't imported directly, treating as AES-KW key
+      // PBES2 itself isn't imported directly, treating as AES-KW key
       const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
-      algorithm = "hash" in algDetails
-        ? { name: "AES-KW", hash: algDetails.hash }
-        : { name: "AES-KW" };
+      algorithm =
+        "hash" in algDetails
+          ? { name: "AES-KW", hash: algDetails.hash }
+          : { name: "AES-KW" };
     } else if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
-      const algDetails = JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as AesGcmAlgorithm | AesCbcAlgorithm]
+      const algDetails =
+        JWE_CONTENT_ENCRYPTION_ALGORITHMS[
+          alg as AesGcmAlgorithm | AesCbcAlgorithm
+        ];
       if (algDetails.type === "gcm") {
         algorithm = { name: "AES-GCM" };
       } else if (algDetails.type === "cbc") {
         algorithm = { name: "AES-CBC" };
       } else {
-         /* v8 ignore next 2 */
-        throw new Error(`Unsupported JWE content encryption algorithm type for raw import: ${(algDetails as any).type}`);
+        /* v8 ignore next 2 */
+        throw new Error(
+          `Unsupported JWE content encryption algorithm type for raw import: ${(algDetails as any).type}`,
+        );
       }
     } else {
       // Note: Asymmetric keys (RSA) cannot typically be imported
       // from raw bits directly. JWK format is preferred for them.
-      throw new Error(`Unsupported or unsuitable algorithm for raw key import: ${alg}`);
+      throw new Error(
+        `Unsupported or unsuitable algorithm for raw key import: ${alg}`,
+      );
     }
 
     return crypto.subtle.importKey(
@@ -324,9 +343,10 @@ export async function importKey(
     if (jwk.kty !== "oct")
       throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
     const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
-    algorithm = "hash" in algDetails
-      ? { name: "AES-KW", hash: algDetails.hash }
-      : { name: "AES-KW" };
+    algorithm =
+      "hash" in algDetails
+        ? { name: "AES-KW", hash: algDetails.hash }
+        : { name: "AES-KW" };
     defaultUsages = ["wrapKey", "unwrapKey"];
   } else if (alg in JWE_KEY_WRAPPING_RSA) {
     const algDetails = JWE_KEY_WRAPPING_RSA[alg as RsaWrapAlgorithm];

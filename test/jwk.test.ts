@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { generateKey, exportKey, importKey } from "../src/jwk";
-import { base64UrlEncode, randomBytes, deriveKeyBitsFromPassword } from "../src/utils";
+import {
+  base64UrlEncode,
+  randomBytes,
+  deriveKeyBitsFromPassword,
+} from "../src/utils";
 
 // Helper to check CryptoKey properties
 const checkCryptoKey = (
@@ -235,7 +239,9 @@ describe("JWK Utilities", () => {
       expect(cryptoKey).toBeInstanceOf(CryptoKey);
       expect(cryptoKey.algorithm.name).toBe("HMAC");
       expect(cryptoKey.type).toBe("secret");
-      expect(cryptoKey.usages).toEqual(expect.arrayContaining(["sign", "verify"]));
+      expect(cryptoKey.usages).toEqual(
+        expect.arrayContaining(["sign", "verify"]),
+      );
     });
 
     it("should import a raw key bits which successfully encrypt and decrypt", async () => {
@@ -379,56 +385,62 @@ describe("JWK Utilities", () => {
     });
 
     it("should throw for unsupported algorithm", async () => {
-      await expect(importKey({
-        kty: "oct",
-        k: base64UrlEncode(randomBytes(64)),
-        alg: "unsupported",
-      })).rejects.toThrow(
+      await expect(
+        importKey({
+          kty: "oct",
+          k: base64UrlEncode(randomBytes(64)),
+          alg: "unsupported",
+        }),
+      ).rejects.toThrow(
         "Unsupported or unknown algorithm for key import: unsupported",
       );
     });
 
     it("should throw if alg is missing in JWK and options (oct)", async () => {
-      await expect(importKey({
-        kty: "oct",
-        k: base64UrlEncode(randomBytes(64)),
-      })).rejects.toThrow(
+      await expect(
+        importKey({
+          kty: "oct",
+          k: base64UrlEncode(randomBytes(64)),
+        }),
+      ).rejects.toThrow(
         "Algorithm ('alg') missing in JWK and options, cannot infer for 'oct' key type.",
       );
     });
 
     it("should throw if alg is missing in JWK and options (RSA)", async () => {
-      await expect(importKey({
-        kty: "RSA",
-        n: "n",
-        e: "AQAB",
-      })).rejects.toThrow(
+      await expect(
+        importKey({
+          kty: "RSA",
+          n: "n",
+          e: "AQAB",
+        }),
+      ).rejects.toThrow(
         "Algorithm ('alg') missing in JWK and options, cannot infer specific RSA algorithm.",
       );
     });
 
     it("should throw for AES-KW import if kty is not 'oct'", async () => {
-      await expect(importKey({
-        kty: "RSA", // Incorrect kty
-        k: base64UrlEncode(randomBytes(16)),
-        alg: "A128KW",
-        ext: true,
-        key_ops: ["wrapKey", "unwrapKey"],
-      })).rejects.toThrow(
-        "JWK with alg 'A128KW' must have kty 'oct'.",
-      );
+      await expect(
+        importKey({
+          kty: "RSA", // Incorrect kty
+          k: base64UrlEncode(randomBytes(16)),
+          alg: "A128KW",
+          ext: true,
+          key_ops: ["wrapKey", "unwrapKey"],
+        }),
+      ).rejects.toThrow("JWK with alg 'A128KW' must have kty 'oct'.");
     });
 
     it("should throw for AES-GCM import if kty is not 'oct'", async () => {
-      await expect(importKey({
-        kty: "RSA", // Incorrect kty
-        k: base64UrlEncode(randomBytes(16)),
-        alg: "A128GCM",
-        ext: true,
-        key_ops: ["encrypt", "decrypt"],
-      })).rejects.toThrow(
-        "JWK with alg 'A128GCM' must have kty 'oct'.",
-      );
+      await expect(
+        importKey({
+          kty: "RSA", // Incorrect kty
+          k: base64UrlEncode(randomBytes(16)),
+          alg: "A128GCM",
+          ext: true,
+          key_ops: ["encrypt", "decrypt"],
+        }),
+      ).rejects.toThrow("JWK with alg 'A128GCM' must have kty 'oct'.");
     });
   });
 });
