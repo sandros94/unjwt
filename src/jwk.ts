@@ -14,9 +14,7 @@ import type {
   ContentEncryptionAlgorithm,
   RsaSignAlgorithm,
   RsaWrapAlgorithm,
-  JoseSingleKeyAlgorithm,
   JoseKeyPairAlgorithm,
-  JoseAlgorithm,
 } from "./types/defaults";
 import type {
   CompositeKey,
