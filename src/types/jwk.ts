@@ -1,16 +1,6 @@
-import type {
-  JoseAlgorithm,
-  AesGcmAlgorithm,
-  AesKeyWrapAlgorithm,
-  Pbes2Algorithm,
-} from "./defaults"; // Import the master algorithm type
+import type { JoseAlgorithm } from "./defaults"; // Import the master algorithm type
 
 // --- JWK Function Specific Types ---
-
-export type GenerateJoseAlgorithm = Exclude<JoseAlgorithm, Pbes2Algorithm>;
-export type GenerateAesAlgorithm =
-  | Exclude<AesKeyWrapAlgorithm, Pbes2Algorithm>
-  | AesGcmAlgorithm;
 
 /** Structure returned for composite AES-CBC + HMAC keys. */
 export type CompositeKey = {

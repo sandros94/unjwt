@@ -10,11 +10,13 @@ import { randomBytes, textEncoder } from "./utils";
 import type {
   HmacAlgorithm,
   AesKeyWrapAlgorithm,
+  AesGcmAlgorithm,
   AesCbcAlgorithm,
   ContentEncryptionAlgorithm,
   RsaSignAlgorithm,
   RsaWrapAlgorithm,
   JoseKeyPairAlgorithm,
+  JoseAlgorithm,
 } from "./types/defaults";
 import type {
   CompositeKey,
@@ -22,13 +24,17 @@ import type {
   ImportKeyOptions,
   DeriveKeyBitsOptions,
   DerivedKeyBitsResult,
-  GenerateJoseAlgorithm,
-  GenerateAesAlgorithm,
   JWK,
 } from "./types/jwk";
 
 export * from "./types/defaults";
 export * from "./types/jwk";
+
+type AlgorithmReturn<
+  TAlgorithm extends JoseAlgorithm,
+  TInput extends JoseAlgorithm,
+  TOutput,
+> = TAlgorithm extends TInput ? TOutput : never;
 
 /**
  * Generates composite keys (AES-CBC + HMAC) suitable for the specified JWE CBC algorithm.
@@ -61,7 +67,7 @@ export async function generateKey(
 export async function generateKey<
   ToJWK extends boolean | undefined = undefined,
 >(
-  alg: GenerateAesAlgorithm,
+  alg: AesKeyWrapAlgorithm,
   options?: GenerateKeyOptions<ToJWK>,
 ): Promise<ToJWK extends true ? JWK : CryptoKey>;
 /**
@@ -85,20 +91,35 @@ export async function generateKey(
   },
 ): Promise<{ publicKey: JWK; privateKey: JWK }>;
 export async function generateKey<
+  TAlgorithm extends JoseAlgorithm,
   ToJWK extends boolean | undefined = undefined,
 >(
-  alg: GenerateJoseAlgorithm,
+  alg: TAlgorithm,
   options?: GenerateKeyOptions<ToJWK>,
 ): Promise<
   ToJWK extends true
     ?
-        | JWK
-        | { encryptionKey: JWK; macKey: JWK }
-        | { publicKey: JWK; privateKey: JWK }
-    : CryptoKey | CryptoKeyPair | CompositeKey
+        | AlgorithmReturn<
+            TAlgorithm,
+            JoseKeyPairAlgorithm,
+            { publicKey: JWK; privateKey: JWK }
+          >
+        | AlgorithmReturn<TAlgorithm, AesKeyWrapAlgorithm, JWK>
+        | AlgorithmReturn<
+            TAlgorithm,
+            AesCbcAlgorithm,
+            { encryptionKey: JWK; macKey: JWK }
+          >
+        | AlgorithmReturn<TAlgorithm, HmacAlgorithm, JWK>
+        | AlgorithmReturn<TAlgorithm, AesGcmAlgorithm, JWK>
+    :
+        | AlgorithmReturn<TAlgorithm, JoseKeyPairAlgorithm, CryptoKeyPair>
+        | AlgorithmReturn<TAlgorithm, AesCbcAlgorithm, CompositeKey>
+        | AlgorithmReturn<TAlgorithm, HmacAlgorithm, CryptoKey>
+        | AlgorithmReturn<TAlgorithm, AesGcmAlgorithm, CryptoKey>
 >;
 export async function generateKey(
-  alg: GenerateJoseAlgorithm,
+  alg: JoseAlgorithm,
   options: GenerateKeyOptions = {},
 ): Promise<
   | JWK

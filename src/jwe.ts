@@ -406,7 +406,6 @@ async function _unwrapCek(
         );
       }
       return importKey(key, {
-        alg: alg as JoseAlgorithm,
         keyUsages: ["unwrapKey"],
       });
     } else if (key instanceof CryptoKey) {

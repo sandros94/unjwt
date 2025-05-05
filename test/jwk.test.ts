@@ -529,6 +529,7 @@ describe.concurrent("JWK Utilities", () => {
     it("should import raw bits for AES-CBC (encryption part)", async () => {
       const rawKey = randomBytes(16); // 128 bits for A128CBC
       const options: ImportKeyOptions = {
+        // @ts-expect-error - AES-CBC not typed
         alg: "AES-CBC", // Generic AES-CBC import
         keyUsages: ["encrypt", "decrypt"],
       };
