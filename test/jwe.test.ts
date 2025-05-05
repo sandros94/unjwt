@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { encrypt, decrypt } from "../src/jwe";
-import { generateKey, exportKey, importKey } from "../src/jwk";
+import {
+  generateKey,
+  exportKey,
+  importKey,
+  deriveKeyBitsFromPassword,
+} from "../src/jwk";
 import {
   base64UrlEncode,
   base64UrlDecode,
@@ -202,6 +207,36 @@ describe.concurrent("JWE Utilities", () => {
       expect(decoded.header.enc).toBe(enc);
       const { plaintext } = await decrypt(jwe, keys.unwrapKey);
       expect(plaintext).toBe("");
+    });
+
+    it("should encrypt with a manually provided PBES2 key", async () => {
+      // 1. Derive key bits (e.g., for A128KW)
+      const { derivedBits, salt, iterations } = await deriveKeyBitsFromPassword(
+        "very-strong-password",
+        {
+          keyLength: 128, // For A128KW
+        },
+      );
+
+      // 2. Import derived bits as an AES-KW key
+      const kek = await importKey(derivedBits, {
+        alg: "A128KW",
+        keyUsages: ["wrapKey", "unwrapKey"],
+      });
+
+      // 3. Encrypt using the derived key, but specify PBES2 headers
+      const jwe = await encrypt(plaintextString, kek, {
+        protectedHeader: {
+          alg: "PBES2-HS256+A128KW",
+          enc: "A128GCM",
+          p2s: base64UrlEncode(salt), // Salt used during derivation
+          p2c: iterations, // Iterations used during derivation
+        },
+      });
+
+      // 4. Decrypt using the derived key
+      const { plaintext } = await decrypt(jwe, kek);
+      expect(plaintext).toBe(plaintextString);
     });
 
     // --- Error Handling ---
