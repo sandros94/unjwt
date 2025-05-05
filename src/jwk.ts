@@ -35,10 +35,18 @@ import type {
  * @returns A Promise resolving to an object containing the encryptionKey and macKey.
  * @throws Error if the algorithm is not supported.
  */
+export async function generateKey<
+  ToJWK extends boolean | undefined = undefined,
+>(
+  alg: AesCbcAlgorithm,
+  options?: GenerateKeyOptions<ToJWK>,
+): Promise<ToJWK extends true ? JWK : CompositeKey>;
 export async function generateKey(
   alg: AesCbcAlgorithm,
-  options?: GenerateKeyOptions, // Make options optional
-): Promise<CompositeKey>;
+  options: GenerateKeyOptions & {
+    toJWK: true;
+  },
+): Promise<{ encryptionKey: JWK; macKey: JWK }>;
 /**
  * Generates a symmetric cryptographic key suitable for the specified JOSE algorithm.
  *
@@ -47,10 +55,12 @@ export async function generateKey(
  * @returns A Promise resolving to the generated CryptoKey.
  * @throws Error if the algorithm is not supported.
  */
-export async function generateKey(
+export async function generateKey<
+  ToJWK extends boolean | undefined = undefined,
+>(
   alg: JoseSingleKeyAlgorithm,
-  options?: GenerateKeyOptions, // Make options optional
-): Promise<CryptoKey>;
+  options?: GenerateKeyOptions<ToJWK>,
+): Promise<ToJWK extends true ? JWK : CryptoKey>;
 /**
  * Generates an asymmetric cryptographic key pair suitable for the specified JOSE algorithm.
  *
@@ -59,14 +69,29 @@ export async function generateKey(
  * @returns A Promise resolving to the generated CryptoKeyPair.
  * @throws Error if the algorithm is not supported.
  */
+export async function generateKey<
+  ToJWK extends boolean | undefined = undefined,
+>(
+  alg: JoseKeyPairAlgorithm,
+  options?: GenerateKeyOptions<ToJWK>,
+): Promise<ToJWK extends true ? JWK : CryptoKeyPair>;
 export async function generateKey(
   alg: JoseKeyPairAlgorithm,
-  options?: GenerateKeyOptions, // Make options optional
-): Promise<CryptoKeyPair>;
-export async function generateKey(
+  options?: GenerateKeyOptions & {
+    toJWK: true;
+  },
+): Promise<{ publicKey: JWK; privateKey: JWK }>;
+export async function generateKey<
+  ToJWK extends boolean | undefined = undefined,
+>(
   alg: JoseAlgorithm,
-  options: GenerateKeyOptions = {},
-): Promise<CryptoKey | CryptoKeyPair | CompositeKey> {
+  options: GenerateKeyOptions<ToJWK> = {},
+): Promise<
+  | JWK
+  | (CryptoKey | CryptoKeyPair | CompositeKey)
+  | { encryptionKey: JWK; macKey: JWK }
+  | { publicKey: JWK; privateKey: JWK }
+> {
   const {
     extractable = true,
     modulusLength = 2048,
@@ -81,7 +106,13 @@ export async function generateKey(
       hash: algDetails.hash,
     };
     const keyUsage: KeyUsage[] = options.keyUsage || ["sign", "verify"];
-    return crypto.subtle.generateKey(keyGenParams, extractable, keyUsage);
+    const cryptoKey = await crypto.subtle.generateKey(
+      keyGenParams,
+      extractable,
+      keyUsage,
+    );
+
+    return options.toJWK ? await exportKey(cryptoKey) : cryptoKey;
   }
 
   // JWS Asymmetric (RSA)
@@ -94,7 +125,18 @@ export async function generateKey(
       publicExponent: publicExponent,
     };
     const keyUsage: KeyUsage[] = options.keyUsage || ["sign", "verify"];
-    return crypto.subtle.generateKey(keyGenParams, extractable, keyUsage);
+    const cryptoKey = await crypto.subtle.generateKey(
+      keyGenParams,
+      extractable,
+      keyUsage,
+    );
+
+    return options.toJWK
+      ? {
+          publicKey: await exportKey(cryptoKey.publicKey),
+          privateKey: await exportKey(cryptoKey.privateKey),
+        }
+      : cryptoKey;
   }
 
   // JWE Key Wrapping (PBES2 -> AES-KW)
@@ -106,7 +148,13 @@ export async function generateKey(
       length: algDetails.keyLength,
     };
     const keyUsage: KeyUsage[] = options.keyUsage || ["wrapKey", "unwrapKey"];
-    return crypto.subtle.generateKey(keyGenParams, extractable, keyUsage);
+    const cryptoKey = await crypto.subtle.generateKey(
+      keyGenParams,
+      extractable,
+      keyUsage,
+    );
+
+    return options.toJWK ? await exportKey(cryptoKey) : cryptoKey;
   }
 
   // JWE Key Wrapping (RSA-OAEP)
@@ -124,7 +172,18 @@ export async function generateKey(
       "encrypt",
       "decrypt",
     ];
-    return crypto.subtle.generateKey(keyGenParams, extractable, keyUsage);
+    const cryptoKey = await crypto.subtle.generateKey(
+      keyGenParams,
+      extractable,
+      keyUsage,
+    );
+
+    return options.toJWK
+      ? {
+          publicKey: await exportKey(cryptoKey.publicKey),
+          privateKey: await exportKey(cryptoKey.privateKey),
+        }
+      : cryptoKey;
   }
 
   // JWE Content Encryption (AES-GCM / AES-CBC)
@@ -139,7 +198,13 @@ export async function generateKey(
         length: algDetails.keyLength,
       };
       const keyUsage: KeyUsage[] = options.keyUsage || ["encrypt", "decrypt"];
-      return crypto.subtle.generateKey(keyGenParams, extractable, keyUsage);
+      const cryptoKey = await crypto.subtle.generateKey(
+        keyGenParams,
+        extractable,
+        keyUsage,
+      );
+
+      return options.toJWK ? await exportKey(cryptoKey) : cryptoKey;
     } else if (algDetails.type === "cbc") {
       // --- Generate Composite Keys for CBC ---
       const aesCbcParams: AesKeyGenParams = {
@@ -161,7 +226,15 @@ export async function generateKey(
         crypto.subtle.generateKey(hmacParams, extractable, hmacUsage),
       ]);
 
-      return { encryptionKey, macKey };
+      return options.toJWK
+        ? {
+            encryptionKey: await exportKey(encryptionKey),
+            macKey: await exportKey(macKey),
+          }
+        : {
+            encryptionKey,
+            macKey,
+          };
     }
   }
 

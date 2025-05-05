@@ -11,7 +11,9 @@ export type CompositeKey = {
 };
 
 /** Options for the generateKey function. */
-export interface GenerateKeyOptions {
+export interface GenerateKeyOptions<
+  ToJWK extends boolean | undefined = undefined,
+> {
   /** Key usages for the generated key(s). Note: For composite keys (CBC), default usages are applied separately. */
   keyUsage?: KeyUsage[];
   /** Mark the key(s) as extractable. Defaults to true. */
@@ -20,6 +22,8 @@ export interface GenerateKeyOptions {
   modulusLength?: number;
   /** RSA public exponent. Defaults to 65537 (0x010001). */
   publicExponent?: Uint8Array;
+  /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
+  toJWK?: ToJWK;
 }
 
 /** Options for the importKey function. */
