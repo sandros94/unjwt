@@ -8,7 +8,7 @@ import {
   textDecoder,
 } from "../src/utils";
 
-describe("Utility Functions", () => {
+describe.concurrent("Utility Functions", () => {
   describe("textEncoder and textDecoder", () => {
     it("should be defined", () => {
       expect(textEncoder).toBeDefined();

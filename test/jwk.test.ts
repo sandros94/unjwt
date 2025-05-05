@@ -16,7 +16,7 @@ import type {
   JWK_RSA_Public,
 } from "../src/types";
 
-describe("JWK Utilities", () => {
+describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {
     // --- Symmetric Key Generation ---
     it("should generate HS256 CryptoKey", async () => {

@@ -51,7 +51,7 @@ const decodeJws = (jws: string) => {
   };
 };
 
-describe("JWS Utilities", () => {
+describe.concurrent("JWS Utilities", () => {
   describe("sign", () => {
     it("should sign with HS256 CryptoKey", async () => {
       const jws = await sign(payloadString, hs256Key);
