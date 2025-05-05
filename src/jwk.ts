@@ -27,8 +27,8 @@ import type {
   JWK,
 } from "./types/jwk";
 
-export * from './types/defaults'
-export * from './types/jwk'
+export * from "./types/defaults";
+export * from "./types/jwk";
 
 /**
  * Generates composite keys (AES-CBC + HMAC) suitable for the specified JWE CBC algorithm.

@@ -22,8 +22,8 @@ import {
   JWE_CONTENT_ENCRYPTION_ALGORITHMS,
 } from "./utils/defaults";
 
-export * from './types/defaults'
-export * from './types/jwe'
+export * from "./types/defaults";
+export * from "./types/jwe";
 
 /**
  * Encrypts a plaintext payload and produces a JWE Compact Serialization string.

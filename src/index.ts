@@ -1,4 +1,4 @@
-export * from './types'
+export * from "./types";
 
 export * as jwe from "./jwe";
 export * as jwk from "./jwk";
