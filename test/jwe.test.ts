@@ -17,7 +17,7 @@ import type {
   JWEHeaderParameters,
   AesGcmAlgorithm,
   RsaWrapAlgorithm,
-  HmacWrapAlgorithm,
+  AesKeyWrapAlgorithm,
 } from "../src/types";
 
 // --- Test Data ---
@@ -44,7 +44,7 @@ let rsaOaep256PrivateJwk: JWK;
 
 // Supported alg/enc combinations for testing
 const testCombinations: {
-  alg: RsaWrapAlgorithm | HmacWrapAlgorithm;
+  alg: RsaWrapAlgorithm | AesKeyWrapAlgorithm;
   enc: AesGcmAlgorithm;
 }[] = [
   { alg: "A128KW", enc: "A128GCM" },
@@ -72,7 +72,7 @@ beforeAll(async () => {
 });
 
 // --- Helper to get keys based on alg ---
-const getKeysForAlg = (alg: RsaWrapAlgorithm | HmacWrapAlgorithm) => {
+const getKeysForAlg = (alg: RsaWrapAlgorithm | AesKeyWrapAlgorithm) => {
   switch (alg) {
     case "A128KW": {
       return {
