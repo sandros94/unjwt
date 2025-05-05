@@ -331,7 +331,6 @@ async function _wrapCek(
         `PBES2 algorithms require 'p2s' (salt) and 'p2c' (count) in protected header.`,
       );
     }
-    // TODO: This part is tricky. The 'wrappingKey' should ideally be derived here.
     // Assuming the user provided a key derived externally and imported as AES-KW.
     wrapAlgorithm = { name: "AES-KW" };
     console.warn(
