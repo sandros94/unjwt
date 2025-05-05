@@ -9,7 +9,7 @@ import { randomBytes, textEncoder } from "./utils";
 
 import type {
   HmacAlgorithm,
-  HmacWrapAlgorithm,
+  AesKeyWrapAlgorithm,
   AesCbcAlgorithm,
   ContentEncryptionAlgorithm,
   RsaSignAlgorithm,
@@ -23,7 +23,7 @@ import type {
   DeriveKeyBitsOptions,
   DerivedKeyBitsResult,
   GenerateJoseAlgorithm,
-  GenerateHmacWrapAlgorithm,
+  GenerateAesAlgorithm,
   JWK,
 } from "./types/jwk";
 
@@ -61,7 +61,7 @@ export async function generateKey(
 export async function generateKey<
   ToJWK extends boolean | undefined = undefined,
 >(
-  alg: GenerateHmacWrapAlgorithm,
+  alg: GenerateAesAlgorithm,
   options?: GenerateKeyOptions<ToJWK>,
 ): Promise<ToJWK extends true ? JWK : CryptoKey>;
 /**
@@ -84,6 +84,19 @@ export async function generateKey(
     toJWK: true;
   },
 ): Promise<{ publicKey: JWK; privateKey: JWK }>;
+export async function generateKey<
+  ToJWK extends boolean | undefined = undefined,
+>(
+  alg: GenerateJoseAlgorithm,
+  options?: GenerateKeyOptions<ToJWK>,
+): Promise<
+  ToJWK extends true
+    ?
+        | JWK
+        | { encryptionKey: JWK; macKey: JWK }
+        | { publicKey: JWK; privateKey: JWK }
+    : CryptoKey | CryptoKeyPair | CompositeKey
+>;
 export async function generateKey(
   alg: GenerateJoseAlgorithm,
   options: GenerateKeyOptions = {},
@@ -143,7 +156,7 @@ export async function generateKey(
   // JWE Key Wrapping (PBES2 -> AES-KW)
   // Note: This generates the AES-KW key, not the PBES2 derived key itself.
   if (alg in JWE_KEY_WRAPPING_HMAC) {
-    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
+    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKeyWrapAlgorithm];
     const keyGenParams: AesKeyGenParams = {
       name: "AES-KW",
       length: algDetails.keyLength,
@@ -334,7 +347,7 @@ export async function importKey(
       } as HmacImportParams;
     } else if (alg in JWE_KEY_WRAPPING_HMAC) {
       // PBES2 itself isn't imported directly, treating as AES-KW key
-      const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
+      const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKeyWrapAlgorithm];
       algorithm =
         "hash" in algDetails
           ? { name: "AES-KW", hash: algDetails.hash }
@@ -415,7 +428,7 @@ export async function importKey(
   } else if (alg in JWE_KEY_WRAPPING_HMAC) {
     if (jwk.kty !== "oct")
       throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
-    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as HmacWrapAlgorithm];
+    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKeyWrapAlgorithm];
     algorithm =
       "hash" in algDetails
         ? { name: "AES-KW", hash: algDetails.hash }

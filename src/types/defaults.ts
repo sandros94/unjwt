@@ -12,10 +12,10 @@ import type {
 export type HmacAlgorithm = keyof typeof JWS_ALGORITHMS_SYMMETRIC;
 
 /** Set of supported AES Key Wrap algorithm identifiers. */
-export type HmacWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_HMAC;
+export type AesKeyWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_HMAC;
 
 /** Set of supported PBES2 Key Wrap algorithm identifiers. */
-export type Pbes2Algorithm = Extract<HmacWrapAlgorithm, `PBES2-${string}`>;
+export type Pbes2Algorithm = Extract<AesKeyWrapAlgorithm, `PBES2-${string}`>;
 
 /** Set of supported AES-GCM algorithm identifiers. */
 export type AesGcmAlgorithm = {
@@ -32,7 +32,7 @@ export type AesCbcAlgorithm = {
 }[keyof typeof JWE_CONTENT_ENCRYPTION_ALGORITHMS];
 
 /** Set of supported JWE Content Encryption algorithm identifiers. */
-export type KeyWrappingAlgorithm = HmacWrapAlgorithm | RsaWrapAlgorithm;
+export type KeyWrappingAlgorithm = AesKeyWrapAlgorithm | RsaWrapAlgorithm;
 
 /** Set of supported JWE Content Encryption algorithm identifiers. */
 export type ContentEncryptionAlgorithm = AesGcmAlgorithm | AesCbcAlgorithm;
@@ -48,7 +48,7 @@ export type RsaWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_RSA;
 /** Set of JOSE algorithms that typically use a single symmetric CryptoKey. */
 export type JoseSingleKeyAlgorithm =
   | HmacAlgorithm
-  | HmacWrapAlgorithm
+  | AesKeyWrapAlgorithm
   | ContentEncryptionAlgorithm;
 
 /** Set of JOSE algorithms that typically use an asymmetric CryptoKeyPair. */
