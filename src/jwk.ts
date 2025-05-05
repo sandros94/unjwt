@@ -24,6 +24,8 @@ import type {
   ImportKeyOptions,
   DeriveKeyBitsOptions,
   DerivedKeyBitsResult,
+  GenerateJoseAlgorithm,
+  GenerateHmacWrapAlgorithm,
   JWK,
 } from "./types/jwk";
 
@@ -61,7 +63,7 @@ export async function generateKey(
 export async function generateKey<
   ToJWK extends boolean | undefined = undefined,
 >(
-  alg: JoseSingleKeyAlgorithm,
+  alg: GenerateHmacWrapAlgorithm,
   options?: GenerateKeyOptions<ToJWK>,
 ): Promise<ToJWK extends true ? JWK : CryptoKey>;
 /**
@@ -84,11 +86,9 @@ export async function generateKey(
     toJWK: true;
   },
 ): Promise<{ publicKey: JWK; privateKey: JWK }>;
-export async function generateKey<
-  ToJWK extends boolean | undefined = undefined,
->(
-  alg: JoseAlgorithm,
-  options: GenerateKeyOptions<ToJWK> = {},
+export async function generateKey(
+  alg: GenerateJoseAlgorithm,
+  options: GenerateKeyOptions = {},
 ): Promise<
   | JWK
   | (CryptoKey | CryptoKeyPair | CompositeKey)
@@ -354,8 +354,6 @@ export async function importKey(
           `Unsupported JWE content encryption algorithm type for raw import: ${(algDetails as any).type}`,
         );
       }
-    } else if (alg === "AES-CBC") {
-      algorithm = { name: "AES-CBC" };
     } else {
       // Note: Asymmetric keys (RSA) cannot typically be imported
       // from raw bits directly. JWK format is preferred for them.

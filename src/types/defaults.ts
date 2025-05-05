@@ -11,8 +11,11 @@ import type {
 /** Set of supported HMAC algorithm identifiers. */
 export type HmacAlgorithm = keyof typeof JWS_ALGORITHMS_SYMMETRIC;
 
-/** Set of supported AES Key Wrap algorithm identifiers (used in PBES2). */
+/** Set of supported AES Key Wrap algorithm identifiers. */
 export type HmacWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_HMAC;
+
+/** Set of supported PBES2 Key Wrap algorithm identifiers. */
+export type Pbes2Algorithm = Extract<HmacWrapAlgorithm, `PBES2-${string}`>;
 
 /** Set of supported AES-GCM algorithm identifiers. */
 export type AesGcmAlgorithm = {
@@ -55,5 +58,4 @@ export type JoseKeyPairAlgorithm = RsaSignAlgorithm | RsaWrapAlgorithm;
 export type JoseAlgorithm =
   | JoseSingleKeyAlgorithm
   | JoseKeyPairAlgorithm
-  | AesCbcAlgorithm
-  | "AES-CBC";
+  | AesCbcAlgorithm;
