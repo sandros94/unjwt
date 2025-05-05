@@ -46,7 +46,7 @@ export type RsaWrapAlgorithm = keyof typeof JWE_KEY_WRAPPING_RSA;
 export type JoseSingleKeyAlgorithm =
   | HmacAlgorithm
   | HmacWrapAlgorithm
-  | AesGcmAlgorithm;
+  | ContentEncryptionAlgorithm;
 
 /** Set of JOSE algorithms that typically use an asymmetric CryptoKeyPair. */
 export type JoseKeyPairAlgorithm = RsaSignAlgorithm | RsaWrapAlgorithm;
