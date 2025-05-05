@@ -26,6 +26,10 @@
     "./jws": {
       "types": "./dist/jws.d.mts",
       "default": "./dist/jws.mjs"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.mts",
+      "default": "./dist/utils.mjs"
     }
   },
   "main": "./dist/index.mjs",
