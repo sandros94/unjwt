@@ -14,6 +14,9 @@ import {
 import { importKey } from "./jwk";
 import { JWS_ALGORITHMS } from "./utils/defaults";
 
+export * from './types/defaults'
+export * from './types/jws'
+
 /**
  * Signs a payload and produces a JWS Compact Serialization string.
  *

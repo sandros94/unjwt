@@ -22,6 +22,9 @@ import {
   JWE_CONTENT_ENCRYPTION_ALGORITHMS,
 } from "./utils/defaults";
 
+export * from './types/defaults'
+export * from './types/jwe'
+
 /**
  * Encrypts a plaintext payload and produces a JWE Compact Serialization string.
  * Currently supports AES-GCM for content encryption ('enc') and
