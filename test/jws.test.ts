@@ -319,16 +319,14 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should throw for invalid header JSON", async () => {
-      const invalidHeader = base64UrlEncode(textEncoder.encode("not json"));
+      const invalidHeader = base64UrlEncode("not json");
       await expect(
         verify(`${invalidHeader}.payload.sig`, hs256Key),
       ).rejects.toThrow(/Protected header is not valid Base64URL or JSON/);
     });
 
     it("should throw for header missing alg", async () => {
-      const headerWithoutAlg = base64UrlEncode(
-        textEncoder.encode(JSON.stringify({ typ: "JWT" })),
-      );
+      const headerWithoutAlg = base64UrlEncode(JSON.stringify({ typ: "JWT" }));
       await expect(
         verify(`${headerWithoutAlg}.payload.sig`, hs256Key),
       ).rejects.toThrow(
@@ -364,9 +362,7 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should throw if payload decoding fails (e.g., invalid base64)", async () => {
-      const header = base64UrlEncode(
-        textEncoder.encode(JSON.stringify({ alg: "HS256" })),
-      );
+      const header = base64UrlEncode(JSON.stringify({ alg: "HS256" }));
       const sig = base64UrlEncode(new Uint8Array(32)); // Dummy sig
       await expect(
         verify(`${header}.invalid?payload.${sig}`, hs256Key),

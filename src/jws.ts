@@ -53,9 +53,7 @@ export async function sign(
   }
 
   const protectedHeaderString = JSON.stringify(protectedHeader);
-  const protectedHeaderEncoded = base64UrlEncode(
-    textEncoder.encode(protectedHeaderString),
-  );
+  const protectedHeaderEncoded = base64UrlEncode(protectedHeaderString);
 
   // 3. Prepare Payload
   let payloadBytes: Uint8Array;
