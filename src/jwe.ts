@@ -24,8 +24,10 @@ import {
 import {
   base64UrlEncode,
   base64UrlDecode,
+  randomBytes,
   textEncoder,
   textDecoder,
+  isJWK,
 } from "./utils";
 
 export * from "./types/jwe";
@@ -40,30 +42,66 @@ export * from "./types/jwe";
  */
 export async function encrypt(
   plaintext: string | Uint8Array | Record<string, any>,
+  key: JWK | string | Uint8Array,
+  options?: JWEEncryptOptions,
+): Promise<string>;
+export async function encrypt(
+  plaintext: string | Uint8Array | Record<string, any>,
+  key: CryptoKey,
+  options: JWEEncryptOptions & {
+    alg: KeyManagementAlgorithm;
+    enc: ContentEncryptionAlgorithm;
+  },
+): Promise<string>;
+export async function encrypt(
+  plaintext: string | Uint8Array | Record<string, any>,
   key: CryptoKey | JWK | string | Uint8Array,
-  options: JWEEncryptOptions,
+  options: JWEEncryptOptions & {
+    alg: KeyManagementAlgorithm;
+    enc: ContentEncryptionAlgorithm;
+  },
+): Promise<string>;
+export async function encrypt(
+  plaintext: string | Uint8Array | Record<string, any>,
+  key: CryptoKey | JWK | string | Uint8Array,
+  options: JWEEncryptOptions = {},
 ): Promise<string> {
   const {
-    alg,
-    enc,
     protectedHeader: additionalProtectedHeader,
     cek: providedCek,
     contentEncryptionIV: providedContentIV,
     keyManagementIV,
-    p2s,
-    p2c,
+    p2s = randomBytes(16),
+    p2c = 2048,
     ecdhPartyUInfo,
     ecdhPartyVInfo,
   } = options;
+  let { alg, enc } = options;
+
+  // Fallback logic for alg and enc
+  if (!alg) {
+    if (typeof key === "string" || key instanceof Uint8Array) {
+      alg = "PBES2-HS256+A128KW";
+    } else if (isJWK(key)) {
+      alg = key.alg as KeyManagementAlgorithm;
+    }
+  }
+  if (!enc) {
+    if (typeof key === "string" || key instanceof Uint8Array) {
+      enc = "A128GCM";
+    } else if (isJWK(key) && "enc" in key) {
+      enc = key.enc as ContentEncryptionAlgorithm;
+    }
+  }
 
   if (!alg) {
     throw new TypeError(
-      'JWE "alg" (Key Management Algorithm) must be provided in options',
+      'JWE "alg" (Key Management Algorithm) must be provided in options or inferable from the key',
     );
   }
   if (!enc) {
     throw new TypeError(
-      'JWE "enc" (Content Encryption Algorithm) must be provided in options',
+      'JWE "enc" (Content Encryption Algorithm) must be provided in options or inferable from the key',
     );
   }
 
@@ -90,28 +128,16 @@ export async function encrypt(
     alg,
     enc,
     wrappingKeyMaterial,
-    providedCek, // Pass providedCek directly
+    providedCek,
     jweKeyManagementParams,
   );
 
   const jweProtectedHeader: JWEHeaderParameters = {
-    ...additionalProtectedHeader, // Original protected headers
-    ...keyManagementHeaderParams, // Merge parameters from encryptKey
-    alg, // Ensure alg and enc are set
+    ...additionalProtectedHeader,
+    ...keyManagementHeaderParams,
+    alg,
     enc,
   };
-
-  // If epk was in additionalProtectedHeader and also in keyManagementHeaderParams,
-  // the spread order ensures keyManagementHeaderParams.epk takes precedence.
-  // Clean up epk from top level if it was only meant as input to encryptKey
-  if (
-    additionalProtectedHeader?.epk &&
-    jweProtectedHeader.epk === additionalProtectedHeader.epk
-  ) {
-    // This check might be too simplistic; ensure epk is handled as intended.
-    // If encryptKey always returns its own epk in parameters, this might not be needed,
-    // or you might want to remove the original from additionalProtectedHeader before merging.
-  }
 
   if (
     !jweProtectedHeader.typ &&
@@ -134,7 +160,7 @@ export async function encrypt(
   } = await joseEncrypt(
     enc,
     plaintextBytes,
-    finalCek, // Use the CEK from encryptKey
+    finalCek,
     contentIVBytes,
     aadBytes,
   );
@@ -156,7 +182,7 @@ export async function encrypt(
 
   const jweParts: string[] = [
     protectedHeaderEncoded,
-    encryptedKeyEncoded, // Use the potentially empty encoded encrypted key
+    encryptedKeyEncoded,
     base64UrlEncode(actualContentIV),
     base64UrlEncode(contentCiphertext),
     base64UrlEncode(contentAuthTag),

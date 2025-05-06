@@ -211,6 +211,16 @@ describe.concurrent("JWE Utilities", () => {
   }
 
   describe("encrypt specific options", () => {
+    it("should encrypt while only providing a password", async () => {
+      const t = "Hello, World!";
+      const p = "password";
+
+      const jwe = await encrypt(t, p);
+      const { plaintext } = await decrypt(jwe, p);
+
+      expect(plaintext).toBe(t);
+    });
+
     it("should use provided CEK and contentEncryptionIV", async () => {
       const alg: KeyManagementAlgorithm = "A128KW";
       const enc: ContentEncryptionAlgorithm = "A128GCM";

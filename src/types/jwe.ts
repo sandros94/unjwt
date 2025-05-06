@@ -76,9 +76,9 @@ export interface JWEKeyManagementHeaderParameters {
  */
 export interface JWEEncryptOptions {
   /** JWE "alg" (Algorithm) Header Parameter. Key Management Algorithm. */
-  alg: KeyManagementAlgorithm;
+  alg?: KeyManagementAlgorithm;
   /** JWE "enc" (Encryption Algorithm) Header Parameter. Content Encryption Algorithm. */
-  enc: ContentEncryptionAlgorithm;
+  enc?: ContentEncryptionAlgorithm;
 
   /** Additional JWE Protected Header parameters. */
   protectedHeader?: Omit<
