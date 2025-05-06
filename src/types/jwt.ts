@@ -48,6 +48,9 @@ export interface JWTClaims {
   iat?: number;
   /** "jti" (JWT ID) Claim */
   jti?: string;
+
+  /** Any other JWT member. */
+  [propName: string]: unknown;
 }
 
 export interface JWT<T = JWTClaims> {

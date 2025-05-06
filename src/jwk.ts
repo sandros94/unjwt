@@ -179,7 +179,7 @@ export async function importKey(
 export async function importKey(
   key: CryptoKey | JWK | Uint8Array | string,
   alg?: string,
-): Promise<CryptoKey | Uint8Array>
+): Promise<CryptoKey | Uint8Array>;
 export async function importKey(
   key: CryptoKey | JWK | Uint8Array | string,
   alg?: string,
