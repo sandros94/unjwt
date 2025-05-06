@@ -1,605 +1,318 @@
-import {
-  JWS_ALGORITHMS_SYMMETRIC,
-  JWS_ALGORITHMS_ASYMMETRIC_RSA,
-  JWE_KEY_WRAPPING_HMAC,
-  JWE_KEY_WRAPPING_RSA,
-  JWE_CONTENT_ENCRYPTION_ALGORITHMS,
-} from "./utils/defaults";
-import { randomBytes, textEncoder } from "./utils";
-
 import type {
-  HmacAlgorithm,
-  AesKeyWrapAlgorithm,
-  AesGcmAlgorithm,
-  AesCbcAlgorithm,
-  ContentEncryptionAlgorithm,
-  RsaSignAlgorithm,
-  RsaWrapAlgorithm,
-  JoseKeyPairAlgorithm,
-  JoseAlgorithm,
-} from "./types/defaults";
-import type {
-  CompositeKey,
-  GenerateKeyOptions,
-  ImportKeyOptions,
-  DeriveKeyBitsOptions,
-  DerivedKeyBitsResult,
   JWK,
-} from "./types/jwk";
-
-export * from "./types/defaults";
-export * from "./types/jwk";
-
-type AlgorithmReturn<
-  TAlgorithm extends JoseAlgorithm,
-  TInput extends JoseAlgorithm,
-  TOutput,
-> = TAlgorithm extends TInput ? TOutput : never;
+  JWK_oct,
+  JWK_PBES2,
+  GenerateKeyAlgorithm,
+  GenerateKeyOptions,
+  GenerateKeyReturn,
+  DeriveKeyOptions,
+  DeriveKeyReturn,
+} from "./types";
+import { base64UrlDecode, isJWK, textEncoder, randomBytes } from "./utils";
+import { jwkTokey, keyToJWK, isCryptoKey, bitLengthCEK, deriveKey as deriveKeyPBES2 } from "./jose";
 
 /**
- * Generates composite keys (AES-CBC + HMAC) suitable for the specified JWE CBC algorithm.
+ * Generates a cryptographic key for the specified algorithm.
  *
- * @param alg The JWE CBC algorithm identifier (e.g., "A128CBC-HS256").
- * @param options Optional parameters for key generation.
- * @returns A Promise resolving to an object containing the encryptionKey and macKey.
- * @throws Error if the algorithm is not supported.
+ * @param alg The JWA algorithm identifier (e.g., "HS256", "RS256", "A128GCM").
+ * @param options Configuration options for key generation.
+ * @returns A Promise resolving to the generated key (CryptoKey, CryptoKeyPair, or Uint8Array) or its JWK representation.
  */
 export async function generateKey<
-  ToJWK extends boolean | undefined = undefined,
->(
-  alg: AesCbcAlgorithm,
-  options?: GenerateKeyOptions<ToJWK>,
-): Promise<ToJWK extends true ? JWK : CompositeKey>;
+  TAlg extends GenerateKeyAlgorithm,
+  TOptions extends GenerateKeyOptions,
+>(alg: TAlg, options?: TOptions): Promise<GenerateKeyReturn<TAlg, TOptions>>;
 export async function generateKey(
-  alg: AesCbcAlgorithm,
-  options: GenerateKeyOptions & {
-    toJWK: true;
-  },
-): Promise<{ encryptionKey: JWK; macKey: JWK }>;
-/**
- * Generates a symmetric cryptographic key suitable for the specified JOSE algorithm.
- *
- * @param alg The JOSE algorithm identifier (HMAC, AES-KW, AES-GCM).
- * @param options Optional parameters for key generation.
- * @returns A Promise resolving to the generated CryptoKey.
- * @throws Error if the algorithm is not supported.
- */
-export async function generateKey<
-  ToJWK extends boolean | undefined = undefined,
->(
-  alg: AesKeyWrapAlgorithm,
-  options?: GenerateKeyOptions<ToJWK>,
-): Promise<ToJWK extends true ? JWK : CryptoKey>;
-/**
- * Generates an asymmetric cryptographic key pair suitable for the specified JOSE algorithm.
- *
- * @param alg The JOSE algorithm identifier (RSA-Sign, RSA-Wrap).
- * @param options Optional parameters for key generation.
- * @returns A Promise resolving to the generated CryptoKeyPair.
- * @throws Error if the algorithm is not supported.
- */
-export async function generateKey<
-  ToJWK extends boolean | undefined = undefined,
->(
-  alg: JoseKeyPairAlgorithm,
-  options?: GenerateKeyOptions<ToJWK>,
-): Promise<ToJWK extends true ? JWK : CryptoKeyPair>;
-export async function generateKey(
-  alg: JoseKeyPairAlgorithm,
-  options?: GenerateKeyOptions & {
-    toJWK: true;
-  },
-): Promise<{ publicKey: JWK; privateKey: JWK }>;
-export async function generateKey<
-  TAlgorithm extends JoseAlgorithm,
-  ToJWK extends boolean | undefined = undefined,
->(
-  alg: TAlgorithm,
-  options?: GenerateKeyOptions<ToJWK>,
-): Promise<
-  ToJWK extends true
-    ?
-        | AlgorithmReturn<
-            TAlgorithm,
-            JoseKeyPairAlgorithm,
-            { publicKey: JWK; privateKey: JWK }
-          >
-        | AlgorithmReturn<TAlgorithm, AesKeyWrapAlgorithm, JWK>
-        | AlgorithmReturn<
-            TAlgorithm,
-            AesCbcAlgorithm,
-            { encryptionKey: JWK; macKey: JWK }
-          >
-        | AlgorithmReturn<TAlgorithm, HmacAlgorithm, JWK>
-        | AlgorithmReturn<TAlgorithm, AesGcmAlgorithm, JWK>
-    :
-        | AlgorithmReturn<TAlgorithm, JoseKeyPairAlgorithm, CryptoKeyPair>
-        | AlgorithmReturn<TAlgorithm, AesCbcAlgorithm, CompositeKey>
-        | AlgorithmReturn<TAlgorithm, HmacAlgorithm, CryptoKey>
-        | AlgorithmReturn<TAlgorithm, AesGcmAlgorithm, CryptoKey>
->;
-export async function generateKey(
-  alg: JoseAlgorithm,
+  alg: string,
   options: GenerateKeyOptions = {},
 ): Promise<
+  | CryptoKey
+  | CryptoKeyPair
+  | Uint8Array
   | JWK
-  | (CryptoKey | CryptoKeyPair | CompositeKey)
-  | { encryptionKey: JWK; macKey: JWK }
-  | { publicKey: JWK; privateKey: JWK }
+  | { privateKey: JWK; publicKey: JWK }
 > {
-  const {
-    extractable = true,
-    modulusLength = 2048,
-    publicExponent = new Uint8Array([0x01, 0x00, 0x01]),
-  } = options;
+  const exportToJWK = options.toJWK === true;
+  const defaultExtractable = options.extractable !== false; // Default true
 
-  // JWS Symmetric (HMAC)
-  if (alg in JWS_ALGORITHMS_SYMMETRIC) {
-    const algDetails = JWS_ALGORITHMS_SYMMETRIC[alg as HmacAlgorithm];
-    const keyGenParams: HmacKeyGenParams = {
-      name: algDetails.name, // "HMAC"
-      hash: algDetails.hash,
-    };
-    const keyUsage: KeyUsage[] = options.keyUsage || ["sign", "verify"];
-    const cryptoKey = await crypto.subtle.generateKey(
-      keyGenParams,
-      extractable,
-      keyUsage,
-    );
+  // Handle AES-CBC separately as it requires raw key generation
+  if (
+    alg === "A128CBC-HS256" ||
+    alg === "A192CBC-HS384" ||
+    alg === "A256CBC-HS512"
+  ) {
+    const keyLength = bitLengthCEK(alg);
+    const keyBytes = randomBytes(keyLength >> 3);
 
-    return options.toJWK ? await exportKey(cryptoKey) : cryptoKey;
+    if (exportToJWK) {
+      // Use keyToJWK which handles Uint8Array to JWK_oct
+      return keyToJWK(keyBytes); // Returns JWK_oct
+    }
+    return keyBytes; // Returns Uint8Array
   }
 
-  // JWS Asymmetric (RSA)
-  if (alg in JWS_ALGORITHMS_ASYMMETRIC_RSA) {
-    const algDetails = JWS_ALGORITHMS_ASYMMETRIC_RSA[alg as RsaSignAlgorithm];
-    const keyGenParams: RsaHashedKeyGenParams = {
-      name: algDetails.name, // "RSASSA-PKCS1-v1_5" or "RSASSA-PSS"
-      hash: algDetails.hash,
-      modulusLength: modulusLength,
-      publicExponent: publicExponent,
-    };
-    const keyUsage: KeyUsage[] = options.keyUsage || ["sign", "verify"];
-    const cryptoKey = await crypto.subtle.generateKey(
-      keyGenParams,
-      extractable,
-      keyUsage,
-    );
+  // For other algorithms, use crypto.subtle.generateKey
+  const { algorithm, keyUsages } = getGenerateKeyParams(alg, options);
 
-    return options.toJWK
-      ? {
-          publicKey: await exportKey(cryptoKey.publicKey),
-          privateKey: await exportKey(cryptoKey.privateKey),
-        }
-      : cryptoKey;
-  }
+  const key = await crypto.subtle.generateKey(
+    algorithm,
+    defaultExtractable,
+    keyUsages,
+  );
 
-  // JWE Key Wrapping (PBES2 -> AES-KW)
-  // Note: This generates the AES-KW key, not the PBES2 derived key itself.
-  if (alg in JWE_KEY_WRAPPING_HMAC) {
-    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKeyWrapAlgorithm];
-    const keyGenParams: AesKeyGenParams = {
-      name: "AES-KW",
-      length: algDetails.keyLength,
-    };
-    const keyUsage: KeyUsage[] = options.keyUsage || ["wrapKey", "unwrapKey"];
-    const cryptoKey = await crypto.subtle.generateKey(
-      keyGenParams,
-      extractable,
-      keyUsage,
-    );
-
-    return options.toJWK ? await exportKey(cryptoKey) : cryptoKey;
-  }
-
-  // JWE Key Wrapping (RSA-OAEP)
-  if (alg in JWE_KEY_WRAPPING_RSA) {
-    const algDetails = JWE_KEY_WRAPPING_RSA[alg as RsaWrapAlgorithm];
-    const keyGenParams: RsaHashedKeyGenParams = {
-      name: algDetails.name, // "RSA-OAEP"
-      hash: algDetails.hash,
-      modulusLength: modulusLength,
-      publicExponent: publicExponent,
-    };
-    const keyUsage: KeyUsage[] = options.keyUsage || [
-      "wrapKey",
-      "unwrapKey",
-      "encrypt",
-      "decrypt",
-    ];
-    const cryptoKey = await crypto.subtle.generateKey(
-      keyGenParams,
-      extractable,
-      keyUsage,
-    );
-
-    return options.toJWK
-      ? {
-          publicKey: await exportKey(cryptoKey.publicKey),
-          privateKey: await exportKey(cryptoKey.privateKey),
-        }
-      : cryptoKey;
-  }
-
-  // JWE Content Encryption (AES-GCM / AES-CBC)
-  if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
-    const algDetails =
-      JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as ContentEncryptionAlgorithm];
-    let keyGenParams: AesKeyGenParams;
-    if (algDetails.type === "gcm") {
-      // --- Generate AES-GCM Key ---
-      keyGenParams = {
-        name: "AES-GCM",
-        length: algDetails.keyLength,
-      };
-      const keyUsage: KeyUsage[] = options.keyUsage || ["encrypt", "decrypt"];
-      const cryptoKey = await crypto.subtle.generateKey(
-        keyGenParams,
-        extractable,
-        keyUsage,
-      );
-
-      return options.toJWK ? await exportKey(cryptoKey) : cryptoKey;
-    } else if (algDetails.type === "cbc") {
-      // --- Generate Composite Keys for CBC ---
-      const aesCbcParams: AesKeyGenParams = {
-        name: "AES-CBC",
-        length: algDetails.encKeyLength,
-      };
-      const hmacParams: HmacKeyGenParams = {
-        name: "HMAC",
-        hash: algDetails.macAlgorithm,
-        length: algDetails.macKeyLength,
-      };
-
-      // Ignoring `options.keyUsage` since composite CBC requires different usages
-      const aesUsage: KeyUsage[] = ["encrypt", "decrypt"];
-      const hmacUsage: KeyUsage[] = ["sign", "verify"];
-
-      const [encryptionKey, macKey] = await Promise.all([
-        crypto.subtle.generateKey(aesCbcParams, extractable, aesUsage),
-        crypto.subtle.generateKey(hmacParams, extractable, hmacUsage),
+  if (exportToJWK) {
+    if (key instanceof CryptoKey) {
+      // Symmetric keys (HMAC, AES-KW, AES-GCM)
+      return exportKey(key, { alg }); // Returns JWK
+    } else {
+      // Asymmetric keys (RSA, EC)
+      const [publicKey, privateKey] = await Promise.all([
+        exportKey(key.publicKey, { alg }),
+        exportKey(key.privateKey, { alg }),
       ]);
-
-      return options.toJWK
-        ? {
-            encryptionKey: await exportKey(encryptionKey),
-            macKey: await exportKey(macKey),
-          }
-        : {
-            encryptionKey,
-            macKey,
-          };
+      return { privateKey, publicKey };
     }
   }
 
-  throw new Error(
-    `Unsupported or unknown algorithm for key generation: ${alg}`,
-  );
+  return key;
 }
 
 /**
- * Exports a CryptoKey to its JSON Web Key (JWK) representation.
+ * Derives a key from a password using PBKDF2 as specified by PBES2 algorithms.
  *
- * Note: The CryptoKey must have been created with the `extractable`
- * property set to `true`.
+ * @param password The password to derive the key from (string or Uint8Array).
+ * @param alg The PBES2 algorithm identifier (e.g., "PBES2-HS256+A128KW").
+ * @param options Configuration options including salt and iterations.
+ * @returns A Promise resolving to the derived key (CryptoKey) or its JWK_oct representation.
+ */
+export async function deriveKeyFromPassword<
+  TAlg extends JWK_PBES2,
+  TOptions extends DeriveKeyOptions,
+>(
+  password: string | Uint8Array,
+  alg: TAlg,
+  options: TOptions,
+): Promise<DeriveKeyReturn<TOptions>>;
+export async function deriveKeyFromPassword(
+  password: string | Uint8Array,
+  alg: JWK_PBES2,
+  options: DeriveKeyOptions,
+): Promise<CryptoKey | JWK_oct> {
+  const { salt, iterations, toJWK, extractable, keyUsage } = options;
+
+  if (!(salt instanceof Uint8Array) || salt.length < 8) {
+    throw new Error("PBES2 Salt Input (salt) must be 8 or more octets");
+  }
+  if (typeof iterations !== "number" || iterations < 1) {
+    throw new Error(
+      "PBES2 Iteration Count (iterations) must be a positive integer",
+    );
+  }
+
+  const passwordBytes =
+    typeof password === "string" ? textEncoder.encode(password) : password;
+
+  const derivedBytes = await deriveKeyPBES2(
+    salt,
+    alg,
+    iterations,
+    passwordBytes,
+  );
+
+  const wrappingAlg = alg.slice(-6); // "A128KW", "A192KW", "A256KW"
+  const defaultUsages: KeyUsage[] = ["wrapKey", "unwrapKey"];
+  const finalUsages = keyUsage ?? defaultUsages;
+  const finalExtractable = extractable === true; // Default false
+
+  // Import the derived bytes as a CryptoKey for the wrapping algorithm
+  const derivedKey = await crypto.subtle.importKey(
+    "raw",
+    derivedBytes,
+    { name: "AES-KW" },
+    finalExtractable,
+    finalUsages,
+  );
+
+  if (toJWK === true) {
+    const jwk = await keyToJWK(derivedKey) as JWK_oct;
+
+    return { ...jwk, alg: wrappingAlg, kty: "oct" };
+  }
+
+  return derivedKey;
+}
+
+/**
+ * Imports a key from various formats (CryptoKey, JWK, Uint8Array).
+ *
+ * @param key The key to import, which can be a CryptoKey, JWK, or Uint8Array.
+ * @param alg The algorithm to use for the imported key.
+ * @returns A Promise resolving to the imported key in CryptoKey or Uint8Array format.
+ */
+export async function importKey(key: CryptoKey): Promise<CryptoKey>;
+export async function importKey(key: Uint8Array): Promise<Uint8Array>;
+export async function importKey(key: JWK, alg: string): Promise<CryptoKey>;
+export async function importKey(
+  key: CryptoKey | JWK | Uint8Array,
+  alg?: string,
+): Promise<CryptoKey | Uint8Array> {
+  if (key instanceof Uint8Array) {
+    return key;
+  }
+
+  if (isCryptoKey(key)) {
+    return key;
+  }
+
+  if (isJWK(key)) {
+    if ("k" in key && (key as JWK_oct).k) {
+      return base64UrlDecode((key as JWK_oct).k, false);
+    }
+    return jwkTokey({ ...key, alg });
+  }
+
+  throw new Error("unreachable");
+}
+
+/**
+ * Exports a CryptoKey to a JWK (JSON Web Key) format.
  *
  * @param key The CryptoKey to export.
- * @param jwk Optional JWK object to merge with the exported key.
- * @returns A Promise resolving to the JsonWebKey object.
- * @throws Error if the key is not extractable or another export error occurs.
+ * @param jwk Optional partial JWK to merge with the exported key, allowing overrides.
+ * @returns A Promise resolving to the exported JWK.
  */
 export async function exportKey(
   key: CryptoKey,
   jwk?: Partial<JWK>,
 ): Promise<JWK> {
-  if (!key.extractable) {
-    throw new Error("Cannot export a non-extractable key.");
+  const exportedJwk = await keyToJWK(key);
+
+  // Merge the optional jwk properties
+  if (jwk) {
+    return { ...exportedJwk, ...jwk };
   }
 
-  const exportedJwk = await crypto.subtle.exportKey("jwk", key);
-  return {
-    ...exportedJwk,
-    ...jwk,
-    key_ops: jwk?.key_ops ?? exportedJwk.key_ops,
-    ext: jwk?.ext ?? exportedJwk.ext,
-  } as JWK;
+  return exportedJwk;
 }
 
-/**
- * Imports a cryptographic key from either its JSON Web Key (JWK) representation
- * or from raw key bits (ArrayBuffer/Uint8Array).
- *
- * When importing raw key bits (e.g., derived from a password using
- * `deriveKeyBitsFromPassword`), the `alg` and `keyUsages` must be specified
- * in the `options` parameter to define the key's intended algorithm and
- * allowed operations.
- *
- * When importing a JWK, the function attempts to infer the algorithm and
- * key usages from the JWK properties (`alg`, `use`, `key_ops`) if not
- * explicitly provided in the `options`.
- *
- * @param keyData The key data, either as a JsonWebKey object or an ArrayBuffer/Uint8Array containing raw key bits.
- * @param options Optional parameters for key import. Required when importing raw key bits.
- * @param options.alg The algorithm identifier (e.g., "HS256", "RSA-OAEP", "A256GCM"). Mandatory if not present in the JWK or when importing raw bits.
- * @param options.keyUsages An array of key usage strings (e.g., ["sign", "verify"], ["encrypt", "decrypt"]). Mandatory if not present in the JWK or when importing raw bits.
- * @param options.extractable A boolean indicating whether the imported key should be extractable. Defaults to `true`.
- * @returns A Promise resolving to the imported CryptoKey.
- * @throws Error if required information (like `alg` or `keyUsages` for raw import) is missing or if the algorithm/key type combination is unsupported.
- */
-export async function importKey(
-  keyData: ArrayBuffer | Uint8Array,
-  options?: ImportKeyOptions,
-): Promise<CryptoKey>;
-export async function importKey(
-  keyData: JsonWebKey,
-  options?: ImportKeyOptions,
-): Promise<CryptoKey>;
-export async function importKey(
-  keyData: JsonWebKey | ArrayBuffer | Uint8Array,
-  options: ImportKeyOptions = {},
-): Promise<CryptoKey> {
-  // --- Handle Password or Raw Key Bits Import ---
-  if (keyData instanceof ArrayBuffer || keyData instanceof Uint8Array) {
-    const { alg, keyUsages, extractable = true } = options;
-    if (!alg) {
-      throw new Error(
-        "Algorithm ('alg') must be specified in options when importing raw key bits.",
-      );
-    }
-    if (!keyUsages || keyUsages.length === 0) {
-      throw new Error(
-        "Key usages ('keyUsages') must be specified in options when importing raw key bits.",
-      );
-    }
+function getGenerateKeyParams(
+  alg: string,
+  options?: Omit<GenerateKeyOptions, "toJWK">,
+): {
+  algorithm: AlgorithmIdentifier | RsaHashedKeyGenParams | EcKeyGenParams;
+  keyUsages: KeyUsage[];
+} {
+  let algorithm: AlgorithmIdentifier | RsaHashedKeyGenParams | EcKeyGenParams;
+  let keyUsages: KeyUsage[];
 
-    let algorithm:
-      | AlgorithmIdentifier
-      | RsaHashedImportParams
-      | HmacImportParams
-      | AesKeyAlgorithm;
+  const defaultKeyUsage = options?.keyUsage;
 
-    // Determine algorithm parameters based on the provided 'alg'
-    if (alg in JWS_ALGORITHMS_SYMMETRIC) {
-      const algDetails = JWS_ALGORITHMS_SYMMETRIC[alg as HmacAlgorithm];
+  switch (alg) {
+    // HMAC Signatures
+    case "HS256":
+    case "HS384":
+    case "HS512": {
       algorithm = {
-        name: algDetails.name,
-        hash: algDetails.hash,
-      } as HmacImportParams;
-    } else if (alg in JWE_KEY_WRAPPING_HMAC) {
-      // PBES2 itself isn't imported directly, treating as AES-KW key
-      const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKeyWrapAlgorithm];
-      algorithm =
-        "hash" in algDetails
-          ? { name: "AES-KW", hash: algDetails.hash }
-          : { name: "AES-KW" };
-    } else if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
-      const algDetails =
-        JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as ContentEncryptionAlgorithm];
-      if (algDetails.type === "gcm") {
-        algorithm = { name: "AES-GCM" };
-      } else if (algDetails.type === "cbc") {
-        algorithm = { name: "AES-CBC" };
-      } else {
-        /* v8 ignore next 2 */
-        throw new Error(
-          `Unsupported JWE content encryption algorithm type for raw import: ${(algDetails as any).type}`,
-        );
-      }
-    } else {
-      // Note: Asymmetric keys (RSA) cannot typically be imported
-      // from raw bits directly. JWK format is preferred for them.
-      throw new Error(
-        `Unsupported or unsuitable algorithm for raw key import: ${alg}`,
-      );
+        name: "HMAC",
+        hash: `SHA-${alg.slice(2)}`,
+      };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
     }
-
-    return crypto.subtle.importKey(
-      "raw",
-      keyData,
-      algorithm,
-      extractable,
-      keyUsages,
-    );
-  }
-
-  // --- Existing JWK Import Logic ---
-  const jwk = keyData;
-
-  // 1. Determine Informations
-  const alg = options.alg ?? jwk.alg;
-  if (!alg) {
-    // Attempt basic inference for common types if alg is missing
-    if (jwk.kty === "oct" && jwk.k) {
-      // Cannot reliably infer specific AES/HMAC without alg or key size context
-      throw new Error(
-        "Algorithm ('alg') missing in JWK and options, cannot infer for 'oct' key type.",
-      );
-    } else if (jwk.kty === "RSA" && jwk.n && jwk.e) {
-      // Cannot reliably infer RS*/PS*/RSA-OAEP without alg
-      throw new Error(
-        "Algorithm ('alg') missing in JWK and options, cannot infer specific RSA algorithm.",
-      );
+    // RSA Signatures
+    case "RS256":
+    case "RS384":
+    case "RS512": {
+      algorithm = {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: options?.modulusLength ?? 2048,
+        publicExponent:
+          options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        hash: `SHA-${alg.slice(2)}`,
+      };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
     }
-    throw new Error("Algorithm ('alg') must be present in JWK or options.");
-  }
-  const extractable = options.extractable ?? jwk.ext ?? true;
+    // RSA PSS Signatures
+    case "PS256":
+    case "PS384":
+    case "PS512": {
+      algorithm = {
+        name: "RSA-PSS",
+        modulusLength: options?.modulusLength ?? 2048,
+        publicExponent:
+          options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        hash: `SHA-${alg.slice(2)}`,
+      };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
+    // ECDSA Signatures
+    case "ES256": {
+      algorithm = { name: "ECDSA", namedCurve: "P-256" };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
+    case "ES384": {
+      algorithm = { name: "ECDSA", namedCurve: "P-384" };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
+    case "ES512": {
+      algorithm = { name: "ECDSA", namedCurve: "P-521" };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
+    // EdDSA Signatures should be imported
 
-  let algorithm:
-    | AlgorithmIdentifier
-    | RsaHashedImportParams
-    | HmacImportParams
-    | AesKeyAlgorithm;
-  let defaultUsages: KeyUsage[] = [];
-
-  if (alg in JWS_ALGORITHMS_SYMMETRIC) {
-    const algDetails = JWS_ALGORITHMS_SYMMETRIC[alg as HmacAlgorithm];
-    algorithm = {
-      name: algDetails.name,
-      hash: algDetails.hash,
-    } as HmacImportParams;
-    defaultUsages = ["sign", "verify"];
-  } else if (alg in JWS_ALGORITHMS_ASYMMETRIC_RSA) {
-    const algDetails = JWS_ALGORITHMS_ASYMMETRIC_RSA[alg as RsaSignAlgorithm];
-    algorithm = {
-      name: algDetails.name,
-      hash: algDetails.hash,
-    } as RsaHashedImportParams;
-    defaultUsages = jwk.d ? ["sign"] : ["verify"];
-  } else if (alg in JWE_KEY_WRAPPING_HMAC) {
-    if (jwk.kty !== "oct")
-      throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
-    const algDetails = JWE_KEY_WRAPPING_HMAC[alg as AesKeyWrapAlgorithm];
-    algorithm =
-      "hash" in algDetails
-        ? { name: "AES-KW", hash: algDetails.hash }
-        : { name: "AES-KW" };
-    defaultUsages = ["wrapKey", "unwrapKey"];
-  } else if (alg in JWE_KEY_WRAPPING_RSA) {
-    const algDetails = JWE_KEY_WRAPPING_RSA[alg as RsaWrapAlgorithm];
-    algorithm = {
-      name: algDetails.name,
-      hash: algDetails.hash,
-    } as RsaHashedImportParams;
-    // Default usages depend on public/private key
-    defaultUsages = jwk.d ? ["unwrapKey", "decrypt"] : ["wrapKey", "encrypt"];
-  } else if (alg in JWE_CONTENT_ENCRYPTION_ALGORITHMS) {
-    const algDetails =
-      JWE_CONTENT_ENCRYPTION_ALGORITHMS[alg as ContentEncryptionAlgorithm];
-    if (jwk.kty !== "oct")
-      throw new Error(`JWK with alg '${alg}' must have kty 'oct'.`);
-
-    if (algDetails.type === "gcm") {
+    // RSA Encryption
+    case "RSA-OAEP":
+    case "RSA-OAEP-256":
+    case "RSA-OAEP-384":
+    case "RSA-OAEP-512": {
+      algorithm = {
+        name: "RSA-OAEP",
+        modulusLength: options?.modulusLength ?? 2048,
+        publicExponent:
+          options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        hash: `SHA-${Number.parseInt(alg.slice(9), 10) || 1}`,
+      };
+      keyUsages = defaultKeyUsage ?? [
+        "encrypt",
+        "decrypt",
+        "wrapKey",
+        "unwrapKey",
+      ];
+      break;
+    }
+    // AES Key Wrap
+    case "A128KW":
+    case "A192KW":
+    case "A256KW": {
+      algorithm = { name: "AES-KW" };
+      keyUsages = defaultKeyUsage ?? ["wrapKey", "unwrapKey"];
+      break;
+    }
+    // AES GCM Encryption
+    case "A128GCM":
+    case "A192GCM":
+    case "A256GCM": {
       algorithm = { name: "AES-GCM" };
-    } else if (algDetails.type === "cbc") {
-      algorithm = { name: "AES-CBC" };
+      keyUsages = defaultKeyUsage ?? ["encrypt", "decrypt"];
+      break;
+    }
 
-      /* v8 ignore next 5, should be unreachable leaving mostly for type safety */
-    } else {
+    // ECDH Key Agreement (requires specific curve in JWK for import, generation is simpler)
+    // For generation, typically generate the EC key pair first (e.g., P-256, P-384, P-521, X25519)
+    // then use deriveBits/deriveKey. Direct generation for "ECDH-ES*" alg isn't standard.
+    // Handle EC key pair generation under ES256/ES384/ES512.
+
+    default: {
       throw new Error(
-        `Unsupported JWE content encryption algorithm type: ${(algDetails as any).type}`,
+        `Unsupported or invalid algorithm for key generation: ${alg}`,
       );
     }
-
-    defaultUsages = ["encrypt", "decrypt"];
-  } else {
-    throw new Error(`Unsupported or unknown algorithm for key import: ${alg}`);
   }
 
-  // 2. Determine Key Usages
-  let keyUsages: KeyUsage[] | undefined =
-    options.keyUsages ?? (jwk.key_ops as KeyUsage[] | undefined);
-
-  if (!keyUsages) {
-    // If still undefined, try inferring from jwk.use or apply defaults
-    if (jwk.use === "sig") {
-      if (algorithm.name.startsWith("RSA")) {
-        keyUsages = jwk.d ? ["sign"] : ["verify"];
-      } else if (algorithm.name === "HMAC") {
-        keyUsages = ["sign", "verify"];
-      }
-    } else if (
-      jwk.use === "enc" &&
-      (algorithm.name.startsWith("RSA") || algorithm.name.startsWith("AES"))
-    ) {
-      switch (algorithm.name) {
-        case "AES-KW": {
-          keyUsages = ["wrapKey", "unwrapKey"];
-          break;
-        }
-        case "AES-GCM":
-        case "AES-CBC": {
-          keyUsages = ["encrypt", "decrypt"];
-          break;
-        }
-        case "RSA-OAEP": {
-          keyUsages = jwk.d ? ["unwrapKey", "decrypt"] : ["wrapKey", "encrypt"];
-          break;
-        }
-      }
-    }
-
-    // If still no usages inferred, apply the defaults determined earlier
-    if (!keyUsages) {
-      keyUsages = defaultUsages;
-    }
-  }
-
-  // 3. Prepare JWK for native import (remove potentially conflicting fields)
-  const jwkForImport = { ...jwk };
-  delete jwkForImport.alg;
-  delete jwkForImport.use;
-  delete jwkForImport.key_ops;
-
-  // 4. Perform Import
-  const cryptoKey = await crypto.subtle.importKey(
-    "jwk",
-    jwkForImport,
-    algorithm,
-    extractable,
-    keyUsages,
-  );
-  return cryptoKey;
-}
-
-/**
- * Derives raw key bits from a password using PBKDF2.
- *
- * This function generates the raw cryptographic material. You will typically
- * need to import these bits using `importKey` for the specific cryptographic
- * algorithm you intend to use (e.g., "HS256" for signing, "AES-GCM" for encryption).
- *
- * @param password The password to derive the key from.
- * @param options Options controlling the derivation process, including the desired key length.
- * @returns A Promise resolving to an object containing the derived bits, salt, and iterations.
- */
-export async function deriveKeyBitsFromPassword(
-  password: string | Uint8Array,
-  options: DeriveKeyBitsOptions & { keyLength: number },
-): Promise<DerivedKeyBitsResult> {
-  const {
-    keyLength,
-    salt = randomBytes(16),
-    iterations = 2048,
-    hash = "SHA-256",
-  } = options;
-
-  if (!keyLength || keyLength <= 0) {
-    throw new Error("keyLength must be a positive number.");
-  }
-  if (salt.length === 0) {
-    throw new Error("Salt cannot be empty.");
-  }
-  if (iterations <= 0) {
-    throw new Error("Iterations must be positive.");
-  }
-
-  const passwordBuffer =
-    typeof password === "string" ? textEncoder.encode(password) : password;
-
-  // 1. Import the password as a base key for PBKDF2
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    passwordBuffer,
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"],
-  );
-
-  // 2. Define PBKDF2 parameters
-  const pbkdf2Params: Pbkdf2Params = {
-    name: "PBKDF2",
-    hash: hash,
-    salt: salt,
-    iterations: iterations,
-  };
-
-  // 3. Derive the key bits
-  const derivedBits = await crypto.subtle.deriveBits(
-    pbkdf2Params,
-    baseKey,
-    keyLength,
-  );
-
-  return { derivedBits, salt, iterations, keyLength, hash };
+  return { algorithm, keyUsages };
 }

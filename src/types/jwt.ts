@@ -32,3 +32,28 @@ export interface JoseHeaderParameters {
   /** Any other JWS/JWE Header member. */
   [propName: string]: unknown;
 }
+
+export interface JWTClaims {
+  /** "iss" (Issuer) Claim */
+  iss?: string;
+  /** "sub" (Subject) Claim */
+  sub?: string;
+  /** "aud" (Audience) Claim */
+  aud?: string | string[];
+  /** "exp" (Expiration Time) Claim */
+  exp?: number;
+  /** "nbf" (Not Before) Claim */
+  nbf?: number;
+  /** "iat" (Issued At) Claim */
+  iat?: number;
+  /** "jti" (JWT ID) Claim */
+  jti?: string;
+}
+
+export interface JWT<T = JWTClaims> {
+  header: JoseHeaderParameters & {
+    /** "alg" (Algorithm) Header Parameter */
+    alg: string;
+  };
+  claims: T;
+}

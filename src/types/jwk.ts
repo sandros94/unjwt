@@ -1,5 +1,3 @@
-import type { JoseAlgorithm } from "./defaults"; // Import the master algorithm type
-
 // --- JWK Function Specific Types ---
 
 /** Structure returned for composite AES-CBC + HMAC keys. */
@@ -10,10 +8,13 @@ export type CompositeKey = {
   macKey: CryptoKey;
 };
 
+export type GenerateKeyAlgorithm = Exclude<
+  JWKAlgorithm,
+  "none" | "dir" | JWK_PBES2 | JWK_ECDH_ES
+>;
+
 /** Options for the generateKey function. */
-export interface GenerateKeyOptions<
-  ToJWK extends boolean | undefined = undefined,
-> {
+export interface GenerateKeyOptions {
   /** Key usages for the generated key(s). Note: For composite keys (CBC), default usages are applied separately. */
   keyUsage?: KeyUsage[];
   /** Mark the key(s) as extractable. Defaults to true. */
@@ -23,69 +24,47 @@ export interface GenerateKeyOptions<
   /** RSA public exponent. Defaults to 65537 (0x010001). */
   publicExponent?: Uint8Array;
   /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
-  toJWK?: ToJWK;
+  toJWK?: boolean | undefined;
 }
 
-/** Options for the importKey function. */
-export interface ImportKeyOptions {
-  /** Fallback algorithm identifier if not present in the JWK. */
-  alg?: JoseAlgorithm;
-  /** Fallback for key extractability if not present in the JWK. Defaults to false. */
-  extractable?: boolean;
-  /** Fallback for key usages if not present in the JWK. If still unspecified, defaults will be inferred. */
-  keyUsages?: KeyUsage[];
-}
+// Conditional return type when toJWK is true
+type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> =
+  TAlg extends JWK_Asymmetric_Algorithm
+    ? { privateKey: JWK; publicKey: JWK }
+    : JWK;
 
-/** Options for deriving key bits from a password using PBKDF2. */
-export interface DeriveKeyBitsOptions {
-  /**
-   * The desired length of the derived key in bits.
-   * This depends on the algorithm the key will be used for (e.g., 256 for HS256 or A128GCM).
-   */
-  keyLength?: number;
-  /**
-   * The cryptographic salt. Should be unique for each password,
-   * ideally cryptographically random. If not provided, a random 16-byte salt will be generated.
-   * Must be stored alongside the derived key or parameters needed to re-derive it.
-   */
-  salt?: Uint8Array;
-  /**
-   * The number of iterations for the PBKDF2 algorithm.
-   * Higher numbers increase security but also derivation time.
-   * @default 2048
-   */
-  iterations?: number;
-  /**
-   * The hash algorithm to use in PBKDF2.
-   * @default "SHA-256"
-   */
-  hash?: "SHA-256" | "SHA-384" | "SHA-512";
-}
+// Conditional return type when toJWK is false or undefined
+type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> =
+  TAlg extends JWK_AES_CBC_HMAC
+    ? Uint8Array
+    : TAlg extends JWK_Asymmetric_Algorithm
+      ? CryptoKeyPair
+      : CryptoKey;
 
-/** Result of deriving key bits from a password. */
-export interface DerivedKeyBitsResult {
-  /**
-   * The raw derived key bits as an ArrayBuffer.
-   * These bits need to be imported using `importKey` for a specific algorithm (e.g., "HS256", "AES-GCM").
-   */
-  derivedBits: ArrayBuffer;
-  /**
-   * The salt used during derivation. Store this value.
-   */
+export type GenerateKeyReturn<
+  TAlg extends GenerateKeyAlgorithm,
+  TOptions extends GenerateKeyOptions,
+> = TOptions["toJWK"] extends true
+  ? GenerateKeyReturnJWK<TAlg>
+  : GenerateKeyReturnCrypto<TAlg>;
+
+/** Options for the deriveKeyFromPassword function. */
+export interface DeriveKeyOptions {
+  /** Salt value (p2s). Must be at least 8 bytes. */
   salt: Uint8Array;
-  /**
-   * The number of iterations used. Store this value.
-   */
+  /** Iteration count (p2c). Must be a positive integer. */
   iterations: number;
-  /**
-   * The hash algorithm used. Store this value.
-   */
-  hash: "SHA-256" | "SHA-384" | "SHA-512";
-  /**
-   * The length of the derived key in bits.
-   */
-  keyLength: number;
+  /** Key usages for the derived key. Defaults to ["wrapKey", "unwrapKey"]. */
+  keyUsage?: KeyUsage[];
+  /** Mark the derived key as extractable. Defaults to false. */
+  extractable?: boolean;
+  /** Export the derived key as JWK. If true, the key will be returned in JWK_oct format. */
+  toJWK?: boolean | undefined;
 }
+
+// Conditional return type for deriveKeyFromPassword
+export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> =
+  TOptions["toJWK"] extends true ? JWK_oct : CryptoKey;
 
 // --- Standard JWK Interfaces ---
 
@@ -122,6 +101,25 @@ export interface JWKParameters {
   /** JWK "kid" (Key ID) Parameter */
   kid?: string;
 }
+
+/** Public EC JSON Web Keys */
+export interface JWK_EC_Public extends JWKParameters {
+  /** EC JWK "crv" (Curve) Parameter */
+  crv: string;
+  /** EC JWK "x" (X Coordinate) Parameter */
+  x: string;
+  /** EC JWK "y" (Y Coordinate) Parameter */
+  y: string;
+}
+
+/** Private EC JSON Web Keys */
+export interface JWK_EC_Private extends JWK_EC_Public, JWKParameters {
+  /** EC JWK "d" (ECC Private Key) Parameter */
+  d: string;
+}
+
+/** EC JSON Web Keys */
+export type JWK_EC = JWK_EC_Public | JWK_EC_Private;
 
 /** Public RSA JSON Web Keys */
 export interface JWK_RSA_Public extends JWKParameters {
@@ -160,4 +158,46 @@ export interface JWK_oct extends JWKParameters {
 /**
  * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA" and "oct" key types are supported.
  */
-export type JWK = JWK_RSA | JWK_oct;
+export type JWK = JWK_oct | JWK_RSA | JWK_EC;
+
+/** JWK Key Algorithms */
+
+export type JWK_HMAC = "HS256" | "HS384" | "HS512";
+export type JWK_RSA_SIGN = "RS256" | "RS384" | "RS512";
+export type JWK_RSA_PSS = "PS256" | "PS384" | "PS512";
+export type JWK_ECDSA = "ES256" | "ES384" | "ES512";
+export type JWK_RSA_ENC =
+  | "RSA-OAEP"
+  | "RSA-OAEP-256"
+  | "RSA-OAEP-384"
+  | "RSA-OAEP-512";
+export type JWK_AES_KW = "A128KW" | "A192KW" | "A256KW";
+export type JWK_AES_CBC_HMAC =
+  | "A128CBC-HS256"
+  | "A192CBC-HS384"
+  | "A256CBC-HS512";
+export type JWK_AES_GCM = "A128GCM" | "A192GCM" | "A256GCM";
+export type JWK_PBES2 =
+  | "PBES2-HS256+A128KW"
+  | "PBES2-HS384+A192KW"
+  | "PBES2-HS512+A256KW";
+export type JWK_ECDH_ES =
+  | "ECDH-ES"
+  | "ECDH-ES+A128KW"
+  | "ECDH-ES+A192KW"
+  | "ECDH-ES+A256KW";
+
+export type JWK_Symmetric_Algorithm = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM;
+export type JWK_Asymmetric_Algorithm =
+  | JWK_RSA_SIGN
+  | JWK_RSA_PSS
+  | JWK_ECDSA
+  | JWK_RSA_ENC;
+
+export type JWKAlgorithm =
+  | JWK_Symmetric_Algorithm
+  | JWK_Asymmetric_Algorithm
+  | JWK_AES_CBC_HMAC
+  | JWK_PBES2
+  | JWK_ECDH_ES
+  | ("none" | "dir"); // No algorithm | Direct encryption
