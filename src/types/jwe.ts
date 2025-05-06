@@ -145,6 +145,8 @@ export interface JWEDecryptOptions {
   keyUsage?: KeyUsage[];
   /** Mark the unwrapped CEK as extractable. Defaults to true. */
   extractable?: boolean;
+  /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred based on JWE headers. */
+  forceUint8Array?: boolean;
 }
 
 /**

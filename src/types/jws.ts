@@ -34,7 +34,7 @@ export interface JWSProtectedHeader extends JWSHeaderParameters {
  */
 export interface JWSSignOptions {
   /** The JWS Algorithm to use. Must be provided. */
-  alg: JWSAlgorithm;
+  alg?: JWSAlgorithm;
   /**
    * Additional protected header parameters. `alg` is automatically included.
    * `typ` defaults to "JWT" if not provided.
@@ -58,5 +58,7 @@ export interface JWSVerifyOptions {
   algorithms?: JWSAlgorithm[];
   /** List of critical header parameters that must be understood and processed. */
   critical?: string[];
+  /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
+  forceUint8Array?: boolean;
   // TODO: Add other verification options like clock tolerance, audience, issuer etc. later if needed
 }

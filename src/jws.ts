@@ -1,5 +1,6 @@
 import type {
   JWK,
+  JWSAlgorithm,
   JWSSignOptions,
   JWSProtectedHeader,
   JWSVerifyOptions,
@@ -13,6 +14,7 @@ import {
   base64UrlDecode,
   textEncoder,
   textDecoder,
+  isJWK,
 } from "./utils";
 
 export * from "./types/jws";
@@ -26,14 +28,44 @@ export * from "./types/jws";
  * @returns A Promise resolving to the JWS Compact Serialization string.
  */
 export async function sign(
+  payload: JWTClaims,
+  key: JWK | Uint8Array,
+  options?: JWSSignOptions,
+): Promise<string>;
+export async function sign(
+  payload: string | Uint8Array | Record<string, any>,
+  key: JWK | Uint8Array,
+  options?: JWSSignOptions,
+): Promise<string>;
+export async function sign(
+  payload: JWTClaims,
+  key: CryptoKey,
+  options: JWSSignOptions & { alg: JWSAlgorithm },
+): Promise<string>;
+export async function sign(
+  payload: string | Uint8Array | Record<string, any>,
+  key: CryptoKey,
+  options: JWSSignOptions & { alg: JWSAlgorithm },
+): Promise<string>;
+export async function sign(
   payload: string | Uint8Array | Record<string, any>,
   key: CryptoKey | JWK | Uint8Array,
-  options: JWSSignOptions,
+  options: JWSSignOptions & { alg: JWSAlgorithm },
+): Promise<string>;
+export async function sign(
+  payload: string | Uint8Array | Record<string, any>,
+  key: CryptoKey | JWK | Uint8Array,
+  options: JWSSignOptions = {},
 ): Promise<string> {
-  const { alg, protectedHeader: additionalProtectedHeader } = options;
+  const { protectedHeader: additionalProtectedHeader } = options;
+  let { alg } = options;
 
   if (!alg) {
-    throw new TypeError('JWS "alg" (Algorithm) must be provided in options');
+    if (isJWK(key) && key.alg) {
+      alg = key.alg as JWSAlgorithm;
+    } else {
+      throw new TypeError('JWS "alg" (Algorithm) must be provided in options');
+    }
   }
 
   // 1. Import Key
@@ -49,6 +81,21 @@ export async function sign(
         ? "JWT"
         : undefined), // Default typ to JWT for objects
   };
+
+  // Set 'typ' if not provided and payload is an object (and not Uint8Array)
+  if (
+    protectedHeader.typ === undefined &&
+    typeof payload === "object" &&
+    !(payload instanceof Uint8Array)
+  ) {
+    protectedHeader.typ = "JWT";
+    protectedHeader.cty ||= "json"; // Indicate original payload was JSON
+  }
+
+  // Set 'cty' if not provided and payload is a string
+  if (protectedHeader.cty === undefined && typeof payload === "string") {
+    protectedHeader.cty = "text"; // Indicate original payload was a string
+  }
 
   if (protectedHeader.b64 === true) {
     delete protectedHeader.b64;
@@ -106,7 +153,17 @@ type KeyLookupFunction = (
  */
 export async function verify<T = JWTClaims | Uint8Array | string>(
   jws: string,
-  key: CryptoKey | JWK | Uint8Array | KeyLookupFunction, // Updated key type
+  key: CryptoKey | JWK | Uint8Array | KeyLookupFunction,
+  options?: JWSVerifyOptions,
+): Promise<JWSVerifyResult<T>>;
+export async function verify(
+  jws: string,
+  key: CryptoKey | JWK | Uint8Array | KeyLookupFunction,
+  options: JWSVerifyOptions & { forceUint8Array: true },
+): Promise<JWSVerifyResult<Uint8Array>>;
+export async function verify<T = JWTClaims | Uint8Array | string>(
+  jws: string,
+  key: CryptoKey | JWK | Uint8Array | KeyLookupFunction,
   options?: JWSVerifyOptions,
 ): Promise<JWSVerifyResult<T>> {
   // 1. Parse JWS
@@ -181,30 +238,40 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
   let payload: T;
   try {
     if (useB64) {
-      // Check if it's likely JSON first based on headers
-      const isJsonPayload =
-        protectedHeader.typ === "JWT" || protectedHeader.cty === "json";
+      if (options?.forceUint8Array) {
+        payload = base64UrlDecode(payloadEncoded, false) as T;
+      } else {
+        const isJsonPayload =
+          protectedHeader.typ === "JWT" || protectedHeader.cty === "json";
 
-      if (isJsonPayload) {
-        // Decode as string for potential JSON parsing
-        const decodedString = base64UrlDecode(payloadEncoded);
-        if (decodedString.startsWith("{") && decodedString.endsWith("}")) {
-          try {
-            payload = JSON.parse(decodedString) as T;
-          } catch {
-            // Malformed JSON, return as string
+        if (isJsonPayload) {
+          // Decode as string for potential JSON parsing
+          const decodedString = base64UrlDecode(payloadEncoded, true);
+          // Basic check to see if it looks like a JSON object or array
+          if (
+            (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
+            (decodedString.startsWith("[") && decodedString.endsWith("]"))
+          ) {
+            try {
+              payload = JSON.parse(decodedString) as T;
+            } catch {
+              // Malformed JSON, return as string
+              payload = decodedString as T;
+            }
+          } else {
+            // Declared as JSON but not valid JSON structure, return as string
             payload = decodedString as T;
           }
+        } else if (protectedHeader.cty === "text") {
+          // If cty is "text", decode as string
+          payload = base64UrlDecode(payloadEncoded) as T;
         } else {
-          // Declared as JSON but not valid JSON structure, return as string
-          payload = decodedString as T;
+          // If not declared as JSON or text, assume it's raw bytes and decode accordingly
+          payload = base64UrlDecode(payloadEncoded, false) as T;
         }
-      } else {
-        // If not declared as JSON, assume it's raw bytes and decode accordingly
-        payload = base64UrlDecode(payloadEncoded, false) as T;
       }
     } else {
-      // RFC7797: Payload is not Base64URL encoded, treat as raw bytes
+      // RFC7797: Payload is not Base64URL encoded, payloadEncoded is the raw string
       payload = textEncoder.encode(payloadEncoded) as T;
     }
   } catch (error_) {

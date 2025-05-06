@@ -41,9 +41,22 @@ export * from "./types/jwe";
  * @returns A Promise resolving to the JWE Compact Serialization string.
  */
 export async function encrypt(
+  payload: JWTClaims,
+  key: JWK | string | Uint8Array,
+  options?: JWEEncryptOptions,
+): Promise<string>;
+export async function encrypt(
   payload: string | Uint8Array | Record<string, any>,
   key: JWK | string | Uint8Array,
   options?: JWEEncryptOptions,
+): Promise<string>;
+export async function encrypt(
+  payload: JWTClaims,
+  key: CryptoKey,
+  options: JWEEncryptOptions & {
+    alg: KeyManagementAlgorithm;
+    enc: ContentEncryptionAlgorithm;
+  },
 ): Promise<string>;
 export async function encrypt(
   payload: string | Uint8Array | Record<string, any>,
@@ -125,19 +138,37 @@ export async function encrypt(
     jweKeyManagementParams,
   );
 
+  const baseProtectedHeader = { ...additionalProtectedHeader };
+  delete baseProtectedHeader.alg;
+  delete baseProtectedHeader.enc;
+
   const jweProtectedHeader: JWEHeaderParameters = {
-    ...additionalProtectedHeader,
+    ...baseProtectedHeader,
     ...keyManagementHeaderParams,
     alg,
     enc,
   };
 
   if (
-    !jweProtectedHeader.typ &&
+    jweProtectedHeader.typ === undefined &&
     typeof payload === "object" &&
     !(payload instanceof Uint8Array)
   ) {
     jweProtectedHeader.typ = "JWT";
+  }
+
+  // Set 'cty' based on payload type if not provided by user
+  // If typ is "JWT" (because payload was an object) and cty is not set, set cty to "json"
+  if (
+    jweProtectedHeader.typ === "JWT" &&
+    typeof payload === "object" &&
+    !(payload instanceof Uint8Array)
+  ) {
+    jweProtectedHeader.cty ||= "json";
+  }
+  // If cty is still not set, and payload is a string, set cty to "text"
+  if (jweProtectedHeader.cty === undefined && typeof payload === "string") {
+    jweProtectedHeader.cty = "text";
   }
 
   const protectedHeaderSerialized = JSON.stringify(jweProtectedHeader);
@@ -193,6 +224,18 @@ export async function encrypt(
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
+export async function decrypt<T = JWTClaims | string>(
+  jwe: string,
+  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  options?: JWEDecryptOptions,
+): Promise<JWEDecryptResult<T>>;
+export async function decrypt(
+  jwe: string,
+  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  options: JWEDecryptOptions & {
+    forceUint8Array: true;
+  },
+): Promise<JWEDecryptResult<Uint8Array>>;
 export async function decrypt<T = JWTClaims | string>(
   jwe: string,
   key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
@@ -288,16 +331,22 @@ export async function decrypt<T = JWTClaims | string>(
   );
 
   let payload: T;
-  try {
+  if (options?.forceUint8Array) {
+    payload = plaintextBytes as T;
+  } else {
+    const decodedString = textDecoder.decode(plaintextBytes);
+    const cty = protectedHeader.cty?.toLowerCase();
     const isJsonOutput =
       protectedHeader.typ === "JWT" ||
-      (protectedHeader.cty &&
-        protectedHeader.cty.toLowerCase().includes("json"));
+      cty === "json" ||
+      cty === "application/json" ||
+      (cty && cty.endsWith("+json"));
 
     if (isJsonOutput) {
-      const decodedString = textDecoder.decode(plaintextBytes);
-      // Attempt to parse only if it looks like JSON
-      if (decodedString.startsWith("{") && decodedString.endsWith("}")) {
+      if (
+        (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
+        (decodedString.startsWith("[") && decodedString.endsWith("]"))
+      ) {
         try {
           payload = JSON.parse(decodedString) as T;
         } catch {
@@ -305,14 +354,15 @@ export async function decrypt<T = JWTClaims | string>(
           payload = decodedString as T;
         }
       } else {
+        // Declared as JSON but not a valid JSON object/array string representation
         payload = decodedString as T;
       }
+    } else if (cty === "text") {
+      payload = decodedString as T;
     } else {
-      payload = textDecoder.decode(plaintextBytes) as T;
+      // Default to string if not JSON, not text, and not forced to Uint8Array
+      payload = decodedString as T;
     }
-  } catch {
-    // Should not happen if plaintextBytes is valid, but as a fallback
-    payload = textDecoder.decode(plaintextBytes) as T;
   }
 
   if (options?.critical && protectedHeader.crit) {

@@ -1,13 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { sign, verify } from "../src//jws";
-import { generateKey } from "../src//jwk";
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  textEncoder,
-  textDecoder,
-} from "../src//utils";
-import type { JWSProtectedHeader, JWTClaims } from "../src//types";
+import { sign, verify } from "../src/jws";
+import { generateKey } from "../src/jwk";
+import { base64UrlEncode, base64UrlDecode, textEncoder } from "../src/utils";
+import type { JWSProtectedHeader, JWTClaims, JWK } from "../src/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -19,6 +14,22 @@ describe.concurrent("JWS Utilities", () => {
   const payloadString = "Payload as string";
 
   describe("sign", () => {
+    it("should sing while inferring alg from JWK", async () => {
+      const t = "Hello, World!";
+      const jwk: JWK = {
+        key_ops: ["sign", "verify"],
+        ext: true,
+        kty: "oct",
+        k: "OZ3BsJChEniZwQhiyZdML26Ovchsjqal9sAQR7DsBfc4xBFlcxqYzlOO77MNd0CnPKdznatgsELJjW02BqaqVw",
+        alg: "HS256",
+      };
+
+      const jwe = await sign(t, jwk);
+      const { payload } = await verify(jwe, jwk);
+
+      expect(payload).toBe(t);
+    });
+
     it("should sign with HS256 (Object payload)", async () => {
       const key = await generateKey("HS256");
       const jws = await sign(payloadObj, key, { alg: "HS256" });
@@ -163,12 +174,9 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (String payload)", async () => {
       const jws = await sign(payloadString, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<Uint8Array>(
-        jws,
-        hs256Key,
-      );
-      expect(payload).toBeInstanceOf(Uint8Array);
-      expect(textDecoder.decode(payload)).toEqual(payloadString);
+      const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
+      expect(payload).toBeTypeOf("string");
+      expect(payload).toEqual(payloadString);
       expect(protectedHeader.alg).toBe("HS256");
     });
 
@@ -217,10 +225,10 @@ describe.concurrent("JWS Utilities", () => {
         jws,
         hs256Key,
       ); // b64:false returns Uint8Array
+      expect(protectedHeader.b64).toBe(false);
+      expect(protectedHeader.alg).toBe("HS256");
       expect(payload).toBeInstanceOf(Uint8Array);
       expect(new TextDecoder().decode(payload)).toBe(payloadString);
-      expect(protectedHeader.alg).toBe("HS256");
-      expect(protectedHeader.b64).toBe(false);
     });
 
     it("should verify with sync key lookup function", async () => {
