@@ -7,8 +7,7 @@
  */
 
 import type { JWK } from "../types";
-import { base64UrlEncode } from "../utils";
-import { isCryptoKey } from "./encrypt-decrypt";
+import { base64UrlEncode, isCryptoKey } from "../utils";
 
 export async function keyToJWK(key: unknown): Promise<JWK> {
   if (key instanceof Uint8Array) {
