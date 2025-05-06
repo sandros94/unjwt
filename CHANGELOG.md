@@ -6,7 +6,7 @@
 
 ### 🚀 Enhancements
 
-- ⚠️  Asymmetric keys and standardize library ([#3](https://github.com/sandros94/unjwt/pull/3))
+- ⚠️ Asymmetric keys and standardize library ([#3](https://github.com/sandros94/unjwt/pull/3))
 
 ### 📖 Documentation
 
@@ -18,7 +18,7 @@
 
 #### ⚠️ Breaking Changes
 
-- ⚠️  Asymmetric keys and standardize library ([#3](https://github.com/sandros94/unjwt/pull/3))
+- ⚠️ Asymmetric keys and standardize library ([#3](https://github.com/sandros94/unjwt/pull/3))
 
 ### ❤️ Contributors
 
