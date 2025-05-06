@@ -54,7 +54,7 @@ describe("JWS Utilities", () => {
 
     it("should sign with RS256", async () => {
       const { privateKey } = await generateKey("RS256", {
-        modulusLength: 1024,
+        modulusLength: 2048,
       });
       const jws = await sign(payloadObj, privateKey, { alg: "RS256" });
       expect(jws.split(".").length).toBe(3);
@@ -78,7 +78,7 @@ describe("JWS Utilities", () => {
 
     it("should sign with PS256", async () => {
       const { privateKey } = await generateKey("PS256", {
-        modulusLength: 1024,
+        modulusLength: 2048,
       });
       const jws = await sign(payloadObj, privateKey, { alg: "PS256" });
       expect(jws.split(".").length).toBe(3);
@@ -144,9 +144,9 @@ describe("JWS Utilities", () => {
 
     beforeAll(async () => {
       hs256Key = await generateKey("HS256");
-      rs256KeyPair = await generateKey("RS256", { modulusLength: 1024 });
+      rs256KeyPair = await generateKey("RS256", { modulusLength: 2048 });
       es256KeyPair = await generateKey("ES256");
-      ps256KeyPair = await generateKey("PS256", { modulusLength: 1024 });
+      ps256KeyPair = await generateKey("PS256", { modulusLength: 2048 });
     });
 
     it("should verify HS256 (Object payload)", async () => {
@@ -176,7 +176,7 @@ describe("JWS Utilities", () => {
       const jws = await sign(payloadString, hs256Key, { alg: "HS256" });
       // String payload that isn't JSON gets decoded back to string by default if b64:true
       const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
-      expect(typeof payload).toBe("object");
+      expect(typeof payload).toBe("string");
       expect(payload).toEqual(payloadString);
       expect(protectedHeader.alg).toBe("HS256");
     });

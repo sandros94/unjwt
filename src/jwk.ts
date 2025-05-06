@@ -136,7 +136,7 @@ export async function deriveKeyFromPassword(
   const wrappingAlg = alg.slice(-6); // "A128KW", "A192KW", "A256KW"
   const defaultUsages: KeyUsage[] = ["wrapKey", "unwrapKey"];
   const finalUsages = keyUsage ?? defaultUsages;
-  const finalExtractable = extractable === true; // Default false
+  const finalExtractable = toJWK === true ? true : extractable === true;
 
   // Import the derived bytes as a CryptoKey for the wrapping algorithm
   const derivedKey = await crypto.subtle.importKey(
