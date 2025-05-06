@@ -172,7 +172,7 @@ describe.concurrent("JWE Utilities", () => {
         expect(parts.length).toBe(5);
 
         const {
-          plaintext: decryptedPayload,
+          payload: decryptedPayload,
           protectedHeader,
           cek,
         } = await decrypt(jwe, decryptionKey, {
@@ -216,9 +216,9 @@ describe.concurrent("JWE Utilities", () => {
       const p = "password";
 
       const jwe = await encrypt(t, p);
-      const { plaintext } = await decrypt(jwe, p);
+      const { payload } = await decrypt(jwe, p);
 
-      expect(plaintext).toBe(t);
+      expect(payload).toBe(t);
     });
 
     it("should use provided CEK and contentEncryptionIV", async () => {
@@ -236,7 +236,7 @@ describe.concurrent("JWE Utilities", () => {
         contentEncryptionIV: customIv,
       });
 
-      const { plaintext: decryptedPayload } = await decrypt(jwe, key);
+      const { payload: decryptedPayload } = await decrypt(jwe, key);
       expect(decryptedPayload).toBe(plaintextString);
       // Note: We can't directly compare the CEK after it's been wrapped and unwrapped
       // unless we unwrap it manually here. But we can check the IV.
@@ -280,8 +280,8 @@ describe.concurrent("JWE Utilities", () => {
         if (header.alg === alg) return key;
         throw new Error("Key not found");
       };
-      const { plaintext } = await decrypt(jwe, keyLookup);
-      expect(plaintext).toEqual(plaintextObj);
+      const { payload } = await decrypt(jwe, keyLookup);
+      expect(payload).toEqual(plaintextObj);
     });
 
     it("should throw if JWE has incorrect number of parts", async () => {
@@ -367,8 +367,8 @@ describe.concurrent("JWE Utilities", () => {
         protectedHeader: { typ: "JWT" },
       });
       const resJwt = await decrypt<JWTClaims>(jweJwt, key);
-      expect(resJwt.plaintext).toEqual(plaintextObj);
-      expect(typeof resJwt.plaintext).toBe("object");
+      expect(resJwt.payload).toEqual(plaintextObj);
+      expect(typeof resJwt.payload).toBe("object");
 
       // 2. cty: "application/json"
       const jweJsonCty = await encrypt(plaintextObj, key, {
@@ -377,8 +377,8 @@ describe.concurrent("JWE Utilities", () => {
         protectedHeader: { cty: "application/json" },
       });
       const resJsonCty = await decrypt<JWTClaims>(jweJsonCty, key);
-      expect(resJsonCty.plaintext).toEqual(plaintextObj);
-      expect(typeof resJsonCty.plaintext).toBe("object");
+      expect(resJsonCty.payload).toEqual(plaintextObj);
+      expect(typeof resJsonCty.payload).toBe("object");
 
       // 3. No typ/cty, should be string
       const jweBytesPlain = await encrypt(
@@ -387,8 +387,8 @@ describe.concurrent("JWE Utilities", () => {
         { alg, enc },
       );
       const resString = await decrypt<string>(jweBytesPlain, key);
-      expect(resString.plaintext).toBeTypeOf("string");
-      expect(resString.plaintext).toEqual(plaintextString);
+      expect(resString.payload).toBeTypeOf("string");
+      expect(resString.payload).toEqual(plaintextString);
 
       // 4. typ: "JWT" but plaintext is not valid JSON
       const jweMalformedJwt = await encrypt("not a json object", key, {
@@ -397,8 +397,8 @@ describe.concurrent("JWE Utilities", () => {
         protectedHeader: { typ: "JWT" },
       });
       const resMalformedJwt = await decrypt<string>(jweMalformedJwt, key);
-      expect(resMalformedJwt.plaintext).toBe("not a json object"); // Falls back to string
-      expect(typeof resMalformedJwt.plaintext).toBe("string");
+      expect(resMalformedJwt.payload).toBe("not a json object"); // Falls back to string
+      expect(typeof resMalformedJwt.payload).toBe("string");
     });
   });
 
@@ -442,7 +442,7 @@ describe.concurrent("JWE Utilities", () => {
   //     expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
   //     expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
 
-  //     const { plaintext: decryptedPayload } = await decrypt(
+  //     const { payload: decryptedPayload } = await decrypt(
   //       jwe,
   //       recipientKeyPair.privateKey, // Decrypt with recipient's private key
   //     );

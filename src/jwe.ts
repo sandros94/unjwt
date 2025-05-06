@@ -33,20 +33,20 @@ import {
 export * from "./types/jwe";
 
 /**
- * Encrypts a plaintext to produce a JWE Compact Serialization string.
+ * Encrypts a payload to produce a JWE Compact Serialization string.
  *
- * @param plaintext The plaintext to encrypt. Can be a string, Uint8Array, or a JSON-serializable object.
+ * @param payload The payload to encrypt. Can be a string, Uint8Array, or a JSON-serializable object.
  * @param key The key encryption key (KEK). Can be a CryptoKey, JWK, or for PBES2, a password string/Uint8Array.
  * @param options JWE encryption options, including `alg` (key management algorithm) and `enc` (content encryption algorithm).
  * @returns A Promise resolving to the JWE Compact Serialization string.
  */
 export async function encrypt(
-  plaintext: string | Uint8Array | Record<string, any>,
+  payload: string | Uint8Array | Record<string, any>,
   key: JWK | string | Uint8Array,
   options?: JWEEncryptOptions,
 ): Promise<string>;
 export async function encrypt(
-  plaintext: string | Uint8Array | Record<string, any>,
+  payload: string | Uint8Array | Record<string, any>,
   key: CryptoKey,
   options: JWEEncryptOptions & {
     alg: KeyManagementAlgorithm;
@@ -54,7 +54,7 @@ export async function encrypt(
   },
 ): Promise<string>;
 export async function encrypt(
-  plaintext: string | Uint8Array | Record<string, any>,
+  payload: string | Uint8Array | Record<string, any>,
   key: CryptoKey | JWK | string | Uint8Array,
   options: JWEEncryptOptions & {
     alg: KeyManagementAlgorithm;
@@ -62,7 +62,7 @@ export async function encrypt(
   },
 ): Promise<string>;
 export async function encrypt(
-  plaintext: string | Uint8Array | Record<string, any>,
+  payload: string | Uint8Array | Record<string, any>,
   key: CryptoKey | JWK | string | Uint8Array,
   options: JWEEncryptOptions = {},
 ): Promise<string> {
@@ -105,7 +105,7 @@ export async function encrypt(
     );
   }
 
-  const plaintextBytes = getPlaintextBytes(plaintext);
+  const plaintextBytes = getPlaintextBytes(payload);
 
   // Prepare parameters for encryptKey
   const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
@@ -141,8 +141,8 @@ export async function encrypt(
 
   if (
     !jweProtectedHeader.typ &&
-    typeof plaintext === "object" &&
-    !(plaintext instanceof Uint8Array)
+    typeof payload === "object" &&
+    !(payload instanceof Uint8Array)
   ) {
     jweProtectedHeader.typ = "JWT";
   }
@@ -294,7 +294,7 @@ export async function decrypt<T = JWTClaims | string>(
     aadBytes,
   );
 
-  let plaintext: T;
+  let payload: T;
   try {
     const isJsonOutput =
       protectedHeader.typ === "JWT" ||
@@ -306,20 +306,20 @@ export async function decrypt<T = JWTClaims | string>(
       // Attempt to parse only if it looks like JSON
       if (decodedString.startsWith("{") && decodedString.endsWith("}")) {
         try {
-          plaintext = JSON.parse(decodedString) as T;
+          payload = JSON.parse(decodedString) as T;
         } catch {
           // Malformed JSON, return as string
-          plaintext = decodedString as T;
+          payload = decodedString as T;
         }
       } else {
-        plaintext = decodedString as T;
+        payload = decodedString as T;
       }
     } else {
-      plaintext = textDecoder.decode(plaintextBytes) as T;
+      payload = textDecoder.decode(plaintextBytes) as T;
     }
   } catch {
     // Should not happen if plaintextBytes is valid, but as a fallback
-    plaintext = textDecoder.decode(plaintextBytes) as T;
+    payload = textDecoder.decode(plaintextBytes) as T;
   }
 
   if (options?.critical && protectedHeader.crit) {
@@ -368,7 +368,7 @@ export async function decrypt<T = JWTClaims | string>(
   }
 
   return {
-    plaintext,
+    payload,
     protectedHeader,
     cek: cekBytes,
     aad: aadBytes,

@@ -151,8 +151,8 @@ export interface JWEDecryptOptions {
  * Result of a JWE decryption operation.
  */
 export interface JWEDecryptResult<T = JWTClaims | string> {
-  /** The decrypted plaintext. */
-  plaintext: T;
+  /** The decrypted payload. */
+  payload: T;
   /** The JWE Protected Header. */
   protectedHeader: JWEHeaderParameters;
   /** The Content Encryption Key (CEK) used for decryption, as Uint8Array. */
