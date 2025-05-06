@@ -7,6 +7,10 @@ import type {
   GenerateKeyReturn,
   DeriveKeyOptions,
   DeriveKeyReturn,
+  KeyManagementAlgorithm,
+  WrapKeyOptions,
+  WrapKeyResult,
+  UnwrapKeyOptions,
 } from "./types";
 import { base64UrlDecode, isJWK, textEncoder, randomBytes } from "./utils";
 import {
@@ -15,6 +19,10 @@ import {
   isCryptoKey,
   bitLengthCEK,
   deriveKey as deriveKeyPBES2,
+  wrap as _wrap,
+  unwrap as _unwrap,
+  encryptIV as aesGcmKwEncrypt,
+  decryptIV as aesGcmKwDecrypt,
 } from "./jose";
 
 /**
@@ -199,6 +207,269 @@ export async function exportKey(
   }
 
   return exportedJwk;
+}
+
+/**
+ * Wraps a Content Encryption Key (CEK) using the specified algorithm and wrapping key.
+ *
+ * @param alg The JWA key management algorithm (e.g., "A128KW", "RSA-OAEP", "PBES2-HS256+A128KW").
+ * @param keyToWrap The key to be wrapped (CEK), typically a symmetric key as Uint8Array or CryptoKey.
+ * @param wrappingKey The key used to wrap the CEK (CryptoKey, JWK, or password string/Uint8Array for PBES2).
+ * @param options Additional options required by certain algorithms (e.g., p2s, p2c for PBES2).
+ * @returns A Promise resolving to an object containing the wrapped key and any necessary parameters (iv, tag, epk, etc.).
+ */
+export async function wrapKey(
+  alg: KeyManagementAlgorithm,
+  keyToWrap: CryptoKey | Uint8Array,
+  wrappingKey: CryptoKey | JWK | string | Uint8Array,
+  options: WrapKeyOptions = {},
+): Promise<WrapKeyResult> {
+  const cekBytes =
+    keyToWrap instanceof Uint8Array
+      ? keyToWrap
+      : new Uint8Array(await crypto.subtle.exportKey("raw", keyToWrap));
+
+  let importedWrappingKey: CryptoKey | Uint8Array;
+  const isPbes = alg.startsWith("PBES2");
+  const isAesKw = ["A128KW", "A192KW", "A256KW"].includes(alg);
+
+  if (
+    isPbes &&
+    (typeof wrappingKey === "string" || wrappingKey instanceof Uint8Array)
+  ) {
+    // PBES2 uses password bytes directly
+    importedWrappingKey =
+      typeof wrappingKey === "string"
+        ? textEncoder.encode(wrappingKey)
+        : wrappingKey;
+  } else if (isPbes || isAesKw) {
+    // Import AES-KW key or the key derived *from* password for PBES2
+    if (typeof wrappingKey === "string") {
+      throw new TypeError(
+        "Wrapping key must be a CryptoKey, JWK, or Uint8Array for AES-KW or non-password PBES2",
+      );
+    }
+    importedWrappingKey = await importKey(wrappingKey as any, alg);
+  } else {
+    // Handle other algorithms (RSA, AESGCMKW, ECDH-ES)
+    if (typeof wrappingKey === "string") {
+      throw new TypeError(
+        "Wrapping key must be a CryptoKey, JWK, or Uint8Array for non-PBES2 algorithms",
+      );
+    }
+    importedWrappingKey = await importKey(wrappingKey as any, alg);
+  }
+
+  switch (alg) {
+    // AES Key Wrap and PBES2 are handled by the same helper
+    case "A128KW":
+    case "A192KW":
+    case "A256KW":
+    case "PBES2-HS256+A128KW":
+    case "PBES2-HS384+A192KW":
+    case "PBES2-HS512+A256KW": {
+      const { p2s, p2c } = options;
+      if (isPbes && (!p2s || typeof p2c !== "number")) {
+        throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
+      }
+      return _wrap(alg, importedWrappingKey, cekBytes, p2c, p2s);
+    }
+
+    case "A128GCMKW":
+    case "A192GCMKW":
+    case "A256GCMKW": {
+      const { encryptedKey, iv, tag } = await aesGcmKwEncrypt(
+        alg,
+        importedWrappingKey,
+        cekBytes,
+        options.iv,
+      );
+      return { encryptedKey, iv, tag };
+    }
+
+    case "RSA-OAEP":
+    case "RSA-OAEP-256":
+    case "RSA-OAEP-384":
+    case "RSA-OAEP-512": {
+      // Use crypto.subtle.wrapKey directly for RSA-OAEP
+      const keyToWrapImported = await crypto.subtle.importKey(
+        "raw",
+        cekBytes,
+        { name: "AES-GCM", length: cekBytes.length * 8 },
+        true,
+        ["encrypt", "decrypt"],
+      );
+      const encryptedKey = new Uint8Array(
+        await crypto.subtle.wrapKey(
+          "raw",
+          keyToWrapImported,
+          importedWrappingKey as CryptoKey,
+          { name: "RSA-OAEP" },
+        ),
+      );
+      return { encryptedKey };
+    }
+
+    case "ECDH-ES":
+    case "ECDH-ES+A128KW":
+    case "ECDH-ES+A192KW":
+    case "ECDH-ES+A256KW": {
+      // ECDH-ES requires more complex logic
+      throw new Error(`Algorithm ${alg} not yet implemented in wrapKey`);
+    }
+
+    default: {
+      throw new Error(`Unsupported key wrapping algorithm: ${alg}`);
+    }
+  }
+}
+
+/**
+ * Unwraps a Content Encryption Key (CEK) using the specified algorithm and unwrapping key.
+ *
+ * @param alg The JWA key management algorithm (e.g., "A128KW", "RSA-OAEP", "PBES2-HS256+A128KW").
+ * @param wrappedKey The wrapped key (ciphertext) as Uint8Array.
+ * @param unwrappingKey The key used to unwrap the CEK (CryptoKey, JWK, or password string/Uint8Array for PBES2).
+ * @param options Additional options required by certain algorithms (e.g., iv, tag, p2s, p2c, epk).
+ * @returns A Promise resolving to the unwrapped key (CEK) as a CryptoKey or Uint8Array.
+ */
+export async function unwrapKey<T extends boolean | undefined = undefined>(
+  alg: KeyManagementAlgorithm,
+  wrappedKey: Uint8Array,
+  unwrappingKey: CryptoKey | JWK | string | Uint8Array,
+  options: UnwrapKeyOptions & { returnAs?: T } = {},
+): Promise<T extends false ? Uint8Array : CryptoKey> {
+  const { returnAs = true } = options; // Default to returning CryptoKey
+  const defaultExtractable = options.extractable !== false; // Default true
+
+  let importedUnwrappingKey: CryptoKey | Uint8Array;
+  const isPbes = alg.startsWith("PBES2");
+  const isAesKw = ["A128KW", "A192KW", "A256KW"].includes(alg);
+
+  if (
+    isPbes &&
+    (typeof unwrappingKey === "string" || unwrappingKey instanceof Uint8Array)
+  ) {
+    // PBES2 uses password bytes directly
+    importedUnwrappingKey =
+      typeof unwrappingKey === "string"
+        ? textEncoder.encode(unwrappingKey)
+        : unwrappingKey;
+  } else if (isPbes || isAesKw) {
+    // Import AES-KW key or the key derived *from* password for PBES2
+    if (typeof unwrappingKey === "string") {
+      throw new TypeError(
+        "Unwrapping key must be a CryptoKey, JWK, or Uint8Array for AES-KW or non-password PBES2",
+      );
+    }
+    importedUnwrappingKey = await importKey(unwrappingKey as any, alg);
+  } else {
+    // Handle other algorithms (RSA, AESGCMKW, ECDH-ES)
+    if (typeof unwrappingKey === "string") {
+      throw new TypeError(
+        "Unwrapping key must be a CryptoKey, JWK, or Uint8Array for non-PBES2 algorithms",
+      );
+    }
+    importedUnwrappingKey = await importKey(unwrappingKey as any, alg);
+  }
+
+  let unwrappedCekBytes: Uint8Array;
+
+  switch (alg) {
+    // AES Key Wrap and PBES2 are handled by the same helper
+    case "A128KW":
+    case "A192KW":
+    case "A256KW":
+    case "PBES2-HS256+A128KW":
+    case "PBES2-HS384+A192KW":
+    case "PBES2-HS512+A256KW": {
+      const { p2s, p2c } = options;
+      let p2sBytes: Uint8Array | undefined;
+      if (isPbes) {
+        if (!p2s || typeof p2c !== "number") {
+          throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
+        }
+        p2sBytes = typeof p2s === 'string' ? base64UrlDecode(p2s, false) : p2s;
+      }
+      unwrappedCekBytes = await _unwrap(
+        alg,
+        importedUnwrappingKey,
+        wrappedKey,
+        p2c,
+        p2sBytes,
+      );
+      break;
+    }
+
+    case "A128GCMKW":
+    case "A192GCMKW":
+    case "A256GCMKW": {
+      if (!options.iv || !options.tag) {
+        throw new Error("AES-GCMKW requires 'iv' and 'tag' options for unwrapping");
+      }
+      const ivBytes = typeof options.iv === 'string' ? base64UrlDecode(options.iv, false) : options.iv;
+      const tagBytes = typeof options.tag === 'string' ? base64UrlDecode(options.tag, false) : options.tag;
+      unwrappedCekBytes = await aesGcmKwDecrypt(
+        alg,
+        importedUnwrappingKey,
+        wrappedKey,
+        ivBytes,
+        tagBytes,
+      );
+      break;
+    }
+
+    case "RSA-OAEP":
+    case "RSA-OAEP-256":
+    case "RSA-OAEP-384":
+    case "RSA-OAEP-512": {
+      // Use crypto.subtle.unwrapKey directly for RSA-OAEP
+      const unwrappedKey = await crypto.subtle.unwrapKey(
+        "raw",
+        wrappedKey,
+        importedUnwrappingKey as CryptoKey,
+        { name: "RSA-OAEP" },
+        options.unwrappedKeyAlgorithm || { name: "AES-GCM" }, // Fallback
+        defaultExtractable,
+        options.keyUsage || ["encrypt", "decrypt"], // Default usages
+      );
+      if (returnAs) return unwrappedKey as any;
+      // Otherwise, export the bytes
+      unwrappedCekBytes = new Uint8Array(await crypto.subtle.exportKey("raw", unwrappedKey));
+      break;
+    }
+
+    case "ECDH-ES":
+    case "ECDH-ES+A128KW":
+    case "ECDH-ES+A192KW":
+    case "ECDH-ES+A256KW": {
+      if (!options.epk) {
+        throw new Error("ECDH-ES requires 'epk' (Ephemeral Public Key) option");
+      }
+      // ECDH-ES requires key agreement then AES-KW unwrap
+      throw new Error(`Algorithm ${alg} not yet implemented in unwrapKey`);
+    }
+
+    default: {
+      throw new Error(`Unsupported key unwrapping algorithm: ${alg}`);
+    }
+  }
+
+  // If returning bytes, return them now (applies to AES-KW/PBES2/AES-GCMKW paths)
+  if (!returnAs) {
+    return unwrappedCekBytes as any;
+  }
+
+  // Otherwise, import the unwrapped bytes as a CryptoKey
+  const finalKey = await crypto.subtle.importKey(
+    "raw",
+    unwrappedCekBytes,
+    options.unwrappedKeyAlgorithm || { name: "AES-GCM" },
+    defaultExtractable,
+    options.keyUsage || ["encrypt", "decrypt"],
+  );
+
+  return finalKey as any;
 }
 
 function getGenerateKeyParams(

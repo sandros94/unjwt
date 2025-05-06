@@ -66,6 +66,75 @@ export interface DeriveKeyOptions {
 export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> =
   TOptions["toJWK"] extends true ? JWK_oct : CryptoKey;
 
+export type KeyManagementAlgorithm =
+  | JWK_RSA_ENC
+  | JWK_AES_KW
+  | JWK_AES_GCM
+  | JWK_AES_GCM_KW
+  | JWK_PBES2
+  | JWK_ECDH_ES;
+// TODO: | "dir";
+
+/** Options for the wrapKey function. */
+export interface WrapKeyOptions {
+  /** Initialization Vector for AES-GCMKW. Generated if not provided. */
+  iv?: Uint8Array;
+  /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
+  p2s?: Uint8Array;
+  /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
+  p2c?: number;
+  /** ECDH-ES Ephemeral Public Key. Generated if not provided for ECDH-ES. */
+  epk?: JWK_EC_Public; // Or CryptoKey? JWK is more common in JWE headers
+  /** ECDH-ES Agreement PartyUInfo. */
+  apu?: Uint8Array;
+  /** ECDH-ES Agreement PartyVInfo. */
+  apv?: Uint8Array;
+}
+
+/** Result of the wrapKey function. */
+export interface WrapKeyResult {
+  /** The wrapped key (Ciphertext). */
+  encryptedKey: Uint8Array;
+  /** Initialization Vector used (only for AES-GCMKW). Base64URL encoded. */
+  iv?: string;
+  /** Authentication Tag generated (only for AES-GCMKW). Base64URL encoded. */
+  tag?: string;
+  /** PBES2 Salt value used (only for PBES2). Base64URL encoded. */
+  p2s?: string;
+  /** PBES2 Iteration count used (only for PBES2). */
+  p2c?: number;
+  /** ECDH-ES Ephemeral Public Key used (only for ECDH-ES). */
+  epk?: JWK_EC_Public;
+  /** ECDH-ES Agreement PartyUInfo used (only for ECDH-ES). Base64URL encoded. */
+  apu?: string;
+  /** ECDH-ES Agreement PartyVInfo used (only for ECDH-ES). Base64URL encoded. */
+  apv?: string;
+}
+
+/** Options for the unwrapKey function. */
+export interface UnwrapKeyOptions {
+  /** Initialization Vector (required for AES-GCMKW). Base64URL encoded or Uint8Array. */
+  iv?: Uint8Array | string;
+  /** Authentication Tag (required for AES-GCMKW). Base64URL encoded or Uint8Array. */
+  tag?: Uint8Array | string;
+  /** PBES2 Salt value (required for PBES2). Base64URL encoded or Uint8Array. */
+  p2s?: Uint8Array | string;
+  /** PBES2 Iteration count (required for PBES2). */
+  p2c?: number;
+  /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
+  epk?: JWK_EC_Public; // Or CryptoKey?
+  /** ECDH-ES Agreement PartyUInfo. Base64URL encoded or Uint8Array. */
+  apu?: Uint8Array | string;
+  /** ECDH-ES Agreement PartyVInfo. Base64URL encoded or Uint8Array. */
+  apv?: Uint8Array | string;
+  /** Expected unwrapped key algorithm (e.g., 'AES-GCM', 'AES-CBC'). Used by crypto.subtle.unwrapKey. */
+  unwrappedKeyAlgorithm?: string | Algorithm | RsaOaepParams | AesCtrParams | AesCbcParams | AesGcmParams;
+  /** Expected key usages for the unwrapped key. */
+  keyUsage?: KeyUsage[];
+  /** Mark the unwrapped key as extractable. Defaults to true. */
+  extractable?: boolean;
+}
+
 // --- Standard JWK Interfaces ---
 
 /**
@@ -172,6 +241,7 @@ export type JWK_RSA_ENC =
   | "RSA-OAEP-384"
   | "RSA-OAEP-512";
 export type JWK_AES_KW = "A128KW" | "A192KW" | "A256KW";
+export type JWK_AES_GCM_KW = "A128GCMKW" | "A192GCMKW" | "A256GCMKW";
 export type JWK_AES_CBC_HMAC =
   | "A128CBC-HS256"
   | "A192CBC-HS384"
