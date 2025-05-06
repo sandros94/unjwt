@@ -92,11 +92,6 @@ export async function sign(
     protectedHeader.cty ||= "json"; // Indicate original payload was JSON
   }
 
-  // Set 'cty' if not provided and payload is a string
-  if (protectedHeader.cty === undefined && typeof payload === "string") {
-    protectedHeader.cty = "text"; // Indicate original payload was a string
-  }
-
   if (protectedHeader.b64 === true) {
     delete protectedHeader.b64;
   }
@@ -241,10 +236,14 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
       if (options?.forceUint8Array) {
         payload = base64UrlDecode(payloadEncoded, false) as T;
       } else {
-        const isJsonPayload =
-          protectedHeader.typ === "JWT" || protectedHeader.cty === "json";
+        const cty = protectedHeader.cty?.toLowerCase();
+        const isJsonOutput =
+          protectedHeader.typ === "JWT" ||
+          cty === "json" ||
+          cty === "application/json" ||
+          (cty && cty.endsWith("+json"));
 
-        if (isJsonPayload) {
+        if (isJsonOutput) {
           // Decode as string for potential JSON parsing
           const decodedString = base64UrlDecode(payloadEncoded, true);
           // Basic check to see if it looks like a JSON object or array
@@ -262,12 +261,9 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
             // Declared as JSON but not valid JSON structure, return as string
             payload = decodedString as T;
           }
-        } else if (protectedHeader.cty === "text") {
-          // If cty is "text", decode as string
-          payload = base64UrlDecode(payloadEncoded) as T;
         } else {
-          // If not declared as JSON or text, assume it's raw bytes and decode accordingly
-          payload = base64UrlDecode(payloadEncoded, false) as T;
+          // Default to string if not JSON and not forced to Uint8Array
+          payload = base64UrlDecode(payloadEncoded) as T;
         }
       }
     } else {

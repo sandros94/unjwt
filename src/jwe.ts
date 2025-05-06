@@ -166,10 +166,6 @@ export async function encrypt(
   ) {
     jweProtectedHeader.cty ||= "json";
   }
-  // If cty is still not set, and payload is a string, set cty to "text"
-  if (jweProtectedHeader.cty === undefined && typeof payload === "string") {
-    jweProtectedHeader.cty = "text";
-  }
 
   const protectedHeaderSerialized = JSON.stringify(jweProtectedHeader);
   const protectedHeaderEncoded = base64UrlEncode(protectedHeaderSerialized);
@@ -357,10 +353,8 @@ export async function decrypt<T = JWTClaims | string>(
         // Declared as JSON but not a valid JSON object/array string representation
         payload = decodedString as T;
       }
-    } else if (cty === "text") {
-      payload = decodedString as T;
     } else {
-      // Default to string if not JSON, not text, and not forced to Uint8Array
+      // Default to string if not JSON and not forced to Uint8Array
       payload = decodedString as T;
     }
   }

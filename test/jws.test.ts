@@ -165,6 +165,7 @@ describe.concurrent("JWS Utilities", () => {
       const { payload, protectedHeader } = await verify<Uint8Array>(
         jws,
         hs256Key,
+        { forceUint8Array: true },
       );
       expect(payload).toBeInstanceOf(Uint8Array);
       expect(payload).toEqual(payloadBytes);
