@@ -48,8 +48,8 @@ import { base64UrlEncode, base64UrlDecode, randomBytes } from "unjwt/utils";
 **CDN** (Deno, Bun and Browsers)
 
 ```js
-// JWS functions
 import { jws, jwe, jwk } from "https://esm.sh/unjwt";
+// JWS functions
 import { sign, verify } from "https://esm.sh/unjwt/jws";
 // JWE functions
 import { encrypt, decrypt } from "https://esm.sh/unjwt/jwe";
