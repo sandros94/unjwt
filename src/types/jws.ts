@@ -21,15 +21,3 @@ export interface JWSSignOptions {
    */
   protectedHeader?: JWSHeaderParameters;
 }
-
-// export interface JWSSignOptions {
-//   protectedHeader?: JWSHeaderParameters; // Additional protected header parameters
-//   key?: CryptoKey; // Key to use for signing
-//   data: Uint8Array | string; // Data to be signed
-// }
-
-// export interface JWSVerifyOptions {
-//   key: CryptoKey; // Key to use for verification
-//   data: Uint8Array | string; // Data to be verified
-//   signature: Uint8Array; // Signature to verify
-// }
