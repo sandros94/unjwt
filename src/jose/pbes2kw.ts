@@ -77,7 +77,9 @@ export async function deriveKey(
     throw new Error("PBES2 Salt Input must be 8 or more octets");
   }
   if (p2c === undefined || p2c < 1) {
-    throw new Error("PBES2 Iteration Count Parameter must be a positive integer");
+    throw new Error(
+      "PBES2 Iteration Count Parameter must be a positive integer",
+    );
   }
 
   const salt = concatUint8Arrays(
