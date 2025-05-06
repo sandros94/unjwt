@@ -143,6 +143,7 @@ export interface UnwrapKeyOptions {
   keyUsage?: KeyUsage[];
   /** Mark the unwrapped key as extractable. Defaults to true. */
   extractable?: boolean;
+  returnAs?: boolean | undefined;
 }
 
 // --- Standard JWK Interfaces ---

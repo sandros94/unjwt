@@ -168,17 +168,26 @@ export async function deriveKeyFromPassword(
  * @param alg The algorithm hint, required when importing asymmetric JWKs.
  * @returns A Promise resolving to the imported key as CryptoKey or Uint8Array.
  */
-export async function importKey(key: CryptoKey): Promise<CryptoKey>;
+export async function importKey(key: string): Promise<Uint8Array>;
 export async function importKey(key: Uint8Array): Promise<Uint8Array>;
+export async function importKey(key: CryptoKey): Promise<CryptoKey>;
 export async function importKey(key: JWK_oct): Promise<Uint8Array>;
 export async function importKey(
   key: Exclude<JWK, JWK_oct>,
   alg: string,
 ): Promise<CryptoKey>;
 export async function importKey(
-  key: CryptoKey | JWK | Uint8Array,
+  key: CryptoKey | JWK | Uint8Array | string,
+  alg?: string,
+): Promise<CryptoKey | Uint8Array>
+export async function importKey(
+  key: CryptoKey | JWK | Uint8Array | string,
   alg?: string,
 ): Promise<CryptoKey | Uint8Array> {
+  if (typeof key === "string") {
+    key = textEncoder.encode(key);
+  }
+
   if (key instanceof Uint8Array) {
     return key;
   }
