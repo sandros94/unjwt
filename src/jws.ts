@@ -185,7 +185,7 @@ export async function verify<T = Uint8Array | JWTClaims>(
     if (useB64) {
       // Check if it's likely JSON first based on headers
       const isJsonPayload =
-        (protectedHeader.typ === "JWT" || protectedHeader.cty === "json");
+        protectedHeader.typ === "JWT" || protectedHeader.cty === "json";
 
       if (isJsonPayload) {
         // Decode as string for potential JSON parsing
@@ -211,7 +211,9 @@ export async function verify<T = Uint8Array | JWTClaims>(
     }
   } catch (error_) {
     // Catch potential base64 decode errors if payloadEncoded is invalid
-    throw new Error(`Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : error_})`);
+    throw new Error(
+      `Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : error_})`,
+    );
   }
 
   // 9. Handle Critical Headers

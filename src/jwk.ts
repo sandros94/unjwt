@@ -159,13 +159,22 @@ export async function deriveKeyFromPassword(
 /**
  * Imports a key from various formats (CryptoKey, JWK, Uint8Array).
  *
- * @param key The key to import, which can be a CryptoKey, JWK, or Uint8Array.
- * @param alg The algorithm to use for the imported key.
- * @returns A Promise resolving to the imported key in CryptoKey or Uint8Array format.
+ * - If `key` is a CryptoKey, it's returned directly.
+ * - If `key` is a Uint8Array, it's returned directly.
+ * - If `key` is a JWK_oct (symmetric key with 'k'), the raw key bytes are returned as Uint8Array.
+ * - If `key` is any other JWK type (asymmetric), the `alg` parameter is required, and a CryptoKey is returned.
+ *
+ * @param key The key to import.
+ * @param alg The algorithm hint, required when importing asymmetric JWKs.
+ * @returns A Promise resolving to the imported key as CryptoKey or Uint8Array.
  */
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
 export async function importKey(key: Uint8Array): Promise<Uint8Array>;
-export async function importKey(key: JWK, alg: string): Promise<CryptoKey>;
+export async function importKey(key: JWK_oct): Promise<Uint8Array>;
+export async function importKey(
+  key: Exclude<JWK, JWK_oct>,
+  alg: string,
+): Promise<CryptoKey>;
 export async function importKey(
   key: CryptoKey | JWK | Uint8Array,
   alg?: string,
@@ -179,13 +188,20 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
-    if ("k" in key && (key as JWK_oct).k) {
-      return base64UrlDecode((key as JWK_oct).k, false);
+    if ("k" in key && typeof key.k === "string") {
+      return base64UrlDecode(key.k, false);
+    } else {
+      if (!alg) {
+        throw new TypeError(
+          "Algorithm must be provided when importing non-oct JWK",
+        );
+      }
+      return jwkTokey({ ...key, alg });
     }
-    return jwkTokey({ ...key, alg });
   }
 
-  throw new Error("unreachable");
+  // This should be unreachable
+  throw new Error("Invalid key type provided to importKey");
 }
 
 /**

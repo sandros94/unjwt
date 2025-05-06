@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify } from "../src//jws";
 import { generateKey } from "../src//jwk";
-import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src//utils";
+import {
+  base64UrlEncode,
+  base64UrlDecode,
+  textEncoder,
+  textDecoder,
+} from "../src//utils";
 import type { JWSProtectedHeader, JWTClaims } from "../src//types";
 
 describe.concurrent("JWS Utilities", () => {
@@ -174,7 +179,10 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (String payload)", async () => {
       const jws = await sign(payloadString, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<Uint8Array>(jws, hs256Key);
+      const { payload, protectedHeader } = await verify<Uint8Array>(
+        jws,
+        hs256Key,
+      );
       expect(payload).toBeInstanceOf(Uint8Array);
       expect(textDecoder.decode(payload)).toEqual(payloadString);
       expect(protectedHeader.alg).toBe("HS256");
