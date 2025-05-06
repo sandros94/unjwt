@@ -28,6 +28,8 @@ import {
   textDecoder,
 } from "./utils";
 
+export * from "./types/jwe";
+
 /**
  * Encrypts a plaintext to produce a JWE Compact Serialization string.
  *

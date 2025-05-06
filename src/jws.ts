@@ -15,6 +15,8 @@ import {
   textDecoder,
 } from "./utils";
 
+export * from "./types/jws";
+
 /**
  * Creates a JWS (JSON Web Signature) in Compact Serialization format.
  *

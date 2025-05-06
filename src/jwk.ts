@@ -30,6 +30,8 @@ import {
   decryptIV as aesGcmKwDecrypt,
 } from "./jose";
 
+export * from "./types/jwk";
+
 /**
  * Generates a cryptographic key for the specified algorithm.
  *
