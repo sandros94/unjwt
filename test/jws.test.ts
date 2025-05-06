@@ -24,9 +24,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, key, { alg: "HS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBe("JWT"); // Default for object
     });
@@ -36,9 +34,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadBytes, key, { alg: "HS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded, payloadEncoded] = jws.split(".");
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBeUndefined(); // No default typ for bytes
       expect(base64UrlDecode(payloadEncoded, false)).toEqual(payloadBytes);
@@ -49,9 +45,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadString, key, { alg: "HS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded, payloadEncoded] = jws.split(".");
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBeUndefined(); // No default typ for string
       expect(base64UrlDecode(payloadEncoded, true)).toEqual(payloadString);
@@ -64,9 +58,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, privateKey, { alg: "RS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("RS256");
     });
 
@@ -75,9 +67,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, privateKey, { alg: "ES256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("ES256");
     });
 
@@ -88,9 +78,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, privateKey, { alg: "PS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("PS256");
     });
 
@@ -103,9 +91,7 @@ describe.concurrent("JWS Utilities", () => {
       const parts = jws.split(".");
       expect(parts.length).toBe(3);
       const [headerEncoded, payloadRaw] = parts;
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.b64).toBe(false);
       expect(payloadRaw).toBe(payloadString); // Payload is not base64 encoded
@@ -118,9 +104,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "test-key-1", typ: "custom" },
       });
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(
-        new TextDecoder().decode(base64UrlDecode(headerEncoded, false)),
-      );
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.kid).toBe("test-key-1");
       expect(header.typ).toBe("custom"); // Overrides default

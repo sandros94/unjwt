@@ -117,9 +117,7 @@ export async function verify<T = Uint8Array | JWTClaims>(
   // 2. Decode Header
   let protectedHeader: JWSProtectedHeader;
   try {
-    const protectedHeaderJson = textDecoder.decode(
-      base64UrlDecode(protectedHeaderEncoded, false),
-    );
+    const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
     protectedHeader = JSON.parse(protectedHeaderJson);
   } catch (error_) {
     throw new Error(
@@ -187,7 +185,7 @@ export async function verify<T = Uint8Array | JWTClaims>(
 
       if (isJsonPayload) {
         // Decode as string for potential JSON parsing
-        const decodedString = base64UrlDecode(payloadEncoded, true);
+        const decodedString = base64UrlDecode(payloadEncoded);
         if (decodedString.startsWith("{") && decodedString.endsWith("}")) {
           try {
             payload = JSON.parse(decodedString) as T;
@@ -201,7 +199,7 @@ export async function verify<T = Uint8Array | JWTClaims>(
         }
       } else {
         // If not declared as JSON, assume it's raw bytes and decode accordingly
-        payload = base64UrlDecode(payloadEncoded, false) as T; // Decode as Uint8Array
+        payload = base64UrlDecode(payloadEncoded, false) as T;
       }
     } else {
       // RFC7797: Payload is not Base64URL encoded, treat as raw bytes
