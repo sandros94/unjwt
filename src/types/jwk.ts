@@ -75,6 +75,10 @@ export type KeyManagementAlgorithm =
   | JWK_ECDH_ES;
 // TODO: | "dir";
 
+export type ContentEncryptionAlgorithm =
+  | JWK_AES_GCM
+  | JWK_AES_CBC_HMAC
+
 /** Options for the wrapKey function. */
 export interface WrapKeyOptions {
   /** Initialization Vector for AES-GCMKW. Generated if not provided. */
