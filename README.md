@@ -1,9 +1,10 @@
 # unjwt
 
-<!-- automd:badges style=flat colorA=18181B colorB=9AFF28 -->
+<!-- automd:badges bundlephobia style="flat" color="FFDC3B" -->
 
-[![npm version](https://img.shields.io/npm/v/unjwt)](https://npmjs.com/package/unjwt)
-[![npm downloads](https://img.shields.io/npm/dm/unjwt)](https://npm.chart.dev/unjwt)
+[![npm version](https://img.shields.io/npm/v/unjwt?color=FFDC3B)](https://npmjs.com/package/unjwt)
+[![npm downloads](https://img.shields.io/npm/dm/unjwt?color=FFDC3B)](https://npm.chart.dev/unjwt)
+[![bundle size](https://img.shields.io/bundlephobia/minzip/unjwt?color=FFDC3B)](https://bundlephobia.com/package/unjwt)
 
 <!-- /automd -->
 
