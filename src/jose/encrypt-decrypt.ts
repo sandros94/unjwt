@@ -5,7 +5,7 @@
  * @license MIT https://github.com/panva/jose/blob/69b7960c67e05be55fa2ec31c74b987696c20c60/LICENSE.md
  */
 
-import { concatUint8Arrays } from "../utils";
+import { concatUint8Arrays, isCryptoKey } from "../utils";
 
 import { uint64be } from "./buffer_utils";
 import { checkIvLength, checkCEKLength, generateIV } from "./cek-iv";
@@ -318,19 +318,4 @@ export async function decrypt(
       throw new Error("Unsupported JWE Content Encryption Algorithm");
     }
   }
-}
-
-/**
- * Fork from https://github.com/panva/jose/tree/69b7960c67e05be55fa2ec31c74b987696c20c60/src/lib/is_key_like.ts
- */
-
-export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
-  if (!isCryptoKey(key)) {
-    throw new Error("CryptoKey instance expected");
-  }
-}
-
-export function isCryptoKey(key: unknown): key is CryptoKey {
-  // @ts-expect-error
-  return key?.[Symbol.toStringTag] === "CryptoKey";
 }

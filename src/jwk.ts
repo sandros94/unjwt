@@ -12,11 +12,10 @@ import type {
   WrapKeyResult,
   UnwrapKeyOptions,
 } from "./types";
-import { base64UrlDecode, isJWK, textEncoder, randomBytes } from "./utils";
+import { base64UrlDecode, isCryptoKey, isJWK, textEncoder, randomBytes } from "./utils";
 import {
   jwkTokey,
   keyToJWK,
-  isCryptoKey,
   bitLengthCEK,
   deriveKey as deriveKeyPBES2,
   wrap as _wrap,

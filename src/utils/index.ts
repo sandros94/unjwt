@@ -70,3 +70,21 @@ export function isJWK(key: any): key is JWK {
     typeof (key as JWK).kty === "string"
   );
 }
+
+export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
+  if (!isCryptoKey(key)) {
+    throw new Error("CryptoKey instance expected");
+  }
+}
+
+/* Type guard for CryptoKey */
+export function isCryptoKey(key: unknown): key is CryptoKey {
+  // @ts-expect-error
+  return key?.[Symbol.toStringTag] === "CryptoKey";
+}
+
+export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
+  key &&
+  typeof key === "object" &&
+  isCryptoKey(key.publicKey) &&
+  isCryptoKey(key.privateKey);

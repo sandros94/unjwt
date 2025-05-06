@@ -7,7 +7,7 @@ import {
   wrapKey,
   unwrapKey,
 } from "../src/jwk";
-import { randomBytes, base64UrlDecode } from "../src/utils";
+import { isCryptoKey, isCryptoKeyPair, randomBytes, base64UrlDecode } from "../src/utils";
 import type {
   JWK_oct,
   JWK_EC_Private,
@@ -15,17 +15,6 @@ import type {
   JWK_RSA_Private,
   JWK_RSA_Public,
 } from "../src/types";
-
-// Helper to check if an object is a CryptoKey
-const isCryptoKey = (key: any): key is CryptoKey =>
-  key && typeof key === "object" && key.constructor.name === "CryptoKey";
-
-// Helper to check if an object is a CryptoKeyPair
-const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
-  key &&
-  typeof key === "object" &&
-  isCryptoKey(key.publicKey) &&
-  isCryptoKey(key.privateKey);
 
 describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {
@@ -323,7 +312,7 @@ describe.concurrent("JWK Utilities", () => {
     // --- RSA-OAEP ---
     it("should wrap/unwrap with RSA-OAEP", async () => {
       const { publicKey, privateKey } = await generateKey("RSA-OAEP", {
-        modulusLength: 1024,
+        modulusLength: 2048,
       });
       const { encryptedKey } = await wrapKey(
         "RSA-OAEP",
