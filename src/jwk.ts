@@ -493,7 +493,11 @@ function getGenerateKeyParams(
   algorithm: AlgorithmIdentifier | RsaHashedKeyGenParams | EcKeyGenParams;
   keyUsages: KeyUsage[];
 } {
-  let algorithm: AlgorithmIdentifier | RsaHashedKeyGenParams | EcKeyGenParams;
+  let algorithm:
+    | AlgorithmIdentifier
+    | AesKeyAlgorithm
+    | RsaHashedKeyGenParams
+    | EcKeyGenParams;
   let keyUsages: KeyUsage[];
 
   const defaultKeyUsage = options?.keyUsage;
@@ -580,7 +584,8 @@ function getGenerateKeyParams(
     case "A128KW":
     case "A192KW":
     case "A256KW": {
-      algorithm = { name: "AES-KW" };
+      const length = Number.parseInt(alg.slice(1, 4), 10);
+      algorithm = { name: "AES-KW", length };
       keyUsages = defaultKeyUsage ?? ["wrapKey", "unwrapKey"];
       break;
     }
@@ -588,7 +593,8 @@ function getGenerateKeyParams(
     case "A128GCM":
     case "A192GCM":
     case "A256GCM": {
-      algorithm = { name: "AES-GCM" };
+      const length = Number.parseInt(alg.slice(1, 4), 10);
+      algorithm = { name: "AES-GCM", length };
       keyUsages = defaultKeyUsage ?? ["encrypt", "decrypt"];
       break;
     }
