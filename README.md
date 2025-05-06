@@ -347,6 +347,7 @@ console.log(cryptoKey);
 ## Credits
 
 Originally developed by [Johann Schopplich](https://github.com/johannschopplich/unjwt).
+Heavily inspired by [Filip Skokan's work](https://github.com/panva/jose).
 
 ## License
 
