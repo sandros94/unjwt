@@ -86,23 +86,16 @@ export async function encrypt(
       alg = key.alg as KeyManagementAlgorithm;
     }
   }
-  if (!enc) {
-    if (typeof key === "string" || key instanceof Uint8Array) {
-      enc = "A128GCM";
-    } else if (isJWK(key) && "enc" in key) {
-      enc = key.enc as ContentEncryptionAlgorithm;
-    }
-  }
-
   if (!alg) {
     throw new TypeError(
       'JWE "alg" (Key Management Algorithm) must be provided in options or inferable from the key',
     );
   }
   if (!enc) {
-    throw new TypeError(
-      'JWE "enc" (Content Encryption Algorithm) must be provided in options or inferable from the key',
-    );
+    enc =
+      isJWK(key) && "enc" in key
+        ? (key.enc as ContentEncryptionAlgorithm)
+        : "A128GCM";
   }
 
   const plaintextBytes = getPlaintextBytes(payload);

@@ -211,12 +211,28 @@ describe.concurrent("JWE Utilities", () => {
   }
 
   describe("encrypt specific options", () => {
-    it("should encrypt while only providing a password", async () => {
+    it("should encrypt and decrypt while only providing a password", async () => {
       const t = "Hello, World!";
       const p = "password";
 
       const jwe = await encrypt(t, p);
       const { payload } = await decrypt(jwe, p);
+
+      expect(payload).toBe(t);
+    });
+
+    it("should encrypt and decrypt while only providing a JWK", async () => {
+      const t = "Hello, World!";
+      const jwk: JWK = {
+        key_ops: ["wrapKey", "unwrapKey"],
+        ext: true,
+        kty: "oct",
+        k: "mzR5rkgr41d-4e_fVMYQ1g",
+        alg: "A128KW",
+      };
+
+      const jwe = await encrypt(t, jwk);
+      const { payload } = await decrypt(jwe, jwk);
 
       expect(payload).toBe(t);
     });
@@ -251,15 +267,6 @@ describe.concurrent("JWE Utilities", () => {
         encrypt(plaintextString, key, { enc: "A128GCM" } as any),
       ).rejects.toThrow(
         'JWE "alg" (Key Management Algorithm) must be provided in options',
-      );
-    });
-
-    it("should throw if enc is missing", async () => {
-      const key = keys["A128KW"]!.key as CryptoKey;
-      await expect(
-        encrypt(plaintextString, key, { alg: "A128KW" } as any),
-      ).rejects.toThrow(
-        'JWE "enc" (Content Encryption Algorithm) must be provided in options',
       );
     });
   });
