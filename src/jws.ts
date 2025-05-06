@@ -183,32 +183,35 @@ export async function verify<T = Uint8Array | JWTClaims>(
   let payload: T;
   try {
     if (useB64) {
-      payload = base64UrlDecode(payloadEncoded, true) as T;
-      if (
-        typeof payload === "string" &&
-        (protectedHeader.typ === "JWT" || protectedHeader.cty === "json") &&
-        payload.startsWith("{") &&
-        payload.endsWith("}")
-      ) {
-        try {
-          payload = JSON.parse(payload) as T;
-        } catch {
-          // Ignore parse error
+      // Check if it's likely JSON first based on headers
+      const isJsonPayload =
+        (protectedHeader.typ === "JWT" || protectedHeader.cty === "json");
+
+      if (isJsonPayload) {
+        // Decode as string for potential JSON parsing
+        const decodedString = base64UrlDecode(payloadEncoded, true);
+        if (decodedString.startsWith("{") && decodedString.endsWith("}")) {
+          try {
+            payload = JSON.parse(decodedString) as T;
+          } catch {
+            // Malformed JSON, return as string
+            payload = decodedString as T;
+          }
+        } else {
+          // Declared as JSON but not valid JSON structure, return as string
+          payload = decodedString as T;
         }
-      } else if (
-        typeof payload === "string" &&
-        protectedHeader.typ !== "JWT" &&
-        protectedHeader.cty !== "json"
-      ) {
-        payload = base64UrlDecode(payloadEncoded, false) as T;
+      } else {
+        // If not declared as JSON, assume it's raw bytes and decode accordingly
+        payload = base64UrlDecode(payloadEncoded, false) as T; // Decode as Uint8Array
       }
     } else {
+      // RFC7797: Payload is not Base64URL encoded, treat as raw bytes
       payload = textEncoder.encode(payloadEncoded) as T;
     }
   } catch (error_) {
-    throw new Error(
-      `Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : error_})`,
-    );
+    // Catch potential base64 decode errors if payloadEncoded is invalid
+    throw new Error(`Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : error_})`);
   }
 
   // 9. Handle Critical Headers

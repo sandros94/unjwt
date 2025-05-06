@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify } from "../src//jws";
 import { generateKey } from "../src//jwk";
-import { base64UrlEncode, textEncoder, base64UrlDecode } from "../src//utils";
+import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src//utils";
 import type { JWSProtectedHeader, JWTClaims } from "../src//types";
 
-describe("JWS Utilities", () => {
+describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
     sub: "1234567890",
     name: "John Doe",
@@ -174,10 +174,9 @@ describe("JWS Utilities", () => {
 
     it("should verify HS256 (String payload)", async () => {
       const jws = await sign(payloadString, hs256Key, { alg: "HS256" });
-      // String payload that isn't JSON gets decoded back to string by default if b64:true
-      const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
-      expect(typeof payload).toBe("string");
-      expect(payload).toEqual(payloadString);
+      const { payload, protectedHeader } = await verify<Uint8Array>(jws, hs256Key);
+      expect(payload).toBeInstanceOf(Uint8Array);
+      expect(textDecoder.decode(payload)).toEqual(payloadString);
       expect(protectedHeader.alg).toBe("HS256");
     });
 

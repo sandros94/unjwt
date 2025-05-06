@@ -9,7 +9,6 @@ import {
 } from "../src/jwk";
 import { randomBytes, base64UrlDecode } from "../src/utils";
 import type {
-  JWK,
   JWK_oct,
   JWK_RSA_Private,
   JWK_RSA_Public,
@@ -26,7 +25,7 @@ const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
   isCryptoKey(key.publicKey) &&
   isCryptoKey(key.privateKey);
 
-describe("JWK Utilities", () => {
+describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {
     it("should generate symmetric CryptoKey (HS256)", async () => {
       const key = await generateKey("HS256");
