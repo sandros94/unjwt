@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.0
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.4.0...v0.5.0)
+
+### 🚀 Enhancements
+
+- ⚠️  Asymmetric keys and standardize library ([#3](https://github.com/sandros94/unjwt/pull/3))
+
+### 📖 Documentation
+
+- Add rfc links to readme ([4fd846f](https://github.com/sandros94/unjwt/commit/4fd846f))
+
+### 🏡 Chore
+
+- Apply automated updates ([e4b61c3](https://github.com/sandros94/unjwt/commit/e4b61c3))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Asymmetric keys and standardize library ([#3](https://github.com/sandros94/unjwt/pull/3))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.4.0
 
 ### 🚀 Enhancements
