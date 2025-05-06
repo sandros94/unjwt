@@ -1,233 +1,466 @@
 import { describe, it, expect } from "vitest";
-import { generateKey, exportKey, importKey } from "../src/jwk";
-import { base64UrlEncode, base64UrlDecode, randomBytes } from "../src/utils";
-import type { JWK } from "../src/types";
+import {
+  generateKey,
+  deriveKeyFromPassword,
+  importKey,
+  exportKey,
+  wrapKey,
+  unwrapKey,
+} from "../src/jwk";
+import {
+  isCryptoKey,
+  isCryptoKeyPair,
+  randomBytes,
+  base64UrlDecode,
+} from "../src/utils";
+import type {
+  JWK_oct,
+  JWK_EC_Private,
+  JWK_EC_Public,
+  JWK_RSA_Private,
+  JWK_RSA_Public,
+} from "../src/types";
 
-describe("JWK Utilities", () => {
-  describe("generateKey (Symmetric)", () => {
-    it("should generate an oct JWK with specified length", async () => {
-      const jwk = await generateKey("oct", 256);
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      expect(jwk.ext).toBe(true);
-      expect(base64UrlDecode(jwk.k).length).toBe(32);
-    });
-
-    it("should generate an oct JWK with alg property", async () => {
-      const alg = "HS256";
-      const jwk = await generateKey("oct", 256, { alg });
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.alg).toBe(alg);
-      expect(base64UrlDecode(jwk.k).length).toBe(32);
-    });
-
-    it("should generate JWKs with different lengths", async () => {
-      const jwk128 = await generateKey("oct", 128);
-      expect(base64UrlDecode(jwk128.k).length).toBe(16);
-
-      const jwk192 = await generateKey("oct", 192);
-      expect(base64UrlDecode(jwk192.k).length).toBe(24);
-
-      const jwk512 = await generateKey("oct", 512);
-      expect(base64UrlDecode(jwk512.k).length).toBe(64);
-    });
-
-    it("should throw error for invalid length option", async () => {
-      // @ts-expect-error - Testing invalid length
-      await expect(generateKey("oct", "1")).rejects.toThrow(
-        "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
-      );
-      await expect(
-        // @ts-expect-error - Testing invalid length
-        generateKey("oct", 1),
-      ).rejects.toThrow(
-        "Invalid options for 'oct' key generation. 'length' (128, 192, 256, or 512) is required.",
-      );
-    });
-
-    it("should throw error for unsupported key type", async () => {
-      await expect(
-        // @ts-expect-error - Testing invalid type
-        generateKey("unsupported", 256),
-      ).rejects.toThrow("Unsupported key type for generation: unsupported");
-    });
-  });
-
-  describe("exportKey (Symmetric)", () => {
-    it("should export an imported HMAC key to JWK (likely uses fallback)", async () => {
-      const secret = "mysecretkeyforsigning";
-      const alg = { name: "HMAC", hash: "SHA-256" };
-      const key = await importKey(secret, alg, true, ["sign"]);
-
-      const jwk = await exportKey(key);
-
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      // Fallback path correctly infers HS256 from HMAC SHA-256
-      expect(jwk.alg).toBe("HS256");
-      expect(jwk.key_ops).toEqual(["sign"]);
-      expect(jwk.ext).toBe(true);
-
-      // Re-import the exported JWK
-      const reimportedKey = await importKey(jwk, alg, true, ["sign"]);
-      expect(reimportedKey.type).toBe("secret");
-      expect(reimportedKey.algorithm.name).toBe("HMAC");
-    });
-
-    it("should export an imported AES-KW key to JWK (likely uses subtle.exportKey('jwk'))", async () => {
-      const keyBytes = randomBytes(16); // 128 bits
-      const alg = { name: "AES-KW" };
-      const key = await importKey(keyBytes, alg, true, ["wrapKey"]);
-
-      const jwk = await exportKey(key);
-
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      expect(jwk.alg).toBe("A128KW"); // JWA identifier
-      expect(jwk.key_ops).toEqual(["wrapKey"]);
-      expect(jwk.ext).toBe(true);
-      // Verify key material by re-importing and exporting raw
-      const reimportedKey = await importKey(jwk, alg, true, ["wrapKey"]);
-      const rawExported = await crypto.subtle.exportKey("raw", reimportedKey);
-      expect(new Uint8Array(rawExported)).toEqual(keyBytes);
-    });
-
-    it("should export an imported AES-GCM key to JWK, inferring alg if needed", async () => {
-      const keyBytes = randomBytes(32); // 256 bits
-      const alg = { name: "AES-GCM" };
-      const key = await importKey(keyBytes, alg, true, ["encrypt"]);
-
-      const jwk = await exportKey(key);
-
-      expect(jwk.kty).toBe("oct");
-      expect(jwk.k).toBeTypeOf("string");
-      expect(jwk.alg).toMatch(/A256GCM|AES-GCM/); // Allow either standard or generic name
-      expect(jwk.key_ops).toEqual(["encrypt"]);
-      expect(jwk.ext).toBe(true);
-
-      // Verify key material
-      const reimportedKey = await importKey(jwk, alg, true, ["encrypt"]);
-      const rawExported = await crypto.subtle.exportKey("raw", reimportedKey);
-      expect(new Uint8Array(rawExported)).toEqual(keyBytes);
-    });
-
-    it("should throw error if exporting non-extractable key", async () => {
-      const key = await importKey(
-        "nonextractable",
-        { name: "HMAC", hash: "SHA-256" },
-        false, // Not extractable
-        ["verify"],
-      );
-      await expect(exportKey(key)).rejects.toThrow(
-        "Key must be extractable to export to JWK format.",
-      );
-    });
-  });
-
-  describe("importKey (Symmetric)", () => {
-    it("should import a valid oct JWK for HMAC", async () => {
-      const rawKeyBytes = randomBytes(32); // Generate a 256-bit key
-      const k = base64UrlEncode(rawKeyBytes);
-
-      const jwk: JWK = {
-        kty: "oct",
-        k,
-        alg: "HS256",
-        key_ops: ["sign", "verify"],
-        ext: true,
-      };
-      const alg = { name: "HMAC", hash: "SHA-256" };
-      const key = await importKey(jwk, alg, true, ["sign", "verify"]);
-
+describe.concurrent("JWK Utilities", () => {
+  describe("generateKey", () => {
+    it("should generate symmetric CryptoKey (HS256)", async () => {
+      const key = await generateKey("HS256");
+      expect(isCryptoKey(key)).toBe(true);
       expect(key.type).toBe("secret");
       expect(key.algorithm.name).toBe("HMAC");
-      expect((key.algorithm as HmacKeyAlgorithm).hash.name).toBe("SHA-256");
-      expect(key.usages).toContain("sign");
-      expect(key.usages).toContain("verify");
-      expect(key.extractable).toBe(true);
-
-      const exportedRaw = await crypto.subtle.exportKey("raw", key);
-      expect(new Uint8Array(exportedRaw)).toEqual(rawKeyBytes);
     });
 
-    it("should import a valid oct JWK for AES-KW", async () => {
-      const rawKeyBytes = randomBytes(16); // Generate a 128-bit key
-      const k = base64UrlEncode(rawKeyBytes);
+    it("should generate symmetric JWK (HS256, toJWK: true)", async () => {
+      const jwk = await generateKey("HS256", { toJWK: true });
+      expect(jwk.kty).toBe("oct");
+      expect(jwk.alg).toBe("HS256");
+      expect(typeof (jwk as JWK_oct).k).toBe("string");
+    });
 
-      const jwk: JWK = {
-        kty: "oct",
-        k,
-        alg: "A128KW",
-      };
-      const alg = { name: "AES-KW" };
-      const key = await importKey(jwk, alg, true, ["wrapKey", "unwrapKey"]);
-
+    it("should generate symmetric CryptoKey (A128KW)", async () => {
+      const key = await generateKey("A128KW");
+      expect(isCryptoKey(key)).toBe(true);
       expect(key.type).toBe("secret");
       expect(key.algorithm.name).toBe("AES-KW");
-      expect(key.usages).toContain("wrapKey");
-      expect(key.usages).toContain("unwrapKey");
-      expect(key.extractable).toBe(true);
-
-      const exportedRaw = await crypto.subtle.exportKey("raw", key);
-      expect(new Uint8Array(exportedRaw)).toEqual(rawKeyBytes);
     });
 
-    it("should import a raw key from string for HMAC", async () => {
-      const secret = "rawsecret";
-      const alg = { name: "HMAC", hash: "SHA-512" };
-      const key = await importKey(secret, alg, false, ["verify"]);
+    it("should generate symmetric JWK (A128KW, toJWK: true)", async () => {
+      const jwk = await generateKey("A128KW", { toJWK: true });
+      expect(jwk.kty).toBe("oct");
+      expect(jwk.alg).toBe("A128KW");
+      expect(typeof (jwk as JWK_oct).k).toBe("string");
+      expect(base64UrlDecode((jwk as JWK_oct).k, false).length).toBe(16); // 128 bits
+    });
 
-      expect(key.type).toBe("secret");
-      expect(key.algorithm.name).toBe("HMAC");
-      expect((key.algorithm as HmacKeyAlgorithm).hash.name).toBe("SHA-512");
-      expect(key.usages).toEqual(["verify"]);
+    it("should generate asymmetric CryptoKeyPair (RS256)", async () => {
+      const keyPair = await generateKey("RS256", { modulusLength: 1024 }); // Use smaller size for tests
+      expect(isCryptoKeyPair(keyPair)).toBe(true);
+      expect(keyPair.publicKey.algorithm.name).toBe("RSASSA-PKCS1-v1_5");
+      expect(keyPair.privateKey.algorithm.name).toBe("RSASSA-PKCS1-v1_5");
+    });
+
+    it("should generate asymmetric JWK pair (RS256, toJWK: true)", async () => {
+      const jwkPair = await generateKey("RS256", {
+        toJWK: true,
+        modulusLength: 1024,
+      });
+      expect(jwkPair.privateKey.kty).toBe("RSA");
+      expect(jwkPair.privateKey.alg).toBe("RS256");
+      expect((jwkPair.privateKey as JWK_RSA_Private).d).toBeDefined();
+      expect(jwkPair.publicKey.kty).toBe("RSA");
+      expect(jwkPair.publicKey.alg).toBe("RS256");
+      // @ts-expect-error d is not part of RSA public key
+      expect(jwkPair.publicKey.d).toBeUndefined();
+      expect((jwkPair.publicKey as JWK_RSA_Public).n).toBe(
+        (jwkPair.privateKey as JWK_RSA_Private).n,
+      );
+    });
+
+    it("should generate asymmetric CryptoKeyPair (ES256)", async () => {
+      const keyPair = await generateKey("ES256");
+      expect(isCryptoKeyPair(keyPair)).toBe(true);
+      expect(keyPair.publicKey.algorithm.name).toBe("ECDSA");
+      expect((keyPair.publicKey.algorithm as EcKeyAlgorithm).namedCurve).toBe(
+        "P-256",
+      );
+    });
+
+    it("should generate asymmetric JWK pair (ES256, toJWK: true)", async () => {
+      const jwkPair = await generateKey("ES256", { toJWK: true });
+      expect(jwkPair.privateKey.kty).toBe("EC");
+      expect(jwkPair.privateKey.alg).toBe("ES256");
+      expect((jwkPair.privateKey as JWK_EC_Private).crv).toBe("P-256");
+      expect((jwkPair.privateKey as JWK_EC_Private).d).toBeDefined();
+      expect(jwkPair.publicKey.kty).toBe("EC");
+      expect(jwkPair.publicKey.alg).toBe("ES256");
+      expect((jwkPair.publicKey as JWK_EC_Public).crv).toBe("P-256");
+      // @ts-expect-error d is not part of EC public key
+      expect(jwkPair.publicKey.d).toBeUndefined();
+      expect((jwkPair.publicKey as JWK_EC_Public).x).toBe(
+        (jwkPair.privateKey as JWK_EC_Private).x,
+      );
+    });
+
+    it("should generate AES-CBC key as Uint8Array", async () => {
+      const keyBytes = await generateKey("A128CBC-HS256");
+      expect(keyBytes).toBeInstanceOf(Uint8Array);
+      expect(keyBytes.length).toBe(32); // 128 (enc) + 256 (mac) / 8
+    });
+
+    it("should generate AES-CBC key as JWK (toJWK: true)", async () => {
+      const jwk = await generateKey("A128CBC-HS256", { toJWK: true });
+      expect(jwk.kty).toBe("oct");
+      expect(typeof (jwk as JWK_oct).k).toBe("string");
+      expect(base64UrlDecode((jwk as JWK_oct).k, false).length).toBe(32);
+    });
+
+    it("should respect extractable option (false)", async () => {
+      const key = await generateKey("HS256", { extractable: false });
+      expect(isCryptoKey(key)).toBe(true);
       expect(key.extractable).toBe(false);
     });
 
-    it("should import a raw key from Uint8Array for AES-GCM", async () => {
-      const secretBytes = randomBytes(32); // 256 bits
-      const alg = { name: "AES-GCM", length: 256 };
-      const key = await importKey(secretBytes, alg, true, ["encrypt"]);
+    it("should respect extractable option (true)", async () => {
+      const key = await generateKey("HS256", { extractable: true });
+      expect(isCryptoKey(key)).toBe(true);
+      expect(key.extractable).toBe(true); // Default is true
+    });
 
-      expect(key.type).toBe("secret");
-      expect(key.algorithm.name).toBe("AES-GCM");
-      expect((key.algorithm as AesKeyAlgorithm).length).toBe(256);
-      expect(key.usages).toEqual(["encrypt"]);
+    it("should throw for unsupported algorithm", async () => {
+      // @ts-expect-error Intentionally passing an unsupported algorithm
+      await expect(generateKey("UnsupportedAlg")).rejects.toThrow();
+    });
+  });
+
+  describe("deriveKeyFromPassword", () => {
+    const password = "password123";
+    const salt = randomBytes(16);
+    const iterations = 2000; // Keep low for tests
+
+    it("should derive CryptoKey (PBES2-HS256+A128KW)", async () => {
+      const key = await deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
+        salt,
+        iterations,
+      });
+      expect(isCryptoKey(key)).toBe(true);
+      expect(key.algorithm.name).toBe("AES-KW");
+      expect((key.algorithm as AesKeyAlgorithm).length).toBe(128);
+      expect(key.extractable).toBe(false); // Default
+    });
+
+    it("should derive JWK (PBES2-HS384+A192KW, toJWK: true)", async () => {
+      const jwk = await deriveKeyFromPassword(password, "PBES2-HS384+A192KW", {
+        salt,
+        iterations,
+        toJWK: true,
+      });
+      expect(jwk.kty).toBe("oct");
+      expect(jwk.alg).toBe("A192KW");
+      expect(typeof jwk.k).toBe("string");
+      expect(base64UrlDecode(jwk.k, false).length).toBe(24); // 192 bits
+    });
+
+    it("should respect extractable and keyUsage options", async () => {
+      const key = await deriveKeyFromPassword(password, "PBES2-HS512+A256KW", {
+        salt,
+        iterations,
+        extractable: true,
+        keyUsage: ["wrapKey"],
+      });
+      expect(isCryptoKey(key)).toBe(true);
       expect(key.extractable).toBe(true);
-
-      // Verify key material
-      const exportedRaw = await crypto.subtle.exportKey("raw", key);
-      expect(new Uint8Array(exportedRaw)).toEqual(secretBytes);
+      expect(key.usages).toEqual(["wrapKey"]);
     });
 
-    it("should throw error for invalid key format (non-JWK object)", async () => {
-      const invalidKey = { some: "object" } as any; // Invalid format
-      const alg = { name: "HMAC", hash: "SHA-256" };
-      await expect(importKey(invalidKey, alg, true, ["sign"])).rejects.toThrow(
-        "Invalid key format. Expected symmetric JWK (oct), Uint8Array, or string.",
+    it("should throw for invalid salt length", async () => {
+      await expect(
+        deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
+          salt: randomBytes(7),
+          iterations,
+        }),
+      ).rejects.toThrow("must be 8 or more octets");
+    });
+
+    it("should throw for invalid iterations", async () => {
+      await expect(
+        deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
+          salt,
+          iterations: 0,
+        }),
+      ).rejects.toThrow("must be a positive integer");
+    });
+  });
+
+  describe("importKey", () => {
+    it("should return CryptoKey if input is CryptoKey", async () => {
+      const originalKey = await generateKey("HS256");
+      const importedKey = await importKey(originalKey);
+      expect(importedKey).toBe(originalKey);
+    });
+
+    it("should return Uint8Array if input is Uint8Array", async () => {
+      const originalBytes = randomBytes(32);
+      const importedBytes = await importKey(originalBytes);
+      expect(importedBytes).toBe(originalBytes);
+    });
+
+    it("should import symmetric JWK (oct) to Uint8Array", async () => {
+      const jwk: JWK_oct = {
+        kty: "oct",
+        k: "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow",
+      };
+      const keyBytes = await importKey(jwk);
+      expect(keyBytes).toBeInstanceOf(Uint8Array);
+      expect(keyBytes.length).toBe(64); // HS512 example key
+    });
+
+    // it("should import asymmetric public JWK (RSA) to CryptoKey", async () => {
+    //   const jwk: JWK = {
+    //     kty: "RSA",
+    //     alg: "RS256",
+    //     n: "...",
+    //     e: "AQAB",
+    //     use: "sig",
+    //   };
+    //   await expect(importKey(jwk, "RS256")).resolves.toBeDefined();
+    // });
+
+    // it("should import asymmetric private JWK (EC) to CryptoKey", async () => {
+    //   const jwk: JWK = {
+    //     kty: "EC",
+    //     alg: "ES256",
+    //     crv: "P-256",
+    //     x: "...",
+    //     y: "...",
+    //     d: "...",
+    //     use: "sig",
+    //   }; // Provide actual values
+    //   await expect(importKey(jwk, "ES256")).resolves.toBeDefined();
+    // });
+  });
+
+  describe("exportKey", () => {
+    it("should export symmetric CryptoKey to JWK", async () => {
+      const cryptoKey = await generateKey("A128GCM");
+      const jwk = await exportKey(cryptoKey);
+      expect(jwk.kty).toBe("oct");
+      expect(typeof (jwk as JWK_oct).k).toBe("string");
+      expect(base64UrlDecode((jwk as JWK_oct).k, false).length).toBe(16);
+    });
+
+    it("should export asymmetric public CryptoKey to JWK", async () => {
+      const { publicKey } = await generateKey("ES256");
+      const jwk = await exportKey(publicKey);
+      expect(jwk.kty).toBe("EC");
+      expect((jwk as JWK_EC_Public).crv).toBe("P-256");
+      // @ts-expect-error d is not part of EC public key
+      expect(jwk.d).toBeUndefined();
+      expect((jwk as JWK_EC_Public).x).toBeDefined();
+      expect((jwk as JWK_EC_Public).y).toBeDefined();
+    });
+
+    it("should export asymmetric private CryptoKey to JWK", async () => {
+      const { privateKey } = await generateKey("ES256");
+      const jwk = await exportKey(privateKey);
+      expect(jwk.kty).toBe("EC");
+      expect((jwk as JWK_EC_Private).crv).toBe("P-256");
+      // @ts-expect-error d is not part of EC public key
+      expect(jwk.d).toBeDefined();
+      expect((jwk as JWK_EC_Private).x).toBeDefined();
+      expect((jwk as JWK_EC_Private).y).toBeDefined();
+    });
+
+    it("should merge provided partial JWK properties", async () => {
+      const cryptoKey = await generateKey("HS256");
+      const jwk = await exportKey(cryptoKey, { alg: "HS256", use: "sig" });
+      expect(jwk.kty).toBe("oct");
+      expect(jwk.alg).toBe("HS256");
+      expect(jwk.use).toBe("sig");
+      expect(typeof (jwk as JWK_oct).k).toBe("string");
+    });
+  });
+
+  describe("wrapKey / unwrapKey", async () => {
+    const cek = randomBytes(32); // Example: 256-bit key
+    const cekCryptoKey = await crypto.subtle.importKey(
+      "raw",
+      cek,
+      { name: "AES-GCM" },
+      true,
+      ["encrypt", "decrypt"],
+    );
+
+    // --- AES-KW ---
+    it("should wrap/unwrap with AES-KW (A128KW)", async () => {
+      const wrappingKey = await generateKey("A128KW");
+      const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
+      expect(encryptedKey).toBeInstanceOf(Uint8Array);
+
+      const unwrappedBytes = await unwrapKey(
+        "A128KW",
+        encryptedKey,
+        wrappingKey,
+        { returnAs: false },
+      );
+      expect(unwrappedBytes).toEqual(cek);
+
+      const unwrappedKey = await unwrapKey(
+        "A128KW",
+        encryptedKey,
+        wrappingKey,
+        { returnAs: true, unwrappedKeyAlgorithm: { name: "AES-GCM" } },
+      );
+      expect(isCryptoKey(unwrappedKey)).toBe(true);
+      expect(unwrappedKey.algorithm.name).toBe("AES-GCM");
+    });
+
+    // --- RSA-OAEP ---
+    it("should wrap/unwrap with RSA-OAEP", async () => {
+      const { publicKey, privateKey } = await generateKey("RSA-OAEP", {
+        modulusLength: 2048,
+      });
+      const { encryptedKey } = await wrapKey(
+        "RSA-OAEP",
+        cekCryptoKey,
+        publicKey,
+      ); // Wrap with public
+      expect(encryptedKey).toBeInstanceOf(Uint8Array);
+
+      const unwrappedBytes = await unwrapKey(
+        "RSA-OAEP",
+        encryptedKey,
+        privateKey,
+        { returnAs: false },
+      ); // Unwrap with private
+      expect(unwrappedBytes).toEqual(cek);
+
+      const unwrappedKey = await unwrapKey(
+        "RSA-OAEP",
+        encryptedKey,
+        privateKey,
+        { returnAs: true, unwrappedKeyAlgorithm: { name: "AES-GCM" } },
+      );
+      expect(isCryptoKey(unwrappedKey)).toBe(true);
+      expect(unwrappedKey.algorithm.name).toBe("AES-GCM");
+    });
+
+    // --- AES-GCMKW ---
+    it("should wrap/unwrap with AES-GCMKW (A128GCMKW)", async () => {
+      const wrappingKey = await generateKey("A128GCM", { extractable: true }); // Key for AES-GCMKW must be AES-GCM
+      const { encryptedKey, iv, tag } = await wrapKey(
+        "A128GCMKW",
+        cek,
+        wrappingKey,
+      );
+      expect(encryptedKey).toBeInstanceOf(Uint8Array);
+      expect(typeof iv).toBe("string");
+      expect(typeof tag).toBe("string");
+
+      const unwrappedBytes = await unwrapKey(
+        "A128GCMKW",
+        encryptedKey,
+        wrappingKey,
+        { iv, tag, returnAs: false },
+      );
+      expect(unwrappedBytes).toEqual(cek);
+
+      const unwrappedKey = await unwrapKey(
+        "A128GCMKW",
+        encryptedKey,
+        wrappingKey,
+        { iv, tag, returnAs: true, unwrappedKeyAlgorithm: { name: "AES-GCM" } },
+      );
+      expect(isCryptoKey(unwrappedKey)).toBe(true);
+    });
+
+    // --- PBES2 ---
+    it("should wrap/unwrap with PBES2", async () => {
+      const password = "test-password";
+      const p2s = randomBytes(8);
+      const p2c = 1000; // Low count for tests
+      const {
+        encryptedKey,
+        p2s: returnedP2s,
+        p2c: returnedP2c,
+      } = await wrapKey("PBES2-HS256+A128KW", cek, password, { p2s, p2c });
+      expect(encryptedKey).toBeInstanceOf(Uint8Array);
+      expect(returnedP2s).toBeDefined();
+      expect(returnedP2c).toBe(p2c);
+
+      const unwrappedBytes = await unwrapKey(
+        "PBES2-HS256+A128KW",
+        encryptedKey,
+        password,
+        { p2s: returnedP2s!, p2c: returnedP2c!, returnAs: false },
+      );
+      expect(unwrappedBytes).toEqual(cek);
+
+      const unwrappedKey = await unwrapKey(
+        "PBES2-HS256+A128KW",
+        encryptedKey,
+        password,
+        {
+          p2s: returnedP2s!,
+          p2c: returnedP2c!,
+          returnAs: true,
+          unwrappedKeyAlgorithm: { name: "AES-GCM" },
+        },
+      );
+      expect(isCryptoKey(unwrappedKey)).toBe(true);
+    });
+
+    it("should throw wrapKey if PBES2 options missing", async () => {
+      await expect(
+        wrapKey("PBES2-HS256+A128KW", cek, "password"),
+      ).rejects.toThrow(
+        "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
       );
     });
 
-    it("should throw error for non-oct JWK type", async () => {
-      const jwk: JWK = { kty: "RSA", n: "..." }; // Invalid kty
-      const alg = { name: "HMAC", hash: "SHA-256" };
-      await expect(importKey(jwk, alg, true, ["sign"])).rejects.toThrow(
-        "Invalid key format. Expected symmetric JWK (oct), Uint8Array, or string.",
+    it("should throw unwrapKey if AES-GCMKW options missing", async () => {
+      const wrappingKey = await generateKey("A128GCM", { extractable: true });
+      const { encryptedKey } = await wrapKey("A128GCMKW", cek, wrappingKey);
+      await expect(
+        unwrapKey("A128GCMKW", encryptedKey, wrappingKey),
+      ).rejects.toThrow("AES-GCMKW requires 'iv' and 'tag' options");
+    });
+
+    it("should throw unwrapKey if PBES2 options missing", async () => {
+      const { encryptedKey } = await wrapKey(
+        "PBES2-HS256+A128KW",
+        cek,
+        "password",
+        { p2s: randomBytes(8), p2c: 1000 },
+      );
+      await expect(
+        unwrapKey("PBES2-HS256+A128KW", encryptedKey, "password"),
+      ).rejects.toThrow(
+        "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
       );
     });
 
-    it("should throw error if JWK 'k' parameter is missing or not string", async () => {
-      const jwkMissingK: JWK = { kty: "oct", alg: "HS256" }; // Missing 'k'
-      // @ts-expect-error - Testing invalid k type
-      const jwkBadK: JWK = { kty: "oct", k: 12_345 }; // Invalid 'k' type
-      const alg = { name: "HMAC", hash: "SHA-256" };
+    it("should throw unwrapKey for wrong key/tag", async () => {
+      const wrappingKey1 = await generateKey("A128KW");
+      const wrappingKey2 = await generateKey("A128KW");
+      const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey1);
+      await expect(
+        unwrapKey("A128KW", encryptedKey, wrappingKey2),
+      ).rejects.toThrow(); // Subtle crypto errors vary, check for any throw
+    });
 
-      await expect(importKey(jwkMissingK, alg, true, ["sign"])).rejects.toThrow(
-        "Symmetric JWK must contain the 'k' parameter as a string",
+    it("should throw wrapKey for invalid key type", async () => {
+      await expect(wrapKey("A128KW", cek, "not-a-key-object")).rejects.toThrow(
+        TypeError,
       );
-      await expect(importKey(jwkBadK, alg, true, ["sign"])).rejects.toThrow(
-        "Symmetric JWK must contain the 'k' parameter as a string",
-      );
+      await expect(wrapKey("RSA-OAEP", cek, randomBytes(32))).rejects.toThrow(); // RSA needs CryptoKey
+    });
+
+    it("should throw unwrapKey for invalid key type", async () => {
+      const wrappingKey = await generateKey("A128KW");
+      const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
+      await expect(
+        unwrapKey("A128KW", encryptedKey, "not-a-key-object"),
+      ).rejects.toThrow(TypeError);
     });
   });
 });

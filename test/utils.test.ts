@@ -8,7 +8,7 @@ import {
   textDecoder,
 } from "../src/utils";
 
-describe("Utility Functions", () => {
+describe.concurrent("Utility Functions", () => {
   describe("textEncoder and textDecoder", () => {
     it("should be defined", () => {
       expect(textEncoder).toBeDefined();
@@ -68,9 +68,13 @@ describe("Utility Functions", () => {
         const localEncoded = b64Encode(uint8Array);
         expect(encoded).toEqual(localEncoded);
 
-        const decoded = base64UrlDecode(encoded);
-        expect(decoded).toBeInstanceOf(Uint8Array);
-        expect(decoded).toEqual(b64Decode(localEncoded));
+        const decodedUint8Array = base64UrlDecode(encoded, false);
+        expect(decodedUint8Array).toBeInstanceOf(Uint8Array);
+        expect(decodedUint8Array).toEqual(b64Decode(localEncoded));
+
+        const decodedString = base64UrlDecode(encoded);
+        expect(decodedString).toBeTypeOf("string");
+        expect(decodedString).toEqual(input);
       });
     }
   });

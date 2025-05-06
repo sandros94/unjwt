@@ -1,454 +1,430 @@
 import type {
-  JWEOptions,
-  KeyWrappingAlgorithmType,
-  ContentEncryptionAlgorithmType,
-} from "./types";
+  JWK,
+  KeyManagementAlgorithm,
+  ContentEncryptionAlgorithm,
+  UnwrapKeyOptions,
+} from "./types/jwk";
+import type { JWTClaims } from "./types/jwt";
+import type {
+  JWEEncryptOptions,
+  JWEDecryptOptions,
+  JWEDecryptResult,
+  JWEHeaderParameters,
+  JWEKeyLookupFunction,
+  JWEKeyManagementHeaderParameters,
+} from "./types/jwe";
+
+import { importKey, unwrapKey } from "./jwk";
 import {
-  textEncoder,
-  textDecoder,
+  encrypt as joseEncrypt,
+  decrypt as joseDecrypt,
+  generateIV,
+  encryptKey,
+} from "./jose";
+import {
   base64UrlEncode,
   base64UrlDecode,
   randomBytes,
-  concatUint8Arrays,
+  textEncoder,
+  textDecoder,
+  isJWK,
 } from "./utils";
-import {
-  KEY_WRAPPING_ALGORITHMS,
-  CONTENT_ENCRYPTION_ALGORITHMS,
-} from "./utils/defaults";
-import { lookupAlgorithm } from "./utils/algorithms";
 
-/** The default settings. */
-export const JWE_DEFAULTS = /* @__PURE__ */ Object.freeze({
-  saltSize: 16,
-  iterations: 2048,
-  alg: "PBES2-HS256+A128KW" as KeyWrappingAlgorithmType,
-  enc: "A256GCM" as ContentEncryptionAlgorithmType,
-});
+export * from "./types/jwe";
 
 /**
- * Seal (encrypt) data using JWE with configurable algorithms
- * @param data The data to encrypt
- * @param password The password to use for encryption
- * @param options Optional parameters
- * @returns Promise resolving to the compact JWE token
+ * Encrypts a payload to produce a JWE Compact Serialization string.
+ *
+ * @param payload The payload to encrypt. Can be a string, Uint8Array, or a JSON-serializable object.
+ * @param key The key encryption key (KEK). Can be a CryptoKey, JWK, or for PBES2, a password string/Uint8Array.
+ * @param options JWE encryption options, including `alg` (key management algorithm) and `enc` (content encryption algorithm).
+ * @returns A Promise resolving to the JWE Compact Serialization string.
  */
-export async function seal(
-  data: Readonly<string | Uint8Array>,
-  password: Readonly<string | Uint8Array>,
-  options: Readonly<JWEOptions> = {},
+export async function encrypt(
+  payload: JWTClaims,
+  key: JWK | string | Uint8Array,
+  options?: JWEEncryptOptions,
+): Promise<string>;
+export async function encrypt(
+  payload: string | Uint8Array | Record<string, any>,
+  key: JWK | string | Uint8Array,
+  options?: JWEEncryptOptions,
+): Promise<string>;
+export async function encrypt(
+  payload: JWTClaims,
+  key: CryptoKey,
+  options: JWEEncryptOptions & {
+    alg: KeyManagementAlgorithm;
+    enc: ContentEncryptionAlgorithm;
+  },
+): Promise<string>;
+export async function encrypt(
+  payload: string | Uint8Array | Record<string, any>,
+  key: CryptoKey,
+  options: JWEEncryptOptions & {
+    alg: KeyManagementAlgorithm;
+    enc: ContentEncryptionAlgorithm;
+  },
+): Promise<string>;
+export async function encrypt(
+  payload: string | Uint8Array | Record<string, any>,
+  key: CryptoKey | JWK | string | Uint8Array,
+  options: JWEEncryptOptions & {
+    alg: KeyManagementAlgorithm;
+    enc: ContentEncryptionAlgorithm;
+  },
+): Promise<string>;
+export async function encrypt(
+  payload: string | Uint8Array | Record<string, any>,
+  key: CryptoKey | JWK | string | Uint8Array,
+  options: JWEEncryptOptions = {},
 ): Promise<string> {
-  // Configure options with defaults
-  const protectedHeader = options.protectedHeader || {};
-  const iterations =
-    protectedHeader.p2c || options.iterations || JWE_DEFAULTS.iterations;
-  const saltSize = options.saltSize || JWE_DEFAULTS.saltSize;
+  const {
+    protectedHeader: additionalProtectedHeader,
+    cek: providedCek,
+    contentEncryptionIV: providedContentIV,
+    keyManagementIV,
+    p2s = randomBytes(16),
+    p2c = 2048,
+    ecdhPartyUInfo,
+    ecdhPartyVInfo,
+  } = options;
+  let { alg, enc } = options;
 
-  // Set algorithms with defaults
-  const alg = (protectedHeader.alg ||
-    JWE_DEFAULTS.alg) as KeyWrappingAlgorithmType;
-  const enc = (protectedHeader.enc ||
-    JWE_DEFAULTS.enc) as ContentEncryptionAlgorithmType;
+  // Fallback logic for alg and enc
+  if (!alg) {
+    if (typeof key === "string" || key instanceof Uint8Array) {
+      alg = "PBES2-HS256+A128KW";
+    } else if (isJWK(key)) {
+      alg = key.alg as KeyManagementAlgorithm;
+    }
+  }
+  if (!alg) {
+    throw new TypeError(
+      'JWE "alg" (Key Management Algorithm) must be provided in options or inferable from the key',
+    );
+  }
+  if (!enc) {
+    enc =
+      isJWK(key) && "enc" in key
+        ? (key.enc as ContentEncryptionAlgorithm)
+        : "A128GCM";
+  }
 
-  // Validate both algorithms
-  validateKeyWrappingAlgorithm(alg);
-  const encConfig = validateContentEncryptionAlgorithm(enc);
+  const plaintextBytes = getPlaintextBytes(payload);
 
-  // Convert input data to Uint8Array if it's a string
-  const plaintext = typeof data === "string" ? textEncoder.encode(data) : data;
+  // Prepare parameters for encryptKey
+  const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
+  if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
+  if (p2s) jweKeyManagementParams.p2s = p2s;
+  if (p2c) jweKeyManagementParams.p2c = p2c;
+  if (ecdhPartyUInfo) jweKeyManagementParams.apu = ecdhPartyUInfo;
+  if (ecdhPartyVInfo) jweKeyManagementParams.apv = ecdhPartyVInfo;
+  if (additionalProtectedHeader?.epk instanceof CryptoKey) {
+    jweKeyManagementParams.epk = additionalProtectedHeader.epk;
+  }
 
-  // Generate random salt for PBES2
-  const saltInput = randomBytes(saltSize);
+  const wrappingKeyMaterial = await importKey(key, alg);
 
-  // Set up the protected header
-  const header = {
+  const {
+    cek: finalCek, // This is the CEK (CryptoKey | Uint8Array) to be used for content encryption
+    encryptedKey: jweEncryptedKey, // This is the JWE Encrypted Key (Uint8Array | undefined)
+    parameters: keyManagementHeaderParams, // JWE header params from key encryption (e.g., epk, p2s, iv, tag)
+  } = await encryptKey(
     alg,
     enc,
-    p2s: base64UrlEncode(saltInput),
-    p2c: iterations,
-    ...protectedHeader,
+    wrappingKeyMaterial,
+    providedCek,
+    jweKeyManagementParams,
+  );
+
+  const baseProtectedHeader = { ...additionalProtectedHeader };
+  delete baseProtectedHeader.alg;
+  delete baseProtectedHeader.enc;
+
+  const jweProtectedHeader: JWEHeaderParameters = {
+    ...baseProtectedHeader,
+    ...keyManagementHeaderParams,
+    alg,
+    enc,
   };
 
-  // Encode the protected header
-  const encodedHeader = base64UrlEncode(
-    textEncoder.encode(JSON.stringify(header)),
-  );
+  if (
+    jweProtectedHeader.typ === undefined &&
+    typeof payload === "object" &&
+    !(payload instanceof Uint8Array)
+  ) {
+    jweProtectedHeader.typ = "JWT";
+  }
 
-  // Derive the key for key wrapping
-  const derivedKey = await deriveKeyFromPassword(
-    password,
-    saltInput,
-    iterations,
-    alg,
-  );
+  // Set 'cty' based on payload type if not provided by user
+  // If typ is "JWT" (because payload was an object) and cty is not set, set cty to "json"
+  if (
+    jweProtectedHeader.typ === "JWT" &&
+    typeof payload === "object" &&
+    !(payload instanceof Uint8Array)
+  ) {
+    jweProtectedHeader.cty ||= "json";
+  }
 
-  // Generate a random Content Encryption Key and wrap it
+  const protectedHeaderSerialized = JSON.stringify(jweProtectedHeader);
+  const protectedHeaderEncoded = base64UrlEncode(protectedHeaderSerialized);
+
+  const aadBytes = textEncoder.encode(protectedHeaderEncoded);
+  const contentIVBytes = providedContentIV ?? generateIV(enc);
+
   const {
-    wrappedKey,
-    rawCek: _,
-    cek,
-  } = await generateAndWrapCEK(derivedKey, encConfig);
-
-  // Generate random initialization vector
-  const iv = randomBytes(encConfig.ivLength);
-
-  let ciphertext: Uint8Array;
-  let tag: Uint8Array;
-
-  // Encrypt the plaintext based on the encryption type
-  if (encConfig.type === "gcm") {
-    const result = await encryptGCM(
-      plaintext,
-      cek as CryptoKey,
-      iv,
-      textEncoder.encode(encodedHeader),
-      encConfig,
-    );
-    ciphertext = result.ciphertext;
-    tag = result.tag;
-  } else {
-    // TODO: CBC encryption
-    throw new Error(`Unsupported encryption type: ${(encConfig as any).type}`);
-  }
-
-  // Construct the JWE compact serialization
-  return [
-    encodedHeader,
-    base64UrlEncode(new Uint8Array(wrappedKey)),
-    base64UrlEncode(iv),
-    base64UrlEncode(ciphertext),
-    base64UrlEncode(tag),
-  ].join(".");
-}
-
-/**
- * Decrypts a JWE (JSON Web Encryption) token
- * @param token The JWE token string in compact serialization format
- * @param password The password used to derive the encryption key
- * @returns The decrypted content as a string
- */
-export async function unseal(
-  token: Readonly<string>,
-  password: Readonly<string | Uint8Array>,
-): Promise<string>;
-/**
- * Decrypts a JWE (JSON Web Encryption) token
- * @param token The JWE token string in compact serialization format
- * @param password The password used to derive the encryption key
- * @param options Decryption options
- * @returns The decrypted content as a string
- */
-export async function unseal(
-  token: Readonly<string>,
-  password: Readonly<string | Uint8Array>,
-  options: Readonly<{ textOutput: true }>,
-): Promise<string>;
-/**
- * Decrypts a JWE (JSON Web Encryption) token
- * @param token The JWE token string in compact serialization format
- * @param password The password used to derive the encryption key
- * @param options Decryption options
- * @returns The decrypted content as a Uint8Array
- */
-export async function unseal(
-  token: Readonly<string>,
-  password: Readonly<string | Uint8Array>,
-  options: Readonly<{ textOutput: false }>,
-): Promise<Uint8Array>;
-/**
- * Decrypts a JWE (JSON Web Encryption) token
- * @param token The JWE token string in compact serialization format
- * @param password The password used to derive the encryption key
- * @param options Decryption options
- * @returns The decrypted content
- */
-export async function unseal(
-  token: Readonly<string>,
-  password: Readonly<string | Uint8Array>,
-  options: Readonly<{
-    /**
-     * Whether to return the decrypted data as a string (true) or as a Uint8Array (false).
-     * @default true
-     */
-    textOutput?: boolean;
-  }> = {},
-): Promise<string | Uint8Array> {
-  if (!token) {
-    throw new Error("Missing JWE token");
-  }
-
-  const textOutput = options.textOutput !== false;
-
-  // Split the JWE token
-  const [
-    encodedHeader,
-    encryptedKey,
-    encodedIv,
-    encodedCiphertext,
-    encodedTag,
-  ] = token.split(".");
-
-  // Decode the header
-  const header = JSON.parse(textDecoder.decode(base64UrlDecode(encodedHeader)));
-
-  // Get the algorithms
-  const alg = header.alg as KeyWrappingAlgorithmType;
-  const enc = header.enc as ContentEncryptionAlgorithmType;
-
-  // Validate both algorithms
-  validateKeyWrappingAlgorithm(alg);
-  const encConfig = validateContentEncryptionAlgorithm(enc);
-
-  // Extract PBES2 parameters
-  const iterations = header.p2c;
-  const saltInput = base64UrlDecode(header.p2s);
-
-  // Derive the key unwrapping key
-  const derivedKey = await deriveKeyFromPassword(
-    password,
-    saltInput,
-    iterations,
-    alg,
-  );
-
-  // Decode the encrypted key, iv, ciphertext and tag
-  const wrappedKey = base64UrlDecode(encryptedKey);
-  const iv = base64UrlDecode(encodedIv);
-  const ciphertext = base64UrlDecode(encodedCiphertext);
-  const tag = base64UrlDecode(encodedTag);
-
-  // Unwrap the CEK
-  const cek = await unwrapCEK(wrappedKey, derivedKey, encConfig);
-
-  let decrypted: Uint8Array;
-
-  // Decrypt based on encryption type
-  if (encConfig.type === "gcm") {
-    decrypted = await decryptGCM(
-      ciphertext,
-      tag,
-      cek as CryptoKey,
-      iv,
-      textEncoder.encode(encodedHeader),
-    );
-  } else {
-    // TODO: CBC decryption
-    throw new Error(`Unsupported encryption type: ${(encConfig as any).type}`);
-  }
-
-  // Return the decrypted data
-  return textOutput ? textDecoder.decode(decrypted) : decrypted;
-}
-
-/**
- * Derives a key from a password using PBKDF2
- * @param password The password to derive the key from
- * @param saltInput Salt input for key derivation
- * @param iterations Number of iterations for key derivation
- * @param alg Key wrapping algorithm
- * @returns Promise resolving to the derived CryptoKey
- */
-async function deriveKeyFromPassword(
-  password: Readonly<string | Uint8Array>,
-  saltInput: Readonly<Uint8Array>,
-  iterations: Readonly<number>,
-  alg: Readonly<KeyWrappingAlgorithmType>,
-): Promise<CryptoKey> {
-  if (!password) {
-    throw new Error("Missing password");
-  }
-
-  const algConfig = validateKeyWrappingAlgorithm(alg);
-
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    typeof password === "string" ? textEncoder.encode(password) : password,
-    { name: "PBKDF2" },
-    false,
-    ["deriveKey"],
-  );
-
-  // Prepare the salt with algorithm prefix
-  const salt = concatUint8Arrays(
-    textEncoder.encode(alg),
-    new Uint8Array([0]),
-    saltInput,
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      hash: algConfig.hash,
-      salt,
-      iterations,
-    },
-    baseKey,
-    { name: "AES-KW", length: algConfig.keyLength },
-    false,
-    ["wrapKey", "unwrapKey"],
-  );
-}
-
-/**
- * Validates and returns information about a key wrapping algorithm
- * @param alg The key wrapping algorithm to validate
- * @returns The algorithm configuration
- * @throws Error if the algorithm is not supported
- */
-function validateKeyWrappingAlgorithm(
-  alg: Readonly<keyof typeof KEY_WRAPPING_ALGORITHMS>,
-) {
-  return lookupAlgorithm(alg, KEY_WRAPPING_ALGORITHMS, "key wrapping");
-}
-
-/**
- * Validates and returns information about a content encryption algorithm
- * @param enc The content encryption algorithm to validate
- * @returns The algorithm configuration
- * @throws Error if the algorithm is not supported
- */
-function validateContentEncryptionAlgorithm(
-  enc: Readonly<keyof typeof CONTENT_ENCRYPTION_ALGORITHMS>,
-) {
-  return lookupAlgorithm(
+    ciphertext: contentCiphertext,
+    tag: contentAuthTag,
+    iv: actualContentIV,
+  } = await joseEncrypt(
     enc,
-    CONTENT_ENCRYPTION_ALGORITHMS,
-    "content encryption",
+    plaintextBytes,
+    finalCek,
+    contentIVBytes,
+    aadBytes,
   );
-}
 
-/**
- * Generates and wraps a content encryption key
- * @param derivedKey Key used for wrapping
- * @param encConfig Encryption configuration
- * @returns Promise resolving to the wrapped key and the raw CEK
- */
-async function generateAndWrapCEK(
-  derivedKey: Readonly<CryptoKey>,
-  encConfig: Readonly<
-    (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType]
-  >,
-): Promise<{
-  wrappedKey: ArrayBuffer;
-  rawCek: Uint8Array | null;
-  cek: CryptoKey;
-}> {
-  if (encConfig.type === "gcm") {
-    // For GCM, use the WebCrypto API to generate a key
-    const cek = await crypto.subtle.generateKey(
-      { name: "AES-GCM", length: encConfig.keyLength },
-      true,
-      ["encrypt", "decrypt", "wrapKey", "unwrapKey"],
-    );
-
-    // Wrap the key
-    const wrappedKey = await crypto.subtle.wrapKey("raw", cek, derivedKey, {
-      name: "AES-KW",
-    });
-
-    return { wrappedKey, rawCek: null, cek };
+  if (!actualContentIV) {
+    throw new Error("Content encryption IV was not generated or returned.");
   }
-
-  // TODO: CBC key generation
-
-  throw new Error(`Unsupported encryption type: ${(encConfig as any).type}`);
-}
-
-/**
- * Unwraps a content encryption key
- * @param wrappedKey The wrapped key to unwrap
- * @param derivedKey Key used for unwrapping
- * @param encConfig Encryption configuration
- * @returns Promise resolving to the unwrapped key
- */
-async function unwrapCEK(
-  wrappedKey: Readonly<Uint8Array>,
-  derivedKey: Readonly<CryptoKey>,
-  encConfig: Readonly<
-    (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType]
-  >,
-): Promise<CryptoKey | Uint8Array> {
-  if (encConfig.type === "gcm") {
-    // For GCM, unwrap to AES-GCM key
-    return crypto.subtle.unwrapKey(
-      "raw",
-      wrappedKey,
-      derivedKey,
-      { name: "AES-KW" },
-      { name: "AES-GCM", length: encConfig.keyLength },
-      false,
-      ["decrypt"],
+  if (!contentAuthTag) {
+    throw new Error(
+      "Content encryption auth tag was not generated or returned.",
     );
   }
 
-  // TODO: CBC unwrapping
+  // For 'dir' or 'ECDH-ES' (direct key agreement), jweEncryptedKey will be undefined.
+  // The JWE Encrypted Key part should be an empty string in these cases.
+  const encryptedKeyEncoded = jweEncryptedKey
+    ? base64UrlEncode(jweEncryptedKey)
+    : "";
 
-  throw new Error(`Unsupported encryption type: ${(encConfig as any).type}`);
+  const jweParts: string[] = [
+    protectedHeaderEncoded,
+    encryptedKeyEncoded,
+    base64UrlEncode(actualContentIV),
+    base64UrlEncode(contentCiphertext),
+    base64UrlEncode(contentAuthTag),
+  ];
+
+  return jweParts.join(".");
 }
 
 /**
- * Performs GCM encryption
- * @param plaintext Data to encrypt
- * @param cek Content encryption key
- * @param iv Initialization vector
- * @param aad Additional authenticated data
- * @param encConfig Encryption configuration
- * @returns Promise resolving to encrypted data with tag
+ * Decrypts a JWE Compact Serialization string.
+ *
+ * @param jwe The JWE Compact Serialization string.
+ * @param key The key decryption key (KEK) or a function to look up the key.
+ * @param options JWE decryption options.
+ * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
+ * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-async function encryptGCM(
-  plaintext: Readonly<Uint8Array>,
-  cek: Readonly<CryptoKey>,
-  iv: Readonly<Uint8Array>,
-  aad: Readonly<Uint8Array>,
-  encConfig: Readonly<
-    (typeof CONTENT_ENCRYPTION_ALGORITHMS)[ContentEncryptionAlgorithmType]
-  >,
-): Promise<{ ciphertext: Uint8Array; tag: Uint8Array }> {
-  const ciphertext = await crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-      additionalData: aad,
-    },
-    cek,
-    plaintext,
+export async function decrypt<T = JWTClaims | string>(
+  jwe: string,
+  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  options?: JWEDecryptOptions,
+): Promise<JWEDecryptResult<T>>;
+export async function decrypt(
+  jwe: string,
+  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  options: JWEDecryptOptions & {
+    forceUint8Array: true;
+  },
+): Promise<JWEDecryptResult<Uint8Array>>;
+export async function decrypt<T = JWTClaims | string>(
+  jwe: string,
+  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  options?: JWEDecryptOptions,
+): Promise<JWEDecryptResult<T>> {
+  const parts = jwe.split(".");
+  if (parts.length !== 5) {
+    throw new Error(
+      "Invalid JWE: Must contain five sections (RFC7516, section-3).",
+    );
+  }
+  const [
+    protectedHeaderEncoded,
+    encryptedKeyEncoded,
+    ivEncoded,
+    ciphertextEncoded,
+    authTagEncoded,
+  ] = parts;
+
+  let protectedHeader: JWEHeaderParameters;
+  try {
+    const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
+    protectedHeader = JSON.parse(protectedHeaderJson);
+  } catch (error_) {
+    throw new Error(
+      `Invalid JWE: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,
+    );
+  }
+
+  if (
+    !protectedHeader ||
+    typeof protectedHeader !== "object" ||
+    !protectedHeader.alg ||
+    !protectedHeader.enc
+  ) {
+    throw new Error(
+      'Invalid JWE: Protected header must be an object with "alg" and "enc" properties.',
+    );
+  }
+
+  const alg = protectedHeader.alg as KeyManagementAlgorithm;
+  const enc = protectedHeader.enc as ContentEncryptionAlgorithm;
+
+  if (options?.algorithms && !options.algorithms.includes(alg)) {
+    throw new Error(`Key management algorithm not allowed: ${alg}`);
+  }
+  if (
+    options?.encryptionAlgorithms &&
+    !options.encryptionAlgorithms.includes(enc)
+  ) {
+    throw new Error(`Content encryption algorithm not allowed: ${enc}`);
+  }
+
+  const resolvedKeyMaterial =
+    typeof key === "function" ? await key(protectedHeader) : key;
+  const unwrappingKey = await importKey(resolvedKeyMaterial, alg);
+
+  const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
+  const contentIVBytes = base64UrlDecode(ivEncoded, false);
+  const contentAuthTagBytes = base64UrlDecode(authTagEncoded, false);
+  const ciphertextBytes = base64UrlDecode(ciphertextEncoded, false);
+
+  const unwrapKeyOpts = {
+    iv: protectedHeader.iv,
+    tag: protectedHeader.tag,
+    p2s: protectedHeader.p2s,
+    p2c: protectedHeader.p2c,
+    epk: protectedHeader.epk,
+    apu: protectedHeader.apu,
+    apv: protectedHeader.apv,
+    unwrappedKeyAlgorithm: options?.unwrappedKeyAlgorithm,
+    keyUsage: options?.keyUsage,
+    extractable: options?.extractable,
+    returnAs: false, // Returning CEK as Uint8Array
+  } as const satisfies UnwrapKeyOptions;
+
+  const cekBytes = await unwrapKey(
+    alg,
+    encryptedKeyBytes,
+    unwrappingKey,
+    unwrapKeyOpts,
   );
 
-  const encrypted = new Uint8Array(ciphertext);
-  const tag = encrypted.slice(-encConfig.tagLength);
-  const ciphertextOutput = encrypted.slice(0, -encConfig.tagLength);
+  const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
-  return { ciphertext: ciphertextOutput, tag };
+  const plaintextBytes = await joseDecrypt(
+    enc,
+    cekBytes,
+    ciphertextBytes,
+    contentIVBytes,
+    contentAuthTagBytes,
+    aadBytes,
+  );
+
+  let payload: T;
+  if (options?.forceUint8Array) {
+    payload = plaintextBytes as T;
+  } else {
+    const decodedString = textDecoder.decode(plaintextBytes);
+    const cty = protectedHeader.cty?.toLowerCase();
+    const isJsonOutput =
+      protectedHeader.typ === "JWT" ||
+      cty === "json" ||
+      cty === "application/json" ||
+      (cty && cty.endsWith("+json"));
+
+    if (isJsonOutput) {
+      if (
+        (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
+        (decodedString.startsWith("[") && decodedString.endsWith("]"))
+      ) {
+        try {
+          payload = JSON.parse(decodedString) as T;
+        } catch {
+          // Malformed JSON, return as string
+          payload = decodedString as T;
+        }
+      } else {
+        // Declared as JSON but not a valid JSON object/array string representation
+        payload = decodedString as T;
+      }
+    } else {
+      // Default to string if not JSON and not forced to Uint8Array
+      payload = decodedString as T;
+    }
+  }
+
+  if (options?.critical && protectedHeader.crit) {
+    const understoodParams = new Set([
+      ...(options.critical || []),
+      // JWE specific standard headers:
+      "alg",
+      "enc",
+      "typ",
+      "cty",
+      "kid",
+      "jwk",
+      "jku",
+      "x5c",
+      "x5t",
+      "x5u",
+      "iv",
+      "tag",
+      "p2s",
+      "p2c",
+      "epk",
+      "apu",
+      "apv",
+    ]);
+
+    for (const critParam of protectedHeader.crit) {
+      // As per RFC 7516, Section 4.1.13:
+      // The parameter must also be present in the protected header.
+      if (!Object.prototype.hasOwnProperty.call(protectedHeader, critParam)) {
+        throw new Error(
+          `Critical header parameter "${critParam}" listed in "crit" but not present in the protected header.`,
+        );
+      }
+      if (!understoodParams.has(critParam)) {
+        throw new Error(
+          `Critical header parameter not understood: ${critParam}`,
+        );
+      }
+    }
+  } else if (!options?.critical && protectedHeader.crit) {
+    // If 'crit' is present, but the application didn't provide 'options.critical',
+    // it means the application hasn't declared which critical headers it supports.
+    throw new Error(
+      `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
+    );
+  }
+
+  return {
+    payload,
+    protectedHeader,
+    cek: cekBytes,
+    aad: aadBytes,
+  };
 }
 
-/**
- * Performs GCM decryption
- * @param ciphertext Encrypted data
- * @param tag Authentication tag
- * @param cek Content encryption key
- * @param iv Initialization vector
- * @param aad Additional authenticated data
- * @returns Promise resolving to decrypted data
- */
-async function decryptGCM(
-  ciphertext: Readonly<Uint8Array>,
-  tag: Readonly<Uint8Array>,
-  cek: Readonly<CryptoKey>,
-  iv: Readonly<Uint8Array>,
-  aad: Readonly<Uint8Array>,
-): Promise<Uint8Array> {
-  // Combine ciphertext and authentication tag
-  const encryptedData = concatUint8Arrays(ciphertext, tag);
-
-  // Decrypt the data
-  const decrypted = await crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv,
-      additionalData: aad,
-    },
-    cek,
-    encryptedData,
+function getPlaintextBytes(
+  payload: string | Uint8Array | Record<string, any>,
+): Uint8Array {
+  if (payload instanceof Uint8Array) {
+    return payload;
+  }
+  if (typeof payload === "string") {
+    return textEncoder.encode(payload);
+  }
+  if (typeof payload === "object" && payload !== null) {
+    return textEncoder.encode(JSON.stringify(payload));
+  }
+  throw new TypeError(
+    "Plaintext must be a string, Uint8Array, or a JSON-serializable object.",
   );
-
-  return new Uint8Array(decrypted);
 }

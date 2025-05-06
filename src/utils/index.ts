@@ -1,25 +1,42 @@
+import type { JWK } from "../types";
+
 export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
 
-// Base64 URL encoding function
-export function base64UrlEncode(data: Readonly<Uint8Array>): string {
-  return btoa(String.fromCodePoint(...data))
+/* Base64 URL encoding function */
+export function base64UrlEncode(data: Uint8Array | string): string {
+  const encodedData =
+    data instanceof Uint8Array ? data : textEncoder.encode(data);
+  return btoa(String.fromCodePoint(...encodedData))
     .replace(/=/g, "")
     .replace(/\+/g, "-")
     .replace(/\//g, "_");
 }
 
-// Base64 URL decoding function
-export function base64UrlDecode(str?: Readonly<string>): Uint8Array {
+/* Base64 URL decoding function */
+export function base64UrlDecode(): string;
+export function base64UrlDecode(str?: string | undefined): string;
+export function base64UrlDecode<T extends boolean | undefined>(
+  str?: string | undefined,
+  toString?: T,
+): T extends false ? Uint8Array : string;
+export function base64UrlDecode(
+  str?: string | undefined,
+  toString?: boolean | undefined,
+): Uint8Array | string {
+  const decodeToString = toString !== false;
+
   if (!str) {
-    return new Uint8Array(0);
+    return decodeToString ? "" : new Uint8Array(0);
   }
   str = str.replace(/-/g, "+").replace(/_/g, "/");
   while (str.length % 4) str += "=";
-  return Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
+  const data = Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
+
+  return decodeToString ? textDecoder.decode(data) : data;
 }
 
-// Generate a random Uint8Array of specified length
+/* Generate a random Uint8Array of specified length */
 export function randomBytes(length: Readonly<number>): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(length));
 }
@@ -43,3 +60,31 @@ export function concatUint8Arrays(
 
   return result;
 }
+
+/* Type guard for JWK */
+export function isJWK(key: any): key is JWK {
+  return (
+    typeof key === "object" &&
+    key !== null &&
+    "kty" in key &&
+    typeof (key as JWK).kty === "string"
+  );
+}
+
+export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
+  if (!isCryptoKey(key)) {
+    throw new Error("CryptoKey instance expected");
+  }
+}
+
+/* Type guard for CryptoKey */
+export function isCryptoKey(key: unknown): key is CryptoKey {
+  // @ts-expect-error
+  return key?.[Symbol.toStringTag] === "CryptoKey";
+}
+
+export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
+  key &&
+  typeof key === "object" &&
+  isCryptoKey(key.publicKey) &&
+  isCryptoKey(key.privateKey);

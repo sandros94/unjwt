@@ -26,6 +26,10 @@
     "./jws": {
       "types": "./dist/jws.d.mts",
       "default": "./dist/jws.mjs"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.mts",
+      "default": "./dist/utils.mjs"
     }
   },
   "main": "./dist/index.mjs",
@@ -41,12 +45,12 @@
     "lint:fix": "automd && eslint . --fix && prettier -w .",
     "prepack": "pnpm build",
     "release": "pnpm test && pnpm prepack && changelogen --release --push --publish",
-    "test": "pnpm lint && pnpm test:types && vitest run --coverage",
+    "test": "pnpm lint && pnpm test:types && vitest run --coverage --slowTestThreshold=500",
     "test:types": "tsc --noEmit --skipLibCheck"
   },
   "devDependencies": {
     "@types/node": "^22.13.13",
-    "@vitest/coverage-v8": "^3.0.9",
+    "@vitest/coverage-v8": "^3.1.2",
     "automd": "^0.4.0",
     "changelogen": "^0.6.1",
     "eslint": "^9.23.0",
@@ -54,7 +58,7 @@
     "prettier": "^3.5.3",
     "typescript": "^5.8.2",
     "unbuild": "^3.5.0",
-    "vitest": "^3.0.9"
+    "vitest": "^3.1.2"
   },
   "packageManager": "pnpm@10.7.0"
 }
