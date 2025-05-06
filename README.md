@@ -7,11 +7,11 @@
 
 <!-- /automd -->
 
-A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519)) utilities using the Web Crypto API. Currently supports:
+A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519)) utilities using the Web Crypto API. Supports:
 
-- JWS (JSON Web Signature, [RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515)) with symmetric keys (`HMAC`).
-- JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516)) with password-based key derivation (`PBES2`).
-- JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517)) generation, import, and export for symmetric keys (`oct`).
+- **JWS (JSON Web Signature, [RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515))**: sign and verify tokens using HMAC, RSA (RSASSA-PKCS1-v1_5 & RSA-PSS), and ECDSA algorithms.
+- **JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516))**: encrypt and decrypt data using various key management algorithms (AES Key Wrap, AES-GCM Key Wrap, RSA-OAEP, PBES2, ECDH-ES) and content encryption algorithms (AES-GCM, AES-CBC HMAC-SHA2).
+- **JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517))**: generate, import, export, wrap, and unwrap keys in JWK format or as `CryptoKey` objects.
 
 ## Usage
 
@@ -28,307 +28,476 @@ Import:
 
 ```js
 import { jws, jwe, jwk } from "unjwt";
-import { seal, unseal } from "unjwt/jwe";
+// JWS functions
 import { sign, verify } from "unjwt/jws";
-import { generateKey, exportKey, importKey } from "unjwt/jwk";
+// JWE functions
+import { encrypt, decrypt } from "unjwt/jwe";
+// JWK functions
+import {
+  generateKey,
+  deriveKeyFromPassword,
+  importKey,
+  exportKey,
+  wrapKey,
+  unwrapKey,
+} from "unjwt/jwk";
+// Utility functions
+import { base64UrlEncode, base64UrlDecode, randomBytes } from "unjwt/utils";
 ```
 
 **CDN** (Deno, Bun and Browsers)
 
 ```js
+// JWS functions
 import { jws, jwe, jwk } from "https://esm.sh/unjwt";
-import { seal, unseal } from "https://esm.sh/unjwt/jwe";
 import { sign, verify } from "https://esm.sh/unjwt/jws";
-import { generateKey, exportKey, importKey } from "https://esm.sh/unjwt/jwk";
+// JWE functions
+import { encrypt, decrypt } from "https://esm.sh/unjwt/jwe";
+// JWK functions
+import {
+  generateKey,
+  deriveKeyFromPassword,
+  importKey,
+  exportKey,
+  wrapKey,
+  unwrapKey,
+} from "https://esm.sh/unjwt/jwk";
+// Utility functions
+import {
+  base64UrlEncode,
+  base64UrlDecode,
+  randomBytes,
+} from "https://esm.sh/unjwt/utils";
 ```
 
 ### JWS (JSON Web Signature, [RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515))
 
-This library provides functions to sign (sign) and verify (verify) data according to the JWS specification using HMAC with symmetric keys.
+Functions to sign and verify data according to the JWS specification.
 
-#### `sign(data, secret, options?)`
+#### `sign(payload, key, options)`
 
-Signs the provided payload using a symmetric secret.
+Creates a JWS token.
 
-- `payload`: The data to sign (string or `Uint8Array`).
-- `secret`: The symmetric secret key to use for signing. Can be:
-  - A `string`.
-  - A `Uint8Array` containing the raw key bytes.
-  - A symmetric JSON Web Key (`JWK`) object (with `kty: "oct"`).
-- `options` (optional):
-  - `protectedHeader`: An object containing JWS header parameters to include.
-    - alg: Signing Algorithm (default: `HS256`). Supported: `HS256`, `HS384`, `HS512`.
-    - Other standard JWS or custom header parameters can be added here.
+- `payload`: The data to sign (`string`, `Uint8Array`, or a JSON-serializable `object`).
+- `key`: The signing key (`CryptoKey`, `JWK`, or `Uint8Array` for symmetric keys).
+- `options`:
+  - `alg`: (Required) The JWS algorithm (e.g., `"HS256"`, `"RS256"`, `"ES256"`, `"PS256"`).
+  - `protectedHeader`: An object for additional JWS Protected Header parameters (e.g., `kid`, `typ`, `cty`, `crit`, `b64`). If `payload` is an object and `typ` is not set, it defaults to `"JWT"`. The `b64` parameter ([RFC7797 section-3](https://datatracker.ietf.org/doc/html/rfc7797#section-3)) controls payload encoding (defaults to `true`, meaning Base64URL encoded).
 
-Returns a Promise resolving to the JWS token string in Compact Serialization format.
+Returns a `Promise<string>` resolving to the JWS token in Compact Serialization format.
 
-**Example (using string secret):**
+**Example (HS256 with string secret):**
 
 ```ts
 import { sign } from "unjwt/jws";
 
-const payload = JSON.stringify({ message: "My important data" });
-const secret = "supersecretkey";
+const payload = { message: "My important data" }; // Object payload
+const secret = "supersecretkey"; // String secret, will be imported (length depends on choosen alg)
 
-const token = await sign(payload, secret, {
-  protectedHeader: {
-    alg: "HS512",
-  },
-});
-
-console.log(token);
-// eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9...
-```
-
-**Example (using JWK secret):**
-
-```ts
-import { sign } from "unjwt/jws";
-import { generateKey } from "unjwt/jwk";
-
-const payload = JSON.stringify({ message: "Data signed with JWK" });
-// Generate a JWK suitable for HS256
-const secretJwk = await generateKey("oct", 256, { alg: "HS256" });
-
-const token = await sign(payload, secretJwk); // alg defaults to HS256
+const token = await sign(payload, secret, { alg: "HS256" });
 
 console.log(token);
 // eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-#### `verify(token, secret, options?)`
+**Example (RS256 with CryptoKey):**
 
-Verifies a JWS token using a symmetric secret.
+```ts
+import { sign } from "unjwt/jws";
+import { generateKey } from "unjwt/jwk";
 
-- `token`: The JWS token string (Compact Serialization).
-- `secret`: The symmetric secret key used for signing. Can be:
-  - A `string`.
-  - A `Uint8Array` containing the raw key bytes.
-  - A symmetric JSON Web Key (`JWK`) object (with `kty: "oct"`).
+const payload = { userId: 123, permissions: ["read"] };
+const { privateKey } = await generateKey("RS256"); // Generates a CryptoKeyPair
+
+const token = await sign(payload, privateKey, { alg: "RS256" });
+
+console.log(token);
+// eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+#### `verify(jws, key, options?)`
+
+Verifies a JWS token.
+
+- `jws`: The JWS token string.
+- `key`: The verification key (`CryptoKey`, `JWK`, `Uint8Array`, or a `KeyLookupFunction`).
+  A `KeyLookupFunction` has the signature `(header: JWSProtectedHeader) => Promise<CryptoKey | JWK | Uint8Array> | CryptoKey | JWK | Uint8Array`.
 - `options` (optional):
-  - `textOutput`: If `false`, returns the verified payload as a `Uint8Array` instead of a string (default: `true`).
+  - `algorithms`: An array of allowed JWS `alg` values. If not provided, the `alg` from the JWS header is used.
+  - `critical`: An array of JWS header parameter names that the application understands and processes.
 
-Returns a Promise resolving to the verified payload (string or `Uint8Array`). Throws an error if the signature is invalid or the token is malformed.
+Returns a `Promise<JWSVerifyResult<T>>` which is an object `{ payload: T, protectedHeader: JWSProtectedHeader }`.
+The `payload` type `T` can be `JWTClaims` (object), `string`, or `Uint8Array` depending on the JWS content and headers.
 
-**Example (using string secret):**
+**Example (HS256):**
 
 ```ts
 import { verify } from "unjwt/jws";
 
-const token = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9..."; // From sign example
+const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."; // From HS256 sign example
 const secret = "supersecretkey";
 
-// Verify as string (default)
-const verifiedString = await verify(token, secret);
-console.log(verifiedString); // {"message":"My important data"}
-
-// Verify as Uint8Array
-const verifiedBytes = await verify(token, secret, { textOutput: false });
-console.log(verifiedBytes); // Uint8Array [ 123, 34, ... ]
+const { payload, protectedHeader } = await verify(token, secret);
+console.log(payload); // { message: "My important data" }
+console.log(protectedHeader); // { alg: "HS256", typ: "JWT" }
 ```
 
-**Example (using JWK secret):**
+**Example (RS256 with key lookup):**
 
 ```ts
 import { verify } from "unjwt/jws";
 import { generateKey } from "unjwt/jwk";
 
-const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."; // From sign example
-const secretJwk = { kty: "oct", k: "...", alg: "HS256" }; // Load or use the generated JWK
+const token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."; // From RS256 sign example
 
-const verifiedPayload = await verify(token, secretJwk);
-console.log(verifiedPayload); // {"message":"Data signed with JWK"}
+// Example: using a key lookup function
+const { publicKey: rsaPublicKey } = await generateKey("RS256"); // For example purposes, assume publicKey is stored/fetched during lookup
+
+const keyLookup = async (header) => {
+  if (header.alg === "RS256" /* && header.kid === 'expected-kid' */) {
+    return rsaPublicKey;
+  }
+  throw new Error("Unsupported algorithm or key not found");
+};
+
+const { payload } = await verify(token, keyLookup, { algorithms: ["RS256"] });
+console.log(payload); // { userId: 123, permissions: ["read"] }
 ```
 
 ### JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516))
 
-This library provides functions to encrypt (seal) and decrypt (unseal) data according to the JWE specification using password-based encryption.
+Functions to encrypt and decrypt data according to the JWE specification.
 
-#### `seal(data, password, options?)`
+#### `encrypt(payload, key, options)`
 
-Encrypts the provided data using a password.
+Encrypts data to produce a JWE token.
 
-- `data`: The data to encrypt (string or `Uint8Array`).
-- `password`: The password to use for encryption (string or `Uint8Array`).
-- `options` (optional):
-  - `iterations`: Number of PBKDF2 iterations (default: `2048`).
-  - `saltSize`: Size of the random salt in bytes (default: `16`).
-  - `protectedHeader`: An object containing JWE header parameters to include.
-    - `alg`: Key Wrapping Algorithm (default: `PBES2-HS256+A128KW`). Supported: `PBES2-HS256+A128KW`, `PBES2-HS384+A192KW`, `PBES2-HS512+A256KW`.
-    - `enc`: Content Encryption Algorithm (default: `A256GCM`). Supported: `A128GCM`, `A192GCM`, `A256GCM`, `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`.
-    - Other standard JWE or custom header parameters can be added here.
+- `payload`: The data to encrypt (`string`, `Uint8Array`, or a JSON-serializable `object`).
+- `key`: The Key Encryption Key (KEK) or password (`CryptoKey`, `JWK`, `string`, or `Uint8Array`).
+- `options`:
+  - `alg`: (Required) The JWE Key Management algorithm (e.g., `"A128KW"`, `"RSA-OAEP-256"`, `"PBES2-HS256+A128KW"`, `"ECDH-ES+A128KW"`), defaults depends on the key provided.
+  - `enc`: (Required) The JWE Content Encryption algorithm (e.g., `"A128GCM"`, `"A256CBC-HS512"`), defaults depends on the key provided.
+  - `protectedHeader`: An object for JWE Protected Header parameters (e.g., `kid`, `typ`, `cty`, `crit`, `apu`, `apv`, `p2s`, `p2c`). If `payload` is an object and `typ` is not set, it defaults to `"JWT"`.
+  - `cek`: (Optional) Provide your own Content Encryption Key (`CryptoKey` or `Uint8Array`).
+  - `contentEncryptionIV`: (Optional) Provide your own Initialization Vector for content encryption (`Uint8Array`).
+  - Other algorithm-specific options like `p2s`, `p2c` (for PBES2), `keyManagementIV`, `ecdhPartyUInfo`, `ecdhPartyVInfo`.
 
-Returns a Promise resolving to the JWE token string in Compact Serialization format.
+Returns a `Promise<string>` resolving to the JWE token in Compact Serialization format.
 
-**Example:**
+**Example (PBES2 password-based encryption):**
 
 ```ts
-import { seal } from "unjwt/jwe";
+import { encrypt } from "unjwt/jwe";
 
-const plaintext = "My secret data";
-const password = "strongpassword";
+const plaintext = "Secret message for password protection";
+const password = "myVeryStrongPassword123!";
 
-const token = await seal(plaintext, password, {
-  protectedHeader: {
-    alg: "PBES2-HS512+A256KW",
-    enc: "A256GCM",
-  },
-});
-
-console.log(token);
-// eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIiwicDJzIjoi...
+// Fallback to PBES2-HS256+A128KW and A128GCM if no `alg` and `end` are provided
+const jweToken = await encrypt(plaintext, password);
+console.log(jweToken);
+// JWE token string...
 ```
 
-#### `unseal(token, password, options?)`
-
-Decrypts a JWE token using a password.
-
-- `token`: The JWE token string (Compact Serialization).
-- `password`: The password used for encryption (string or `Uint8Array`).
-- `options` (optional):
-  - `textOutput`: If `false`, returns the decrypted data as a `Uint8Array` instead of a string (default: `true`).
-
-Returns a Promise resolving to the decrypted data (string or `Uint8Array`).
-
-**Example:**
+**Example (A128KW with A128GCM):**
 
 ```ts
-import { unseal } from "unjwt/jwe";
+import { encrypt } from "unjwt/jwe";
+import { generateKey } from "unjwt/jwk";
 
-const token =
-  "eyJhbGciOiJQQkVTMi1IUzUxMitBMjU2S1ciLCJlbmMiOiJBMjU2R0NNIiwicDJzIjoi..."; // From seal example
-const password = "strongpassword";
+const payload = { data: "sensitive information" };
+const kek = await generateKey("A128KW"); // AES Key Wrap key
 
-// Decrypt as string (default)
-const decryptedString = await unseal(token, password);
-console.log(decryptedString); // "My secret data"
+const jweToken = await encrypt(payload, kek, {
+  alg: "A128KW",
+  enc: "A128GCM",
+  protectedHeader: { kid: "aes-key-1" },
+});
 
-// Decrypt as Uint8Array
-const decryptedBytes = await unseal(token, password, { textOutput: false });
-console.log(decryptedBytes); // Uint8Array [ 77, 121, 32, ... ]
+console.log(jweToken);
+// eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMTI4R0NNIiwia2lkIjoiYWVzLWtleS0xIn0...
+```
+
+#### `decrypt(jwe, key, options?)`
+
+Decrypts a JWE token.
+
+- `jwe`: The JWE token string.
+- `key`: The Key Decryption Key (KDK) or password (`CryptoKey`, `JWK`, `string`, `Uint8Array`, or a `JWEKeyLookupFunction`).
+  A `JWEKeyLookupFunction` has the signature `(header: JWEHeaderParameters) => Promise<CryptoKey | JWK | string | Uint8Array> | CryptoKey | JWK | string | Uint8Array`.
+- `options` (optional):
+  - `algorithms`: Array of allowed JWE Key Management `alg` values.
+  - `encryptionAlgorithms`: Array of allowed JWE Content Encryption `enc` values.
+  - `critical`: Array of JWE header parameter names that the application understands.
+  - `unwrappedKeyAlgorithm`: (For `unwrapKey` internally) Algorithm details for the CEK after unwrapping.
+  - `keyUsage`: (For `unwrapKey` internally) Intended usages for the unwrapped CEK.
+
+Returns a `Promise<JWEDecryptResult<T>>` which is an object `{ payload: T, protectedHeader: JWEHeaderParameters, cek: Uint8Array, aad: Uint8Array }`.
+The `payload` type `T` can be `JWTClaims` (object) or `string`.
+
+**Example (PBES2 password-based decryption):**
+
+```ts
+import { decrypt } from "unjwt/jwe";
+// const jweToken = ...; // From PBES2 encrypt example
+// const password = "myVeryStrongPassword123!";
+
+const { payload } = await decrypt(jweToken, password);
+```
+
+**Example (A128KW with A128GCM):**
+
+```ts
+import { decrypt } from "unjwt/jwe";
+// const jweToken = "eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMTI4R0NNIiwia2lkIjoiYWVzLWtleS0xIn0...";
+// const kek = ...; // The same AES Key Wrap key used for encryption
+
+async function decryptData(jweToken: string, kek: CryptoKey) {
+  try {
+    const { payload, protectedHeader, cek } = await decrypt(jweToken, kek, {
+      algorithms: ["A128KW"],
+      encryptionAlgorithms: ["A128GCM"],
+    });
+    console.log("Decrypted Plaintext:", payload);
+    console.log("Protected Header:", protectedHeader);
+    // console.log("CEK (Content Encryption Key):", cek);
+  } catch (error) {
+    console.error("Decryption failed:", error);
+  }
+}
 ```
 
 ### JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517))
 
-This library provides functions to generate (`generateKey`), export (`exportKey`), and import (`importKey`) symmetric keys (`kty: "oct"`) using the Web Crypto API.
+Utilities for working with JSON Web Keys.
 
-#### `generateKey(type, length, jwk?)`
+#### `generateKey(alg, options?)`
 
-Generates a new key as a JWK object.
+Generates a cryptographic key.
 
-- `type`: The key type. Currently only supports `"oct"` (symmetric).
-- `length`(for `"oct"`): Key length in bits (e.g., `128`, `192`, `256`, `512`). Choose a length appropriate for the intended algorithm (e.g., >= 256 for HS256, >= 384 for HS384, >= 512 for HS512).
-- `jwk` (optional, for `"oct"`): Any valid JWK param such as a JWA algorithm identifier (e.g., `HS256`, `A128KW`) to include in the generated JWK.
+- `alg`: The JWA algorithm identifier for the key to be generated (e.g., `"HS256"`, `"RS256"`, `"ES256"`, `"A128KW"`, `"A128GCM"`, `"A128CBC-HS256"`).
+- `options` (optional):
+  - `toJWK`: If `true`, returns the key(s) in JWK format. Otherwise, returns `CryptoKey`(s) or `Uint8Array` (for composite keys like AES-CBC-HS\*). Default `false`.
+  - `extractable`: Boolean, whether the generated `CryptoKey` can be exported. Default `true`.
+  - `keyUsage`: Array of `KeyUsage` strings. Defaults are algorithm-specific.
+  - `modulusLength`: For RSA keys (e.g., `2048`, `4096`). Default `2048`.
+  - `publicExponent`: For RSA keys. Default `new Uint8Array([0x01, 0x00, 0x01])`.
 
-Returns a Promise resolving to the generated key as a JWK object (`{ kty: "oct", k: "...", ... }`).
+Returns a `Promise` resolving to `CryptoKey`, `CryptoKeyPair`, `Uint8Array` (for composite keys), `JWK`, or `{ privateKey: JWK, publicKey: JWK }` depending on `alg` and `options.toJWK`.
 
-**Example:**
+**Examples:**
 
 ```ts
 import { generateKey } from "unjwt/jwk";
 
-// Generate a 512-bit key suitable for HS512
-const jwk = await generateKey("oct", 512, { alg: "HS512" });
+// Generate an HS256 CryptoKey
+const hmacKey = await generateKey("HS256");
+console.log(hmacKey); // CryptoKey
 
-console.log(jwk);
-// {
-//   kty: 'oct',
-//   k: '...', // base64url encoded key material
-//   ext: true,
-//   alg: 'HS512'
-// }
+// Generate an RS256 CryptoKeyPair
+const rsaKeyPair = await generateKey("RS256", { modulusLength: 2048 });
+console.log(rsaKeyPair.publicKey); // CryptoKey
+console.log(rsaKeyPair.privateKey); // CryptoKey
+
+// Generate an ES384 key pair as JWKs
+const ecJwks = await generateKey("ES384", { toJWK: true });
+console.log(ecJwks.publicKey); // JWK
+console.log(ecJwks.privateKey); // JWK
+
+// Generate a composite key for A128CBC-HS256 as Uint8Array
+const aesCbcHsKeyBytes = await generateKey("A128CBC-HS256");
+console.log(aesCbcHsKeyBytes); // Uint8Array (32 bytes: 16 for AES, 16 for HMAC)
+
+// Generate an A256GCM key as a JWK
+const aesGcmJwk = await generateKey("A256GCM", { toJWK: true });
+console.log(aesGcmJwk); // JWK
 ```
 
-#### `exportKey(key)`
+#### `deriveKeyFromPassword(password, alg, options)`
 
-Exports a symmetric `CryptoKey` to JWK format.
+Derives a key from a password using PBKDF2 for PBES2 algorithms.
 
-- `key`: The `CryptoKey` to export. It must be `extractable` and currently only of type `"secret"`.
+- `password`: The password (`string` or `Uint8Array`).
+- `alg`: The PBES2 algorithm (e.g., `"PBES2-HS256+A128KW"`).
+- `options`:
+  - `salt`: The salt (`Uint8Array`, at least 8 octets).
+  - `iterations`: The iteration count (positive integer).
+  - `toJWK`: If `true`, returns a `JWK_oct`. Otherwise, `CryptoKey`. Default `false`.
+  - `extractable`: Boolean for `CryptoKey`. Default `false` unless `toJWK` is true.
+  - `keyUsage`: For `CryptoKey`. Default `["wrapKey", "unwrapKey"]`.
 
-Returns a Promise resolving to the exported key as a JWK object. The JWK will include `kty`, `k`, `key_ops`, `ext`, and potentially `alg` based on the `CryptoKey`'s algorithm.
+Returns a `Promise` resolving to `CryptoKey` or `JWK_oct`.
 
 **Example:**
 
 ```ts
-import { importKey, exportKey } from "unjwt/jwk";
+import { deriveKeyFromPassword } from "unjwt/jwk";
+import { randomBytes, textEncoder } from "unjwt/utils";
 
-// First, import or generate a CryptoKey
-const rawKeyBytes = new TextEncoder().encode(
-  "a-very-secure-secret-key-for-hmac",
-);
-const cryptoKey = await importKey(
-  rawKeyBytes,
-  { name: "HMAC", hash: "SHA-256" },
-  true, // Must be extractable to export
-  ["sign", "verify"],
-);
+const password = "mySecretPassword";
+const salt = randomBytes(16);
+const iterations = 4096;
 
-// Now export the CryptoKey to JWK
-const jwk = await exportKey(cryptoKey);
+const derivedKey = await deriveKeyFromPassword(password, "PBES2-HS384+A192KW", {
+  salt,
+  iterations,
+});
+console.log(derivedKey); // CryptoKey for AES-KW (192-bit)
 
+const derivedJwk = await deriveKeyFromPassword(password, "PBES2-HS512+A256KW", {
+  salt,
+  iterations,
+  toJWK: true,
+});
+console.log(derivedJwk); // JWK_oct { kty: "oct", k: "...", alg: "A256KW" }
+```
+
+#### `importKey(keyMaterial, alg?)`
+
+Imports a key from various formats. This is a flexible wrapper.
+
+- `keyMaterial`: The key to import. Can be:
+  - `CryptoKey`: Returned directly.
+  - `Uint8Array`: Returned directly (treated as raw symmetric key bytes).
+  - `string`: Encoded to `Uint8Array` and returned.
+  - `JWK_oct` (symmetric JWK with `k` property): The `k` value is Base64URL decoded and returned as `Uint8Array`.
+  - Other `JWK` types (asymmetric): Imported into a `CryptoKey`.
+- `alg` (optional): The JWA algorithm string. **Required** when importing asymmetric JWKs (e.g., RSA, EC) to provide context for `crypto.subtle.importKey`.
+
+Returns a `Promise` resolving to `CryptoKey` or `Uint8Array`.
+
+**Examples:**
+
+```ts
+import { importKey } from "unjwt/jwk";
+import { textEncoder, base64UrlDecode } from "unjwt/utils";
+
+// Import raw symmetric key bytes
+const rawBytes = textEncoder.encode("a-32-byte-long-secret-key-123"); // 32 bytes for AES-256 or HS256
+const symmetricKeyBytes = await importKey(rawBytes);
+console.log(symmetricKeyBytes); // Uint8Array
+
+// Import a symmetric JWK (kty: "oct")
+const octJwk = {
+  kty: "oct",
+  k: "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr0", // Example key
+};
+const importedOctBytes = await importKey(octJwk); // Returns Uint8Array
+console.log(importedOctBytes); // Uint8Array (decoded from k)
+
+// Import an RSA Public Key JWK
+const rsaPublicJwk = {
+  kty: "RSA",
+  n: "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3ok92YEnjsADC4Ue87zwRzH2J-TCwlcQrY3E9gGZJZL2g_2_5QjLhL0gR0xYj04_N4M",
+  e: "AQAB",
+  alg: "RS256",
+  kid: "rsa-pub-1",
+};
+const rsaPublicKey = await importKey(rsaPublicJwk, "RS256"); // 'alg' is crucial here
+console.log(rsaPublicKey); // CryptoKey
+```
+
+#### `exportKey(key, jwk?)`
+
+Exports a `CryptoKey` to JWK format.
+
+- `key`: The `CryptoKey` to export (must be `extractable`).
+- `jwk` (optional): A partial `JWK` object to merge with the exported properties (e.g., to add `kid`, `use`, or override `alg`).
+
+Returns a `Promise<JWK>`.
+
+**Example:**
+
+```ts
+import { generateKey, exportKey } from "unjwt/jwk";
+
+const { publicKey } = await generateKey("ES256"); // Generates an extractable CryptoKey
+
+const jwk = await exportKey(publicKey, { kid: "ec-key-001", use: "sig" });
 console.log(jwk);
 // {
-//   kty: 'oct',
-//   k: 'YS12ZXJ5LXNlY3VyZS1zZWNyZXQta2V5LWZvci1obWFj',
-//   alg: 'HS256',
-//   key_ops: [ 'sign', 'verify' ],
-//   ext: true
+//   kty: 'EC',
+//   crv: 'P-256',
+//   x: '...',
+//   y: '...',
+//   ext: true,
+//   key_ops: [ 'verify' ], // or as per generation
+//   kid: 'ec-key-001',
+//   use: 'sig'
 // }
 ```
 
-#### `importKey(key, algorithm, extractable, keyUsages)`
+#### `wrapKey(alg, keyToWrap, wrappingKey, options?)`
 
-Imports a symmetric key from various formats into a `CryptoKey` object.
+Wraps a Content Encryption Key (CEK).
 
-- `key`: The key material to import. Can be:
-  - A symmetric JSON Web Key (`JWK`) object (with `kty: "oct"` and a `k` property).
-  - A `string` representing the raw secret.
-  - A `Uint8Array` containing the raw key bytes.
-- `algorithm`: The Web Crypto `AlgorithmIdentifier` object specifying the algorithm the key will be used for (e.g., `{ name: "HMAC", hash: "SHA-256" }`, `{ name: "AES-GCM", length: 256 }`).
-- `extractable`: A boolean indicating whether the generated `CryptoKey` can be exported later (using `exportKey` or `crypto.subtle.exportKey`).
-- `keyUsages`: An array of strings indicating the allowed operations for the key (e.g., `["sign", "verify"]`, `["encrypt", "decrypt"]`, `["wrapKey", "unwrapKey"]`).
+- `alg`: The JWA key management algorithm (e.g., `"A128KW"`, `"RSA-OAEP"`).
+- `keyToWrap`: The CEK to wrap (`CryptoKey` or `Uint8Array`).
+- `wrappingKey`: The Key Encryption Key (KEK) (`CryptoKey`, `JWK`, or password `string`/`Uint8Array` for PBES2).
+- `options` (optional): Algorithm-specific options (e.g., `p2s`, `p2c` for PBES2; `iv` for AES-GCMKW).
 
-Returns a Promise resolving to the imported `CryptoKey` object.
+Returns a `Promise<WrapKeyResult>` containing `encryptedKey` and other parameters like `iv`, `tag`, `epk`, `p2s`, `p2c` as needed by the algorithm.
 
-**Example (importing a JWK):**
+**Example (AES Key Wrap):**
 
 ```ts
-import { importKey } from "unjwt/jwk";
+import { wrapKey, generateKey } from "unjwt/jwk";
+import { randomBytes } from "unjwt/utils";
 
-const jwk = {
-  kty: "oct",
-  k: "AyMee--70a4a4xED9qS4sN0KxBas6KTMx7_Q9Gf6nvM", // Example base64url key
-  alg: "HS256", // Optional hint, but algorithm param below is definitive
-};
+const cekToWrap = randomBytes(32); // e.g., a 256-bit AES key as Uint8Array
+const kek = await generateKey("A128KW"); // 128-bit AES Key Wrap key
 
-const cryptoKey = await importKey(
-  jwk,
-  { name: "HMAC", hash: "SHA-256" }, // Algorithm for the CryptoKey
-  false, // Make this key non-extractable
-  ["verify"], // Allow only verification usage
-);
-
-console.log(cryptoKey);
-// CryptoKey { type: 'secret', extractable: false, algorithm: { ... }, usages: [ 'verify' ] }
+const { encryptedKey } = await wrapKey("A128KW", cekToWrap, kek);
+console.log("Wrapped CEK:", encryptedKey); // Uint8Array
 ```
 
-**Example (importing a raw string):**
+#### `unwrapKey(alg, wrappedKey, unwrappingKey, options?)`
+
+Unwraps a Content Encryption Key (CEK).
+
+- `alg`: The JWA key management algorithm.
+- `wrappedKey`: The encrypted CEK (`Uint8Array`).
+- `unwrappingKey`: The Key Decryption Key (KDK).
+- `options` (optional):
+  - `returnAs`: If `false`, returns `Uint8Array`. If `true` (default) or undefined, returns `CryptoKey`.
+  - `unwrappedKeyAlgorithm`: `AlgorithmIdentifier` for the imported CEK if `returnAs` is `true`.
+  - `keyUsage`: `KeyUsage[]` for the imported CEK if `returnAs` is `true`.
+  - `extractable`: Boolean for the imported CEK.
+  - Other algorithm-specific options (e.g., `p2s`, `p2c`, `iv`, `tag`, `epk`).
+
+Returns a `Promise` resolving to the unwrapped CEK as `CryptoKey` or `Uint8Array`.
+
+**Example (AES Key Unwrap):**
 
 ```ts
-import { importKey } from "unjwt/jwk";
+import { unwrapKey, generateKey } from "unjwt/jwk";
+// const encryptedKey = ...; // From wrapKey example
+// const kdk = ...; // Same KEK used for wrapping
 
-const rawSecret = "my-raw-password-string";
+async function unwrapMyKey(encryptedKey: Uint8Array, kdk: CryptoKey) {
+  const unwrappedCekBytes = await unwrapKey("A128KW", encryptedKey, kdk, {
+    returnAs: false, // Get raw bytes
+  });
+  console.log("Unwrapped CEK (bytes):", unwrappedCekBytes); // Uint8Array
 
-const cryptoKey = await importKey(
-  rawSecret,
-  { name: "HMAC", hash: "SHA-384" },
-  true,
-  ["sign"],
-);
-
-console.log(cryptoKey);
-// CryptoKey { type: 'secret', extractable: true, algorithm: { ... }, usages: [ 'sign' ] }
+  const unwrappedCekCryptoKey = await unwrapKey("A128KW", encryptedKey, kdk, {
+    returnAs: true, // Get CryptoKey
+    unwrappedKeyAlgorithm: { name: "AES-GCM", length: 256 }, // Specify CEK's intended alg
+    keyUsage: ["encrypt", "decrypt"],
+  });
+  console.log("Unwrapped CEK (CryptoKey):", unwrappedCekCryptoKey); // CryptoKey
+}
 ```
+
+### Utility Functions
+
+`unjwt/utils` exports several helpful functions:
+
+- `base64UrlEncode(data: Uint8Array | string): string`
+- `base64UrlDecode(str?: string, toString?: boolean): Uint8Array | string` (Decodes to string by default, or `Uint8Array` if `toString` is `false`)
+- `randomBytes(length: number): Uint8Array`
+- `textEncoder: TextEncoder`
+- `textDecoder: TextDecoder`
+- Type guards: `isJWK(key)`, `isCryptoKey(key)`, `isCryptoKeyPair(keyPair)`
 
 ## Development
 
