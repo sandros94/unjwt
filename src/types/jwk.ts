@@ -128,7 +128,13 @@ export interface UnwrapKeyOptions {
   /** ECDH-ES Agreement PartyVInfo. Base64URL encoded or Uint8Array. */
   apv?: Uint8Array | string;
   /** Expected unwrapped key algorithm (e.g., 'AES-GCM', 'AES-CBC'). Used by crypto.subtle.unwrapKey. */
-  unwrappedKeyAlgorithm?: string | Algorithm | RsaOaepParams | AesCtrParams | AesCbcParams | AesGcmParams;
+  unwrappedKeyAlgorithm?:
+    | string
+    | Algorithm
+    | RsaOaepParams
+    | AesCtrParams
+    | AesCbcParams
+    | AesGcmParams;
   /** Expected key usages for the unwrapped key. */
   keyUsage?: KeyUsage[];
   /** Mark the unwrapped key as extractable. Defaults to true. */

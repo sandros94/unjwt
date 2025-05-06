@@ -12,3 +12,4 @@ export * from "./encrypt-decrypt";
 export * from "./jwk_to_key";
 export * from "./key_to_jwk";
 export * from "./pbes2kw";
+export * from "./sign-verify";

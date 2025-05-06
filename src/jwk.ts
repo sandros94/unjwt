@@ -270,7 +270,9 @@ export async function wrapKey(
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
       if (isPbes && (!p2s || typeof p2c !== "number")) {
-        throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
+        throw new Error(
+          "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
+        );
       }
       return _wrap(alg, importedWrappingKey, cekBytes, p2c, p2s);
     }
@@ -387,9 +389,11 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
       let p2sBytes: Uint8Array | undefined;
       if (isPbes) {
         if (!p2s || typeof p2c !== "number") {
-          throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
+          throw new Error(
+            "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
+          );
         }
-        p2sBytes = typeof p2s === 'string' ? base64UrlDecode(p2s, false) : p2s;
+        p2sBytes = typeof p2s === "string" ? base64UrlDecode(p2s, false) : p2s;
       }
       unwrappedCekBytes = await _unwrap(
         alg,
@@ -405,10 +409,18 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     case "A192GCMKW":
     case "A256GCMKW": {
       if (!options.iv || !options.tag) {
-        throw new Error("AES-GCMKW requires 'iv' and 'tag' options for unwrapping");
+        throw new Error(
+          "AES-GCMKW requires 'iv' and 'tag' options for unwrapping",
+        );
       }
-      const ivBytes = typeof options.iv === 'string' ? base64UrlDecode(options.iv, false) : options.iv;
-      const tagBytes = typeof options.tag === 'string' ? base64UrlDecode(options.tag, false) : options.tag;
+      const ivBytes =
+        typeof options.iv === "string"
+          ? base64UrlDecode(options.iv, false)
+          : options.iv;
+      const tagBytes =
+        typeof options.tag === "string"
+          ? base64UrlDecode(options.tag, false)
+          : options.tag;
       unwrappedCekBytes = await aesGcmKwDecrypt(
         alg,
         importedUnwrappingKey,
@@ -435,7 +447,9 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
       );
       if (returnAs) return unwrappedKey as any;
       // Otherwise, export the bytes
-      unwrappedCekBytes = new Uint8Array(await crypto.subtle.exportKey("raw", unwrappedKey));
+      unwrappedCekBytes = new Uint8Array(
+        await crypto.subtle.exportKey("raw", unwrappedKey),
+      );
       break;
     }
 
