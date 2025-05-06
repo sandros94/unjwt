@@ -7,7 +7,12 @@ import {
   wrapKey,
   unwrapKey,
 } from "../src/jwk";
-import { isCryptoKey, isCryptoKeyPair, randomBytes, base64UrlDecode } from "../src/utils";
+import {
+  isCryptoKey,
+  isCryptoKeyPair,
+  randomBytes,
+  base64UrlDecode,
+} from "../src/utils";
 import type {
   JWK_oct,
   JWK_EC_Private,
