@@ -2,8 +2,8 @@
 
 <!-- automd:badges style=flat colorA=18181B colorB=9AFF28 -->
 
-[![npm version](https://img.shields.io/npm/v/unjwt?color=yellow)](https://npmjs.com/package/unjwt)
-[![npm downloads](https://img.shields.io/npm/dm/unjwt?color=yellow)](https://npm.chart.dev/unjwt)
+[![npm version](https://img.shields.io/npm/v/unjwt)](https://npmjs.com/package/unjwt)
+[![npm downloads](https://img.shields.io/npm/dm/unjwt)](https://npm.chart.dev/unjwt)
 
 <!-- /automd -->
 
