@@ -9,7 +9,13 @@ import type {
   DeriveKeyReturn,
 } from "./types";
 import { base64UrlDecode, isJWK, textEncoder, randomBytes } from "./utils";
-import { jwkTokey, keyToJWK, isCryptoKey, bitLengthCEK, deriveKey as deriveKeyPBES2 } from "./jose";
+import {
+  jwkTokey,
+  keyToJWK,
+  isCryptoKey,
+  bitLengthCEK,
+  deriveKey as deriveKeyPBES2,
+} from "./jose";
 
 /**
  * Generates a cryptographic key for the specified algorithm.
@@ -134,7 +140,7 @@ export async function deriveKeyFromPassword(
   );
 
   if (toJWK === true) {
-    const jwk = await keyToJWK(derivedKey) as JWK_oct;
+    const jwk = (await keyToJWK(derivedKey)) as JWK_oct;
 
     return { ...jwk, alg: wrappingAlg, kty: "oct" };
   }
