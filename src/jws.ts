@@ -171,8 +171,8 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
   // 2. Decode Header
   let protectedHeader: JWSProtectedHeader;
   try {
-    const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = JSON.parse(protectedHeaderJson);
+    const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
+    protectedHeader = JSON.parse(protectedHeaderString);
   } catch (error_) {
     throw new Error(
       `Invalid JWS: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,
