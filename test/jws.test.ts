@@ -4,7 +4,7 @@ import { generateKey } from "../src/jwk";
 import { base64UrlEncode, base64UrlDecode, textEncoder } from "../src/utils";
 import type { JWSProtectedHeader, JWTClaims, JWK } from "../src/types";
 
-describe.concurrent("JWS Utilities", () => {
+describe("JWS Utilities", () => {
   const payloadObj = {
     sub: "1234567890",
     name: "John Doe",
@@ -142,6 +142,16 @@ describe.concurrent("JWS Utilities", () => {
     let es256KeyPair: CryptoKeyPair;
     let ps256KeyPair: CryptoKeyPair;
 
+    const basicJwtPayload: JWTClaims = {
+      iss: "test-issuer",
+      sub: "test-subject",
+      aud: "test-audience",
+      exp: Math.floor(Date.now() / 1000) + 3600, // Expires in 1 hour
+      nbf: Math.floor(Date.now() / 1000) - 3600, // Valid since 1 hour ago
+      iat: Math.floor(Date.now() / 1000) - 1800, // Issued 30 minutes ago
+      jti: "jwt-id-123",
+    };
+
     beforeAll(async () => {
       hs256Key = await generateKey("HS256");
       rs256KeyPair = await generateKey("RS256", { modulusLength: 2048 });
@@ -222,10 +232,27 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { b64: false },
       });
+      // When b64 is false, and forceUint8Array is not true,
+      // and typ is not JWT, the payload is treated as a raw string.
+      // If typ were JWT, it would attempt to JSON.parse it.
+      // If forceUint8Array were true, it would be Uint8Array.
+      const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
+      expect(protectedHeader.b64).toBe(false);
+      expect(protectedHeader.alg).toBe("HS256");
+      expect(typeof payload).toBe("string");
+      expect(payload).toBe(payloadString);
+    });
+
+    it("should verify with b64: false and forceUint8Array", async () => {
+      const jws = await sign(payloadString, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { b64: false },
+      });
       const { payload, protectedHeader } = await verify<Uint8Array>(
         jws,
         hs256Key,
-      ); // b64:false returns Uint8Array
+        { forceUint8Array: true },
+      );
       expect(protectedHeader.b64).toBe(false);
       expect(protectedHeader.alg).toBe("HS256");
       expect(payload).toBeInstanceOf(Uint8Array);
@@ -270,6 +297,393 @@ describe.concurrent("JWS Utilities", () => {
       ).resolves.toBeDefined();
     });
 
+    describe("Critical Header ('crit') Validation", () => {
+      it("should succeed if 'crit' headers are known and processed (e.g. b64)", async () => {
+        // 'b64' is implicitly understood.
+        const jws = await sign(payloadString, hs256Key, {
+          alg: "HS256",
+          protectedHeader: { crit: ["b64"], b64: true },
+        });
+        await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+      });
+
+      it("should succeed if 'crit' headers are known and present (e.g. alg)", async () => {
+        // 'alg' is implicitly understood and always present.
+        const jws = await sign(payloadString, hs256Key, {
+          alg: "HS256",
+          protectedHeader: { crit: ["alg"] }, // alg is already there
+        });
+        await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+      });
+
+      it("should throw if 'crit' lists an unknown header parameter", async () => {
+        const jws = await sign(payloadString, hs256Key, {
+          alg: "HS256",
+          protectedHeader: { crit: ["unknownHeader"], unknownHeader: "value" },
+        });
+        await expect(verify(jws, hs256Key)).rejects.toThrow(
+          "Missing critical header parameters: unknownHeader",
+        );
+      });
+
+      it("should throw if a header listed in 'crit' is not present", async () => {
+        // We'll use 'kid' as an example of a known header that might be critical
+        // but isn't provided in this specific JWS.
+        const jwsNoKid = await sign(payloadString, hs256Key, {
+          alg: "HS256",
+          // 'kid' is listed as critical, but not included in the protected header
+          protectedHeader: { crit: ["kid"] },
+        });
+        await expect(verify(jwsNoKid, hs256Key)).rejects.toThrow(
+          "Missing critical header parameters: kid",
+        );
+      });
+
+      it("should succeed if 'crit' is present and all params are known, even if options.critical is not set", async () => {
+        const jws = await sign(payloadString, hs256Key, {
+          alg: "HS256",
+          protectedHeader: { crit: ["b64"], b64: false }, // b64 is known
+        });
+        await expect(verify(jws, hs256Key)).resolves.toBeDefined(); // No options.critical
+      });
+    });
+
+    describe("JWT Claim Validations", () => {
+      it("should validate 'typ' header parameter (success)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, {
+          alg: "HS256",
+          protectedHeader: { typ: "JWT" },
+        });
+        await expect(
+          verify(jws, hs256Key, { typ: "JWT" }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate 'typ' header parameter (failure)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, {
+          alg: "HS256",
+          protectedHeader: { typ: "application/custom" },
+        });
+        await expect(verify(jws, hs256Key, { typ: "JWT" })).rejects.toThrow(
+          'Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "JWT", got "application/custom".',
+        );
+      });
+
+      it("should succeed if options.typ is undefined, regardless of header.typ", async () => {
+        const jwsWithTyp = await sign(basicJwtPayload, hs256Key, {
+          alg: "HS256",
+          protectedHeader: { typ: "JWT" },
+        });
+        await expect(verify(jwsWithTyp, hs256Key, {})).resolves.toBeDefined();
+
+        const jwsWithoutTyp = await sign(basicJwtPayload, hs256Key, {
+          alg: "HS256",
+        }); // typ will be JWT by default for object payload
+        await expect(
+          verify(jwsWithoutTyp, hs256Key, {}),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate requiredClaims (success)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { requiredClaims: ["iss", "sub", "jti"] }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate requiredClaims (failure)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, {
+            requiredClaims: ["iss", "nonExistentClaim"],
+          }),
+        ).rejects.toThrow("Missing required JWT Claims: nonExistentClaim");
+      });
+
+      it("should validate issuer (success - string)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { issuer: "test-issuer" }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate issuer (success - array)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { issuer: ["another-issuer", "test-issuer"] }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate issuer (failure - mismatch)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { issuer: "wrong-issuer" }),
+        ).rejects.toThrow(
+          'Invalid JWT "iss" (Issuer) Claim: Expected wrong-issuer, got test-issuer',
+        );
+      });
+
+      it("should validate issuer (failure - claim missing)", async () => {
+        const payloadWithoutIss = { ...basicJwtPayload };
+        delete payloadWithoutIss.iss;
+        const jws = await sign(payloadWithoutIss, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { issuer: "test-issuer" }),
+        ).rejects.toThrow("Missing required JWT Claims: iss");
+      });
+
+      it("should validate subject (success)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { subject: "test-subject" }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate subject (failure - mismatch)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { subject: "wrong-subject" }),
+        ).rejects.toThrow(
+          'Invalid JWT "sub" (Subject) Claim: Expected wrong-subject, got test-subject',
+        );
+      });
+
+      it("should validate subject (failure - claim missing)", async () => {
+        const payloadWithoutSub = { ...basicJwtPayload };
+        delete payloadWithoutSub.sub;
+        const jws = await sign(payloadWithoutSub, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { subject: "test-subject" }),
+        ).rejects.toThrow("Missing required JWT Claims: sub");
+      });
+
+      it("should validate audience (success - string option, string claim)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { audience: "test-audience" }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate audience (success - array option, string claim)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, {
+            audience: ["another-audience", "test-audience"],
+          }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate audience (success - string option, array claim)", async () => {
+        const payloadWithAudArray = {
+          ...basicJwtPayload,
+          aud: ["aud1", "test-audience", "aud2"],
+        };
+        const jws = await sign(payloadWithAudArray, hs256Key, {
+          alg: "HS256",
+        });
+        await expect(
+          verify(jws, hs256Key, { audience: "test-audience" }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate audience (success - array option, array claim)", async () => {
+        const payloadWithAudArray = {
+          ...basicJwtPayload,
+          aud: ["aud1", "target-aud", "aud2"],
+        };
+        const jws = await sign(payloadWithAudArray, hs256Key, {
+          alg: "HS256",
+        });
+        await expect(
+          verify(jws, hs256Key, {
+            audience: ["other-aud", "target-aud"],
+          }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate audience (failure - mismatch)", async () => {
+        const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { audience: "wrong-audience" }),
+        ).rejects.toThrow(
+          'Invalid JWT "aud" (Audience) Claim: Expected wrong-audience, got test-audience',
+        );
+      });
+
+      it("should validate audience (failure - claim missing)", async () => {
+        const payloadWithoutAud = { ...basicJwtPayload };
+        delete payloadWithoutAud.aud;
+        const jws = await sign(payloadWithoutAud, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { audience: "test-audience" }),
+        ).rejects.toThrow("Missing required JWT Claims: aud");
+      });
+
+      it("should validate nbf (success)", async () => {
+        const payload = {
+          ...basicJwtPayload,
+          nbf: Math.floor(Date.now() / 1000) - 100,
+        };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+      });
+
+      it("should validate nbf (failure - token not yet valid)", async () => {
+        const futureNbf = Math.floor(Date.now() / 1000) + 3600;
+        const payload = { ...basicJwtPayload, nbf: futureNbf };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(verify(jws, hs256Key)).rejects.toThrow(
+          `JWT "nbf" (Not Before) Claim validation failed: Token is not yet valid (nbf: ${new Date(futureNbf * 1000).toISOString()})`,
+        );
+      });
+
+      it("should validate nbf with clockTolerance (success)", async () => {
+        const futureNbf = Math.floor(Date.now() / 1000) + 5; // 5 seconds in future
+        const payload = { ...basicJwtPayload, nbf: futureNbf };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { clockTolerance: 10 }), // 10s tolerance
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate exp (success)", async () => {
+        const payload = {
+          ...basicJwtPayload,
+          exp: Math.floor(Date.now() / 1000) + 100,
+        };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+      });
+
+      it("should validate exp (failure - token expired)", async () => {
+        const pastExp = Math.floor(Date.now() / 1000) - 3600;
+        const payload = { ...basicJwtPayload, exp: pastExp };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(verify(jws, hs256Key)).rejects.toThrow(
+          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(pastExp * 1000).toISOString()})`,
+        );
+      });
+
+      it("should validate exp with clockTolerance (success)", async () => {
+        const pastExp = Math.floor(Date.now() / 1000) - 5; // Expired 5 seconds ago
+        const payload = { ...basicJwtPayload, exp: pastExp };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { clockTolerance: 10 }), // 10s tolerance
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate maxTokenAge (success)", async () => {
+        const iat = Math.floor(Date.now() / 1000) - 60; // Issued 60s ago
+        const payload = { ...basicJwtPayload, iat };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { maxTokenAge: 120 }), // Max age 120s
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate maxTokenAge (failure - token too old)", async () => {
+        const iat = Math.floor(Date.now() / 1000) - 300; // Issued 300s ago
+        const payload = { ...basicJwtPayload, iat };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { maxTokenAge: 120 }), // Max age 120s
+        ).rejects.toThrow(
+          `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: 120s, iat: ${new Date(iat * 1000).toISOString()})`,
+        );
+      });
+
+      it("should validate maxTokenAge (failure - iat in future)", async () => {
+        const futureIat = Math.floor(Date.now() / 1000) + 3600;
+        const payload = { ...basicJwtPayload, iat: futureIat };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { maxTokenAge: 60 }),
+        ).rejects.toThrow(
+          `JWT "iat" (Issued At) Claim validation failed: Token was issued in the future (iat: ${new Date(futureIat * 1000).toISOString()})`,
+        );
+      });
+
+      it("should validate maxTokenAge (failure - iat missing)", async () => {
+        const payloadWithoutIat = { ...basicJwtPayload };
+        delete payloadWithoutIat.iat;
+        const jws = await sign(payloadWithoutIat, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { maxTokenAge: 60 }),
+        ).rejects.toThrow("Missing required JWT Claims: iat");
+      });
+
+      it("should validate maxTokenAge with clockTolerance (success for age)", async () => {
+        const iat = Math.floor(Date.now() / 1000) - 65; // Issued 65s ago
+        const payload = { ...basicJwtPayload, iat };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { maxTokenAge: 60, clockTolerance: 10 }), // Max age 60s, tolerance 10s
+        ).resolves.toBeDefined();
+      });
+
+      it("should validate maxTokenAge with clockTolerance (success for future iat within tolerance)", async () => {
+        const futureIat = Math.floor(Date.now() / 1000) + 5; // Issued 5s in future
+        const payload = { ...basicJwtPayload, iat: futureIat };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        await expect(
+          verify(jws, hs256Key, { maxTokenAge: 60, clockTolerance: 10 }),
+        ).resolves.toBeDefined();
+      });
+
+      it("should use currentDate for nbf validation", async () => {
+        const nbf = Math.floor(Date.now() / 1000) + 100; // nbf in 100 seconds
+        const payload = { ...basicJwtPayload, nbf };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        const futureDate = new Date(Date.now() + 120 * 1000); // 120 seconds in future
+        await expect(
+          verify(jws, hs256Key, { currentDate: futureDate }),
+        ).resolves.toBeDefined(); // Should be valid at futureDate
+
+        const pastDate = new Date(Date.now() + 50 * 1000); // 50 seconds in future
+        await expect(
+          verify(jws, hs256Key, { currentDate: pastDate }),
+        ).rejects.toThrow("Token is not yet valid");
+      });
+
+      it("should use currentDate for exp validation", async () => {
+        const exp = Math.floor(Date.now() / 1000) + 100; // expires in 100 seconds
+        const payload = { ...basicJwtPayload, exp };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+        const pastDate = new Date(Date.now() + 50 * 1000); // 50 seconds in future
+        await expect(
+          verify(jws, hs256Key, { currentDate: pastDate }),
+        ).resolves.toBeDefined(); // Should not be expired at pastDate
+
+        const futureDate = new Date(Date.now() + 120 * 1000); // 120 seconds in future
+        await expect(
+          verify(jws, hs256Key, { currentDate: futureDate }),
+        ).rejects.toThrow("Token has expired");
+      });
+
+      it("should use currentDate for maxTokenAge validation", async () => {
+        const iat = Math.floor(Date.now() / 1000); // issued now
+        const payload = { ...basicJwtPayload, iat };
+        const jws = await sign(payload, hs256Key, { alg: "HS256" });
+
+        // Token is 60s old relative to currentDate
+        const currentDateForward = new Date(Date.now() + 60 * 1000);
+        await expect(
+          verify(jws, hs256Key, {
+            maxTokenAge: 30,
+            currentDate: currentDateForward,
+          }),
+        ).rejects.toThrow("Token is too old");
+
+        await expect(
+          verify(jws, hs256Key, {
+            maxTokenAge: 90,
+            currentDate: currentDateForward,
+          }),
+        ).resolves.toBeDefined();
+      });
+    });
+
     it("should throw if algorithm not allowed", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
       await expect(
@@ -284,7 +698,7 @@ describe.concurrent("JWS Utilities", () => {
       });
       // We "understand" 'exp' because it's in the options.critical array
       await expect(
-        verify(jws, hs256Key, { critical: ["exp"] }),
+        verify(jws, hs256Key, { requiredHeaders: ["exp"] }),
       ).resolves.toBeDefined();
     });
 
@@ -295,7 +709,7 @@ describe.concurrent("JWS Utilities", () => {
       });
       // No critical option passed to verify
       await expect(verify(jws, hs256Key)).rejects.toThrow(
-        "Unrecognized critical header parameters: exp",
+        "Missing critical header parameters: exp",
       );
     });
 

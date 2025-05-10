@@ -56,9 +56,71 @@ export interface JWSVerifyResult<T = JWTClaims | Uint8Array | string> {
 export interface JWSVerifyOptions {
   /** List of allowed algorithms. If provided, the JWS `alg` must be in this list. */
   algorithms?: JWSAlgorithm[];
-  /** List of critical header parameters that must be understood and processed. */
-  critical?: string[];
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
   forceUint8Array?: boolean;
-  // TODO: Add other verification options like clock tolerance, audience, issuer etc. later if needed
+
+  /** List of critical header parameters that must be understood and processed. */
+  requiredHeaders?: string[];
+
+  /**
+   * Expected JWT "aud" (Audience) Claim value(s).
+   *
+   * This option makes the JWT "aud" (Audience) Claim presence required.
+   */
+  audience?: string | string[];
+
+  /**
+   * Clock skew tolerance (in seconds) for validating JWT claims.
+   *
+   * Used when validating the JWT "nbf" (Not Before) and "exp" (Expiration Time) claims, and when
+   * validating the "iat" (Issued At) claim if the {@link maxTokenAge `maxTokenAge` option} is set.
+   */
+  clockTolerance?: number;
+
+  /**
+   * Expected JWT "iss" (Issuer) Claim value(s).
+   *
+   * This option makes the JWT "iss" (Issuer) Claim presence required.
+   */
+  issuer?: string | string[];
+
+  /**
+   * Maximum time elapsed (in seconds) from the JWT "iat" (Issued At) Claim value.
+   *
+   * This option makes the JWT "iat" (Issued At) Claim presence required.
+   */
+  maxTokenAge?: number;
+
+  /**
+   * Expected JWT "sub" (Subject) Claim value.
+   *
+   * This option makes the JWT "sub" (Subject) Claim presence required.
+   */
+  subject?: string;
+
+  /**
+   * Expected JWT "typ" (Type) Header Parameter value.
+   *
+   * This option makes the JWT "typ" (Type) Header Parameter presence required.
+   */
+  typ?: string;
+
+  /** Date to use when comparing NumericDate claims, defaults to `new Date()`. */
+  currentDate?: Date;
+
+  /**
+   * Array of required Claim Names that must be present in the JWT Claims Set. Default is that: if
+   * the {@link issuer `issuer` option} is set, then JWT "iss" (Issuer) Claim must be present; if the
+   * {@link audience `audience` option} is set, then JWT "aud" (Audience) Claim must be present; if
+   * the {@link subject `subject` option} is set, then JWT "sub" (Subject) Claim must be present; if
+   * the {@link maxTokenAge `maxTokenAge` option} is set, then JWT "iat" (Issued At) Claim must be
+   * present.
+   */
+  requiredClaims?: string[];
+
+  /**
+   * List of critical header parameters that must be understood and processed.
+   * @deprecated use {@link requiredHeaders `recognizedHeaders` option} instead.
+   */
+  critical?: string[];
 }

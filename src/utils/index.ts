@@ -115,6 +115,10 @@ export function concatUint8Arrays(
   return result;
 }
 
+export function maybeArray<T>(item: T | T[]): T[] {
+  return Array.isArray(item) ? item : [item];
+}
+
 /* Type guard for JWK */
 export function isJWK(key: any): key is JWK {
   return (
