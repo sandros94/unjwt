@@ -2,6 +2,7 @@ import type {
   JWK,
   JWK_oct,
   JWK_PBES2,
+  JWKPEMAlgorithm,
   GenerateKeyAlgorithm,
   GenerateKeyOptions,
   GenerateKeyReturn,
@@ -28,6 +29,12 @@ import {
   unwrap as _unwrap,
   encryptIV as aesGcmKwEncrypt,
   decryptIV as aesGcmKwDecrypt,
+  fromPKCS8,
+  fromSPKI,
+  fromX509,
+  toPKCS8,
+  toSPKI,
+  type KeyImportOptions,
 } from "./jose";
 
 export * from "./types/jwk";
@@ -516,6 +523,117 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
   );
 
   return finalKey as any;
+}
+
+/**
+ * Imports a key from a PEM-encoded string and converts it to a JWK.
+ *
+ * @param pem The PEM-encoded string.
+ * @param pemType The type of PEM encoding ('pkcs8' for private keys, 'spki' for public keys, 'x509' for certificates).
+ * @param alg The JWA algorithm identifier. This is crucial for `crypto.subtle.importKey`
+ *            to understand the key's intended algorithm and for setting the 'alg' field in the resulting JWK.
+ * @param importOptions Options for the PEM import process (e.g., extractable for the CryptoKey).
+ * @param jwkExtras Additional properties to merge into the resulting JWK.
+ * @returns A Promise resolving to the imported key as a JWK.
+ */
+export async function importJWKFromPEM(
+  pem: string,
+  pemType: "pkcs8" | "spki" | "x509",
+  alg: JWKPEMAlgorithm,
+  importOptions?: KeyImportOptions,
+  jwkExtras?: Partial<JWK>,
+): Promise<JWK> {
+  let cryptoKey: CryptoKey;
+
+  switch (pemType) {
+    case "pkcs8": {
+      cryptoKey = await fromPKCS8(pem, alg, importOptions);
+      break;
+    }
+    case "spki": {
+      cryptoKey = await fromSPKI(pem, alg, importOptions);
+      break;
+    }
+    case "x509": {
+      // fromX509 internally calls fromSPKI, passing alg and options.
+      cryptoKey = await fromX509(pem, alg, importOptions);
+      break;
+    }
+    default: {
+      throw new TypeError(`Unsupported PEM type: ${pemType}`);
+    }
+  }
+
+  // Ensure the 'alg' from input is included in the new JWK.
+  const finalJWKExtras = { alg, ...jwkExtras };
+  return exportKey(cryptoKey, finalJWKExtras);
+}
+
+/**
+ * Exports a JWK to a PEM-encoded string.
+ *
+ * @param jwk The JWK to export.
+ * @param pemFormat The desired PEM format ('pkcs8' for private keys, 'spki' for public keys).
+ * @param algForCryptoKeyImport If the JWK does not have an 'alg' property, this algorithm hint is
+ *                              required to correctly convert it to a CryptoKey first.
+ * @returns A Promise resolving to the PEM-encoded key string.
+ */
+export async function exportJWKToPEM(
+  jwk: JWK,
+  pemFormat: "pkcs8" | "spki",
+  algForCryptoKeyImport?: JWKPEMAlgorithm,
+): Promise<string> {
+  if (jwk.kty === "oct") {
+    throw new TypeError(
+      "Octet (symmetric) JWKs (kty: 'oct') cannot be exported to PKCS8 or SPKI PEM formats.",
+    );
+  }
+
+  const effectiveAlg = jwk.alg || algForCryptoKeyImport;
+  if (
+    !effectiveAlg &&
+    (jwk.kty === "RSA" || jwk.kty === "EC" || jwk.kty === "OKP")
+  ) {
+    throw new TypeError(
+      "Algorithm (alg) must be provided in the JWK or as a parameter for converting this JWK type to a CryptoKey.",
+    );
+  }
+
+  // Ensure the JWK is treated as extractable for the intermediate CryptoKey,
+  // as PEM export should require a CryptoKey to be extractable.
+  const jwkForImport: JWK = { ...jwk, ext: true };
+
+  // This function returns CryptoKey for non-'oct' JWKs.
+  const cryptoKeyCandidate = await importKey(jwkForImport, effectiveAlg);
+
+  if (!isCryptoKey(cryptoKeyCandidate)) {
+    throw new Error(
+      "Failed to convert JWK to a CryptoKey instance suitable for PEM export.",
+    );
+  }
+  const cryptoKey = cryptoKeyCandidate;
+
+  switch (pemFormat) {
+    case "pkcs8": {
+      if (cryptoKey.type !== "private") {
+        throw new TypeError(
+          `Only 'private' type CryptoKeys can be exported to PKCS8 PEM format. Key type is '${cryptoKey.type}'.`,
+        );
+      }
+      return toPKCS8(cryptoKey);
+    }
+    case "spki": {
+      if (cryptoKey.type !== "public") {
+        throw new TypeError(
+          `Only 'public' type CryptoKeys can be exported to SPKI PEM format. Key type is '${cryptoKey.type}'.`,
+        );
+      }
+      return toSPKI(cryptoKey);
+    }
+    default: {
+      throw new TypeError(`Unsupported PEM format: ${pemFormat}`);
+    }
+  }
 }
 
 function getGenerateKeyParams(

@@ -1,0 +1,122 @@
+export const rsa = {
+  jwk: {
+    public: {
+      alg: "RS256",
+      key_ops: ["verify"] as KeyUsage[],
+      kty: "RSA",
+      n: "nhdXp15ne9kuxlcMs83h1vg-8i6gGfl7SBgZsCZEGcFueulzF7K7NKiIBhdm88FRmbioTMrIxvxHJPzcFEK6X8JwYVMVQbOWab4_ZiDOUf9EkyMkqGBvofk8vbtwUgeiOdf407hOQzMdWdlBDtHiNuyLeJ_shgV8D8-_GpIVTyuXbUdBbwI1gLOvk6IuO8oBHjZ8sjjJI7zAzyhm3LmdIcjqG0zIXH0amZDOawCoWDeohVIhIWgGW0EbwcPjyT1wOoS6ilhMcEY71xljIqFpDT834F3yW_Oz8GfeHUukSYSYJd_C_wCw6gsTvQDiy1S6q1P1uA68tfrUoUPIYSzjGQ",
+      e: "AQAB",
+    },
+    private: {
+      alg: "RS256",
+      key_ops: ["sign"] as KeyUsage[],
+      kty: "RSA",
+      n: "nhdXp15ne9kuxlcMs83h1vg-8i6gGfl7SBgZsCZEGcFueulzF7K7NKiIBhdm88FRmbioTMrIxvxHJPzcFEK6X8JwYVMVQbOWab4_ZiDOUf9EkyMkqGBvofk8vbtwUgeiOdf407hOQzMdWdlBDtHiNuyLeJ_shgV8D8-_GpIVTyuXbUdBbwI1gLOvk6IuO8oBHjZ8sjjJI7zAzyhm3LmdIcjqG0zIXH0amZDOawCoWDeohVIhIWgGW0EbwcPjyT1wOoS6ilhMcEY71xljIqFpDT834F3yW_Oz8GfeHUukSYSYJd_C_wCw6gsTvQDiy1S6q1P1uA68tfrUoUPIYSzjGQ",
+      e: "AQAB",
+      d: "BleF9fIoLoGpWhN00EjjL_WHCJNaVhcUt7EgJQQ7TA60d5m3mvTkhGcPMjJcYuJ85eYl2ehydTllLRH341gEGWe9DHRx0vrJCbPUH9eopdqwCy3YMGknn_IWBRT4u1EF1EefumDngn6G5VtdJs1rOMbqDJQwH8tmx-IZPBqYiv5Szh4tO1o8P8r6G6A1I3W6j1Af6pFh1eLKsdluFs_X11DLohlH_U3ZuvNOUmhaiJlx7OSs-O8zLB6m3ZHuDGAPZOptrn3AQ27ZvO7n2t__uqtE0yXqVB5GzAqMaSGWqfP2VkhUpfTLDgmmBTWUhtwTmiGZRgXsmgNT0XirqZJugQ",
+      p: "1Gvtzy6q0JRVJrxkjqnWF30o0SHHJeYzrBkyQCBcOMKJ4amy1wELAMezNxnxmManWN7ETRs5ehIi2Emv1eRhcDGDHpUbHZ8g6kkcavsctu0zauF4IRSX-8iuN2lIkTbjbkVhNfZ-esBfYoefgL-Zur1nIYHYO86PSlzdBN3t3Jk",
+      q: "voYPQgpRfC9P5Ls_Wa4Q8cBwQlpw-Ttfa9769P-yhLq3N7Z9UYahYGgmicXmBPam7YikbIZ4q-zjyr6RjLCQJvA6z5ozcvgJGZoY4zlfTV0Fyubx2G61FqNEYqAZYHkM77RkWQxYKUTjHNMWgPrlHyh2uk569iHMb3jyqSZAyoE",
+      dp: "1Dr5IFSZ6UcqREdZmIfrFRDBZSEAXcc_vSR3ZkZunW8QX1wzCElMev0K-3R6Q4_Gxy3apscah_HyynHksik5iOSPAlErBE9mjW16bRBywfj_tDuM0FBJARChr08LZ7qVRCkhVM7v0yi8pC6ol_PWXhK6JWobZrWbyEo7sI8jBZE",
+      dq: "iLLLU8jvejjADA9FfuTjh3FZmmIl2Mz-w_jy-sJTpeQJ_VFUTSBZvUA9FnEFft4yGxAFWVCKWGDZd-iPqfAtHaMTr0ymSYEpllL4NGA_vtRViaV2NKIKEDoIoPLaAlwYKgy2SyYOQ14HzfCuntBlgJuZxEb29o59jiWrhi3KIwE",
+      qi: "jAmhV2J1GMtflIxqAeCG4GKYF_RGjcvMFWDrN7ZqmCCROpS6keNSxneItwun8ZJnX7owxuI3qAGiwUVdrLxNsy-srOXPqe5WAUskBytu_KS8zMSxl6hhmtPaVXA9NJWDbHMU8E4LSLSkSn626y0inzzFpPc-GaYfsa2_UG7VNQw",
+    },
+  },
+  pem: {
+    spki: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnhdXp15ne9kuxlcMs83h
+1vg+8i6gGfl7SBgZsCZEGcFueulzF7K7NKiIBhdm88FRmbioTMrIxvxHJPzcFEK6
+X8JwYVMVQbOWab4/ZiDOUf9EkyMkqGBvofk8vbtwUgeiOdf407hOQzMdWdlBDtHi
+NuyLeJ/shgV8D8+/GpIVTyuXbUdBbwI1gLOvk6IuO8oBHjZ8sjjJI7zAzyhm3Lmd
+IcjqG0zIXH0amZDOawCoWDeohVIhIWgGW0EbwcPjyT1wOoS6ilhMcEY71xljIqFp
+DT834F3yW/Oz8GfeHUukSYSYJd/C/wCw6gsTvQDiy1S6q1P1uA68tfrUoUPIYSzj
+GQIDAQAB
+-----END PUBLIC KEY-----
+`,
+    pkcs8: `-----BEGIN PRIVATE KEY-----
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQCeF1enXmd72S7G
+VwyzzeHW+D7yLqAZ+XtIGBmwJkQZwW566XMXsrs0qIgGF2bzwVGZuKhMysjG/Eck
+/NwUQrpfwnBhUxVBs5Zpvj9mIM5R/0STIySoYG+h+Ty9u3BSB6I51/jTuE5DMx1Z
+2UEO0eI27It4n+yGBXwPz78akhVPK5dtR0FvAjWAs6+Toi47ygEeNnyyOMkjvMDP
+KGbcuZ0hyOobTMhcfRqZkM5rAKhYN6iFUiEhaAZbQRvBw+PJPXA6hLqKWExwRjvX
+GWMioWkNPzfgXfJb87PwZ94dS6RJhJgl38L/ALDqCxO9AOLLVLqrU/W4Dry1+tSh
+Q8hhLOMZAgMBAAECggEABleF9fIoLoGpWhN00EjjL/WHCJNaVhcUt7EgJQQ7TA60
+d5m3mvTkhGcPMjJcYuJ85eYl2ehydTllLRH341gEGWe9DHRx0vrJCbPUH9eopdqw
+Cy3YMGknn/IWBRT4u1EF1EefumDngn6G5VtdJs1rOMbqDJQwH8tmx+IZPBqYiv5S
+zh4tO1o8P8r6G6A1I3W6j1Af6pFh1eLKsdluFs/X11DLohlH/U3ZuvNOUmhaiJlx
+7OSs+O8zLB6m3ZHuDGAPZOptrn3AQ27ZvO7n2t//uqtE0yXqVB5GzAqMaSGWqfP2
+VkhUpfTLDgmmBTWUhtwTmiGZRgXsmgNT0XirqZJugQKBgQDUa+3PLqrQlFUmvGSO
+qdYXfSjRIccl5jOsGTJAIFw4wonhqbLXAQsAx7M3GfGYxqdY3sRNGzl6EiLYSa/V
+5GFwMYMelRsdnyDqSRxq+xy27TNq4XghFJf7yK43aUiRNuNuRWE19n56wF9ih5+A
+v5m6vWchgdg7zo9KXN0E3e3cmQKBgQC+hg9CClF8L0/kuz9ZrhDxwHBCWnD5O19r
+3vr0/7KEurc3tn1RhqFgaCaJxeYE9qbtiKRshnir7OPKvpGMsJAm8DrPmjNy+AkZ
+mhjjOV9NXQXK5vHYbrUWo0RioBlgeQzvtGRZDFgpROMc0xaA+uUfKHa6Tnr2Icxv
+ePKpJkDKgQKBgQDUOvkgVJnpRypER1mYh+sVEMFlIQBdxz+9JHdmRm6dbxBfXDMI
+SUx6/Qr7dHpDj8bHLdqmxxqH8fLKceSyKTmI5I8CUSsET2aNbXptEHLB+P+0O4zQ
+UEkBEKGvTwtnupVEKSFUzu/TKLykLqiX89ZeErolahtmtZvISjuwjyMFkQKBgQCI
+sstTyO96OMAMD0V+5OOHcVmaYiXYzP7D+PL6wlOl5An9UVRNIFm9QD0WcQV+3jIb
+EAVZUIpYYNl36I+p8C0doxOvTKZJgSmWUvg0YD++1FWJpXY0ogoQOgig8toCXBgq
+DLZLJg5DXgfN8K6e0GWAm5nERvb2jn2OJauGLcojAQKBgQCMCaFXYnUYy1+UjGoB
+4IbgYpgX9EaNy8wVYOs3tmqYIJE6lLqR41LGd4i3C6fxkmdfujDG4jeoAaLBRV2s
+vE2zL6ys5c+p7lYBSyQHK278pLzMxLGXqGGa09pVcD00lYNscxTwTgtItKRKfrbr
+LSKfPMWk9z4Zph+xrb9QbtU1DA==
+-----END PRIVATE KEY-----
+`,
+    x509: `-----BEGIN CERTIFICATE-----
+MIIDHzCCAgegAwIBAgIUfpP15OWaPVmDHbm8HUZ3N4gj8+QwDQYJKoZIhvcNAQEL
+BQAwHzEdMBsGA1UEAwwUVGVzdCBSU0EgQ2VydGlmaWNhdGUwHhcNMjUwNTEwMTMw
+MjU4WhcNMjUwNjA5MTMwMjU4WjAfMR0wGwYDVQQDDBRUZXN0IFJTQSBDZXJ0aWZp
+Y2F0ZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJ4XV6deZ3vZLsZX
+DLPN4db4PvIuoBn5e0gYGbAmRBnBbnrpcxeyuzSoiAYXZvPBUZm4qEzKyMb8RyT8
+3BRCul/CcGFTFUGzlmm+P2YgzlH/RJMjJKhgb6H5PL27cFIHojnX+NO4TkMzHVnZ
+QQ7R4jbsi3if7IYFfA/PvxqSFU8rl21HQW8CNYCzr5OiLjvKAR42fLI4ySO8wM8o
+Zty5nSHI6htMyFx9GpmQzmsAqFg3qIVSISFoBltBG8HD48k9cDqEuopYTHBGO9cZ
+YyKhaQ0/N+Bd8lvzs/Bn3h1LpEmEmCXfwv8AsOoLE70A4stUuqtT9bgOvLX61KFD
+yGEs4xkCAwEAAaNTMFEwHQYDVR0OBBYEFDgd0UcvC15tqXGdEtHsfDW1NAo4MB8G
+A1UdIwQYMBaAFDgd0UcvC15tqXGdEtHsfDW1NAo4MA8GA1UdEwEB/wQFMAMBAf8w
+DQYJKoZIhvcNAQELBQADggEBAFJxhk0FSGTcWO1Nn2gkPEgCo2TF9lTMlw6FJsQr
+68EuYApRV1FMQfy5yqnTsPdcN+2uJGCELwFDqvYjlBjh4s5zrP54J9XBHd4E//wk
+SyWTkfIr5BGJIbbHUqr1Dgtq3NM9QiFP+j9ateqC/dyoRo7TfgLrlLW1epe53LyE
+0U0frLHX8Q+VG/bFYkVIkKHEGamVpjQf2eFikHVfvOqsvDLZ3rVWAKzXC8AQFVFm
+hzrDcvAjN1dCCJkuoFwHKM/BeiwNtotuvG3EWk7gAz9qxGZ6cTFXWI8ExJfVNP61
+gt8mc+zgTvmg4YOoTQAB9aL0a0/ZxrbzFrHOjnaXszHzrNw=
+-----END CERTIFICATE-----
+`,
+  },
+} as const;
+
+export const ec = {
+  jwk: {
+    public: {
+      alg: "ES256",
+      crv: "P-256",
+      ext: true,
+      key_ops: ["verify"] as KeyUsage[],
+      kty: "EC",
+      x: "l8336JwkRVtqf0GBwZbrQ_PnRao06aNUcIjhC-FcOqo",
+      y: "4kcscbVvpfLa_ATRxAycGMo1_uiEE_GABvupnYHEOZA",
+    },
+    private: {
+      alg: "ES256",
+      crv: "P-256",
+      d: "PnkiAvi_cqvJEjnhwrPclpAIwrH0OcYA03x6xxzSsEw",
+      ext: true,
+      key_ops: ["sign"] as KeyUsage[],
+      kty: "EC",
+      x: "l8336JwkRVtqf0GBwZbrQ_PnRao06aNUcIjhC-FcOqo",
+      y: "4kcscbVvpfLa_ATRxAycGMo1_uiEE_GABvupnYHEOZA",
+    },
+  },
+  pem: {
+    spki: `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEl8336JwkRVtqf0GBwZbrQ/PnRao0
+6aNUcIjhC+FcOqriRyxxtW+l8tr8BNHEDJwYyjX+6IQT8YAG+6mdgcQ5kA==
+-----END PUBLIC KEY-----
+`,
+    pkcs8: `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPnkiAvi/cqvJEjnh
+wrPclpAIwrH0OcYA03x6xxzSsEyhRANCAASXzffonCRFW2p/QYHBlutD8+dFqjTp
+o1RwiOEL4Vw6quJHLHG1b6Xy2vwE0cQMnBjKNf7ohBPxgAb7qZ2BxDmQ
+-----END PRIVATE KEY-----
+`,
+  },
+} as const;

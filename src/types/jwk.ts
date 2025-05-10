@@ -265,6 +265,7 @@ export type JWK_ECDH_ES =
   | "ECDH-ES+A128KW"
   | "ECDH-ES+A192KW"
   | "ECDH-ES+A256KW";
+export type JWK_ED = "Ed25519" | "EdDSA"; // Ed25519 is a specific curve, EdDSA is a signature algorithm
 
 export type JWK_Symmetric_Algorithm = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM;
 export type JWK_Asymmetric_Algorithm =
@@ -280,3 +281,11 @@ export type JWKAlgorithm =
   | JWK_PBES2
   | JWK_ECDH_ES
   | ("none" | "dir"); // No algorithm | Direct encryption
+
+export type JWKPEMAlgorithm =
+  | JWK_RSA_PSS
+  | JWK_RSA_SIGN
+  | JWK_RSA_ENC
+  | JWK_ECDSA
+  | JWK_ECDH_ES
+  | JWK_ED;

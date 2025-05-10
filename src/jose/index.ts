@@ -5,6 +5,7 @@
  */
 
 export * from "./aesgcmkw";
+export * from "./asn1";
 export * from "./buffer_utils";
 export * from "./cek-iv";
 export * from "./crypto_key";
