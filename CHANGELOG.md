@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.2
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.1...v0.5.2)
+
+### 🚀 Enhancements
+
+- **jws:** Enhance verification options with required claims and validations ([bc5dad4](https://github.com/sandros94/unjwt/commit/bc5dad4))
+
+### 🩹 Fixes
+
+- **jws:** `crit` header param check ([34c536f](https://github.com/sandros94/unjwt/commit/34c536f))
+- **jws:** B64 payload decoding ([8a034d9](https://github.com/sandros94/unjwt/commit/8a034d9))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.1
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.0...v0.5.1)
