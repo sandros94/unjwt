@@ -497,6 +497,82 @@ async function unwrapMyKey(encryptedKey: Uint8Array, kdk: CryptoKey) {
 }
 ```
 
+#### `importJWKFromPEM(pem, pemType, alg, importOptions?, jwkExtras?)`
+
+Imports a key from a PEM-encoded string and converts it to a JWK.
+
+- `pem`: The PEM-encoded string (including `-----BEGIN ...-----` and `-----END ...-----` markers).
+- `pemType`: The type of PEM encoding:
+  - `"pkcs8"`: For private keys in PKCS#8 format.
+  - `"spki"`: For public keys in SPKI format.
+  - `"x509"`: For X.509 certificates (extracts the public key).
+- `alg`: The JWA algorithm identifier (e.g., `"RS256"`, `"ES256"`). This is crucial for `crypto.subtle.importKey` to understand the key's intended algorithm and for setting the `'alg'` field in the resulting JWK.
+- `importOptions` (optional): Options for the underlying `crypto.subtle.importKey` call:
+  - `extractable`: Boolean, whether the imported `CryptoKey` should be extractable. Defaults to `true`.
+  - `keyUsage`: Array of `KeyUsage` strings for the imported `CryptoKey`.
+- `jwkExtras` (optional): An object containing additional properties to merge into the resulting JWK (e.g., `"kid"`, `"use"`).
+
+Returns a `Promise<JWK>` resolving to the imported key as a JWK.
+
+**Example:**
+
+```ts
+import { importJWKFromPEM } from "unjwt/jwk";
+
+const rsaPublicJwk = await importJWKFromPEM(
+  provess.env.RSA_PEM_SPKI, // PEM string
+  "spki",
+  "RS256",
+  { extractable: false },
+  { kid: "my-rsa-key" }, // Additional properties to add to the JWK
+);
+console.log(rsaPublicJwk);
+// {
+//   kty: 'RSA',
+//   alg: 'RS256',
+//   kid: 'my-rsa-key',
+//   n: '...',
+//   e: 'AQAB',
+//   ext: false,
+//   key_ops: [ 'verify' ]
+// }
+```
+
+#### exportJWKToPEM(jwk, pemFormat, algForCryptoKeyImport?)
+
+Exports a JWK to a PEM-encoded string.
+
+- jwk: The JWK to export.
+- pemFormat: The desired PEM format:
+  - "pkcs8": For private keys in PKCS#8 format.
+  - "spki": For public keys in SPKI format.
+- algForCryptoKeyImport (optional): If the JWK does not have an 'alg' property, this algorithm hint is required to correctly convert it to a CryptoKey first. This is only needed if the JWK lacks an alg property.
+
+Returns a `Promise<string>` resolving to the PEM-encoded key string.
+
+Example:
+
+```ts
+import { exportJWKToPEM } from "unjwt/jwk";
+import { rsaJWK } from "./keys"; // Assuming you have JWKs in keys.ts
+
+const rsaPrivatePem = await exportJWKToPEM(rsaJWK.private, "pkcs8");
+console.log(rsaPrivatePem);
+// -----BEGIN PRIVATE KEY-----
+// MII...
+// -----END PRIVATE KEY-----
+
+const rsaPublicSpki = await exportJWKToPEM(
+  rsaJWK.public,
+  "spki",
+  "RS256", // this is required if `rsaJWK.public.alg` is undefined
+);
+console.log(rsaPublicSpki);
+// -----BEGIN PUBLIC KEY-----
+// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQE...
+// -----END PUBLIC KEY-----
+```
+
 ### Utility Functions
 
 `unjwt/utils` exports several helpful functions:
