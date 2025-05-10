@@ -192,8 +192,15 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
   const alg = protectedHeader.alg;
 
   // 3. Check Algorithm Allowed (if options provided)
-  if (options?.algorithms && !options.algorithms.includes(alg)) {
+  if (options.algorithms && !options.algorithms.includes(alg)) {
     throw new Error(`Algorithm not allowed: ${alg}`);
+  }
+
+  // Validate `typ` Header Parameter
+  if (options.typ && protectedHeader.typ !== options.typ) {
+    throw new Error(
+      `Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
+    );
   }
 
   // 4. Decode Signature
@@ -231,9 +238,10 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
   // 8. Decode Payload
   const useB64 = protectedHeader.b64 !== false;
   let payload: T;
+
   try {
     if (useB64) {
-      if (options?.forceUint8Array) {
+      if (options.forceUint8Array) {
         payload = base64UrlDecode(payloadEncoded, false) as T;
       } else {
         const cty = protectedHeader.cty?.toLowerCase();
@@ -243,10 +251,8 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
           cty === "application/json" ||
           (cty && cty.endsWith("+json"));
 
+        const decodedString = base64UrlDecode(payloadEncoded);
         if (isJsonOutput) {
-          // Decode as string for potential JSON parsing
-          const decodedString = base64UrlDecode(payloadEncoded, true);
-          // Basic check to see if it looks like a JSON object or array
           if (
             (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
             (decodedString.startsWith("[") && decodedString.endsWith("]"))
@@ -263,12 +269,16 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
           }
         } else {
           // Default to string if not JSON and not forced to Uint8Array
-          payload = base64UrlDecode(payloadEncoded) as T;
+          payload = decodedString as T;
         }
       }
     } else {
       // RFC7797: Payload is not Base64URL encoded, payloadEncoded is the raw string
-      payload = textEncoder.encode(payloadEncoded) as T;
+      payload = (
+        options.forceUint8Array
+          ? textEncoder.encode(payloadEncoded)
+          : payloadEncoded
+      ) as T;
     }
   } catch (error_) {
     // Catch potential base64 decode errors if payloadEncoded is invalid
@@ -278,41 +288,36 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
   }
 
   // 9. Handle Critical Headers
-  const knownHeaderParameters = new Set([
-    "alg",
-    "typ",
-    "cty",
-    "kid",
-    "jwk",
-    "jku",
-    "x5c",
-    "x5t",
-    "x5u",
-    "b64",
-  ]);
-  if (options?.critical && protectedHeader.crit) {
+  if (protectedHeader.crit) {
+    const missingHeaderParams = new Set();
     const recognizedParams = new Set([
-      ...Object.keys(protectedHeader),
       ...(options.critical || []),
-      ...knownHeaderParameters,
+      "alg",
+      "typ",
+      "cty",
+      "kid",
+      "jwk",
+      "jku",
+      "x5c",
+      "x5t",
+      "x5u",
+      "b64",
     ]);
-    for (const critParam of protectedHeader.crit) {
-      if (!recognizedParams.has(critParam)) {
-        throw new Error(
-          `Critical header parameter not understood: ${critParam}`,
-        );
+
+    for (const param of protectedHeader.crit) {
+      // `b64` is a special header ant its absence should be considered as valid
+      if (
+        recognizedParams.has(param) &&
+        (param in protectedHeader || param === "b64")
+      ) {
+        continue;
       }
+      missingHeaderParams.add(param);
     }
-  } else if (!options?.critical && protectedHeader.crit) {
-    const unrecognizedParams = new Set();
-    for (const critParam of protectedHeader.crit) {
-      if (!knownHeaderParameters.has(critParam)) {
-        unrecognizedParams.add(critParam);
-      }
-    }
-    if (unrecognizedParams.size > 0) {
+
+    if (missingHeaderParams.size > 0) {
       throw new Error(
-        `Unrecognized critical header parameters: ${[...unrecognizedParams].join(", ")}`,
+        `Missing critical header parameters: ${[...missingHeaderParams].join(", ")}`,
       );
     }
   }
