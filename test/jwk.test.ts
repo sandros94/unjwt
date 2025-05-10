@@ -472,9 +472,7 @@ describe.concurrent("JWK Utilities", () => {
   describe("PEM <-> JWK Conversion", () => {
     describe("importJWKFromPEM", () => {
       it("should import PKCS#8 PEM to JWK (RSA)", async () => {
-        const jwk = await importJWKFromPEM(rsa.pem.pkcs8, "pkcs8", "RS256", {
-          extractable: true,
-        });
+        const jwk = await importJWKFromPEM(rsa.pem.pkcs8, "pkcs8", "RS256");
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         expect((jwk as JWK_RSA_Private).d).toBeDefined();
@@ -500,9 +498,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import PKCS#8 PEM to JWK (EC)", async () => {
-        const jwk = await importJWKFromPEM(ec.pem.pkcs8, "pkcs8", "ES256", {
-          extractable: true,
-        });
+        const jwk = await importJWKFromPEM(ec.pem.pkcs8, "pkcs8", "ES256");
         expect(jwk.kty).toBe("EC");
         expect(jwk.alg).toBe("ES256");
         expect((jwk as JWK_EC_Private).crv).toBe("P-256");

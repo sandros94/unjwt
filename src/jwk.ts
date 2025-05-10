@@ -544,19 +544,29 @@ export async function importJWKFromPEM(
   jwkExtras?: Partial<JWK>,
 ): Promise<JWK> {
   let cryptoKey: CryptoKey;
+  const defaultExtractable = importOptions?.extractable !== false; // Default true
 
   switch (pemType) {
     case "pkcs8": {
-      cryptoKey = await fromPKCS8(pem, alg, importOptions);
+      cryptoKey = await fromPKCS8(pem, alg, {
+        ...importOptions,
+        extractable: defaultExtractable,
+      });
       break;
     }
     case "spki": {
-      cryptoKey = await fromSPKI(pem, alg, importOptions);
+      cryptoKey = await fromSPKI(pem, alg, {
+        ...importOptions,
+        extractable: defaultExtractable,
+      });
       break;
     }
     case "x509": {
       // fromX509 internally calls fromSPKI, passing alg and options.
-      cryptoKey = await fromX509(pem, alg, importOptions);
+      cryptoKey = await fromX509(pem, alg, {
+        ...importOptions,
+        extractable: defaultExtractable,
+      });
       break;
     }
     default: {
