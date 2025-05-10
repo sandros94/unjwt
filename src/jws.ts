@@ -159,7 +159,7 @@ export async function verify(
 export async function verify<T = JWTClaims | Uint8Array | string>(
   jws: string,
   key: CryptoKey | JWK | Uint8Array | KeyLookupFunction,
-  options?: JWSVerifyOptions,
+  options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   // 1. Parse JWS
   const parts = jws.split(".");
@@ -278,20 +278,23 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
   }
 
   // 9. Handle Critical Headers
+  const knownHeaderParameters = new Set([
+    "alg",
+    "typ",
+    "cty",
+    "kid",
+    "jwk",
+    "jku",
+    "x5c",
+    "x5t",
+    "x5u",
+    "b64",
+  ]);
   if (options?.critical && protectedHeader.crit) {
     const recognizedParams = new Set([
       ...Object.keys(protectedHeader),
       ...(options.critical || []),
-      "alg",
-      "typ",
-      "cty",
-      "kid",
-      "jwk",
-      "jku",
-      "x5c",
-      "x5t",
-      "x5u",
-      "b64",
+      ...knownHeaderParameters,
     ]);
     for (const critParam of protectedHeader.crit) {
       if (!recognizedParams.has(critParam)) {
@@ -301,9 +304,17 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
       }
     }
   } else if (!options?.critical && protectedHeader.crit) {
-    throw new Error(
-      `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
-    );
+    const unrecognizedParams = new Set();
+    for (const critParam of protectedHeader.crit) {
+      if (!knownHeaderParameters.has(critParam)) {
+        unrecognizedParams.add(critParam);
+      }
+    }
+    if (unrecognizedParams.size > 0) {
+      throw new Error(
+        `Unrecognized critical header parameters: ${[...unrecognizedParams].join(", ")}`,
+      );
+    }
   }
 
   return {

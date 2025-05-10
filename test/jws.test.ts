@@ -295,7 +295,7 @@ describe.concurrent("JWS Utilities", () => {
       });
       // No critical option passed to verify
       await expect(verify(jws, hs256Key)).rejects.toThrow(
-        "Unprocessed critical header parameters: exp",
+        "Unrecognized critical header parameters: exp",
       );
     });
 
@@ -323,7 +323,7 @@ describe.concurrent("JWS Utilities", () => {
       await expect(
         verify(`${headerWithoutAlg}.payload.sig`, hs256Key),
       ).rejects.toThrow(
-        /Protected header must be an object with an "alg" property/,
+        'Protected header must be an object with an "alg" property',
       );
     });
 
@@ -332,7 +332,7 @@ describe.concurrent("JWS Utilities", () => {
       const parts = jws.split(".");
       await expect(
         verify(`${parts[0]}.${parts[1]}.sig?`, hs256Key),
-      ).rejects.toThrow(/Signature is not valid Base64URL/);
+      ).rejects.toThrow("Signature is not valid Base64URL");
     });
 
     it("should throw for signature mismatch", async () => {
