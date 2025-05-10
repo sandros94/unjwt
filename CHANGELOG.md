@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.5.1
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.0...v0.5.1)
+
+### 🚀 Enhancements
+
+- **utils:** Add simple base64 utils and improve performance ([42d506e](https://github.com/sandros94/unjwt/commit/42d506e))
+- **jwk:** PEM to and from JWK ([6cde7b4](https://github.com/sandros94/unjwt/commit/6cde7b4))
+
+### 🩹 Fixes
+
+- **jws:** Variable naming ([bd12420](https://github.com/sandros94/unjwt/commit/bd12420))
+- **jwk:** Pem import extractable by default ([32a8b25](https://github.com/sandros94/unjwt/commit/32a8b25))
+
+### 📖 Documentation
+
+- Update readme ([4c7160e](https://github.com/sandros94/unjwt/commit/4c7160e))
+- Update readme ([2a76e50](https://github.com/sandros94/unjwt/commit/2a76e50))
+- **README:** Add note for partially compatible algorithms and encodings ([c49fc97](https://github.com/sandros94/unjwt/commit/c49fc97))
+
+### 🏡 Chore
+
+- Apply automated updates ([3234986](https://github.com/sandros94/unjwt/commit/3234986))
+- Apply automated updates ([a23bf60](https://github.com/sandros94/unjwt/commit/a23bf60))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.0
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.4.0...v0.5.0)
