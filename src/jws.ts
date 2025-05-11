@@ -3,6 +3,7 @@ import type {
   JWSAlgorithm,
   JWSSignOptions,
   JWSProtectedHeader,
+  JWSKeyLookupFunction,
   JWSVerifyOptions,
   JWSVerifyResult,
   JWTClaims,
@@ -133,11 +134,6 @@ export async function sign(
   return `${signingInputString}.${signatureEncoded}`;
 }
 
-// Type for the key lookup function
-type KeyLookupFunction = (
-  header: JWSProtectedHeader,
-) => CryptoKey | JWK | Uint8Array | Promise<CryptoKey | JWK | Uint8Array>;
-
 /**
  * Verifies a JWS (JSON Web Signature) in Compact Serialization format.
  *
@@ -149,17 +145,17 @@ type KeyLookupFunction = (
  */
 export async function verify<T = JWTClaims | Uint8Array | string>(
   jws: string,
-  key: CryptoKey | JWK | Uint8Array | KeyLookupFunction,
+  key: CryptoKey | JWK | Uint8Array | JWSKeyLookupFunction,
   options?: JWSVerifyOptions,
 ): Promise<JWSVerifyResult<T>>;
 export async function verify(
   jws: string,
-  key: CryptoKey | JWK | Uint8Array | KeyLookupFunction,
+  key: CryptoKey | JWK | Uint8Array | JWSKeyLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array>>;
 export async function verify<T = JWTClaims | Uint8Array | string>(
   jws: string,
-  key: CryptoKey | JWK | Uint8Array | KeyLookupFunction,
+  key: CryptoKey | JWK | Uint8Array | JWSKeyLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   // 1. Parse JWS
@@ -216,7 +212,7 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
 
   // 5. Obtain and Import Key
   const resolvedKey: CryptoKey | JWK | Uint8Array =
-    typeof key === "function" ? await key(protectedHeader) : key;
+    typeof key === "function" ? await key(protectedHeader, jws) : key;
 
   const verificationKey = await importKey(resolvedKey as any, alg);
 

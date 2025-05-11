@@ -118,6 +118,7 @@ export interface JWEEncryptOptions {
  */
 export type JWEKeyLookupFunction = (
   header: JWEHeaderParameters,
+  token: string
 ) =>
   | CryptoKey
   | JWK

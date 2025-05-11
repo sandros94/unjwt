@@ -286,7 +286,7 @@ export async function decrypt<T = JWTClaims | string>(
   }
 
   const resolvedKeyMaterial =
-    typeof key === "function" ? await key(protectedHeader) : key;
+    typeof key === "function" ? await key(protectedHeader, jwe) : key;
   const unwrappingKey = await importKey(resolvedKeyMaterial, alg);
 
   const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
