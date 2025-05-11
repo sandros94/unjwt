@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.4
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.3...v0.5.4)
+
+### 🩹 Fixes
+
+- **jwk:** Allow importKey to infer alg from provided JWK ([7ad1140](https://github.com/sandros94/unjwt/commit/7ad1140))
+
+### ✅ Tests
+
+- Parallelize key generation and skip coverage for now ([08928f5](https://github.com/sandros94/unjwt/commit/08928f5))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.3
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.2...v0.5.3)
