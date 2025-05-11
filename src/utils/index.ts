@@ -52,8 +52,8 @@ export function base64Decode(
 
   // @ts-expect-error check if fromBase64 is available
   const data: Uint8Array = Uint8Array.fromBase64
-    // @ts-expect-error
-    ? Uint8Array.fromBase64(str)
+    ? // @ts-expect-error
+      Uint8Array.fromBase64(str)
     : Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
 
   return decodeToString ? textDecoder.decode(data) : data;
