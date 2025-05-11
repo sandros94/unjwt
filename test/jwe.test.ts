@@ -38,23 +38,43 @@ describe.concurrent("JWE Utilities", () => {
   const keys: Record<string, TestKeySet> = {};
 
   beforeAll(async () => {
-    keys["A128KW"] = { key: await generateKey("A128KW") };
-    keys["A192KW"] = { key: await generateKey("A192KW") };
-    keys["A256KW"] = { key: await generateKey("A256KW") };
+    const [
+      a128kw,
+      a192kw,
+      a256kw,
+      a128gcm,
+      a192gcm,
+      a256gcm,
+      rsaOaepPair,
+      rsaOaep256Pair,
+      ecdhKeyPair,
+    ] = await Promise.all([
+      generateKey("A128KW"),
+      generateKey("A192KW"),
+      generateKey("A256KW"),
+      generateKey("A128GCM"),
+      generateKey("A192GCM"),
+      generateKey("A256GCM"),
+      generateKey("RSA-OAEP", { modulusLength: 2048 }),
+      generateKey("RSA-OAEP-256", {
+        modulusLength: 2048,
+      }),
+      generateKey("ES256"), // P-256 for ECDH-ES
+    ]);
 
-    keys["A128GCMKW"] = { key: await generateKey("A128GCM") }; // Key for GCMKW is AES-GCM
-    keys["A192GCMKW"] = { key: await generateKey("A192GCM") };
-    keys["A256GCMKW"] = { key: await generateKey("A256GCM") };
+    keys["A128KW"] = { key: a128kw };
+    keys["A192KW"] = { key: a192kw };
+    keys["A256KW"] = { key: a256kw };
 
-    const rsaOaepPair = await generateKey("RSA-OAEP", { modulusLength: 2048 });
+    keys["A128GCMKW"] = { key: a128gcm };
+    keys["A192GCMKW"] = { key: a192gcm };
+    keys["A256GCMKW"] = { key: a256gcm };
+
     keys["RSA-OAEP"] = {
       key: rsaOaepPair,
       publicKey: rsaOaepPair.publicKey,
       privateKey: rsaOaepPair.privateKey,
     };
-    const rsaOaep256Pair = await generateKey("RSA-OAEP-256", {
-      modulusLength: 2048,
-    });
     keys["RSA-OAEP-256"] = {
       key: rsaOaep256Pair,
       publicKey: rsaOaep256Pair.publicKey,
@@ -63,7 +83,6 @@ describe.concurrent("JWE Utilities", () => {
 
     keys["PBES2-HS256+A128KW"] = { password: "securepassword123" };
 
-    const ecdhKeyPair = await generateKey("ES256"); // P-256 for ECDH-ES
     keys["ECDH-ES+A128KW"] = {
       key: ecdhKeyPair,
       publicKey: ecdhKeyPair.publicKey,

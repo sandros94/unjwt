@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify } from "../src/jws";
 import { generateKey, exportKey } from "../src/jwk";
 import { base64UrlEncode, base64UrlDecode, textEncoder } from "../src/utils";
-import type { JWSProtectedHeader, JWTClaims, JWK } from "../src/types";
+import type { JWSProtectedHeader, JWTClaims, JWK, JWKSet } from "../src/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -141,6 +141,7 @@ describe.concurrent("JWS Utilities", () => {
     let rs256KeyPair: CryptoKeyPair;
     let es256KeyPair: CryptoKeyPair;
     let ps256KeyPair: CryptoKeyPair;
+    let jwkSet: JWKSet;
 
     const basicJwtPayload: JWTClaims = {
       iss: "test-issuer",
@@ -153,10 +154,25 @@ describe.concurrent("JWS Utilities", () => {
     };
 
     beforeAll(async () => {
-      hs256Key = await generateKey("HS256");
-      rs256KeyPair = await generateKey("RS256", { modulusLength: 2048 });
-      es256KeyPair = await generateKey("ES256");
-      ps256KeyPair = await generateKey("PS256", { modulusLength: 2048 });
+      const [hs256, rs256Pair, es256Pair, ps256Pair] = await Promise.all([
+        generateKey("HS256"),
+        generateKey("RS256", { modulusLength: 2048 }),
+        generateKey("ES256"),
+        generateKey("PS256", { modulusLength: 2048 }),
+      ]);
+      hs256Key = hs256;
+      rs256KeyPair = rs256Pair;
+      es256KeyPair = es256Pair;
+      ps256KeyPair = ps256Pair;
+
+      jwkSet = {
+        keys: await Promise.all([
+          exportKey(hs256Key, { kid: "key2" }),
+          exportKey(rs256KeyPair.publicKey, { kid: "key1" }),
+          exportKey(es256KeyPair.publicKey, { kid: "key66" }),
+          exportKey(ps256KeyPair.publicKey, { kid: "key69" }),
+        ]),
+      };
     });
 
     it("should verify HS256 (Object payload)", async () => {
@@ -259,17 +275,29 @@ describe.concurrent("JWS Utilities", () => {
       expect(new TextDecoder().decode(payload)).toBe(payloadString);
     });
 
+    it("should verify with keyset", async () => {
+      const jws = await sign(payloadObj, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { kid: "key2" },
+      });
+
+      const { payload } = await verify(jws, jwkSet);
+      expect(payload).toEqual(payloadObj);
+    });
+
     it("should verify with sync key lookup function", async () => {
       const jws = await sign(payloadObj, hs256Key, {
         alg: "HS256",
         protectedHeader: { kid: "key1" },
       });
+
       const keyLookup = (header: JWSProtectedHeader) => {
         if (header.kid === "key1" && header.alg === "HS256") {
           return hs256Key;
         }
         throw new Error("Key not found");
       };
+
       const { payload } = await verify(jws, keyLookup);
       expect(payload).toEqual(payloadObj);
     });
@@ -279,6 +307,7 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { kid: "key2" },
       });
+
       const keyLookup = async (header: JWSProtectedHeader) => {
         await new Promise((resolve) => setTimeout(resolve, 10)); // Simulate async
         if (header.kid === "key2" && header.alg === "HS256") {
@@ -286,6 +315,7 @@ describe.concurrent("JWS Utilities", () => {
         }
         throw new Error("Key not found");
       };
+
       const { payload } = await verify(jws, keyLookup);
       expect(payload).toEqual(payloadObj);
     });
@@ -295,17 +325,12 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { kid: "key2" },
       });
+
       const keyLookup = async () => {
         await new Promise((resolve) => setTimeout(resolve, 10)); // Simulate async
-        return {
-          keys: [
-            await exportKey(hs256Key, { kid: "key2" }),
-            await exportKey(rs256KeyPair.publicKey, { kid: "key1" }),
-            await exportKey(es256KeyPair.publicKey, { kid: "key66" }),
-            await exportKey(ps256KeyPair.publicKey, { kid: "key69" }),
-          ],
-        };
+        return jwkSet;
       };
+
       const { payload } = await verify(jws, keyLookup);
       expect(payload).toEqual(payloadObj);
     });
