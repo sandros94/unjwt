@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.5
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.4...v0.5.5)
+
+### 🩹 Fixes
+
+- **utils:** Native `fromBase64` decode ([85950df](https://github.com/sandros94/unjwt/commit/85950df))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.4
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.3...v0.5.4)
