@@ -1,6 +1,7 @@
 import type { JoseHeaderParameters, JWTClaims } from "./jwt";
 import type {
   JWK,
+  JWKSet,
   JWK_HMAC,
   JWK_RSA_SIGN,
   JWK_RSA_PSS,
@@ -140,4 +141,9 @@ export interface JWSVerifyOptions {
 export type JWSKeyLookupFunction = (
   header: JWSProtectedHeader,
   token: string,
-) => CryptoKey | JWK | Uint8Array | Promise<CryptoKey | JWK | Uint8Array>;
+) =>
+  | CryptoKey
+  | JWK
+  | JWKSet
+  | Uint8Array
+  | Promise<CryptoKey | JWK | JWKSet | Uint8Array>;

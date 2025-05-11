@@ -234,9 +234,19 @@ export interface JWK_oct extends JWKParameters {
 }
 
 /**
- * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA" and "oct" key types are supported.
+ * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC" and "oct" key types are supported.
  */
 export type JWK = JWK_oct | JWK_RSA | JWK_EC;
+
+/**
+ * JSON Web Key Set ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK Set}). "RSA", "EC" and "oct" key types are supported.
+ */
+export interface JWKSet {
+  /** JWK Set "keys" Parameter */
+  keys: JWK[];
+
+  [parameter: string]: unknown;
+}
 
 /** JWK Key Algorithms */
 

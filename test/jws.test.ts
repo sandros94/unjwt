@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify } from "../src/jws";
-import { generateKey } from "../src/jwk";
+import { generateKey, exportKey } from "../src/jwk";
 import { base64UrlEncode, base64UrlDecode, textEncoder } from "../src/utils";
 import type { JWSProtectedHeader, JWTClaims, JWK } from "../src/types";
 
-describe("JWS Utilities", () => {
+describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
     sub: "1234567890",
     name: "John Doe",
@@ -285,6 +285,26 @@ describe("JWS Utilities", () => {
           return hs256Key;
         }
         throw new Error("Key not found");
+      };
+      const { payload } = await verify(jws, keyLookup);
+      expect(payload).toEqual(payloadObj);
+    });
+
+    it("should verify with async key set lookup function", async () => {
+      const jws = await sign(payloadObj, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { kid: "key2" },
+      });
+      const keyLookup = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10)); // Simulate async
+        return {
+          keys: [
+            await exportKey(hs256Key, { kid: "key2" }),
+            await exportKey(rs256KeyPair.publicKey, { kid: "key1" }),
+            await exportKey(es256KeyPair.publicKey, { kid: "key66" }),
+            await exportKey(ps256KeyPair.publicKey, { kid: "key69" }),
+          ],
+        };
       };
       const { payload } = await verify(jws, keyLookup);
       expect(payload).toEqual(payloadObj);

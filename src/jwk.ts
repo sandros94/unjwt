@@ -1,5 +1,6 @@
 import type {
   JWK,
+  JWKSet,
   JWK_oct,
   JWK_PBES2,
   JWKPEMAlgorithm,
@@ -12,11 +13,13 @@ import type {
   WrapKeyOptions,
   WrapKeyResult,
   UnwrapKeyOptions,
+  JoseHeaderParameters,
 } from "./types";
 import {
   base64UrlDecode,
   isCryptoKey,
   isJWK,
+  isJWKSet,
   textEncoder,
   randomBytes,
 } from "./utils";
@@ -644,6 +647,76 @@ export async function exportJWKToPEM(
       throw new TypeError(`Unsupported PEM format: ${pemFormat}`);
     }
   }
+}
+
+/**
+ * Retrieves a JWK (JSON Web Key) from a JWKSet based on a key ID (kid) or
+ * properties from a JOSE Header.
+ *
+ * @param jwkSet The JWKSet to search within.
+ * @param kidOrProtectedHeader Either a string representing the 'kid' (Key ID)
+ *        or an object representing the JOSE Protected Header. If an object is
+ *        provided, it must contain a 'kid' property. It can optionally contain
+ *        'alg' (Algorithm) and 'kty' (Key Type) to further refine the search.
+ * @returns The matching JWK from the set.
+ * @throws TypeError if `jwkSet` is invalid or `kidOrProtectedHeader` is not a
+ *         string or a valid header object.
+ * @throws Error if no key is found matching the provided criteria, or if the
+ *         header object is missing the 'kid' property.
+ */
+export function getJWKFromSet(
+  jwkSet: JWKSet,
+  kidOrProtectedHeader:
+    | string
+    | (JoseHeaderParameters & { alg?: string; kty?: string }),
+): JWK {
+  if (!jwkSet || !isJWKSet(jwkSet)) {
+    throw new TypeError("Invalid JWK Set provided");
+  }
+
+  if (typeof kidOrProtectedHeader === "string") {
+    // If kidOrProtectedHeader is a string, treat it as a kid
+    const kid = kidOrProtectedHeader;
+    const selectedKey = jwkSet.keys.find((k: JWK) => k.kid === kid);
+    if (!selectedKey) {
+      throw new Error(`No key found in JWK Set with kid "${kid}".`);
+    }
+    return selectedKey;
+  } else if (typeof kidOrProtectedHeader === "object") {
+    // If kidOrProtectedHeader is an object, treat it as a protected header
+
+    const { kid, alg, kty } = kidOrProtectedHeader;
+
+    if (!kid) {
+      throw new Error(
+        "JWS Protected Header is missing 'kid' (Key ID) and a JWK Set was provided. Cannot select key from JWK Set automatically.",
+      );
+    }
+
+    const selectedKey = jwkSet.keys.find((k: JWK) => {
+      return (
+        k.kid === kid && (!alg || k.alg === alg) && (!kty || k.kty === kty)
+      );
+    });
+
+    if (!selectedKey) {
+      let errorMessage = `No key found in JWK Set with kid "${kid}"`;
+      if (alg) {
+        errorMessage += ` and alg "${alg}"`;
+      }
+      if (kty) {
+        errorMessage += ` and kty "${kty}"`;
+      }
+      errorMessage += ".";
+      throw new Error(errorMessage);
+    }
+
+    return selectedKey;
+  }
+
+  throw new TypeError(
+    "`kidOrProtectedHeader` must be a string (kid) or an object (JOSE Protected Header).",
+  );
 }
 
 function getGenerateKeyParams(

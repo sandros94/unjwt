@@ -1,5 +1,6 @@
 import type {
   JWK,
+  JWKSet,
   JWSAlgorithm,
   JWSSignOptions,
   JWSProtectedHeader,
@@ -8,7 +9,7 @@ import type {
   JWSVerifyResult,
   JWTClaims,
 } from "./types";
-import { importKey } from "./jwk";
+import { importKey, getJWKFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./jose";
 import {
   base64UrlEncode,
@@ -16,6 +17,7 @@ import {
   textEncoder,
   textDecoder,
   isJWK,
+  isJWKSet,
   maybeArray,
 } from "./utils";
 
@@ -138,24 +140,24 @@ export async function sign(
  * Verifies a JWS (JSON Web Signature) in Compact Serialization format.
  *
  * @param jws The JWS Compact Serialization string.
- * @param key The verification key (CryptoKey, JWK, raw symmetric key as Uint8Array, or a function resolving the key).
+ * @param key The verification key (CryptoKey, JWK, JWKSet, raw symmetric key as Uint8Array, or a function resolving the key or set).
  * @param options Verification options, such as allowed algorithms.
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
 export async function verify<T = JWTClaims | Uint8Array | string>(
   jws: string,
-  key: CryptoKey | JWK | Uint8Array | JWSKeyLookupFunction,
+  key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
   options?: JWSVerifyOptions,
 ): Promise<JWSVerifyResult<T>>;
 export async function verify(
   jws: string,
-  key: CryptoKey | JWK | Uint8Array | JWSKeyLookupFunction,
+  key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array>>;
 export async function verify<T = JWTClaims | Uint8Array | string>(
   jws: string,
-  key: CryptoKey | JWK | Uint8Array | JWSKeyLookupFunction,
+  key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   // 1. Parse JWS
@@ -211,8 +213,11 @@ export async function verify<T = JWTClaims | Uint8Array | string>(
   }
 
   // 5. Obtain and Import Key
-  const resolvedKey: CryptoKey | JWK | Uint8Array =
+  const keyInput: CryptoKey | JWK | JWKSet | Uint8Array =
     typeof key === "function" ? await key(protectedHeader, jws) : key;
+  const resolvedKey: CryptoKey | JWK | Uint8Array = isJWKSet(keyInput)
+    ? getJWKFromSet(keyInput, protectedHeader)
+    : keyInput;
 
   const verificationKey = await importKey(resolvedKey as any, alg);
 

@@ -1,4 +1,4 @@
-import type { JWK } from "../types";
+import type { JWK, JWKSet } from "../types";
 
 export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
@@ -126,6 +126,16 @@ export function isJWK(key: any): key is JWK {
     key !== null &&
     "kty" in key &&
     typeof (key as JWK).kty === "string"
+  );
+}
+
+/* Type guard for JWK Set */
+export function isJWKSet(key: any): key is JWKSet {
+  return (
+    key &&
+    typeof key === "object" &&
+    "keys" in key &&
+    Array.isArray((key as JWKSet).keys)
   );
 }
 

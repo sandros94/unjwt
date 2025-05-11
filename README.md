@@ -44,14 +44,25 @@ import { encrypt, decrypt } from "unjwt/jwe";
 // JWK functions
 import {
   generateKey,
-  deriveKeyFromPassword,
   importKey,
   exportKey,
   wrapKey,
   unwrapKey,
+  getJWKFromSet,
+  importJWKFromPEM,
+  exportJWKToPEM,
+  deriveKeyFromPassword,
 } from "unjwt/jwk";
 // Utility functions
-import { base64UrlEncode, base64UrlDecode, randomBytes } from "unjwt/utils";
+import {
+  isJWK,
+  isJWKSet,
+  isCryptoKey,
+  isCryptoKeyPair,
+  base64UrlEncode,
+  base64UrlDecode,
+  randomBytes,
+} from "unjwt/utils";
 ```
 
 **CDN** (Deno, Bun and Browsers)
@@ -65,14 +76,21 @@ import { encrypt, decrypt } from "https://esm.sh/unjwt/jwe";
 // JWK functions
 import {
   generateKey,
-  deriveKeyFromPassword,
   importKey,
   exportKey,
   wrapKey,
   unwrapKey,
+  getJWKFromSet,
+  importJWKFromPEM,
+  exportJWKToPEM,
+  deriveKeyFromPassword,
 } from "https://esm.sh/unjwt/jwk";
 // Utility functions
 import {
+  isJWK,
+  isJWKSet,
+  isCryptoKey,
+  isCryptoKeyPair,
   base64UrlEncode,
   base64UrlDecode,
   randomBytes,
@@ -129,8 +147,8 @@ console.log(token);
 Verifies a JWS token.
 
 - `jws`: The JWS token string.
-- `key`: The verification key (`CryptoKey`, `JWK`, `Uint8Array`, or a `KeyLookupFunction`).
-  A `KeyLookupFunction` has the signature `(header: JWSProtectedHeader) => Promise<CryptoKey | JWK | Uint8Array> | CryptoKey | JWK | Uint8Array`.
+- `key`: The verification key (`CryptoKey`, `JWK`, `JWKSet`, `Uint8Array`, or a `KeyLookupFunction`).
+  A `KeyLookupFunction` has the signature `(header: JWSProtectedHeader, jws: string) => Promise<CryptoKey | JWK | JWKSet | Uint8Array> | CryptoKey | JWK | JWKSet | Uint8Array`.
 - `options` (optional):
   - `algorithms`: An array of allowed JWS `alg` values. If not provided, the `alg` from the JWS header is used.
   - `critical`: An array of JWS header parameter names that the application understands and processes.
