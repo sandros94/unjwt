@@ -153,7 +153,9 @@ export interface JWEDecryptOptions {
 /**
  * Result of a JWE decryption operation.
  */
-export interface JWEDecryptResult<T = JWTClaims | string> {
+export interface JWEDecryptResult<
+  T extends JWTClaims | Uint8Array | string = JWTClaims | Uint8Array | string,
+> {
   /** The decrypted payload. */
   payload: T;
   /** The JWE Protected Header. */

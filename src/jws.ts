@@ -145,7 +145,7 @@ export async function sign(
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
-export async function verify<T = JWTClaims | Uint8Array | string>(
+export async function verify<T extends JWTClaims | Uint8Array | string>(
   jws: string,
   key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
   options?: JWSVerifyOptions,
@@ -155,7 +155,7 @@ export async function verify(
   key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array>>;
-export async function verify<T = JWTClaims | Uint8Array | string>(
+export async function verify<T extends JWTClaims | Uint8Array | string>(
   jws: string,
   key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
   options: JWSVerifyOptions = {},

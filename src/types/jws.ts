@@ -50,7 +50,9 @@ export interface JWSSignOptions {
 }
 
 /** Result of JWS verification */
-export interface JWSVerifyResult<T = JWTClaims | Uint8Array | string> {
+export interface JWSVerifyResult<
+  T extends JWTClaims | Uint8Array | string = JWTClaims | Uint8Array | string,
+> {
   /** The decoded and verified payload. */
   payload: T;
   /** The JWS Protected Header. */

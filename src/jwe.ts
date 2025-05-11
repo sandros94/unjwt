@@ -220,7 +220,7 @@ export async function encrypt(
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-export async function decrypt<T = JWTClaims | string>(
+export async function decrypt<T extends JWTClaims | Uint8Array | string>(
   jwe: string,
   key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
   options?: JWEDecryptOptions,
@@ -232,7 +232,7 @@ export async function decrypt(
     forceUint8Array: true;
   },
 ): Promise<JWEDecryptResult<Uint8Array>>;
-export async function decrypt<T = JWTClaims | string>(
+export async function decrypt<T extends JWTClaims | Uint8Array | string>(
   jwe: string,
   key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
   options?: JWEDecryptOptions,
