@@ -190,10 +190,6 @@ export async function importKey(key: Uint8Array): Promise<Uint8Array>;
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
 export async function importKey(key: JWK_oct): Promise<Uint8Array>;
 export async function importKey(
-  key: Exclude<JWK, JWK_oct>,
-  alg: string,
-): Promise<CryptoKey>;
-export async function importKey(
   key: CryptoKey | JWK | Uint8Array | string,
   alg?: string,
 ): Promise<CryptoKey | Uint8Array>;
@@ -217,12 +213,12 @@ export async function importKey(
     if ("k" in key && typeof key.k === "string") {
       return base64UrlDecode(key.k, false);
     } else {
-      if (!alg) {
+      if (!key.alg && !alg) {
         throw new TypeError(
           "Algorithm must be provided when importing non-oct JWK",
         );
       }
-      return jwkTokey({ ...key, alg });
+      return jwkTokey({ ...key, alg: key.alg || alg });
     }
   }
 

@@ -33,12 +33,12 @@ export * from "./types/jws";
  */
 export async function sign(
   payload: JWTClaims,
-  key: JWK | Uint8Array,
+  key: JWK,
   options?: JWSSignOptions,
 ): Promise<string>;
 export async function sign(
   payload: string | Uint8Array | Record<string, any>,
-  key: JWK | Uint8Array,
+  key: JWK,
   options?: JWSSignOptions,
 ): Promise<string>;
 export async function sign(
@@ -49,6 +49,16 @@ export async function sign(
 export async function sign(
   payload: string | Uint8Array | Record<string, any>,
   key: CryptoKey,
+  options: JWSSignOptions & { alg: JWSAlgorithm },
+): Promise<string>;
+export async function sign(
+  payload: JWTClaims,
+  key: Uint8Array,
+  options: JWSSignOptions & { alg: JWSAlgorithm },
+): Promise<string>;
+export async function sign(
+  payload: string | Uint8Array | Record<string, any>,
+  key: Uint8Array,
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
