@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.5.3
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.2...v0.5.3)
+
+### 🚀 Enhancements
+
+- **jws:** Automatically retrieve correct JWK from JWK Set ([d1274c6](https://github.com/sandros94/unjwt/commit/d1274c6))
+
+### 🩹 Fixes
+
+- `KeyLookupFunction` ([c707ae4](https://github.com/sandros94/unjwt/commit/c707ae4))
+
+### 🏡 Chore
+
+- Apply automated updates ([0130d7e](https://github.com/sandros94/unjwt/commit/0130d7e))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.2
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.1...v0.5.2)
