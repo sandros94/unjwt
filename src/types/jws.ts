@@ -1,5 +1,11 @@
 import type { JoseHeaderParameters, JWTClaims } from "./jwt";
-import type { JWK, JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA } from "./jwk";
+import type {
+  JWK,
+  JWK_HMAC,
+  JWK_RSA_SIGN,
+  JWK_RSA_PSS,
+  JWK_ECDSA,
+} from "./jwk";
 
 type JWS_SIGN_EXTRA = "Ed25519" | "EdDSA";
 /** JWS Signing Algorithm Identifier. */
