@@ -51,12 +51,10 @@ export function base64Decode(
   }
 
   // @ts-expect-error check if fromBase64 is available
-  if (Uint8Array.fromBase64) {
+  const data: Uint8Array = Uint8Array.fromBase64
     // @ts-expect-error
-    return Uint8Array.fromBase64(str);
-  }
-
-  const data = Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
+    ? Uint8Array.fromBase64(str)
+    : Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
 
   return decodeToString ? textDecoder.decode(data) : data;
 }
@@ -77,15 +75,17 @@ export function base64UrlDecode(
     return decodeToString ? "" : new Uint8Array(0);
   }
 
+  let data: Uint8Array;
+
   // @ts-expect-error check if fromBase64 is available
   if (Uint8Array.fromBase64) {
     // @ts-expect-error
-    return Uint8Array.fromBase64(str, { alphabet: "base64url" });
+    data = Uint8Array.fromBase64(str, { alphabet: "base64url" });
+  } else {
+    str = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (str.length % 4) str += "=";
+    data = Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
   }
-
-  str = str.replace(/-/g, "+").replace(/_/g, "/");
-  while (str.length % 4) str += "=";
-  const data = Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
 
   return decodeToString ? textDecoder.decode(data) : data;
 }
