@@ -97,6 +97,8 @@ import {
 } from "https://esm.sh/unjwt/utils";
 ```
 
+---
+
 ### JWS (JSON Web Signature, [RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515))
 
 Functions to sign and verify data according to the JWS specification.
@@ -190,6 +192,8 @@ const keyLookup = async (header) => {
 const { payload } = await verify(token, keyLookup, { algorithms: ["RS256"] });
 console.log(payload); // { userId: 123, permissions: ["read"] }
 ```
+
+---
 
 ### JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516))
 
@@ -292,6 +296,8 @@ async function decryptData(jweToken: string, kek: CryptoKey) {
   }
 }
 ```
+
+---
 
 ### JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517))
 
@@ -590,6 +596,8 @@ console.log(rsaPublicSpki);
 // MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQE...
 // -----END PUBLIC KEY-----
 ```
+
+---
 
 ### Utility Functions
 
