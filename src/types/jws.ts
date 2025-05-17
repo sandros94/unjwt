@@ -68,9 +68,6 @@ export interface JWSVerifyOptions {
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
   forceUint8Array?: boolean;
 
-  /** List of critical header parameters that must be understood and processed. */
-  requiredHeaders?: string[];
-
   /**
    * Expected JWT "aud" (Audience) Claim value(s).
    *
@@ -116,6 +113,9 @@ export interface JWSVerifyOptions {
 
   /** Date to use when comparing NumericDate claims, defaults to `new Date()`. */
   currentDate?: Date;
+
+  /** List of critical header parameters that must be understood and processed. */
+  requiredHeaders?: string[];
 
   /**
    * Array of required Claim Names that must be present in the JWT Claims Set. Default is that: if
