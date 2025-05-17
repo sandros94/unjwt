@@ -121,6 +121,60 @@ describe.concurrent("JWS Utilities", () => {
       expect(header.typ).toBe("custom"); // Overrides default
     });
 
+    it("should include computed `exp`", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const jws = await sign(payloadObj, key, {
+        expiresIn: 60, // 1 minute expiration
+      });
+      const [headerEncoded, payloadEncoded] = jws.split(".");
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      expect(header.alg).toBe("HS256");
+      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      expect(payload.iat).toBeDefined();
+      expect(payload.exp).toBeDefined();
+    });
+
+    it("should include computed `exp` and throw because it is expired", async () => {
+      const date = new Date();
+      const iat = Math.floor(date.getTime() / 1000) - 60 * 2; // 2 minutes ago
+      const key = await generateKey("HS256", { toJWK: true });
+      const jws = await sign(
+        {
+          ...payloadObj,
+          iat,
+        },
+        key,
+        {
+          expiresIn: 60, // 1 minute expiration
+        },
+      );
+      const [headerEncoded, payloadEncoded] = jws.split(".");
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      expect(header.alg).toBe("HS256");
+      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      expect(payload.iat).toEqual(iat);
+      expect(payload.exp).toEqual(iat + 60);
+
+      await expect(
+        verify(jws, key, {
+          currentDate: date,
+        }),
+      ).rejects.toThrow(
+        `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date((iat + 60) * 1000).toISOString()})`,
+      );
+    });
+
+    it("should not include computed `exp`", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const jws = await sign(payloadString, key, {
+        expiresIn: 60, // 1 minute expiration
+      });
+      const [headerEncoded, payload] = jws.split(".");
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      expect(header.alg).toBe("HS256");
+      expect(base64UrlDecode(payload)).toEqual(payloadString);
+    });
+
     it("should throw if alg is missing", async () => {
       const key = await generateKey("HS256");
       await expect(sign(payloadObj, key, {} as any)).rejects.toThrow(

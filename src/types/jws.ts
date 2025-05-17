@@ -42,11 +42,20 @@ export interface JWSProtectedHeader extends JWSHeaderParameters {
 export interface JWSSignOptions {
   /** The JWS Algorithm to use. Must be provided. */
   alg?: JWSAlgorithm;
+
   /**
    * Additional protected header parameters. `alg` is automatically included.
    * `typ` defaults to "JWT" if not provided.
    */
   protectedHeader?: JWSHeaderParameters;
+
+  /** Date to use when comparing NumericDate claims, defaults to `new Date()`. */
+  currentDate?: Date;
+
+  /**
+   * Time at which the JWS should expire, if no `exp` was already provided.
+   */
+  expiresIn?: number;
 }
 
 /** Result of JWS verification */

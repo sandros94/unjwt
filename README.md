@@ -112,6 +112,8 @@ Creates a JWS token.
 - `options`:
   - `alg`: (Required) The JWS algorithm (e.g., `"HS256"`, `"RS256"`, `"ES256"`, `"PS256"`).
   - `protectedHeader`: An object for additional JWS Protected Header parameters (e.g., `kid`, `typ`, `cty`, `crit`, `b64`). If `payload` is an object and `typ` is not set, it defaults to `"JWT"`. The `b64` parameter ([RFC7797 section-3](https://datatracker.ietf.org/doc/html/rfc7797#section-3)) controls payload encoding (defaults to `true`, meaning Base64URL encoded).
+  - `expiresIn`: Sets an expiration time in seconds (e.g., `3600` for 1 hour). If `iat` is missing it will be set to the current time. If `exp` is missing it will be set to `iat + expiresIn`. This is only applied if `payload` is a JWT.
+  - `currentDate`: The current date for computing `expiresIn` option. Defaults to `new Date()`.
 
 Returns a `Promise<string>` resolving to the JWS token in Compact Serialization format.
 

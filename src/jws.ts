@@ -111,10 +111,28 @@ export async function sign(
     delete protectedHeader.b64;
   }
 
+  // 3. Calculate expiresIn for JWT
+  let computedPayload: JWTClaims | undefined = undefined;
+  if (
+    options.expiresIn !== undefined &&
+    protectedHeader.typ === "JWT" &&
+    typeof payload === "object" &&
+    !(payload instanceof Uint8Array) &&
+    !payload.exp
+  ) {
+    computedPayload = { ...payload };
+    const currentTime = Math.round(
+      (options.currentDate ?? new Date()).getTime() / 1000,
+    );
+    const iat = typeof payload.iat === "number" ? payload.iat : currentTime;
+    computedPayload.iat = iat;
+    computedPayload.exp = iat + options.expiresIn;
+  }
+
   const protectedHeaderString = JSON.stringify(protectedHeader);
   const protectedHeaderEncoded = base64UrlEncode(protectedHeaderString);
 
-  // 3. Prepare Payload
+  // 4. Prepare Payload
   let payloadBytes: Uint8Array;
   if (payload instanceof Uint8Array) {
     payloadBytes = payload;
@@ -122,28 +140,30 @@ export async function sign(
     // Handle string payload
     payloadBytes = textEncoder.encode(payload);
   } else if (typeof payload === "object" && payload !== null) {
-    payloadBytes = textEncoder.encode(JSON.stringify(payload));
+    payloadBytes = textEncoder.encode(
+      JSON.stringify(computedPayload || payload),
+    );
   } else {
     throw new TypeError(
       "Payload must be a string, Uint8Array, or a JSON-serializable object.",
     );
   }
 
-  // 4. Encode Payload (conditionally based on b64 header)
+  // 5. Encode Payload (conditionally based on b64 header)
   const useB64 = protectedHeader.b64 !== false;
   const payloadEncoded = useB64
     ? base64UrlEncode(payloadBytes)
     : textDecoder.decode(payloadBytes);
 
-  // 5. Construct Signing Input
+  // 6. Construct Signing Input
   const signingInputString = `${protectedHeaderEncoded}.${payloadEncoded}`;
   const signingInputBytes = textEncoder.encode(signingInputString);
 
-  // 6. Sign
+  // 7. Sign
   const signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
   const signatureEncoded = base64UrlEncode(signatureBytes);
 
-  // 7. Assemble JWS Compact Serialization
+  // 8. Assemble JWS Compact Serialization
   return `${signingInputString}.${signatureEncoded}`;
 }
 
@@ -339,9 +359,10 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
   // 10. JWT Claim Validations (if applicable)
   if (payload && typeof payload === "object" && !options.forceUint8Array) {
     const jwtClaims = payload as JWTClaims;
-    const clockTolerance = (options.clockTolerance ?? 0) * 1000; // in milliseconds
-    const currentDate = options.currentDate ?? new Date();
-    const currentTime = currentDate.getTime();
+    const clockTolerance = options.clockTolerance ?? 0; // in seconds
+    const currentTime = Math.round(
+      (options.currentDate ?? new Date()).getTime() / 1000,
+    );
 
     const allRequiredClaims = new Set<string>(options.requiredClaims || []);
     const missingClaims = new Set<string>();
@@ -389,7 +410,7 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
 
     if (
       typeof jwtClaims.nbf === "number" &&
-      jwtClaims.nbf * 1000 > currentTime + clockTolerance
+      jwtClaims.nbf > currentTime + clockTolerance
     ) {
       throw new Error(
         `JWT "nbf" (Not Before) Claim validation failed: Token is not yet valid (nbf: ${new Date(jwtClaims.nbf * 1000).toISOString()})`,
@@ -398,7 +419,7 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
 
     if (
       typeof jwtClaims.exp === "number" &&
-      jwtClaims.exp * 1000 <= currentTime - clockTolerance
+      jwtClaims.exp <= currentTime - clockTolerance
     ) {
       throw new Error(
         `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(jwtClaims.exp * 1000).toISOString()})`,
@@ -412,15 +433,12 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
         );
       }
       // iat must not be in the future (beyond clock tolerance)
-      if (jwtClaims.iat * 1000 > currentTime + clockTolerance) {
+      if (jwtClaims.iat > currentTime + clockTolerance) {
         throw new Error(
           `JWT "iat" (Issued At) Claim validation failed: Token was issued in the future (iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
         );
       }
-      if (
-        jwtClaims.iat * 1000 <
-        currentTime - options.maxTokenAge * 1000 - clockTolerance
-      ) {
+      if (jwtClaims.iat < currentTime - options.maxTokenAge - clockTolerance) {
         throw new Error(
           `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}s, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
         );
