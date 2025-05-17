@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.6
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.5...v0.5.6)
+
+### 🚀 Enhancements
+
+- **JWS:** `expiresIn` sign option ([481edc6](https://github.com/sandros94/unjwt/commit/481edc6))
+
+### 🩹 Fixes
+
+- **JWS:** Missing key length validation ([1501793](https://github.com/sandros94/unjwt/commit/1501793))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.5
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.4...v0.5.5)
