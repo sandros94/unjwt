@@ -82,7 +82,8 @@ export async function sign(
     }
   }
 
-  // 1. Import Key
+  // 1. Validate and import Key
+  validateKeyLength(key, alg);
   const signingKey = await importKey(key as any, alg);
 
   // 2. Construct Protected Header
@@ -431,4 +432,31 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
     payload,
     protectedHeader,
   };
+}
+
+function validateKeyLength(
+  key: JWK | CryptoKey | Uint8Array,
+  alg?: string,
+): void {
+  if (!alg || isJWK(key)) return;
+
+  if (alg.startsWith("HS") && key instanceof Uint8Array) {
+    const algLength = Number.parseInt(alg.slice(2)) / 8; // in bytes
+
+    if (key.length < algLength) {
+      throw new TypeError(
+        `${alg} requires key length to be ${algLength} bytes or larger`,
+      );
+    }
+  } else if (
+    (alg.startsWith("RS") || alg.startsWith("PS")) &&
+    key instanceof CryptoKey
+  ) {
+    const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
+    if (typeof modulusLength !== "number" || modulusLength < 2048) {
+      throw new TypeError(
+        `${alg} requires key modulusLength to be 2048 bits or larger`,
+      );
+    }
+  }
 }

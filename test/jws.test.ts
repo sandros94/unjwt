@@ -128,6 +128,28 @@ describe.concurrent("JWS Utilities", () => {
       );
     });
 
+    it("should throw on Uint8Array key too small", async () => {
+      await expect(
+        sign(payloadObj, textEncoder.encode("small-key"), {
+          alg: "HS256",
+        }),
+      ).rejects.toThrow("HS256 requires key length to be 32 bytes or larger");
+    });
+
+    it("should throw on RS CryptoKey too small", async () => {
+      const invalidRSKey = await generateKey("RS256", {
+        modulusLength: 1024,
+      });
+
+      await expect(
+        sign(payloadObj, invalidRSKey.privateKey, {
+          alg: "RS256",
+        }),
+      ).rejects.toThrow(
+        "RS256 requires key modulusLength to be 2048 bits or larger",
+      );
+    });
+
     it("should throw for invalid payload type", async () => {
       const key = await generateKey("HS256");
       await expect(sign(12_345 as any, key, { alg: "HS256" })).rejects.toThrow(
