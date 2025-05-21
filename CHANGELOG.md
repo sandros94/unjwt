@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.8
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.7...v0.5.8)
+
+### 🩹 Fixes
+
+- **JWS:** Simplify iat assignment and ensure exp calculation uses current time ([7abdf5f](https://github.com/sandros94/unjwt/commit/7abdf5f))
+
+### ✅ Tests
+
+- **JWS:** Update tests to handle undefined iat and exp values ([d763152](https://github.com/sandros94/unjwt/commit/d763152))
+- **JWS:** Improve expiration validation tests ([b58cd80](https://github.com/sandros94/unjwt/commit/b58cd80))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.7
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.6...v0.5.7)
