@@ -357,7 +357,12 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
   }
 
   // 10. JWT Claim Validations (if applicable)
-  if (payload && typeof payload === "object" && !options.forceUint8Array) {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    protectedHeader.typ === "JWT" &&
+    !options.forceUint8Array
+  ) {
     const jwtClaims = payload as JWTClaims;
     const clockTolerance = options.clockTolerance ?? 0; // in seconds
     const currentTime = Math.round(
