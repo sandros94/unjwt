@@ -123,17 +123,9 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should include computed `exp`", async () => {
       const key = await generateKey("HS256", { toJWK: true });
-      const jws = await sign(
-        {
-          sub: "1234567890",
-          name: "John Doe",
-          iat: undefined,
-        },
-        key,
-        {
-          expiresIn: 60, // 1 minute expiration
-        },
-      );
+      const jws = await sign({ ...payloadObj, iat: undefined }, key, {
+        expiresIn: 60, // 1 minute expiration
+      });
       const [headerEncoded, payloadEncoded] = jws.split(".");
       const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
@@ -148,14 +140,13 @@ describe.concurrent("JWS Utilities", () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign(
         {
-          sub: "1234567890",
-          name: "John Doe",
+          ...payloadObj,
           exp: undefined,
           iat,
         },
         key,
         {
-          // currentDate is 2 minutes in the past for testing purposes
+          // setting `currentDate` 2 minutes in the past for testing purposes
           currentDate: new Date(date.getTime() - 60 * 2 * 1000),
           expiresIn: 60, // 1 minute expiration
         },
@@ -165,14 +156,14 @@ describe.concurrent("JWS Utilities", () => {
       expect(header.alg).toBe("HS256");
       const payload = JSON.parse(base64UrlDecode(payloadEncoded));
       expect(payload.iat).toEqual(iat);
-      expect(payload.exp).toBeGreaterThanOrEqual(iat + 60);
+      expect(payload.exp).toEqual(Math.round(date.getTime() / 1000) - 60); // expired 1 minute ago
 
       await expect(
         verify(jws, key, {
           currentDate: date,
         }),
       ).rejects.toThrow(
-        `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date((iat + 60) * 1000).toISOString()})`,
+        `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(payload.exp * 1000).toISOString()})`,
       );
     });
 
