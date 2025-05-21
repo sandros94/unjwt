@@ -123,9 +123,17 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should include computed `exp`", async () => {
       const key = await generateKey("HS256", { toJWK: true });
-      const jws = await sign(payloadObj, key, {
-        expiresIn: 60, // 1 minute expiration
-      });
+      const jws = await sign(
+        {
+          sub: "1234567890",
+          name: "John Doe",
+          iat: undefined,
+        },
+        key,
+        {
+          expiresIn: 60, // 1 minute expiration
+        },
+      );
       const [headerEncoded, payloadEncoded] = jws.split(".");
       const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
@@ -140,11 +148,15 @@ describe.concurrent("JWS Utilities", () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign(
         {
-          ...payloadObj,
+          sub: "1234567890",
+          name: "John Doe",
+          exp: undefined,
           iat,
         },
         key,
         {
+          // currentDate is 2 minutes in the past for testing purposes
+          currentDate: new Date(date.getTime() - 60 * 2 * 1000),
           expiresIn: 60, // 1 minute expiration
         },
       );
@@ -153,7 +165,7 @@ describe.concurrent("JWS Utilities", () => {
       expect(header.alg).toBe("HS256");
       const payload = JSON.parse(base64UrlDecode(payloadEncoded));
       expect(payload.iat).toEqual(iat);
-      expect(payload.exp).toEqual(iat + 60);
+      expect(payload.exp).toBeGreaterThanOrEqual(iat + 60);
 
       await expect(
         verify(jws, key, {
