@@ -121,12 +121,11 @@ export async function sign(
     !payload.exp
   ) {
     computedPayload = { ...payload };
-    const iat =
-      typeof payload.iat === "number"
-        ? payload.iat
-        : Math.round((options.currentDate ?? new Date()).getTime() / 1000);
-    computedPayload.iat = iat;
-    computedPayload.exp = iat + options.expiresIn;
+    const currentTime = Math.round(
+      (options.currentDate ?? new Date()).getTime() / 1000,
+    );
+    computedPayload.iat ||= currentTime;
+    computedPayload.exp = currentTime + options.expiresIn;
   }
 
   const protectedHeaderString = JSON.stringify(protectedHeader);
