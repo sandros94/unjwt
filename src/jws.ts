@@ -121,10 +121,10 @@ export async function sign(
     !payload.exp
   ) {
     computedPayload = { ...payload };
-    const currentTime = Math.round(
-      (options.currentDate ?? new Date()).getTime() / 1000,
-    );
-    const iat = typeof payload.iat === "number" ? payload.iat : currentTime;
+    const iat =
+      typeof payload.iat === "number"
+        ? payload.iat
+        : Math.round((options.currentDate ?? new Date()).getTime() / 1000);
     computedPayload.iat = iat;
     computedPayload.exp = iat + options.expiresIn;
   }
