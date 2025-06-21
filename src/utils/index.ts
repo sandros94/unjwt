@@ -3,7 +3,7 @@ import type { JWK, JWKSet } from "../types";
 export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
 
-/* Base64 URL encoding function */
+/* Base64 encoding function */
 export function base64Encode(data: Uint8Array | string): string {
   const encodedData =
     data instanceof Uint8Array ? data : textEncoder.encode(data);
@@ -34,7 +34,7 @@ export function base64UrlEncode(data: Uint8Array | string): string {
     .replace(/=/g, "");
 }
 
-/* Base64 URL decoding function */
+/* Base64 decoding function */
 export function base64Decode(str: string | undefined): string;
 export function base64Decode<T extends boolean | undefined>(
   str?: string | undefined,
