@@ -89,6 +89,9 @@ export async function sign(
   // 2. Construct Protected Header
   const protectedHeader: JWSProtectedHeader = {
     ...additionalProtectedHeader,
+    ...(isJWK(key) && key.kid
+      ? { kid: additionalProtectedHeader?.kid || key.kid }
+      : {}), // Include kid if available
     alg: alg,
     typ:
       additionalProtectedHeader?.typ ??

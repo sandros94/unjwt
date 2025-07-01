@@ -364,6 +364,15 @@ describe.concurrent("JWS Utilities", () => {
       expect(payload).toEqual(payloadObj);
     });
 
+    it("should verify with JWK known in the keyset", async () => {
+      const rsPrKey = await exportKey(rs256KeyPair.privateKey, { kid: "key1" });
+      const jws = await sign(payloadObj, rsPrKey);
+
+      const { protectedHeader, payload } = await verify(jws, jwkSet);
+      expect(protectedHeader.kid).toBe("key1");
+      expect(payload).toEqual(payloadObj);
+    });
+
     it("should verify with sync key lookup function", async () => {
       const jws = await sign(payloadObj, hs256Key, {
         alg: "HS256",
