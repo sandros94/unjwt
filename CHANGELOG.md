@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.9
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.8...v0.5.9)
+
+### 🩹 Fixes
+
+- **JWS:** Automatically include `kid` if available in the signing JWK ([889cacb](https://github.com/sandros94/unjwt/commit/889cacb))
+
+### 🏡 Chore
+
+- Remove `.d.ts` files from final build ([9e0ca26](https://github.com/sandros94/unjwt/commit/9e0ca26))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.8
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.7...v0.5.8)
