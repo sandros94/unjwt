@@ -10,13 +10,19 @@ import { encrypt, decrypt } from "./encrypt-decrypt";
 
 export async function encryptIV(
   alg: string,
-  key: unknown,
-  cek: Uint8Array<ArrayBuffer>,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  plaintext: Uint8Array<ArrayBuffer>,
   iv?: Uint8Array<ArrayBuffer>,
 ) {
   const jweAlgorithm = alg.slice(0, 7);
 
-  const wrapped = await encrypt(jweAlgorithm, cek, key, iv, new Uint8Array(0));
+  const wrapped = await encrypt(
+    jweAlgorithm,
+    plaintext,
+    key,
+    iv,
+    new Uint8Array(0),
+  );
 
   return {
     encryptedKey: wrapped.ciphertext,
@@ -27,11 +33,11 @@ export async function encryptIV(
 
 export async function decryptIV(
   alg: string,
-  key: unknown,
-  encryptedKey: Uint8Array<ArrayBuffer>,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  ciphertext: Uint8Array<ArrayBuffer>,
   iv: Uint8Array<ArrayBuffer>,
   tag: Uint8Array<ArrayBuffer>,
 ) {
   const jweAlgorithm = alg.slice(0, 7);
-  return decrypt(jweAlgorithm, key, encryptedKey, iv, tag, new Uint8Array(0));
+  return decrypt(jweAlgorithm, key, ciphertext, iv, tag, new Uint8Array(0));
 }
