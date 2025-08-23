@@ -267,11 +267,9 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (Uint8Array payload)", async () => {
       const jws = await sign(payloadBytes, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<Uint8Array<ArrayBuffer>>(
-        jws,
-        hs256Key,
-        { forceUint8Array: true },
-      );
+      const { payload, protectedHeader } = await verify<
+        Uint8Array<ArrayBuffer>
+      >(jws, hs256Key, { forceUint8Array: true });
       expect(payload).toBeInstanceOf(Uint8Array);
       expect(payload).toEqual(payloadBytes);
       expect(protectedHeader.alg).toBe("HS256");
@@ -343,11 +341,9 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { b64: false },
       });
-      const { payload, protectedHeader } = await verify<Uint8Array<ArrayBuffer>>(
-        jws,
-        hs256Key,
-        { forceUint8Array: true },
-      );
+      const { payload, protectedHeader } = await verify<
+        Uint8Array<ArrayBuffer>
+      >(jws, hs256Key, { forceUint8Array: true });
       expect(protectedHeader.b64).toBe(false);
       expect(protectedHeader.alg).toBe("HS256");
       expect(payload).toBeInstanceOf(Uint8Array);

@@ -186,7 +186,9 @@ export async function deriveKeyFromPassword(
  * @returns A Promise resolving to the imported key as CryptoKey or Uint8Array.
  */
 export async function importKey(key: string): Promise<Uint8Array<ArrayBuffer>>;
-export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>>;
+export async function importKey(
+  key: Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
 export async function importKey(key: JWK_oct): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(

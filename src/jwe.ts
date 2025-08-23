@@ -220,21 +220,40 @@ export async function encrypt(
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function decrypt<
+  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
+>(
   jwe: string,
-  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookupFunction,
+  key:
+    | CryptoKey
+    | JWK
+    | string
+    | Uint8Array<ArrayBuffer>
+    | JWEKeyLookupFunction,
   options?: JWEDecryptOptions,
 ): Promise<JWEDecryptResult<T>>;
 export async function decrypt(
   jwe: string,
-  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookupFunction,
+  key:
+    | CryptoKey
+    | JWK
+    | string
+    | Uint8Array<ArrayBuffer>
+    | JWEKeyLookupFunction,
   options: JWEDecryptOptions & {
     forceUint8Array: true;
   },
 ): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function decrypt<
+  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
+>(
   jwe: string,
-  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookupFunction,
+  key:
+    | CryptoKey
+    | JWK
+    | string
+    | Uint8Array<ArrayBuffer>
+    | JWEKeyLookupFunction,
   options?: JWEDecryptOptions,
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");

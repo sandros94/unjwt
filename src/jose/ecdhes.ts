@@ -6,7 +6,11 @@ function lengthAndInput(input: Uint8Array<ArrayBuffer>) {
   return concatUint8Arrays(uint32be(input.length), input);
 }
 
-async function concatKdf(secret: Uint8Array<ArrayBuffer>, bits: number, value: Uint8Array<ArrayBuffer>) {
+async function concatKdf(
+  secret: Uint8Array<ArrayBuffer>,
+  bits: number,
+  value: Uint8Array<ArrayBuffer>,
+) {
   const iterations = Math.ceil((bits >> 3) / 32);
   const res = new Uint8Array(iterations * 32);
   for (let iter = 0; iter < iterations; iter++) {

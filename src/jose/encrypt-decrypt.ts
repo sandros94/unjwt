@@ -150,7 +150,10 @@ export async function encrypt(
  * Decrypt fork
  */
 
-async function timingSafeEqual(a: Uint8Array<ArrayBuffer>, b: Uint8Array<ArrayBuffer>): Promise<boolean> {
+async function timingSafeEqual(
+  a: Uint8Array<ArrayBuffer>,
+  b: Uint8Array<ArrayBuffer>,
+): Promise<boolean> {
   if (!(a instanceof Uint8Array)) {
     throw new TypeError("First argument must be a buffer");
   }

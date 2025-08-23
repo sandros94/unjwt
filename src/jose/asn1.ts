@@ -51,7 +51,11 @@ export const toPKCS8 = (key: unknown): Promise<string> => {
   return genericExport("private", "pkcs8", key);
 };
 
-const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: number[], from = 0): boolean => {
+const findOid = (
+  keyData: Uint8Array<ArrayBuffer>,
+  oid: number[],
+  from = 0,
+): boolean => {
   if (from === 0) {
     oid.unshift(oid.length);
     oid.unshift(0x06);
@@ -66,7 +70,9 @@ const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: number[], from = 0): boo
   );
 };
 
-const getNamedCurve = (keyData: Uint8Array<ArrayBuffer>): string | undefined => {
+const getNamedCurve = (
+  keyData: Uint8Array<ArrayBuffer>,
+): string | undefined => {
   switch (true) {
     case findOid(keyData, [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]): {
       return "P-256";

@@ -18,7 +18,9 @@ export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
 }
 
 /* Base64 URL encoding function */
-export function base64UrlEncode(data: Uint8Array<ArrayBuffer> | string): string {
+export function base64UrlEncode(
+  data: Uint8Array<ArrayBuffer> | string,
+): string {
   const encodedData =
     data instanceof Uint8Array ? data : textEncoder.encode(data);
 

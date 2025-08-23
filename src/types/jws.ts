@@ -60,7 +60,10 @@ export interface JWSSignOptions {
 
 /** Result of JWS verification */
 export interface JWSVerifyResult<
-  T extends JWTClaims | Uint8Array<ArrayBuffer> | string = JWTClaims | Uint8Array<ArrayBuffer> | string,
+  T extends JWTClaims | Uint8Array<ArrayBuffer> | string =
+    | JWTClaims
+    | Uint8Array<ArrayBuffer>
+    | string,
 > {
   /** The decoded and verified payload. */
   payload: T;

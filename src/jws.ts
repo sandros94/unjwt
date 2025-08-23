@@ -178,19 +178,38 @@ export async function sign(
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
-export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function verify<
+  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
+>(
   jws: string,
-  key: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | JWSKeyLookupFunction,
+  key:
+    | CryptoKey
+    | JWK
+    | JWKSet
+    | Uint8Array<ArrayBuffer>
+    | JWSKeyLookupFunction,
   options?: JWSVerifyOptions,
 ): Promise<JWSVerifyResult<T>>;
 export async function verify(
   jws: string,
-  key: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | JWSKeyLookupFunction,
+  key:
+    | CryptoKey
+    | JWK
+    | JWKSet
+    | Uint8Array<ArrayBuffer>
+    | JWSKeyLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
-export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function verify<
+  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
+>(
   jws: string,
-  key: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | JWSKeyLookupFunction,
+  key:
+    | CryptoKey
+    | JWK
+    | JWKSet
+    | Uint8Array<ArrayBuffer>
+    | JWSKeyLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   // 1. Parse JWS
@@ -248,7 +267,9 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   // 5. Obtain and Import Key
   const keyInput: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> =
     typeof key === "function" ? await key(protectedHeader, jws) : key;
-  const resolvedKey: CryptoKey | JWK | Uint8Array<ArrayBuffer> = isJWKSet(keyInput)
+  const resolvedKey: CryptoKey | JWK | Uint8Array<ArrayBuffer> = isJWKSet(
+    keyInput,
+  )
     ? getJWKFromSet(keyInput, protectedHeader)
     : keyInput;
 
