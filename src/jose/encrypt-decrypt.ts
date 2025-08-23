@@ -103,7 +103,7 @@ async function gcmEncrypt(
 export async function encrypt(
   enc: string,
   plaintext: Uint8Array<ArrayBuffer>,
-  cek: unknown,
+  cek: Uint8Array<ArrayBuffer> | CryptoKey,
   iv: Uint8Array<ArrayBuffer> | undefined,
   aad: Uint8Array<ArrayBuffer>,
 ): Promise<{
@@ -113,7 +113,7 @@ export async function encrypt(
 }> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
     throw new TypeError(
-      `Key must be ${cek} one of type: CryptoKey, Uint8Array, or JSON Web Key`,
+      `Key must be ${cek} one of type: CryptoKey or Uint8Array`,
     );
   }
 
@@ -281,7 +281,7 @@ async function gcmDecrypt(
 
 export async function decrypt(
   enc: string,
-  cek: unknown,
+  cek: Uint8Array<ArrayBuffer> | CryptoKey,
   ciphertext: Uint8Array<ArrayBuffer>,
   iv: Uint8Array<ArrayBuffer> | undefined,
   tag: Uint8Array<ArrayBuffer> | undefined,
@@ -289,7 +289,7 @@ export async function decrypt(
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
     throw new TypeError(
-      `Key must be ${cek} one of type: CryptoKey, Uint8Array, or JSON Web Key`,
+      `Key must be ${cek} one of type: CryptoKey or Uint8Array`,
     );
   }
 

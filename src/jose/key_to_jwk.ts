@@ -9,7 +9,9 @@
 import type { JWK } from "../types";
 import { base64UrlEncode, isCryptoKey } from "../utils";
 
-export async function keyToJWK(key: unknown): Promise<JWK> {
+export async function keyToJWK(
+  key: Uint8Array<ArrayBuffer> | CryptoKey,
+): Promise<JWK> {
   if (key instanceof Uint8Array) {
     return {
       kty: "oct",
