@@ -235,11 +235,11 @@ export async function importKey(
  * @param jwk Optional partial JWK to merge with the exported key, allowing overrides.
  * @returns A Promise resolving to the exported JWK.
  */
-export async function exportKey(
+export async function exportKey<T extends JWK>(
   key: CryptoKey,
   jwk?: Partial<JWK>,
-): Promise<JWK> {
-  const exportedJwk = await keyToJWK(key);
+): Promise<T> {
+  const exportedJwk = await keyToJWK<T>(key);
 
   // Merge the optional jwk properties
   if (jwk) {
@@ -537,13 +537,13 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
  * @param jwkExtras Additional properties to merge into the resulting JWK.
  * @returns A Promise resolving to the imported key as a JWK.
  */
-export async function importJWKFromPEM(
+export async function importJWKFromPEM<T extends JWK>(
   pem: string,
   pemType: "pkcs8" | "spki" | "x509",
   alg: JWKPEMAlgorithm,
   importOptions?: KeyImportOptions,
   jwkExtras?: Partial<JWK>,
-): Promise<JWK> {
+): Promise<T> {
   let cryptoKey: CryptoKey;
   const defaultExtractable = importOptions?.extractable !== false; // Default true
 

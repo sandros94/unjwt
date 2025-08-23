@@ -9,14 +9,14 @@
 import type { JWK } from "../types";
 import { base64UrlEncode, isCryptoKey } from "../utils";
 
-export async function keyToJWK(
+export async function keyToJWK<T extends JWK>(
   key: Uint8Array<ArrayBuffer> | CryptoKey,
-): Promise<JWK> {
+): Promise<T> {
   if (key instanceof Uint8Array) {
     return {
       kty: "oct",
       k: base64UrlEncode(key),
-    };
+    } as T;
   }
   if (!isCryptoKey(key)) {
     throw new TypeError(
@@ -30,5 +30,5 @@ export async function keyToJWK(
   }
   const jwk = await crypto.subtle.exportKey("jwk", key);
 
-  return jwk as JWK;
+  return jwk as T;
 }
