@@ -59,7 +59,7 @@ export async function generateKey(
 ): Promise<
   | CryptoKey
   | CryptoKeyPair
-  | Uint8Array
+  | Uint8Array<ArrayBuffer>
   | JWK
   | { privateKey: JWK; publicKey: JWK }
 > {
@@ -76,10 +76,10 @@ export async function generateKey(
     const keyBytes = randomBytes(keyLength >> 3);
 
     if (exportToJWK) {
-      // Use keyToJWK which handles Uint8Array to JWK_oct
+      // Use keyToJWK which handles Uint8Array<ArrayBuffer> to JWK_oct
       return keyToJWK(keyBytes); // Returns JWK_oct
     }
-    return keyBytes; // Returns Uint8Array
+    return keyBytes; // Returns Uint8Array<ArrayBuffer>
   }
 
   // For other algorithms, use crypto.subtle.generateKey
@@ -120,12 +120,12 @@ export async function deriveKeyFromPassword<
   TAlg extends JWK_PBES2,
   TOptions extends DeriveKeyOptions,
 >(
-  password: string | Uint8Array,
+  password: string | Uint8Array<ArrayBuffer>,
   alg: TAlg,
   options: TOptions,
 ): Promise<DeriveKeyReturn<TOptions>>;
 export async function deriveKeyFromPassword(
-  password: string | Uint8Array,
+  password: string | Uint8Array<ArrayBuffer>,
   alg: JWK_PBES2,
   options: DeriveKeyOptions,
 ): Promise<CryptoKey | JWK_oct> {
@@ -185,18 +185,18 @@ export async function deriveKeyFromPassword(
  * @param alg The algorithm hint, required when importing asymmetric JWKs.
  * @returns A Promise resolving to the imported key as CryptoKey or Uint8Array.
  */
-export async function importKey(key: string): Promise<Uint8Array>;
-export async function importKey(key: Uint8Array): Promise<Uint8Array>;
+export async function importKey(key: string): Promise<Uint8Array<ArrayBuffer>>;
+export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
-export async function importKey(key: JWK_oct): Promise<Uint8Array>;
+export async function importKey(key: JWK_oct): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(
-  key: CryptoKey | JWK | Uint8Array | string,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
   alg?: string,
-): Promise<CryptoKey | Uint8Array>;
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
 export async function importKey(
-  key: CryptoKey | JWK | Uint8Array | string,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
   alg?: string,
-): Promise<CryptoKey | Uint8Array> {
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
   if (typeof key === "string") {
     key = textEncoder.encode(key);
   }
@@ -258,8 +258,8 @@ export async function exportKey(
  */
 export async function wrapKey(
   alg: KeyManagementAlgorithm,
-  keyToWrap: CryptoKey | Uint8Array,
-  wrappingKey: CryptoKey | JWK | string | Uint8Array,
+  keyToWrap: CryptoKey | Uint8Array<ArrayBuffer>,
+  wrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: WrapKeyOptions = {},
 ): Promise<WrapKeyResult> {
   const cekBytes =
@@ -267,7 +267,7 @@ export async function wrapKey(
       ? keyToWrap
       : new Uint8Array(await crypto.subtle.exportKey("raw", keyToWrap));
 
-  let importedWrappingKey: CryptoKey | Uint8Array;
+  let importedWrappingKey: CryptoKey | Uint8Array<ArrayBuffer>;
   const isPbes = alg.startsWith("PBES2");
   const isAesKw = ["A128KW", "A192KW", "A256KW"].includes(alg);
 
@@ -375,14 +375,14 @@ export async function wrapKey(
  */
 export async function unwrapKey<T extends boolean | undefined = undefined>(
   alg: KeyManagementAlgorithm,
-  wrappedKey: Uint8Array,
-  unwrappingKey: CryptoKey | JWK | string | Uint8Array,
+  wrappedKey: Uint8Array<ArrayBuffer>,
+  unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: UnwrapKeyOptions & { returnAs?: T } = {},
-): Promise<T extends false ? Uint8Array : CryptoKey> {
+): Promise<T extends false ? Uint8Array<ArrayBuffer> : CryptoKey> {
   const { returnAs = true } = options; // Default to returning CryptoKey
   const defaultExtractable = options.extractable !== false; // Default true
 
-  let importedUnwrappingKey: CryptoKey | Uint8Array;
+  let importedUnwrappingKey: CryptoKey | Uint8Array<ArrayBuffer>;
   const isPbes = alg.startsWith("PBES2");
   const isAesKw = ["A128KW", "A192KW", "A256KW"].includes(alg);
 
@@ -413,7 +413,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     importedUnwrappingKey = await importKey(unwrappingKey as any, alg);
   }
 
-  let unwrappedCekBytes: Uint8Array;
+  let unwrappedCekBytes: Uint8Array<ArrayBuffer>;
 
   switch (alg) {
     // AES Key Wrap and PBES2 are handled by the same helper
@@ -424,7 +424,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     case "PBES2-HS384+A192KW":
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
-      let p2sBytes: Uint8Array | undefined;
+      let p2sBytes: Uint8Array<ArrayBuffer> | undefined;
       if (isPbes) {
         if (!p2s || typeof p2c !== "number") {
           throw new Error(

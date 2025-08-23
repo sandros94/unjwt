@@ -7,8 +7,8 @@
 
 export async function sign(
   alg: string,
-  key: CryptoKey | Uint8Array,
-  data: Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  data: Uint8Array<ArrayBuffer>,
 ) {
   const cryptoKey = await getSignVerifyKey(alg, key, "sign");
   checkKeyLength(alg, cryptoKey);
@@ -22,9 +22,9 @@ export async function sign(
 
 export async function verify(
   alg: string,
-  key: CryptoKey | Uint8Array,
-  signature: Uint8Array,
-  data: Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  signature: Uint8Array<ArrayBuffer>,
+  data: Uint8Array<ArrayBuffer>,
 ) {
   const cryptoKey = await getSignVerifyKey(alg, key, "verify");
   checkKeyLength(alg, cryptoKey);
@@ -51,7 +51,7 @@ import { checkSigCryptoKey } from "./crypto_key.js";
 
 export async function getSignVerifyKey(
   alg: string,
-  key: CryptoKey | Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
   usage: KeyUsage,
 ) {
   if (key instanceof Uint8Array) {

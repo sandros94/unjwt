@@ -13,10 +13,10 @@ import { checkEncCryptoKey } from "./crypto_key";
 
 async function cbcEncrypt(
   enc: string,
-  plaintext: Uint8Array,
-  cek: Uint8Array | CryptoKey,
-  iv: Uint8Array,
-  aad: Uint8Array,
+  plaintext: Uint8Array<ArrayBuffer>,
+  cek: Uint8Array<ArrayBuffer> | CryptoKey,
+  iv: Uint8Array<ArrayBuffer>,
+  aad: Uint8Array<ArrayBuffer>,
 ) {
   if (!(cek instanceof Uint8Array)) {
     throw new TypeError(`Key must be ${cek} of type: Uint8Array`);
@@ -66,10 +66,10 @@ async function cbcEncrypt(
 
 async function gcmEncrypt(
   enc: string,
-  plaintext: Uint8Array,
-  cek: Uint8Array | CryptoKey,
-  iv: Uint8Array,
-  aad: Uint8Array,
+  plaintext: Uint8Array<ArrayBuffer>,
+  cek: Uint8Array<ArrayBuffer> | CryptoKey,
+  iv: Uint8Array<ArrayBuffer>,
+  aad: Uint8Array<ArrayBuffer>,
 ) {
   let encKey: CryptoKey;
   if (cek instanceof Uint8Array) {
@@ -102,14 +102,14 @@ async function gcmEncrypt(
 
 export async function encrypt(
   enc: string,
-  plaintext: Uint8Array,
+  plaintext: Uint8Array<ArrayBuffer>,
   cek: unknown,
-  iv: Uint8Array | undefined,
-  aad: Uint8Array,
+  iv: Uint8Array<ArrayBuffer> | undefined,
+  aad: Uint8Array<ArrayBuffer>,
 ): Promise<{
-  ciphertext: Uint8Array;
-  tag: Uint8Array | undefined;
-  iv: Uint8Array | undefined;
+  ciphertext: Uint8Array<ArrayBuffer>;
+  tag: Uint8Array<ArrayBuffer> | undefined;
+  iv: Uint8Array<ArrayBuffer> | undefined;
 }> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
     throw new TypeError(
@@ -150,7 +150,7 @@ export async function encrypt(
  * Decrypt fork
  */
 
-async function timingSafeEqual(a: Uint8Array, b: Uint8Array): Promise<boolean> {
+async function timingSafeEqual(a: Uint8Array<ArrayBuffer>, b: Uint8Array<ArrayBuffer>): Promise<boolean> {
   if (!(a instanceof Uint8Array)) {
     throw new TypeError("First argument must be a buffer");
   }
@@ -177,11 +177,11 @@ async function timingSafeEqual(a: Uint8Array, b: Uint8Array): Promise<boolean> {
 
 async function cbcDecrypt(
   enc: string,
-  cek: Uint8Array | CryptoKey,
-  ciphertext: Uint8Array,
-  iv: Uint8Array,
-  tag: Uint8Array,
-  aad: Uint8Array,
+  cek: Uint8Array<ArrayBuffer> | CryptoKey,
+  ciphertext: Uint8Array<ArrayBuffer>,
+  iv: Uint8Array<ArrayBuffer>,
+  tag: Uint8Array<ArrayBuffer>,
+  aad: Uint8Array<ArrayBuffer>,
 ) {
   if (!(cek instanceof Uint8Array)) {
     throw new TypeError(`Key must be ${cek} of type: Uint8Array`);
@@ -225,7 +225,7 @@ async function cbcDecrypt(
     throw new Error("JWE Decryption Failed");
   }
 
-  let plaintext!: Uint8Array;
+  let plaintext!: Uint8Array<ArrayBuffer>;
   try {
     plaintext = new Uint8Array(
       await crypto.subtle.decrypt({ iv, name: "AES-CBC" }, encKey, ciphertext),
@@ -242,11 +242,11 @@ async function cbcDecrypt(
 
 async function gcmDecrypt(
   enc: string,
-  cek: Uint8Array | CryptoKey,
-  ciphertext: Uint8Array,
-  iv: Uint8Array,
-  tag: Uint8Array,
-  aad: Uint8Array,
+  cek: Uint8Array<ArrayBuffer> | CryptoKey,
+  ciphertext: Uint8Array<ArrayBuffer>,
+  iv: Uint8Array<ArrayBuffer>,
+  tag: Uint8Array<ArrayBuffer>,
+  aad: Uint8Array<ArrayBuffer>,
 ) {
   let encKey: CryptoKey;
   if (cek instanceof Uint8Array) {
@@ -279,11 +279,11 @@ async function gcmDecrypt(
 export async function decrypt(
   enc: string,
   cek: unknown,
-  ciphertext: Uint8Array,
-  iv: Uint8Array | undefined,
-  tag: Uint8Array | undefined,
-  aad: Uint8Array,
-): Promise<Uint8Array> {
+  ciphertext: Uint8Array<ArrayBuffer>,
+  iv: Uint8Array<ArrayBuffer> | undefined,
+  tag: Uint8Array<ArrayBuffer> | undefined,
+  aad: Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
     throw new TypeError(
       `Key must be ${cek} one of type: CryptoKey, Uint8Array, or JSON Web Key`,

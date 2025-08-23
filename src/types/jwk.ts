@@ -22,7 +22,7 @@ export interface GenerateKeyOptions {
   /** RSA modulus length. Defaults to 2048. */
   modulusLength?: number;
   /** RSA public exponent. Defaults to 65537 (0x010001). */
-  publicExponent?: Uint8Array;
+  publicExponent?: Uint8Array<ArrayBuffer>;
   /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
   toJWK?: boolean | undefined;
 }
@@ -36,7 +36,7 @@ type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> =
 // Conditional return type when toJWK is false or undefined
 type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> =
   TAlg extends JWK_AES_CBC_HMAC
-    ? Uint8Array
+    ? Uint8Array<ArrayBuffer>
     : TAlg extends JWK_Asymmetric_Algorithm
       ? CryptoKeyPair
       : CryptoKey;
@@ -51,7 +51,7 @@ export type GenerateKeyReturn<
 /** Options for the deriveKeyFromPassword function. */
 export interface DeriveKeyOptions {
   /** Salt value (p2s). Must be at least 8 bytes. */
-  salt: Uint8Array;
+  salt: Uint8Array<ArrayBuffer>;
   /** Iteration count (p2c). Must be a positive integer. */
   iterations: number;
   /** Key usages for the derived key. Defaults to ["wrapKey", "unwrapKey"]. */
@@ -80,23 +80,23 @@ export type ContentEncryptionAlgorithm = JWK_AES_GCM | JWK_AES_CBC_HMAC;
 /** Options for the wrapKey function. */
 export interface WrapKeyOptions {
   /** Initialization Vector for AES-GCMKW. Generated if not provided. */
-  iv?: Uint8Array;
+  iv?: Uint8Array<ArrayBuffer>;
   /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
-  p2s?: Uint8Array;
+  p2s?: Uint8Array<ArrayBuffer>;
   /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
   p2c?: number;
   /** ECDH-ES Ephemeral Public Key. Generated if not provided for ECDH-ES. */
   epk?: JWK_EC_Public; // Or CryptoKey? JWK is more common in JWE headers
   /** ECDH-ES Agreement PartyUInfo. */
-  apu?: Uint8Array;
+  apu?: Uint8Array<ArrayBuffer>;
   /** ECDH-ES Agreement PartyVInfo. */
-  apv?: Uint8Array;
+  apv?: Uint8Array<ArrayBuffer>;
 }
 
 /** Result of the wrapKey function. */
 export interface WrapKeyResult {
   /** The wrapped key (Ciphertext). */
-  encryptedKey: Uint8Array;
+  encryptedKey: Uint8Array<ArrayBuffer>;
   /** Initialization Vector used (only for AES-GCMKW). Base64URL encoded. */
   iv?: string;
   /** Authentication Tag generated (only for AES-GCMKW). Base64URL encoded. */
@@ -116,19 +116,19 @@ export interface WrapKeyResult {
 /** Options for the unwrapKey function. */
 export interface UnwrapKeyOptions {
   /** Initialization Vector (required for AES-GCMKW). Base64URL encoded or Uint8Array. */
-  iv?: Uint8Array | string;
+  iv?: Uint8Array<ArrayBuffer> | string;
   /** Authentication Tag (required for AES-GCMKW). Base64URL encoded or Uint8Array. */
-  tag?: Uint8Array | string;
+  tag?: Uint8Array<ArrayBuffer> | string;
   /** PBES2 Salt value (required for PBES2). Base64URL encoded or Uint8Array. */
-  p2s?: Uint8Array | string;
+  p2s?: Uint8Array<ArrayBuffer> | string;
   /** PBES2 Iteration count (required for PBES2). */
   p2c?: number;
   /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
   epk?: JWK_EC_Public; // Or CryptoKey?
   /** ECDH-ES Agreement PartyUInfo. Base64URL encoded or Uint8Array. */
-  apu?: Uint8Array | string;
+  apu?: Uint8Array<ArrayBuffer> | string;
   /** ECDH-ES Agreement PartyVInfo. Base64URL encoded or Uint8Array. */
-  apv?: Uint8Array | string;
+  apv?: Uint8Array<ArrayBuffer> | string;
   /** Expected unwrapped key algorithm (e.g., 'AES-GCM', 'AES-CBC'). Used by crypto.subtle.unwrapKey. */
   unwrappedKeyAlgorithm?:
     | string

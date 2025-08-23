@@ -10,10 +10,10 @@ import { checkEncCryptoKey } from "./crypto_key";
 
 export async function wrap(
   alg: string,
-  key: CryptoKey | Uint8Array,
-  cek: Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  cek: Uint8Array<ArrayBuffer>,
   p2c?: number,
-  p2s?: Uint8Array,
+  p2s?: Uint8Array<ArrayBuffer>,
 ) {
   if (p2c && p2s) {
     const derived = await deriveKey(p2s, alg, p2c, key);
@@ -30,10 +30,10 @@ export async function wrap(
 
 export async function unwrap(
   alg: string,
-  key: CryptoKey | Uint8Array,
-  encryptedKey: Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  encryptedKey: Uint8Array<ArrayBuffer>,
   p2c?: number,
-  p2s?: Uint8Array,
+  p2s?: Uint8Array<ArrayBuffer>,
 ) {
   if (p2c && p2s) {
     const derived = await deriveKey(p2s, alg, p2c, key);
@@ -45,7 +45,7 @@ export async function unwrap(
 }
 
 function getCryptoKey(
-  key: CryptoKey | Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
   alg: string,
   options: {
     usage?: KeyUsage;
@@ -68,11 +68,11 @@ function getCryptoKey(
 }
 
 export async function deriveKey(
-  p2s: Uint8Array,
+  p2s: Uint8Array<ArrayBuffer>,
   alg: string,
   p2c: number,
-  key: CryptoKey | Uint8Array,
-): Promise<Uint8Array> {
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
   if (!(p2s instanceof Uint8Array) || p2s.length < 8) {
     throw new Error("PBES2 Salt Input must be 8 or more octets");
   }
@@ -117,8 +117,8 @@ function checkKeySize(key: CryptoKey, alg: string) {
 
 async function _wrap(
   alg: string,
-  key: CryptoKey | Uint8Array,
-  cek: Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  cek: Uint8Array<ArrayBuffer>,
 ) {
   const cryptoKey = await getCryptoKey(key, alg, {
     importAlg: "AES-KW",
@@ -144,8 +144,8 @@ async function _wrap(
 
 async function _unwrap(
   alg: string,
-  key: CryptoKey | Uint8Array,
-  encryptedKey: Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  encryptedKey: Uint8Array<ArrayBuffer>,
 ) {
   const cryptoKey = await getCryptoKey(key, alg, {
     importAlg: "AES-KW",

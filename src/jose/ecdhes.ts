@@ -2,11 +2,11 @@ import { textEncoder, concatUint8Arrays } from "../utils";
 import { uint32be } from "./buffer_utils.js";
 import { checkEncCryptoKey } from "./crypto_key";
 
-function lengthAndInput(input: Uint8Array) {
+function lengthAndInput(input: Uint8Array<ArrayBuffer>) {
   return concatUint8Arrays(uint32be(input.length), input);
 }
 
-async function concatKdf(secret: Uint8Array, bits: number, value: Uint8Array) {
+async function concatKdf(secret: Uint8Array<ArrayBuffer>, bits: number, value: Uint8Array<ArrayBuffer>) {
   const iterations = Math.ceil((bits >> 3) / 32);
   const res = new Uint8Array(iterations * 32);
   for (let iter = 0; iter < iterations; iter++) {
@@ -24,8 +24,8 @@ export async function deriveECDHESKey(
   privateKey: CryptoKey,
   algorithm: string,
   keyLength: number,
-  apu: Uint8Array = new Uint8Array(0),
-  apv: Uint8Array = new Uint8Array(0),
+  apu: Uint8Array<ArrayBuffer> = new Uint8Array(0),
+  apv: Uint8Array<ArrayBuffer> = new Uint8Array(0),
 ) {
   checkEncCryptoKey(publicKey, "ECDH");
   checkEncCryptoKey(privateKey, "ECDH", "deriveBits");
@@ -76,8 +76,8 @@ export function allowed(key: CryptoKey) {
 
 export async function digest(
   algorithm: "sha256" | "sha384" | "sha512",
-  data: Uint8Array,
-): Promise<Uint8Array> {
+  data: Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
   const subtleDigest = `SHA-${algorithm.slice(-3)}`;
   return new Uint8Array(await crypto.subtle.digest(subtleDigest, data));
 }

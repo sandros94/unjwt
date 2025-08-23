@@ -20,7 +20,7 @@ const subtleAlgorithm = (alg: string) => {
 export async function encryptRSAES(
   alg: string,
   key: CryptoKey,
-  cek: Uint8Array,
+  cek: Uint8Array<ArrayBuffer>,
 ) {
   checkEncCryptoKey(key, alg, "encrypt");
   checkKeyLength(alg, key);
@@ -33,7 +33,7 @@ export async function encryptRSAES(
 export async function decryptRSAES(
   alg: string,
   key: CryptoKey,
-  encryptedKey: Uint8Array,
+  encryptedKey: Uint8Array<ArrayBuffer>,
 ) {
   checkEncCryptoKey(key, alg, "decrypt");
   checkKeyLength(alg, key);

@@ -25,11 +25,11 @@ export function bitLengthIV(alg: string) {
     }
   }
 }
-export function generateIV(alg: string): Uint8Array {
+export function generateIV(alg: string): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(bitLengthIV(alg) >> 3));
 }
 
-export function checkIvLength(enc: string, iv: Uint8Array) {
+export function checkIvLength(enc: string, iv: Uint8Array<ArrayBuffer>) {
   if (iv.length << 3 !== bitLengthIV(enc)) {
     throw new Error("Invalid Initialization Vector length");
   }
@@ -59,11 +59,11 @@ export function bitLengthCEK(alg: string) {
   }
 }
 
-export function generateCEK(alg: string): Uint8Array {
+export function generateCEK(alg: string): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(bitLengthCEK(alg) >> 3));
 }
 
-export function checkCEKLength(cek: Uint8Array, expected: number) {
+export function checkCEKLength(cek: Uint8Array<ArrayBuffer>, expected: number) {
   const actual = cek.byteLength << 3;
   if (actual !== expected) {
     throw new Error(

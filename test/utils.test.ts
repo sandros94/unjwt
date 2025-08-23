@@ -80,7 +80,7 @@ describe.concurrent("Utility Functions", () => {
   });
 });
 
-function b64Encode(data: Uint8Array): string {
+function b64Encode(data: Uint8Array<ArrayBuffer>): string {
   return Buffer.from(data)
     .toString("base64")
     .replace(/=/g, "")
@@ -88,7 +88,7 @@ function b64Encode(data: Uint8Array): string {
     .replace(/\//g, "_");
 }
 
-function b64Decode(str: string): Uint8Array {
+function b64Decode(str: string): Uint8Array<ArrayBuffer> {
   str = str.replace(/-/g, "+").replace(/_/g, "/");
   while (str.length % 4) str += "=";
 

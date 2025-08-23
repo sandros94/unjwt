@@ -150,12 +150,12 @@ describe.concurrent("JWE Utilities", () => {
   for (const { alg, enc, plaintext, desc } of testScenarios) {
     describe(desc, () => {
       it(`should encrypt and decrypt successfully`, async () => {
-        let encryptionKey: CryptoKey | JWK | string | Uint8Array;
+        let encryptionKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>;
         let decryptionKey:
           | CryptoKey
           | JWK
           | string
-          | Uint8Array
+          | Uint8Array<ArrayBuffer>
           | JWEKeyLookupFunction;
 
         const keySet = keys[alg as string];

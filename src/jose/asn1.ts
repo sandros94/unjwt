@@ -51,7 +51,7 @@ export const toPKCS8 = (key: unknown): Promise<string> => {
   return genericExport("private", "pkcs8", key);
 };
 
-const findOid = (keyData: Uint8Array, oid: number[], from = 0): boolean => {
+const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: number[], from = 0): boolean => {
   if (from === 0) {
     oid.unshift(oid.length);
     oid.unshift(0x06);
@@ -66,7 +66,7 @@ const findOid = (keyData: Uint8Array, oid: number[], from = 0): boolean => {
   );
 };
 
-const getNamedCurve = (keyData: Uint8Array): string | undefined => {
+const getNamedCurve = (keyData: Uint8Array<ArrayBuffer>): string | undefined => {
   switch (true) {
     case findOid(keyData, [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]): {
       return "P-256";
@@ -196,7 +196,7 @@ export const fromSPKI: PEMImportFunction = (pem, alg, options?) => {
   );
 };
 
-function getElement(seq: Uint8Array) {
+function getElement(seq: Uint8Array<ArrayBuffer>) {
   const result = [];
   let next = 0;
 
@@ -208,7 +208,7 @@ function getElement(seq: Uint8Array) {
   return result;
 }
 
-function parseElement(bytes: Uint8Array) {
+function parseElement(bytes: Uint8Array<ArrayBuffer>) {
   let position = 0;
 
   // tag
@@ -266,7 +266,7 @@ function parseElement(bytes: Uint8Array) {
   };
 }
 
-function spkiFromX509(buf: Uint8Array) {
+function spkiFromX509(buf: Uint8Array<ArrayBuffer>) {
   const tbsCertificate = getElement(
     getElement(parseElement(buf).contents)[0]!.contents,
   );

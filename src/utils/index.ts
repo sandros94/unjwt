@@ -4,7 +4,7 @@ export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
 
 /* Base64 encoding function */
-export function base64Encode(data: Uint8Array | string): string {
+export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
   const encodedData =
     data instanceof Uint8Array ? data : textEncoder.encode(data);
 
@@ -18,7 +18,7 @@ export function base64Encode(data: Uint8Array | string): string {
 }
 
 /* Base64 URL encoding function */
-export function base64UrlEncode(data: Uint8Array | string): string {
+export function base64UrlEncode(data: Uint8Array<ArrayBuffer> | string): string {
   const encodedData =
     data instanceof Uint8Array ? data : textEncoder.encode(data);
 
@@ -39,11 +39,11 @@ export function base64Decode(str: string | undefined): string;
 export function base64Decode<T extends boolean | undefined>(
   str?: string | undefined,
   toString?: T,
-): T extends false ? Uint8Array : string;
+): T extends false ? Uint8Array<ArrayBuffer> : string;
 export function base64Decode(
   str?: string | undefined,
   toString?: boolean | undefined,
-): Uint8Array | string {
+): Uint8Array<ArrayBuffer> | string {
   const decodeToString = toString !== false;
 
   if (!str) {
@@ -51,7 +51,7 @@ export function base64Decode(
   }
 
   // @ts-expect-error check if fromBase64 is available
-  const data: Uint8Array = Uint8Array.fromBase64
+  const data: Uint8Array<ArrayBuffer> = Uint8Array.fromBase64
     ? // @ts-expect-error
       Uint8Array.fromBase64(str)
     : Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
@@ -64,18 +64,18 @@ export function base64UrlDecode(str: string | undefined): string;
 export function base64UrlDecode<T extends boolean | undefined>(
   str?: string | undefined,
   toString?: T,
-): T extends false ? Uint8Array : string;
+): T extends false ? Uint8Array<ArrayBuffer> : string;
 export function base64UrlDecode(
   str?: string | undefined,
   toString?: boolean | undefined,
-): Uint8Array | string {
+): Uint8Array<ArrayBuffer> | string {
   const decodeToString = toString !== false;
 
   if (!str) {
     return decodeToString ? "" : new Uint8Array(0);
   }
 
-  let data: Uint8Array;
+  let data: Uint8Array<ArrayBuffer>;
 
   // @ts-expect-error check if fromBase64 is available
   if (Uint8Array.fromBase64) {
@@ -90,8 +90,8 @@ export function base64UrlDecode(
   return decodeToString ? textDecoder.decode(data) : data;
 }
 
-/* Generate a random Uint8Array of specified length */
-export function randomBytes(length: Readonly<number>): Uint8Array {
+/* Generate a random Uint8Array<ArrayBuffer> of specified length */
+export function randomBytes(length: Readonly<number>): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length));
 }
 
@@ -101,8 +101,8 @@ export function randomBytes(length: Readonly<number>): Uint8Array {
  * @returns Concatenated array
  */
 export function concatUint8Arrays(
-  ...arrays: Readonly<Uint8Array[]>
-): Uint8Array {
+  ...arrays: Readonly<Uint8Array<ArrayBuffer>[]>
+): Uint8Array<ArrayBuffer> {
   const totalLength = arrays.reduce((length, arr) => length + arr.length, 0);
   const result = new Uint8Array(totalLength);
 

@@ -30,17 +30,17 @@ import { wrap } from "./pbes2kw";
 export async function encryptKey(
   alg: string,
   enc: string,
-  key: CryptoKey | Uint8Array,
-  providedCek?: Uint8Array,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  providedCek?: Uint8Array<ArrayBuffer>,
   providedParameters: JWEKeyManagementHeaderParameters = {},
 ): Promise<{
-  cek: CryptoKey | Uint8Array;
-  encryptedKey?: Uint8Array;
+  cek: CryptoKey | Uint8Array<ArrayBuffer>;
+  encryptedKey?: Uint8Array<ArrayBuffer>;
   parameters?: JWEHeaderParameters;
 }> {
-  let encryptedKey: Uint8Array | undefined;
+  let encryptedKey: Uint8Array<ArrayBuffer> | undefined;
   let parameters: JWEHeaderParameters & { epk?: JWK } = {};
-  let cek: CryptoKey | Uint8Array;
+  let cek: CryptoKey | Uint8Array<ArrayBuffer>;
 
   switch (alg) {
     case "dir": {
@@ -142,9 +142,9 @@ export async function encryptKey(
 }
 
 export async function normalizeKey(
-  key: CryptoKey | JWK | Uint8Array,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   alg: string,
-): Promise<CryptoKey | Uint8Array> {
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
   if (key instanceof Uint8Array) {
     return key;
   }

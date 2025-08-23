@@ -42,12 +42,12 @@ export * from "./types/jwe";
  */
 export async function encrypt(
   payload: JWTClaims,
-  key: JWK | string | Uint8Array,
+  key: JWK | string | Uint8Array<ArrayBuffer>,
   options?: JWEEncryptOptions,
 ): Promise<string>;
 export async function encrypt(
-  payload: string | Uint8Array | Record<string, any>,
-  key: JWK | string | Uint8Array,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  key: JWK | string | Uint8Array<ArrayBuffer>,
   options?: JWEEncryptOptions,
 ): Promise<string>;
 export async function encrypt(
@@ -59,7 +59,7 @@ export async function encrypt(
   },
 ): Promise<string>;
 export async function encrypt(
-  payload: string | Uint8Array | Record<string, any>,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
   key: CryptoKey,
   options: JWEEncryptOptions & {
     alg: KeyManagementAlgorithm;
@@ -67,16 +67,16 @@ export async function encrypt(
   },
 ): Promise<string>;
 export async function encrypt(
-  payload: string | Uint8Array | Record<string, any>,
-  key: CryptoKey | JWK | string | Uint8Array,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions & {
     alg: KeyManagementAlgorithm;
     enc: ContentEncryptionAlgorithm;
   },
 ): Promise<string>;
 export async function encrypt(
-  payload: string | Uint8Array | Record<string, any>,
-  key: CryptoKey | JWK | string | Uint8Array,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions = {},
 ): Promise<string> {
   const {
@@ -220,21 +220,21 @@ export async function encrypt(
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-export async function decrypt<T extends JWTClaims | Uint8Array | string>(
+export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jwe: string,
-  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookupFunction,
   options?: JWEDecryptOptions,
 ): Promise<JWEDecryptResult<T>>;
 export async function decrypt(
   jwe: string,
-  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookupFunction,
   options: JWEDecryptOptions & {
     forceUint8Array: true;
   },
-): Promise<JWEDecryptResult<Uint8Array>>;
-export async function decrypt<T extends JWTClaims | Uint8Array | string>(
+): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
+export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jwe: string,
-  key: CryptoKey | JWK | string | Uint8Array | JWEKeyLookupFunction,
+  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookupFunction,
   options?: JWEDecryptOptions,
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");
@@ -305,7 +305,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array | string>(
     unwrappedKeyAlgorithm: options?.unwrappedKeyAlgorithm,
     keyUsage: options?.keyUsage,
     extractable: options?.extractable,
-    returnAs: false, // Returning CEK as Uint8Array
+    returnAs: false, // Returning CEK as Uint8Array<ArrayBuffer>
   } as const satisfies UnwrapKeyOptions;
 
   const cekBytes = await unwrapKey(
@@ -354,7 +354,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array | string>(
         payload = decodedString as T;
       }
     } else {
-      // Default to string if not JSON and not forced to Uint8Array
+      // Default to string if not JSON and not forced to Uint8Array<ArrayBuffer>
       payload = decodedString as T;
     }
   }
@@ -413,8 +413,8 @@ export async function decrypt<T extends JWTClaims | Uint8Array | string>(
 }
 
 function getPlaintextBytes(
-  payload: string | Uint8Array | Record<string, any>,
-): Uint8Array {
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+): Uint8Array<ArrayBuffer> {
   if (payload instanceof Uint8Array) {
     return payload;
   }

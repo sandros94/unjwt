@@ -51,8 +51,8 @@ export interface JWEHeaderParameters extends JoseHeaderParameters {
 
 /** Recognized JWE Key Management-related Header Parameters. */
 export interface JWEKeyManagementHeaderParameters {
-  apu?: Uint8Array;
-  apv?: Uint8Array;
+  apu?: Uint8Array<ArrayBuffer>;
+  apv?: Uint8Array<ArrayBuffer>;
   /**
    * For Internal use only
    */
@@ -60,11 +60,11 @@ export interface JWEKeyManagementHeaderParameters {
   /**
    * For Internal use only
    */
-  p2s?: Uint8Array;
+  p2s?: Uint8Array<ArrayBuffer>;
   /**
    * For Internal use only
    */
-  iv?: Uint8Array;
+  iv?: Uint8Array<ArrayBuffer>;
   /**
    * For Internal use only
    */
@@ -88,27 +88,27 @@ export interface JWEEncryptOptions {
 
   // Key Wrapping specific options (passed to jwk.wrapKey)
   /** Initialization Vector for AES-GCMKW key wrapping. Generated if not provided. */
-  keyManagementIV?: Uint8Array;
+  keyManagementIV?: Uint8Array<ArrayBuffer>;
   /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
-  p2s?: Uint8Array;
+  p2s?: Uint8Array<ArrayBuffer>;
   /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
   p2c?: number;
   /** ECDH-ES Agreement PartyUInfo. */
-  ecdhPartyUInfo?: Uint8Array;
+  ecdhPartyUInfo?: Uint8Array<ArrayBuffer>;
   /** ECDH-ES Agreement PartyVInfo. */
-  ecdhPartyVInfo?: Uint8Array;
+  ecdhPartyVInfo?: Uint8Array<ArrayBuffer>;
 
   /**
    * Content Encryption Key (CEK) to use.
    * If provided, it will be used directly. Otherwise, a CEK will be generated.
    */
-  cek?: Uint8Array;
+  cek?: Uint8Array<ArrayBuffer>;
 
   /**
    * Initialization Vector for content encryption.
    * If provided, it will be used. Otherwise, one will be generated.
    */
-  contentEncryptionIV?: Uint8Array;
+  contentEncryptionIV?: Uint8Array<ArrayBuffer>;
 }
 
 /**
@@ -123,8 +123,8 @@ export type JWEKeyLookupFunction = (
   | CryptoKey
   | JWK
   | string
-  | Uint8Array
-  | Promise<CryptoKey | JWK | string | Uint8Array>;
+  | Uint8Array<ArrayBuffer>
+  | Promise<CryptoKey | JWK | string | Uint8Array<ArrayBuffer>>;
 
 /**
  * JWE (JSON Web Encryption) decryption options
@@ -154,14 +154,14 @@ export interface JWEDecryptOptions {
  * Result of a JWE decryption operation.
  */
 export interface JWEDecryptResult<
-  T extends JWTClaims | Uint8Array | string = JWTClaims | Uint8Array | string,
+  T extends JWTClaims | Uint8Array<ArrayBuffer> | string = JWTClaims | Uint8Array<ArrayBuffer> | string,
 > {
   /** The decrypted payload. */
   payload: T;
   /** The JWE Protected Header. */
   protectedHeader: JWEHeaderParameters;
   /** The Content Encryption Key (CEK) used for decryption, as Uint8Array. */
-  cek: Uint8Array;
+  cek: Uint8Array<ArrayBuffer>;
   /** The Additional Authenticated Data (AAD) used, as Uint8Array. */
-  aad: Uint8Array;
+  aad: Uint8Array<ArrayBuffer>;
 }

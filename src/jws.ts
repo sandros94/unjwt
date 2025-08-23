@@ -37,7 +37,7 @@ export async function sign(
   options?: JWSSignOptions,
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array | Record<string, any>,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
   key: JWK,
   options?: JWSSignOptions,
 ): Promise<string>;
@@ -47,28 +47,28 @@ export async function sign(
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array | Record<string, any>,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
   key: CryptoKey,
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
   payload: JWTClaims,
-  key: Uint8Array,
+  key: Uint8Array<ArrayBuffer>,
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array | Record<string, any>,
-  key: Uint8Array,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  key: Uint8Array<ArrayBuffer>,
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array | Record<string, any>,
-  key: CryptoKey | JWK | Uint8Array,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array | Record<string, any>,
-  key: CryptoKey | JWK | Uint8Array,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
   const { protectedHeader: additionalProtectedHeader } = options;
@@ -135,7 +135,7 @@ export async function sign(
   const protectedHeaderEncoded = base64UrlEncode(protectedHeaderString);
 
   // 4. Prepare Payload
-  let payloadBytes: Uint8Array;
+  let payloadBytes: Uint8Array<ArrayBuffer>;
   if (payload instanceof Uint8Array) {
     payloadBytes = payload;
   } else if (typeof payload === "string") {
@@ -178,19 +178,19 @@ export async function sign(
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
-export async function verify<T extends JWTClaims | Uint8Array | string>(
+export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jws: string,
-  key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
+  key: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | JWSKeyLookupFunction,
   options?: JWSVerifyOptions,
 ): Promise<JWSVerifyResult<T>>;
 export async function verify(
   jws: string,
-  key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
+  key: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | JWSKeyLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
-): Promise<JWSVerifyResult<Uint8Array>>;
-export async function verify<T extends JWTClaims | Uint8Array | string>(
+): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
+export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jws: string,
-  key: CryptoKey | JWK | JWKSet | Uint8Array | JWSKeyLookupFunction,
+  key: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | JWSKeyLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   // 1. Parse JWS
@@ -236,7 +236,7 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
   }
 
   // 4. Decode Signature
-  let signatureBytes: Uint8Array;
+  let signatureBytes: Uint8Array<ArrayBuffer>;
   try {
     signatureBytes = base64UrlDecode(signatureEncoded, false);
   } catch (error_) {
@@ -246,9 +246,9 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
   }
 
   // 5. Obtain and Import Key
-  const keyInput: CryptoKey | JWK | JWKSet | Uint8Array =
+  const keyInput: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> =
     typeof key === "function" ? await key(protectedHeader, jws) : key;
-  const resolvedKey: CryptoKey | JWK | Uint8Array = isJWKSet(keyInput)
+  const resolvedKey: CryptoKey | JWK | Uint8Array<ArrayBuffer> = isJWKSet(keyInput)
     ? getJWKFromSet(keyInput, protectedHeader)
     : keyInput;
 
@@ -460,7 +460,7 @@ export async function verify<T extends JWTClaims | Uint8Array | string>(
 }
 
 function validateKeyLength(
-  key: JWK | CryptoKey | Uint8Array,
+  key: JWK | CryptoKey | Uint8Array<ArrayBuffer>,
   alg?: string,
 ): void {
   if (!alg || isJWK(key)) return;

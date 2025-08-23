@@ -11,8 +11,8 @@ import { encrypt, decrypt } from "./encrypt-decrypt";
 export async function encryptIV(
   alg: string,
   key: unknown,
-  cek: Uint8Array,
-  iv?: Uint8Array,
+  cek: Uint8Array<ArrayBuffer>,
+  iv?: Uint8Array<ArrayBuffer>,
 ) {
   const jweAlgorithm = alg.slice(0, 7);
 
@@ -28,9 +28,9 @@ export async function encryptIV(
 export async function decryptIV(
   alg: string,
   key: unknown,
-  encryptedKey: Uint8Array,
-  iv: Uint8Array,
-  tag: Uint8Array,
+  encryptedKey: Uint8Array<ArrayBuffer>,
+  iv: Uint8Array<ArrayBuffer>,
+  tag: Uint8Array<ArrayBuffer>,
 ) {
   const jweAlgorithm = alg.slice(0, 7);
   return decrypt(jweAlgorithm, key, encryptedKey, iv, tag, new Uint8Array(0));

@@ -60,7 +60,7 @@ export interface JWSSignOptions {
 
 /** Result of JWS verification */
 export interface JWSVerifyResult<
-  T extends JWTClaims | Uint8Array | string = JWTClaims | Uint8Array | string,
+  T extends JWTClaims | Uint8Array<ArrayBuffer> | string = JWTClaims | Uint8Array<ArrayBuffer> | string,
 > {
   /** The decoded and verified payload. */
   payload: T;
@@ -156,5 +156,5 @@ export type JWSKeyLookupFunction = (
   | CryptoKey
   | JWK
   | JWKSet
-  | Uint8Array
-  | Promise<CryptoKey | JWK | JWKSet | Uint8Array>;
+  | Uint8Array<ArrayBuffer>
+  | Promise<CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer>>;
