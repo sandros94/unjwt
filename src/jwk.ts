@@ -789,7 +789,12 @@ function getGenerateKeyParams(
       keyUsages = defaultKeyUsage ?? ["sign", "verify"];
       break;
     }
-    // EdDSA Signatures should be imported
+    case "Ed25519":
+    case "EdDSA": {
+      algorithm = { name: "Ed25519" };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
 
     // RSA Encryption
     case "RSA-OAEP":

@@ -119,6 +119,18 @@ describe.concurrent("JWS Utilities", () => {
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
+    it("should sign with Ed25519", async () => {
+      const { privateKey, publicKey } = await generateKey("Ed25519");
+      const jws = await sign(payloadObj, privateKey, { alg: "Ed25519" });
+      expect(jws.split(".").length).toBe(3);
+      const [headerEncoded] = jws.split(".");
+      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      expect(header.alg).toBe("Ed25519");
+
+      const { payload: josePayload } = await jose.compactVerify(jws, publicKey);
+      expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
+    });
+
     it("should handle b64: false option", async () => {
       const key = await generateKey("HS256");
       const jws = await sign(payloadString, key, {

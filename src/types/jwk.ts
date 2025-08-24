@@ -282,7 +282,8 @@ export type JWK_Asymmetric_Algorithm =
   | JWK_RSA_SIGN
   | JWK_RSA_PSS
   | JWK_ECDSA
-  | JWK_RSA_ENC;
+  | JWK_RSA_ENC
+  | JWK_ED;
 
 export type JWKAlgorithm =
   | JWK_Symmetric_Algorithm
