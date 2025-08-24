@@ -410,11 +410,11 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should correctly parse plaintext as JSON or string based on typ/cty", async () => {
-      // 1. typ: "JWT"
+      // 1. typ: "at+jwt"
       const jweJwt = await encrypt(plaintextObj, key, {
         alg,
         enc,
-        protectedHeader: { typ: "JWT" },
+        protectedHeader: { typ: "at+jwt" },
       });
       const resJwt = await decrypt<JWTClaims>(jweJwt, key);
       expect(resJwt.payload).toEqual(plaintextObj);
@@ -440,11 +440,11 @@ describe.concurrent("JWE Utilities", () => {
       expect(resString.payload).toBeTypeOf("string");
       expect(resString.payload).toEqual(plaintextString);
 
-      // 4. typ: "JWT" but plaintext is not valid JSON
+      // 4. typ: "at+jwt" but plaintext is not valid JSON
       const jweMalformedJwt = await encrypt("not a json object", key, {
         alg,
         enc,
-        protectedHeader: { typ: "JWT" },
+        protectedHeader: { typ: "at+jwt" },
       });
       const resMalformedJwt = await decrypt<string>(jweMalformedJwt, key);
       expect(resMalformedJwt.payload).toBe("not a json object"); // Falls back to string
@@ -468,8 +468,8 @@ describe.concurrent("JWE Utilities", () => {
         });
 
         const { payload, protectedHeader } = await decrypt<JWTClaims>(jwe, key);
-        expect(protectedHeader.typ).toBe("JWT");
-        expect(protectedHeader.cty).toBe("json");
+        expect(protectedHeader.typ).toBe("at+jwt");
+        expect(protectedHeader.cty).toBe("application/json");
         expect(payload.sub).toBe("abc");
         expect(payload.iat).toBe(0);
         expect(payload.exp).toBe(60);
@@ -496,8 +496,8 @@ describe.concurrent("JWE Utilities", () => {
 
         const jweObj = await encrypt(obj, key, { alg, enc });
         const resObj = await decrypt<JWTClaims>(jweObj, key);
-        expect(resObj.protectedHeader.typ).toBe("JWT");
-        expect(resObj.protectedHeader.cty).toBe("json");
+        expect(resObj.protectedHeader.typ).toBe("at+jwt");
+        expect(resObj.protectedHeader.cty).toBe("application/json");
         expect(resObj.payload).toEqual(obj);
 
         const jweStr = await encrypt("hello", key, { alg, enc });

@@ -4,8 +4,8 @@ import { base64UrlDecode, textDecoder, textEncoder, maybeArray } from "./index";
 
 /**
  * Apply default typ/cty semantics shared by JWS & JWE.
- * - If typ is undefined and payload is a non-Uint8Array object, set typ="JWT".
- * - If typ is "JWT" and payload is a non-Uint8Array object, ensure cty defaults to "json".
+ * - If typ is undefined and payload is a non-Uint8Array object, set typ="at+jwt".
+ * - If typ is "at+jwt" and payload is a non-Uint8Array object, ensure cty defaults to "application/json".
  */
 export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
   header: T,
@@ -16,10 +16,10 @@ export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
     payload !== null &&
     !(payload instanceof Uint8Array);
   if (header.typ === undefined && isObjectPayload) {
-    header.typ = "JWT";
+    header.typ = "at+jwt";
   }
-  if (header.typ === "JWT" && isObjectPayload) {
-    header.cty ||= "json";
+  if ((header.typ === "at+jwt" || header.typ === "JWT") && isObjectPayload) {
+    header.cty ||= "application/json";
   }
   return header;
 }
@@ -29,6 +29,7 @@ export function isJsonContent(
   header: { typ?: string; cty?: string } | undefined,
 ): boolean {
   if (!header) return false;
+  if (header.typ === "at+jwt") return true;
   if (header.typ === "JWT") return true;
   const cty = header.cty?.toLowerCase();
   return (
@@ -108,7 +109,7 @@ export function computeJwtTimeClaims(
 ): JWTClaims | undefined {
   if (
     expiresIn === undefined ||
-    headerTyp !== "JWT" ||
+    (headerTyp !== "at+jwt" && headerTyp !== "JWT") ||
     !(payload && typeof payload === "object") ||
     payload instanceof Uint8Array ||
     (payload as any).exp

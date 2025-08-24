@@ -85,7 +85,7 @@ export interface JWEEncryptOptions {
   enc?: ContentEncryptionAlgorithm;
   /** Date to use when computing NumericDate claims, defaults to `new Date()`. */
   currentDate?: Date;
-  /** Time at which the JWT should expire, if no `exp` was already provided (only when typ is JWT). */
+  /** Time at which the JWT should expire, if no `exp` was already provided (only when typ is "at+jwt"). */
   expiresIn?: number;
 
   /** Additional JWE Protected Header parameters. */

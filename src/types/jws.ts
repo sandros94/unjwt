@@ -49,7 +49,7 @@ export interface JWSSignOptions {
 
   /**
    * Additional protected header parameters. `alg` is automatically included.
-   * `typ` defaults to "JWT" if not provided.
+   * `typ` defaults to "at+jwt" if not provided.
    */
   protectedHeader?: JWSHeaderParameters;
 
