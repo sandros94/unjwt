@@ -40,7 +40,8 @@ import {
   type KeyImportOptions,
 } from "./jose";
 
-export * from "./types/jwk";
+export type * from "./types/jwk";
+export type * from "./types/jwt";
 
 /**
  * Generates a cryptographic key for the specified algorithm.

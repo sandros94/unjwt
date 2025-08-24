@@ -34,7 +34,8 @@ import {
   validateCriticalHeadersJWE,
 } from "./utils";
 
-export * from "./types/jwe";
+export type * from "./types/jwe";
+export type * from "./types/jwt";
 
 /**
  * Encrypts a payload to produce a JWE Compact Serialization string.

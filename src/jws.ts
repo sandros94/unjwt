@@ -25,7 +25,8 @@ import {
   validateJwtClaims,
 } from "./utils";
 
-export * from "./types/jws";
+export type * from "./types/jws";
+export type * from "./types/jwt";
 
 /**
  * Creates a JWS (JSON Web Signature) in Compact Serialization format.
