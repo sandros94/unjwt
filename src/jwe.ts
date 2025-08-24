@@ -26,8 +26,12 @@ import {
   base64UrlDecode,
   randomBytes,
   textEncoder,
-  textDecoder,
   isJWK,
+  applyTypCtyDefaults,
+  computeJwtTimeClaims,
+  decodePayloadFromBytes,
+  getPlaintextBytes,
+  validateCriticalHeadersJWE,
 } from "./utils";
 
 export * from "./types/jwe";
@@ -111,8 +115,6 @@ export async function encrypt(
         : "A128GCM";
   }
 
-  const plaintextBytes = getPlaintextBytes(payload);
-
   // Prepare parameters for encryptKey
   const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
   if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
@@ -149,25 +151,19 @@ export async function encrypt(
     enc,
   };
 
-  if (
-    jweProtectedHeader.typ === undefined &&
-    typeof payload === "object" &&
-    !(payload instanceof Uint8Array)
-  ) {
-    jweProtectedHeader.typ = "JWT";
-  }
+  const protectedHeader = applyTypCtyDefaults(jweProtectedHeader, payload);
 
-  // Set 'cty' based on payload type if not provided by user
-  // If typ is "JWT" (because payload was an object) and cty is not set, set cty to "json"
-  if (
-    jweProtectedHeader.typ === "JWT" &&
-    typeof payload === "object" &&
-    !(payload instanceof Uint8Array)
-  ) {
-    jweProtectedHeader.cty ||= "json";
-  }
+  // Calculate expiresIn for JWT
+  const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
+    payload,
+    protectedHeader.typ,
+    options.expiresIn,
+    options.currentDate,
+  );
 
-  const protectedHeaderSerialized = JSON.stringify(jweProtectedHeader);
+  const plaintextBytes = getPlaintextBytes(computedPayload || payload);
+
+  const protectedHeaderSerialized = JSON.stringify(protectedHeader);
   const protectedHeaderEncoded = base64UrlEncode(protectedHeaderSerialized);
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
@@ -345,83 +341,16 @@ export async function decrypt<
     aadBytes,
   );
 
-  let payload: T;
-  if (options?.forceUint8Array) {
-    payload = plaintextBytes as T;
-  } else {
-    const decodedString = textDecoder.decode(plaintextBytes);
-    const cty = protectedHeader.cty?.toLowerCase();
-    const isJsonOutput =
-      protectedHeader.typ === "JWT" ||
-      cty === "json" ||
-      cty === "application/json" ||
-      (cty && cty.endsWith("+json"));
+  const payload = decodePayloadFromBytes<T>(
+    plaintextBytes,
+    protectedHeader,
+    options?.forceUint8Array,
+  ) as T;
 
-    if (isJsonOutput) {
-      if (
-        (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
-        (decodedString.startsWith("[") && decodedString.endsWith("]"))
-      ) {
-        try {
-          payload = JSON.parse(decodedString) as T;
-        } catch {
-          // Malformed JSON, return as string
-          payload = decodedString as T;
-        }
-      } else {
-        // Declared as JSON but not a valid JSON object/array string representation
-        payload = decodedString as T;
-      }
-    } else {
-      // Default to string if not JSON and not forced to Uint8Array<ArrayBuffer>
-      payload = decodedString as T;
-    }
-  }
-
-  if (options?.critical && protectedHeader.crit) {
-    const understoodParams = new Set([
-      ...(options.critical || []),
-      // JWE specific standard headers:
-      "alg",
-      "enc",
-      "typ",
-      "cty",
-      "kid",
-      "jwk",
-      "jku",
-      "x5c",
-      "x5t",
-      "x5u",
-      "iv",
-      "tag",
-      "p2s",
-      "p2c",
-      "epk",
-      "apu",
-      "apv",
-    ]);
-
-    for (const critParam of protectedHeader.crit) {
-      // As per RFC 7516, Section 4.1.13:
-      // The parameter must also be present in the protected header.
-      if (!Object.prototype.hasOwnProperty.call(protectedHeader, critParam)) {
-        throw new Error(
-          `Critical header parameter "${critParam}" listed in "crit" but not present in the protected header.`,
-        );
-      }
-      if (!understoodParams.has(critParam)) {
-        throw new Error(
-          `Critical header parameter not understood: ${critParam}`,
-        );
-      }
-    }
-  } else if (!options?.critical && protectedHeader.crit) {
-    // If 'crit' is present, but the application didn't provide 'options.critical',
-    // it means the application hasn't declared which critical headers it supports.
-    throw new Error(
-      `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
-    );
-  }
+  validateCriticalHeadersJWE(protectedHeader, [
+    ...(options?.critical || []),
+    ...(options?.requiredHeaders || []),
+  ]);
 
   return {
     payload,
@@ -429,21 +358,4 @@ export async function decrypt<
     cek: cekBytes,
     aad: aadBytes,
   };
-}
-
-function getPlaintextBytes(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-): Uint8Array<ArrayBuffer> {
-  if (payload instanceof Uint8Array) {
-    return payload;
-  }
-  if (typeof payload === "string") {
-    return textEncoder.encode(payload);
-  }
-  if (typeof payload === "object" && payload !== null) {
-    return textEncoder.encode(JSON.stringify(payload));
-  }
-  throw new TypeError(
-    "Plaintext must be a string, Uint8Array, or a JSON-serializable object.",
-  );
 }

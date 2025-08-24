@@ -450,6 +450,75 @@ describe.concurrent("JWE Utilities", () => {
       expect(resMalformedJwt.payload).toBe("not a json object"); // Falls back to string
       expect(typeof resMalformedJwt.payload).toBe("string");
     });
+
+    describe("claims and header defaults", () => {
+      const alg: KeyManagementAlgorithm = "A128KW";
+      const enc: ContentEncryptionAlgorithm = "A128GCM";
+
+      it("computes iat/exp during encrypt when expiresIn provided and no exp present", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const baseClaims: JWTClaims = { sub: "abc" };
+        const fixedDate = new Date(0); // epoch
+
+        const jwe = await encrypt(baseClaims, key, {
+          alg,
+          enc,
+          expiresIn: 60,
+          currentDate: fixedDate,
+        });
+
+        const { payload, protectedHeader } = await decrypt<JWTClaims>(jwe, key);
+        expect(protectedHeader.typ).toBe("JWT");
+        expect(protectedHeader.cty).toBe("json");
+        expect(payload.sub).toBe("abc");
+        expect(payload.iat).toBe(0);
+        expect(payload.exp).toBe(60);
+      });
+
+      it("does not override existing exp claim when provided", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const claimsWithExp: JWTClaims = { sub: "abc", exp: 999 };
+
+        const jwe = await encrypt(claimsWithExp, key, {
+          alg,
+          enc,
+          expiresIn: 60, // should be ignored because exp already set
+          currentDate: new Date(0),
+        });
+
+        const { payload } = await decrypt<JWTClaims>(jwe, key);
+        expect(payload.exp).toBe(999);
+      });
+
+      it("defaults typ/cty when encrypting object and leaves typ undefined for string", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const obj = { hello: "world" };
+
+        const jweObj = await encrypt(obj, key, { alg, enc });
+        const resObj = await decrypt<JWTClaims>(jweObj, key);
+        expect(resObj.protectedHeader.typ).toBe("JWT");
+        expect(resObj.protectedHeader.cty).toBe("json");
+        expect(resObj.payload).toEqual(obj);
+
+        const jweStr = await encrypt("hello", key, { alg, enc });
+        const resStr = await decrypt<string>(jweStr, key);
+        expect(resStr.protectedHeader.typ).toBeUndefined();
+        expect(resStr.payload).toBe("hello");
+      });
+
+      it("accepts critical headers via requiredHeaders option", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const jweCrit = await encrypt(plaintextString, key, {
+          alg,
+          enc,
+          protectedHeader: { crit: ["exp"], exp: 1_234_567_890 },
+        });
+
+        await expect(
+          decrypt(jweCrit, key, { requiredHeaders: ["exp"] }),
+        ).resolves.toBeDefined();
+      });
+    });
   });
 
   // TODO: not working

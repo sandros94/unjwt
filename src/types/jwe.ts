@@ -1,4 +1,8 @@
-import type { JoseHeaderParameters, JWTClaims } from "./jwt";
+import type {
+  JoseHeaderParameters,
+  JWTClaims,
+  JWTClaimValidationOptions,
+} from "./jwt";
 import type {
   JWK,
   JWK_EC_Public,
@@ -79,6 +83,10 @@ export interface JWEEncryptOptions {
   alg?: KeyManagementAlgorithm;
   /** JWE "enc" (Encryption Algorithm) Header Parameter. Content Encryption Algorithm. */
   enc?: ContentEncryptionAlgorithm;
+  /** Date to use when computing NumericDate claims, defaults to `new Date()`. */
+  currentDate?: Date;
+  /** Time at which the JWT should expire, if no `exp` was already provided (only when typ is JWT). */
+  expiresIn?: number;
 
   /** Additional JWE Protected Header parameters. */
   protectedHeader?: Omit<
@@ -129,19 +137,14 @@ export type JWEKeyLookupFunction = (
 /**
  * JWE (JSON Web Encryption) decryption options
  */
-export interface JWEDecryptOptions {
+export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   /** A list of allowed JWE "alg" (Algorithm) Header Parameter values for key management. */
   algorithms?: KeyManagementAlgorithm[];
   /** A list of allowed JWE "enc" (Encryption Algorithm) Header Parameter values for content encryption. */
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
-  /**
-   * Critical Header Parameters to be understood and processed.
-   * If the JWE contains critical headers not in this list (and not inherently understood by the library), decryption will fail.
-   */
-  critical?: string[];
-
   /** Algorithm to import the unwrapped CEK as (e.g., { name: 'AES-GCM' }). Defaults based on 'enc'. */
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
+
   /** Key usages for the unwrapped CEK. Defaults based on 'enc' (typically ['encrypt', 'decrypt']). */
   keyUsage?: KeyUsage[];
   /** Mark the unwrapped CEK as extractable. Defaults to true. */
