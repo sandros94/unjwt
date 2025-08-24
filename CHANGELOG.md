@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.5.10
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.9...v0.5.10)
+
+### 🚀 Enhancements
+
+- JWE automatic claim validation and extracted utilities for advanced use ([119398e](https://github.com/sandros94/unjwt/commit/119398e))
+
+### 🩹 Fixes
+
+- Internal variable naming ([efb7682](https://github.com/sandros94/unjwt/commit/efb7682))
+- Missing support for `Ed25519` keys ([6725437](https://github.com/sandros94/unjwt/commit/6725437))
+
+### 🏡 Chore
+
+- Update deps ([49b284a](https://github.com/sandros94/unjwt/commit/49b284a))
+
+### ✅ Tests
+
+- Add `jose` dependency for cross tests ([1fba782](https://github.com/sandros94/unjwt/commit/1fba782))
+- Exclude jose fork from coverage ([a84f3df](https://github.com/sandros94/unjwt/commit/a84f3df))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.9
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.8...v0.5.9)
