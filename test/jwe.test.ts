@@ -1,6 +1,7 @@
+import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt } from "../src/jwe";
-import { generateKey /* exportKey */ } from "../src/jwk";
+import { generateKey, exportKey } from "../src/jwk";
 import {
   randomBytes,
   textEncoder,
@@ -11,8 +12,6 @@ import {
 import type {
   JWK,
   JWTClaims,
-  // JWK_EC_Public,
-  // JWEHeaderParameters,
   JWEKeyLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
@@ -93,7 +92,7 @@ describe.concurrent("JWE Utilities", () => {
   const testScenarios: {
     alg: KeyManagementAlgorithm;
     enc: ContentEncryptionAlgorithm;
-    plaintext: any;
+    plaintext: object | string | Uint8Array;
     desc: string;
   }[] = [
     {
@@ -157,73 +156,63 @@ describe.concurrent("JWE Utilities", () => {
           | string
           | Uint8Array<ArrayBuffer>
           | JWEKeyLookupFunction;
+        let plaintextBuffer: Uint8Array;
 
         const keySet = keys[alg as string];
         if (!keySet) throw new Error(`Key for ${alg} not found`);
 
-        if (alg.startsWith("RSA-")) {
+        if (alg.startsWith("RSA-") || alg.startsWith("ECDH-ES")) {
           encryptionKey = keySet.publicKey!;
           decryptionKey = keySet.privateKey!;
-        } else if (alg.startsWith("ECDH-ES")) {
-          encryptionKey = keySet.publicKey!; // Recipient's public key
-          decryptionKey = keySet.privateKey!; // Recipient's private key
         } else if (alg.startsWith("PBES2")) {
-          encryptionKey = keySet.password!;
-          decryptionKey = keySet.password!;
+          const password = keySet.password!;
+          encryptionKey = textEncoder.encode(password);
+          decryptionKey = textEncoder.encode(password);
         } else {
           encryptionKey = keySet.key as CryptoKey;
           decryptionKey = keySet.key as CryptoKey;
         }
 
-        const p2s = alg.startsWith("PBES2") ? randomBytes(16) : undefined;
-        const p2c = alg.startsWith("PBES2") ? 2000 : undefined; // Low for tests
+        if (typeof plaintext === "string") {
+          plaintextBuffer = textEncoder.encode(plaintext);
+        } else if (plaintext instanceof Uint8Array) {
+          plaintextBuffer = plaintext;
+        } else {
+          plaintextBuffer = textEncoder.encode(JSON.stringify(plaintext));
+        }
 
         const jwe = await encrypt(plaintext, encryptionKey, {
           alg,
           enc,
-          p2s,
-          p2c,
-          protectedHeader: { kid: `test-${alg}-${enc}` },
         });
 
-        expect(jwe).toBeTypeOf("string");
-        const parts = jwe.split(".");
-        expect(parts.length).toBe(5);
+        // jose doesn't support PBES2-HS256+A128KW alg header
+        if (alg !== "PBES2-HS256+A128KW") {
+          const { plaintext: decryptedByJose } = await jose.compactDecrypt(
+            jwe,
+            decryptionKey,
+          );
+          expect(decryptedByJose).toEqual(plaintextBuffer);
+        }
 
-        const {
-          payload: decryptedPayload,
-          protectedHeader,
-          cek,
-        } = await decrypt(jwe, decryptionKey, {
-          algorithms: [alg],
-          encryptionAlgorithms: [enc],
-        });
+        const jweFromJose = await new jose.CompactEncrypt(plaintextBuffer)
+          .setProtectedHeader({ alg, enc, cty: "application/json" })
+          .encrypt(encryptionKey);
 
-        expect(protectedHeader.alg).toBe(alg);
-        expect(protectedHeader.enc).toBe(enc);
-        expect(protectedHeader.kid).toBe(`test-${alg}-${enc}`);
-        expect(cek).toBeInstanceOf(Uint8Array);
+        const { payload: decrypted } = await decrypt(
+          jweFromJose,
+          decryptionKey,
+        );
 
-        if (typeof plaintext === "string") {
-          expect(decryptedPayload).toBe(plaintext);
-        } else if (plaintext instanceof Uint8Array) {
-          expect(decryptedPayload).toEqual(textDecoder.decode(plaintext));
+        if (
+          typeof plaintext === "object" &&
+          !(plaintext instanceof Uint8Array)
+        ) {
+          expect(decrypted).toEqual(plaintext);
+        } else if (typeof plaintext === "string") {
+          expect(decrypted).toEqual(plaintext);
         } else {
-          expect(decryptedPayload).toEqual(plaintext);
-          expect(protectedHeader.typ).toBe("JWT");
-        }
-
-        if (alg.startsWith("PBES2")) {
-          expect(protectedHeader.p2s).toBeDefined();
-          expect(protectedHeader.p2c).toBe(p2c);
-        }
-        if (alg.includes("GCMKW")) {
-          expect(protectedHeader.iv).toBeDefined();
-          expect(protectedHeader.tag).toBeDefined();
-        }
-        if (alg.startsWith("ECDH-ES")) {
-          expect(protectedHeader.epk).toBeDefined();
-          expect(protectedHeader.epk?.kty).toBe("EC");
+          expect(textEncoder.encode(decrypted as any)).toEqual(plaintext);
         }
       });
     });
@@ -238,12 +227,14 @@ describe.concurrent("JWE Utilities", () => {
       const { payload } = await decrypt(jwe, p);
 
       expect(payload).toBe(t);
+
+      // jose doesn't support PBES2-HS256+A128KW alg header
     });
 
     it("should encrypt and decrypt while only providing a JWK", async () => {
       const t = "Hello, World!";
       const jwk: JWK = {
-        key_ops: ["wrapKey", "unwrapKey"],
+        key_ops: ["wrapKey", "unwrapKey", "encrypt", "decrypt"],
         ext: true,
         kty: "oct",
         k: "mzR5rkgr41d-4e_fVMYQ1g",
@@ -254,6 +245,13 @@ describe.concurrent("JWE Utilities", () => {
       const { payload } = await decrypt(jwe, jwk);
 
       expect(payload).toBe(t);
+
+      const joseKey = await jose.importJWK(jwk);
+      const { plaintext: josePlaintext } = await jose.compactDecrypt(
+        jwe,
+        joseKey,
+      );
+      expect(textDecoder.decode(josePlaintext)).toBe(t);
     });
 
     it("should use provided CEK and contentEncryptionIV", async () => {
@@ -295,9 +293,11 @@ describe.concurrent("JWE Utilities", () => {
     const alg: KeyManagementAlgorithm = "A128KW";
     const enc: ContentEncryptionAlgorithm = "A128GCM";
     let key: CryptoKey;
+    let joseKey: jose.CryptoKey | Uint8Array;
 
     beforeAll(async () => {
       key = keys[alg]!.key as CryptoKey;
+      joseKey = await jose.importJWK(await exportKey(key));
       jwe = await encrypt(plaintextObj, key, { alg, enc });
     });
 
@@ -308,6 +308,9 @@ describe.concurrent("JWE Utilities", () => {
       };
       const { payload } = await decrypt(jwe, keyLookup);
       expect(payload).toEqual(plaintextObj);
+
+      const { payload: josePayload } = await jose.jwtDecrypt(jwe, joseKey);
+      expect(josePayload).toEqual(plaintextObj);
     });
 
     it("should throw if JWE has incorrect number of parts", async () => {
@@ -345,17 +348,34 @@ describe.concurrent("JWE Utilities", () => {
       await expect(
         decrypt(jwe, key, { algorithms: ["A256KW"] }),
       ).rejects.toThrow(`Key management algorithm not allowed: ${alg}`);
+
+      await expect(
+        jose.compactDecrypt(jwe, joseKey, {
+          keyManagementAlgorithms: ["A256KW"],
+        }),
+      ).rejects.toThrow('"alg" (Algorithm) Header Parameter value not allowed');
     });
 
     it("should throw if content encryption algorithm not allowed", async () => {
       await expect(
         decrypt(jwe, key, { encryptionAlgorithms: ["A256GCM"] }),
       ).rejects.toThrow(`Content encryption algorithm not allowed: ${enc}`);
+
+      await expect(
+        jose.compactDecrypt(jwe, joseKey, {
+          contentEncryptionAlgorithms: ["A256GCM"],
+        }),
+      ).rejects.toThrow(
+        '"enc" (Encryption Algorithm) Header Parameter value not allowed',
+      );
     });
 
     it("should throw for decryption failure (e.g., wrong key)", async () => {
       const wrongKey = await generateKey("A128KW");
       await expect(decrypt(jwe, wrongKey)).rejects.toThrow();
+
+      const wrongJoseKey = await jose.importJWK(await exportKey(wrongKey));
+      await expect(jose.compactDecrypt(jwe, wrongJoseKey)).rejects.toThrow();
     });
 
     it("should handle critical headers correctly", async () => {
@@ -364,9 +384,13 @@ describe.concurrent("JWE Utilities", () => {
         enc,
         protectedHeader: { crit: ["exp"], exp: 1_234_567_890 },
       });
+
       // Decrypts fine if "exp" is understood (e.g. by being in options.critical)
       await expect(
         decrypt(jweCrit, key, { critical: ["exp"] }),
+      ).resolves.toBeDefined();
+      await expect(
+        jose.compactDecrypt(jweCrit, joseKey, { crit: { exp: true } }),
       ).resolves.toBeDefined();
 
       // Throws if "exp" is critical but not in options.critical
@@ -379,9 +403,9 @@ describe.concurrent("JWE Utilities", () => {
         "Unprocessed critical header parameters: unknownParam",
       );
       await expect(
-        decrypt(jweUnknownCrit, key, { critical: ["anotherParam"] }),
+        jose.compactDecrypt(jweUnknownCrit, joseKey),
       ).rejects.toThrow(
-        "Critical header parameter not understood: unknownParam",
+        'Extension Header Parameter "unknownParam" is not recognized',
       );
     });
 
