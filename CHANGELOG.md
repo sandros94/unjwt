@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.11
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.10...v0.5.11)
+
+### 🩹 Fixes
+
+- Default to `at+jwt` typ as per `RFC9068` ([60a4fe6](https://github.com/sandros94/unjwt/commit/60a4fe6))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.10
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.9...v0.5.10)
