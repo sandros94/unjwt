@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.13
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.12...v0.5.13)
+
+### 🚀 Enhancements
+
+- Sanitize from potential prototype pollution ([456dd07](https://github.com/sandros94/unjwt/commit/456dd07))
+
+### 🏡 Chore
+
+- Add vscode tasks ([1143c45](https://github.com/sandros94/unjwt/commit/1143c45))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.12
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.11...v0.5.12)
