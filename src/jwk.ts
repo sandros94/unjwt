@@ -23,6 +23,7 @@ import {
   textEncoder,
   randomBytes,
 } from "./utils";
+import { sanitizeObject } from "./utils";
 import {
   jwkTokey,
   keyToJWK,
@@ -213,15 +214,19 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
-    if ("k" in key && typeof key.k === "string") {
-      return base64UrlDecode(key.k, false);
+    const safeJwk = sanitizeObject(key as any) as unknown as JWK;
+    if ("k" in safeJwk && typeof safeJwk.k === "string") {
+      return base64UrlDecode(safeJwk.k as string, false);
     } else {
-      if (!key.alg && !alg) {
+      if (!safeJwk.alg && !alg) {
         throw new TypeError(
           "Algorithm must be provided when importing non-oct JWK",
         );
       }
-      return jwkTokey({ ...key, alg: key.alg || alg });
+      return jwkTokey({
+        ...safeJwk,
+        alg: safeJwk.alg || alg,
+      });
     }
   }
 
@@ -244,7 +249,7 @@ export async function exportKey<T extends JWK>(
 
   // Merge the optional jwk properties
   if (jwk) {
-    return { ...exportedJwk, ...jwk };
+    return { ...exportedJwk, ...sanitizeObject(jwk) };
   }
 
   return exportedJwk;

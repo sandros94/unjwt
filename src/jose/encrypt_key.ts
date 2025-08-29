@@ -26,6 +26,7 @@ import { encryptRSAES } from "./rsaes";
 import { encryptIV } from "./aesgcmkw";
 import * as ecdhes from "./ecdhes";
 import { wrap } from "./pbes2kw";
+import { sanitizeObject } from "../utils";
 
 export async function encryptKey(
   alg: string,
@@ -154,10 +155,11 @@ export async function normalizeKey(
   }
 
   if (isJWK(key)) {
-    if ("k" in key && key.k) {
-      return base64UrlDecode(key.k, false);
+    const safeJwk = sanitizeObject(key as Record<string, any>) as JWK;
+    if ("k" in safeJwk && safeJwk.k) {
+      return base64UrlDecode(safeJwk.k as string, false);
     }
-    return jwkTokey({ ...key, alg });
+    return jwkTokey({ ...safeJwk, alg });
   }
 
   throw new Error("unreachable");

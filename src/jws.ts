@@ -3,6 +3,7 @@ import type {
   JWKSet,
   JWSAlgorithm,
   JWSSignOptions,
+  JWSHeaderParameters,
   JWSProtectedHeader,
   JWSKeyLookupFunction,
   JWSVerifyOptions,
@@ -24,6 +25,7 @@ import {
   validateCriticalHeadersJWS,
   validateJwtClaims,
 } from "./utils";
+import { sanitizeObject } from "./utils";
 
 export type * from "./types/jws";
 export type * from "./types/jwt";
@@ -77,6 +79,9 @@ export async function sign(
   options: JWSSignOptions = {},
 ): Promise<string> {
   const { protectedHeader: additionalProtectedHeader } = options;
+  const safeAdditionalHeader = sanitizeObject<JWSHeaderParameters | undefined>(
+    additionalProtectedHeader,
+  );
   let { alg } = options;
 
   if (!alg) {
@@ -93,12 +98,12 @@ export async function sign(
 
   // 2. Construct Protected Header
   const protectedHeader: JWSProtectedHeader = {
-    ...additionalProtectedHeader,
+    ...safeAdditionalHeader,
     ...(isJWK(key) && key.kid
-      ? { kid: additionalProtectedHeader?.kid || key.kid }
+      ? { kid: safeAdditionalHeader?.kid || key.kid }
       : {}), // Include kid if available
     alg: alg,
-    typ: additionalProtectedHeader?.typ,
+    typ: safeAdditionalHeader?.typ,
   };
 
   applyTypCtyDefaults(protectedHeader, payload);
@@ -207,7 +212,9 @@ export async function verify<
   let protectedHeader: JWSProtectedHeader;
   try {
     const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = JSON.parse(protectedHeaderString);
+    protectedHeader = sanitizeObject<JWSProtectedHeader>(
+      JSON.parse(protectedHeaderString),
+    );
   } catch (error_) {
     throw new Error(
       `Invalid JWS: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,

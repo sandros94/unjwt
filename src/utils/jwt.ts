@@ -1,6 +1,7 @@
 import type { JWTClaims } from "../types/jwt";
 import type { JWTClaimValidationOptions } from "../types/jwt";
 import { base64UrlDecode, textDecoder, textEncoder, maybeArray } from "./index";
+import { sanitizeObject } from "./index";
 
 /**
  * Apply default typ/cty semantics shared by JWS & JWE.
@@ -52,7 +53,8 @@ export function decodeMaybeJsonString<T = unknown>(
       (decodedString.startsWith("[") && decodedString.endsWith("]"));
     if (looksLikeJson) {
       try {
-        return JSON.parse(decodedString) as T;
+        const obj = JSON.parse(decodedString);
+        return sanitizeObject(obj as any) as unknown as T;
       } catch {
         // fallthrough to return string if malformed
       }

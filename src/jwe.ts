@@ -33,6 +33,7 @@ import {
   getPlaintextBytes,
   validateCriticalHeadersJWE,
 } from "./utils";
+import { sanitizeObject } from "./utils";
 
 export type * from "./types/jwe";
 export type * from "./types/jwt";
@@ -145,12 +146,12 @@ export async function encrypt(
   delete baseProtectedHeader.alg;
   delete baseProtectedHeader.enc;
 
-  const jweProtectedHeader: JWEHeaderParameters = {
+  const jweProtectedHeader = sanitizeObject<JWEHeaderParameters>({
     ...baseProtectedHeader,
     ...keyManagementHeaderParams,
     alg,
     enc,
-  };
+  });
 
   const protectedHeader = applyTypCtyDefaults(jweProtectedHeader, payload);
 
@@ -270,7 +271,9 @@ export async function decrypt<
   let protectedHeader: JWEHeaderParameters;
   try {
     const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = JSON.parse(protectedHeaderJson);
+    protectedHeader = sanitizeObject<JWEHeaderParameters>(
+      JSON.parse(protectedHeaderJson),
+    );
   } catch (error_) {
     throw new Error(
       `Invalid JWE: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,
