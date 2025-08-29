@@ -1,0 +1,37 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "lint",
+      "type": "shell",
+      "command": "pnpm lint",
+      "isBackground": false,
+      "problemMatcher": ["$eslint-stylish"],
+      "group": "build"
+    },
+    {
+      "label": "lint:fix",
+      "type": "shell",
+      "command": "pnpm lint:fix",
+      "isBackground": false,
+      "problemMatcher": ["$eslint-stylish"],
+      "group": "build"
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "pnpm test",
+      "isBackground": false,
+      "problemMatcher": ["$tsc", "$eslint-stylish"],
+      "group": "build"
+    },
+    {
+      "label": "test:types",
+      "type": "shell",
+      "command": "pnpm test:types",
+      "isBackground": false,
+      "problemMatcher": ["$tsc"],
+      "group": "build"
+    }
+  ]
+}
