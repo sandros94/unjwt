@@ -24,7 +24,7 @@ export interface GenerateKeyOptions {
   /** RSA public exponent. Defaults to 65537 (0x010001). */
   publicExponent?: Uint8Array<ArrayBuffer>;
   /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
-  toJWK?: boolean | undefined;
+  toJWK?: JWK | boolean | undefined;
 }
 
 // Conditional return type when toJWK is true
@@ -247,8 +247,8 @@ export interface JWK_OKP_Private extends JWK_OKP_Public {
   d: string;
 }
 
-/** ED JSON Web Keys */
-export type JWK_ED = JWK_OKP_Public | JWK_OKP_Private;
+/** OKP JSON Web Keys */
+export type JWK_OKP = JWK_OKP_Public | JWK_OKP_Private;
 
 /** oct JSON Web Keys */
 export interface JWK_oct extends JWKParameters {
@@ -267,9 +267,9 @@ export type JWK_Public =
 export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_OKP_Private;
 
 /**
- * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC", "ED" and "oct" key types are supported.
+ * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC", "OKP" and "oct" key types are supported.
  */
-export type JWK = JWK_oct | JWK_RSA | JWK_EC | JWK_ED;
+export type JWK = JWK_oct | JWK_RSA | JWK_EC | JWK_OKP;
 
 /**
  * JSON Web Key Set ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK Set}). "RSA", "EC" and "oct" key types are supported.
