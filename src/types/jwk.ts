@@ -232,7 +232,7 @@ export interface JWK_RSA_Private extends JWK_RSA_Public {
 export type JWK_RSA = JWK_RSA_Public | JWK_RSA_Private;
 
 /** Public ED JSON Web Keys */
-export interface JWK_ED_Public extends JWKParameters {
+export interface JWK_OKP_Public extends JWKParameters {
   /** ED JWK "kty" (Key Type) Parameter */
   kty: "OKP";
   /** ED JWK "crv" (Curve) Parameter */
@@ -242,13 +242,13 @@ export interface JWK_ED_Public extends JWKParameters {
 }
 
 /** Private ED JSON Web Keys */
-export interface JWK_ED_Private extends JWK_ED_Public {
+export interface JWK_OKP_Private extends JWK_OKP_Public {
   /** ED JWK "d" (Private Key) Parameter */
   d: string;
 }
 
 /** ED JSON Web Keys */
-export type JWK_ED = JWK_ED_Public | JWK_ED_Private;
+export type JWK_ED = JWK_OKP_Public | JWK_OKP_Private;
 
 /** oct JSON Web Keys */
 export interface JWK_oct extends JWKParameters {
@@ -260,11 +260,11 @@ export interface JWK_oct extends JWKParameters {
 export type JWK_Public =
   | JWK_RSA_Public
   | JWK_EC_Public
-  | JWK_ED_Public
+  | JWK_OKP_Public
   | JWK_oct;
 
 /** Private JSON Web Keys */
-export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_ED_Private;
+export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_OKP_Private;
 
 /**
  * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC", "ED" and "oct" key types are supported.
@@ -308,7 +308,7 @@ export type JWK_ECDH_ES =
   | "ECDH-ES+A128KW"
   | "ECDH-ES+A192KW"
   | "ECDH-ES+A256KW";
-export type JWK_ED_SIGN = "Ed25519" | "EdDSA";
+export type JWK_OKP_SIGN = "Ed25519" | "EdDSA";
 
 export type JWK_Symmetric_Algorithm = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM;
 export type JWK_Asymmetric_Algorithm =
@@ -316,7 +316,7 @@ export type JWK_Asymmetric_Algorithm =
   | JWK_RSA_PSS
   | JWK_ECDSA
   | JWK_RSA_ENC
-  | JWK_ED_SIGN;
+  | JWK_OKP_SIGN;
 
 export type JWKAlgorithm =
   | JWK_Symmetric_Algorithm
@@ -332,4 +332,4 @@ export type JWKPEMAlgorithm =
   | JWK_RSA_ENC
   | JWK_ECDSA
   | JWK_ECDH_ES
-  | JWK_ED_SIGN;
+  | JWK_OKP_SIGN;
