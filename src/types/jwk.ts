@@ -250,8 +250,14 @@ export interface JWK_oct extends JWKParameters {
   k: string;
 }
 
+/** Public JSON Web Keys */
+export type JWK_Public = JWK_RSA_Public | JWK_EC_Public | JWK_ED_Public | JWK_oct;
+
+/** Private JSON Web Keys */
+export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_ED_Private;
+
 /**
- * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC" and "oct" key types are supported.
+ * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC", "ED" and "oct" key types are supported.
  */
 export type JWK = JWK_oct | JWK_RSA | JWK_EC | JWK_ED;
 
