@@ -23,7 +23,7 @@
       "command": "pnpm test",
       "isBackground": false,
       "problemMatcher": ["$tsc", "$eslint-stylish"],
-      "group": "build"
+      "group": "test"
     },
     {
       "label": "test:types",
@@ -31,7 +31,14 @@
       "command": "pnpm test:types",
       "isBackground": false,
       "problemMatcher": ["$tsc"],
-      "group": "build"
+      "group": "test"
+    },
+    {
+      "label": "bench",
+      "type": "shell",
+      "command": "pnpm bench",
+      "isBackground": false,
+      "group": "none"
     }
   ]
 }
