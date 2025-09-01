@@ -6,7 +6,12 @@
  * @license MIT https://github.com/panva/jose/blob/69b7960c67e05be55fa2ec31c74b987696c20c60/LICENSE.md
  */
 
-import type { JWK, JWK_RSA_Private, JWK_EC_Public } from "../types";
+import type {
+  JWK,
+  JWK_RSA_Private,
+  JWK_EC_Private,
+  JWK_OKP_Private,
+} from "../types";
 import { sanitizeObject } from "../utils";
 
 function subtleMapping(jwk: JWK): {
@@ -61,25 +66,28 @@ function subtleMapping(jwk: JWK): {
       switch (jwk.alg) {
         case "ES256": {
           algorithm = { name: "ECDSA", namedCurve: "P-256" };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["sign"] : ["verify"];
+          keyUsages = (jwk as JWK_EC_Private).d ? ["sign"] : ["verify"];
           break;
         }
         case "ES384": {
           algorithm = { name: "ECDSA", namedCurve: "P-384" };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["sign"] : ["verify"];
+          keyUsages = (jwk as JWK_EC_Private).d ? ["sign"] : ["verify"];
           break;
         }
         case "ES512": {
           algorithm = { name: "ECDSA", namedCurve: "P-521" };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["sign"] : ["verify"];
+          keyUsages = (jwk as JWK_EC_Private).d ? ["sign"] : ["verify"];
           break;
         }
         case "ECDH-ES":
         case "ECDH-ES+A128KW":
         case "ECDH-ES+A192KW":
         case "ECDH-ES+A256KW": {
-          algorithm = { name: "ECDH", namedCurve: (jwk as JWK_EC_Public).crv! };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["deriveBits"] : [];
+          algorithm = {
+            name: "ECDH",
+            namedCurve: (jwk as JWK_EC_Private).crv!,
+          };
+          keyUsages = (jwk as JWK_EC_Private).d ? ["deriveBits"] : [];
           break;
         }
         default: {
@@ -95,15 +103,15 @@ function subtleMapping(jwk: JWK): {
         case "Ed25519": // Fall through
         case "EdDSA": {
           algorithm = { name: "Ed25519" };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["sign"] : ["verify"];
+          keyUsages = (jwk as JWK_OKP_Private).d ? ["sign"] : ["verify"];
           break;
         }
         case "ECDH-ES":
         case "ECDH-ES+A128KW":
         case "ECDH-ES+A192KW":
         case "ECDH-ES+A256KW": {
-          algorithm = { name: (jwk as JWK_EC_Public).crv! };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["deriveBits"] : [];
+          algorithm = { name: (jwk as JWK_OKP_Private).crv! };
+          keyUsages = (jwk as JWK_OKP_Private).d ? ["deriveBits"] : [];
           break;
         }
         default: {
