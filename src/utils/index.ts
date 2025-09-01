@@ -1,4 +1,16 @@
-import type { JWK, JWKSet } from "../types";
+import type {
+  JWK,
+  JWKSet,
+  JWK_oct,
+  JWK_Public,
+  JWK_Private,
+  JWK_EC_Public,
+  JWK_EC_Private,
+  JWK_OKP_Public,
+  JWK_OKP_Private,
+  JWK_RSA_Public,
+  JWK_RSA_Private,
+} from "../types";
 
 export * from "./jwt";
 export * from "./sanitize";
@@ -161,3 +173,66 @@ export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
   typeof key === "object" &&
   isCryptoKey(key.publicKey) &&
   isCryptoKey(key.privateKey);
+
+/** Returns true if the JWK is a symmetric (oct) key. */
+export function isSymmetricJWK(key: unknown): key is JWK_oct {
+  return (
+    isJWK(key) && key.kty === "oct" && typeof (key as JWK_oct).k === "string"
+  );
+}
+
+/** Returns true if the JWK is an asymmetric (RSA, EC, OKP) key. */
+export function isAsymmetricJWK(key: unknown): key is JWK_oct {
+  return !isSymmetricJWK(key);
+}
+
+/**
+ * Type guard that checks if the provided JWK contains private key material.
+ * It relies purely on the presence of private components (e.g. "d"), not on the alg value.
+ */
+export function isPrivateJWK(key: unknown): key is JWK_Private {
+  if (!isJWK(key)) return false;
+  if (key.kty === "EC") {
+    return typeof (key as Partial<JWK_EC_Private>).d === "string";
+  }
+  if (key.kty === "OKP") {
+    return typeof (key as Partial<JWK_OKP_Private>).d === "string";
+  }
+  if (key.kty === "RSA") {
+    return typeof (key as Partial<JWK_RSA_Private>).d === "string";
+  }
+  // "oct" and other kty values are not considered "private" asymmetric keys
+  return false;
+}
+
+/**
+ * Type guard that checks if the provided JWK is a public (asymmetric) key.
+ * This checks for the presence of public components and absence of private material.
+ */
+export function isPublicJWK(key: unknown): key is JWK_Public {
+  if (!isJWK(key)) return false;
+  if (key.kty === "EC") {
+    const ec = key as Partial<JWK_EC_Public & JWK_EC_Private>;
+    return (
+      typeof ec.x === "string" &&
+      typeof ec.y === "string" &&
+      typeof (ec as Partial<JWK_EC_Private>).d !== "string"
+    );
+  }
+  if (key.kty === "OKP") {
+    const okp = key as Partial<JWK_OKP_Public & JWK_OKP_Private>;
+    return (
+      typeof okp.x === "string" &&
+      typeof (okp as Partial<JWK_OKP_Private>).d !== "string"
+    );
+  }
+  if (key.kty === "RSA") {
+    const rsa = key as Partial<JWK_RSA_Public & JWK_RSA_Private>;
+    return (
+      typeof rsa.n === "string" &&
+      typeof rsa.e === "string" &&
+      typeof (rsa as Partial<JWK_RSA_Private>).d !== "string"
+    );
+  }
+  return false;
+}
