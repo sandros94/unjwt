@@ -23,6 +23,8 @@ import type {
   JWK_EC_Public,
   JWK_RSA_Private,
   JWK_RSA_Public,
+  JWK_OKP_Private,
+  JWK_OKP_Public,
   JWKPEMAlgorithm,
 } from "../src/types";
 import { rsa, ec } from "./keys";
@@ -101,10 +103,10 @@ describe.concurrent("JWK Utilities", () => {
       );
 
       await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(
-        Object,
+        CryptoKey,
       );
       await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(
-        Object,
+        CryptoKey,
       );
     });
 
@@ -138,10 +140,36 @@ describe.concurrent("JWK Utilities", () => {
       );
 
       await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(
-        Object,
+        CryptoKey,
       );
       await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(
-        Object,
+        CryptoKey,
+      );
+    });
+
+    it("should generate asymmetric JWK pair with custom `kid`", async () => {
+      const kid = crypto.randomUUID();
+      const jwkPair = await generateKey("Ed25519", { toJWK: { kid } });
+      expect(jwkPair.privateKey.kty).toBe("OKP");
+      expect(jwkPair.privateKey.alg).toBe("Ed25519");
+      expect(jwkPair.privateKey.kid).toBe(kid);
+      expect((jwkPair.privateKey as JWK_OKP_Private).crv).toBe("Ed25519");
+      expect((jwkPair.privateKey as JWK_OKP_Private).d).toBeDefined();
+      expect(jwkPair.publicKey.kty).toBe("OKP");
+      expect(jwkPair.publicKey.alg).toBe("Ed25519");
+      expect(jwkPair.publicKey.kid).toBe(kid);
+      expect((jwkPair.publicKey as JWK_OKP_Public).crv).toBe("Ed25519");
+      // @ts-expect-error d is not part of OKP public key
+      expect(jwkPair.publicKey.d).toBeUndefined();
+      expect((jwkPair.publicKey as JWK_OKP_Public).x).toBe(
+        (jwkPair.privateKey as JWK_OKP_Private).x,
+      );
+
+      await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(
+        CryptoKey,
+      );
+      await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(
+        CryptoKey,
       );
     });
 

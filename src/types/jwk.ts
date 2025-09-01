@@ -24,7 +24,10 @@ export interface GenerateKeyOptions {
   /** RSA public exponent. Defaults to 65537 (0x010001). */
   publicExponent?: Uint8Array<ArrayBuffer>;
   /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
-  toJWK?: JWK | boolean | undefined;
+  toJWK?:
+    | undefined
+    | boolean
+    | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
 }
 
 // Conditional return type when toJWK is true
@@ -46,7 +49,9 @@ export type GenerateKeyReturn<
   TOptions extends GenerateKeyOptions,
 > = TOptions["toJWK"] extends true
   ? GenerateKeyReturnJWK<TAlg>
-  : GenerateKeyReturnCrypto<TAlg>;
+  : TOptions["toJWK"] extends object
+    ? GenerateKeyReturnJWK<TAlg>
+    : GenerateKeyReturnCrypto<TAlg>;
 
 /** Options for the deriveKeyFromPassword function. */
 export interface DeriveKeyOptions {

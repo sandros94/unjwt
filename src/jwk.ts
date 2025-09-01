@@ -4,6 +4,7 @@ import type {
   JWK_oct,
   JWK_PBES2,
   JWKPEMAlgorithm,
+  JWKParameters,
   GenerateKeyAlgorithm,
   GenerateKeyOptions,
   GenerateKeyReturn,
@@ -65,7 +66,7 @@ export async function generateKey(
   | JWK
   | { privateKey: JWK; publicKey: JWK }
 > {
-  const exportToJWK = options.toJWK === true;
+  const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
   const defaultExtractable = options.extractable !== false; // Default true
 
   // Handle AES-CBC separately as it requires raw key generation
@@ -94,14 +95,23 @@ export async function generateKey(
   );
 
   if (exportToJWK) {
+    const {
+      alg: _a,
+      kty: _k,
+      key_ops: _ko,
+      ext: _e,
+      ...additionalKeyParams
+    } = typeof options.toJWK === "object"
+      ? (options.toJWK as JWKParameters)
+      : {};
     if (key instanceof CryptoKey) {
       // Symmetric keys (HMAC, AES-KW, AES-GCM)
-      return exportKey(key, { alg }); // Returns JWK
+      return exportKey(key, { ...additionalKeyParams, alg });
     } else {
-      // Asymmetric keys (RSA, EC)
+      // Asymmetric keys (RSA, EC, OKP)
       const [publicKey, privateKey] = await Promise.all([
-        exportKey(key.publicKey, { alg }),
-        exportKey(key.privateKey, { alg }),
+        exportKey(key.publicKey, { ...additionalKeyParams, alg }),
+        exportKey(key.privateKey, { ...additionalKeyParams, alg }),
       ]);
       return { privateKey, publicKey };
     }
@@ -247,9 +257,9 @@ export async function exportKey<T extends JWK>(
 ): Promise<T> {
   const exportedJwk = await keyToJWK<T>(key);
 
-  // Merge the optional jwk properties
+  // Merge the additional jwk properties and make sure the exported ones have priority
   if (jwk) {
-    return { ...exportedJwk, ...sanitizeObject(jwk) };
+    return { ...sanitizeObject(jwk), ...exportedJwk };
   }
 
   return exportedJwk;
