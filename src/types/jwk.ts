@@ -182,6 +182,8 @@ export interface JWKParameters {
 
 /** Public EC JSON Web Keys */
 export interface JWK_EC_Public extends JWKParameters {
+  /** EC JWK "kty" (Key Type) Parameter */
+  kty: "EC";
   /** EC JWK "crv" (Curve) Parameter */
   crv: string;
   /** EC JWK "x" (X Coordinate) Parameter */
@@ -201,6 +203,8 @@ export type JWK_EC = JWK_EC_Public | JWK_EC_Private;
 
 /** Public RSA JSON Web Keys */
 export interface JWK_RSA_Public extends JWKParameters {
+  /** RSA JWK "kty" (Key Type) Parameter */
+  kty: "RSA";
   /** RSA JWK "e" (Exponent) Parameter */
   e: string;
   /** RSA JWK "n" (Modulus) Parameter */
@@ -229,6 +233,8 @@ export type JWK_RSA = JWK_RSA_Public | JWK_RSA_Private;
 
 /** Public ED JSON Web Keys */
 export interface JWK_ED_Public extends JWKParameters {
+  /** ED JWK "kty" (Key Type) Parameter */
+  kty: "OKP";
   /** ED JWK "crv" (Curve) Parameter */
   crv: string;
   /** ED JWK "x" (X Coordinate) Parameter */
@@ -251,7 +257,11 @@ export interface JWK_oct extends JWKParameters {
 }
 
 /** Public JSON Web Keys */
-export type JWK_Public = JWK_RSA_Public | JWK_EC_Public | JWK_ED_Public | JWK_oct;
+export type JWK_Public =
+  | JWK_RSA_Public
+  | JWK_EC_Public
+  | JWK_ED_Public
+  | JWK_oct;
 
 /** Private JSON Web Keys */
 export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_ED_Private;
