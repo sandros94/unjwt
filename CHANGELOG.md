@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.14
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.13...v0.5.14)
+
+### 🚀 Enhancements
+
+- Add type guards for JWK types (sym/asym/ public/private) ([9912f8d](https://github.com/sandros94/unjwt/commit/9912f8d))
+- **JWK:** Allow custom JWK params while generating keys ([2336e21](https://github.com/sandros94/unjwt/commit/2336e21))
+
+### ✅ Tests
+
+- Fix typing ([64456ef](https://github.com/sandros94/unjwt/commit/64456ef))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.13
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.12...v0.5.13)
