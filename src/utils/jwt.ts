@@ -121,7 +121,7 @@ export function computeJwtTimeClaims(
   const now = Math.round(currentDate.getTime() / 1000);
   const claims: JWTClaims = { ...(payload as JWTClaims) };
   claims.iat ||= now;
-  claims.exp = now + expiresIn;
+  claims.exp = claims.iat + expiresIn;
   return claims;
 }
 
