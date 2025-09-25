@@ -28,6 +28,7 @@ import {
 import { sanitizeObject } from "./utils";
 
 export type * from "./types/jws";
+export type * from "./types/jwk";
 export type * from "./types/jwt";
 
 /**
