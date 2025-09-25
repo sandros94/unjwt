@@ -123,9 +123,9 @@ Returns a `Promise<string>` resolving to the JWS token in Compact Serialization 
 import { sign } from "unjwt/jws";
 
 const payload = { message: "My important data" }; // Object payload
-const secret = "supersecretkey"; // String secret, will be imported (length depends on choosen alg)
+const key = await generateKey("HS256", { toJWK: true }); // Generates a JWK_oct
 
-const token = await sign(payload, secret, { alg: "HS256" });
+const token = await sign(payload, key);
 
 console.log(token);
 // eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
