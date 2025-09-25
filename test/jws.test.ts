@@ -184,28 +184,32 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should include computed `exp` and throw because it is expired", async () => {
+      // setting `currentDate` 2 minutes in the past for testing purposes
       const date = new Date();
-      const iat = Math.floor(date.getTime() / 1000) - 60 * 2; // 2 minutes ago
+      const creationDate = new Date(date.getTime() - 60 * 2 * 1000);
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign(
         {
           ...payloadObj,
           exp: undefined,
-          iat,
+          iat: undefined,
         },
         key,
         {
-          // setting `currentDate` 2 minutes in the past for testing purposes
-          currentDate: new Date(date.getTime() - 60 * 2 * 1000),
+          currentDate: creationDate,
           expiresIn: 60, // 1 minute expiration
         },
       );
       const [_headerEncoded, payloadEncoded] = jws.split(".");
       const payload = JSON.parse(base64UrlDecode(payloadEncoded));
-      expect(payload.exp).toEqual(Math.round(date.getTime() / 1000) - 60); // expired 1 minute ago
+      expect(payload.exp).toEqual(
+        Math.round(creationDate.getTime() / 1000) + 60,
+      ); // expired 1 minute ago
 
       await expect(
-        jose.jwtVerify(jws, key, { currentDate: date }),
+        jose.jwtVerify(jws, key, {
+          currentDate: date,
+        }),
       ).rejects.toThrow('"exp" claim timestamp check failed');
 
       await expect(
