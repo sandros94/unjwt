@@ -998,6 +998,20 @@ describe.concurrent("JWS Utilities", () => {
           }),
         ).resolves.toBeDefined();
       });
+
+      it("it does have an expired claim but validation is skipped", async () => {
+        const jws = await sign({ sub: "abc" }, hs256Key, {
+          alg: "HS256",
+          expiresIn: 60,
+          currentDate: new Date(0), // epoch
+        });
+
+        const { payload } = await verify<JWTClaims>(jws, hs256Key, {
+          currentDate: new Date(61_000), // 61 seconds after epoch
+          validateJWT: false,
+        });
+        expect(payload.exp).toBe(60);
+      });
     });
 
     it("should throw if algorithm not allowed", async () => {
