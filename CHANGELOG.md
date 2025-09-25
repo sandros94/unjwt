@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.16
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.15...v0.5.16)
+
+### 🩹 Fixes
+
+- **utils:** `isAsymmetricJWK` return type ([167cc05](https://github.com/sandros94/unjwt/commit/167cc05))
+
+### 📖 Documentation
+
+- **JWS:** Improve example ([b943bdd](https://github.com/sandros94/unjwt/commit/b943bdd))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.15
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.14...v0.5.15)
