@@ -155,6 +155,7 @@ Verifies a JWS token.
   A `KeyLookupFunction` has the signature `(header: JWSProtectedHeader, jws: string) => Promise<CryptoKey | JWK | JWKSet | Uint8Array> | CryptoKey | JWK | JWKSet | Uint8Array`.
 - `options` (optional):
   - `algorithms`: An array of allowed JWS `alg` values. If not provided, the `alg` from the JWS header is used.
+  - `validateJWT`: Unless false, will parse payload as JWT and validate claims if applicable (typ includes "jwt", case insensitive). Default `undefined`.
   - `critical`: An array of JWS header parameter names that the application understands and processes.
 
 Returns a `Promise<JWSVerifyResult<T>>` which is an object `{ payload: T, protectedHeader: JWSProtectedHeader }`.
@@ -259,6 +260,7 @@ Decrypts a JWE token.
   A `JWEKeyLookupFunction` has the signature `(header: JWEHeaderParameters) => Promise<CryptoKey | JWK | string | Uint8Array> | CryptoKey | JWK | string | Uint8Array`.
 - `options` (optional):
   - `algorithms`: Array of allowed JWE Key Management `alg` values.
+  - `validateJWT`: Unless false, will parse payload as JWT and validate claims if applicable (typ includes "jwt", case insensitive). Default `undefined`.
   - `encryptionAlgorithms`: Array of allowed JWE Content Encryption `enc` values.
   - `critical`: Array of JWE header parameter names that the application understands.
   - `unwrappedKeyAlgorithm`: (For `unwrapKey` internally) Algorithm details for the CEK after unwrapping.
