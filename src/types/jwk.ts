@@ -262,11 +262,7 @@ export interface JWK_oct extends JWKParameters {
 }
 
 /** Public JSON Web Keys */
-export type JWK_Public =
-  | JWK_RSA_Public
-  | JWK_EC_Public
-  | JWK_OKP_Public
-  | JWK_oct;
+export type JWK_Public = JWK_RSA_Public | JWK_EC_Public | JWK_OKP_Public;
 
 /** Private JSON Web Keys */
 export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_OKP_Private;

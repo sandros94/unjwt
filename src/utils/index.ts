@@ -175,14 +175,14 @@ export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
   isCryptoKey(key.privateKey);
 
 /** Returns true if the JWK is a symmetric (oct) key. */
-export function isSymmetricJWK(key: unknown): key is JWK_oct {
+export function isSymmetricJWK(key: unknown): key is Extract<JWK, JWK_oct> {
   return (
     isJWK(key) && key.kty === "oct" && typeof (key as JWK_oct).k === "string"
   );
 }
 
 /** Returns true if the JWK is an asymmetric (RSA, EC, OKP) key. */
-export function isAsymmetricJWK(key: unknown): key is JWK_oct {
+export function isAsymmetricJWK(key: unknown): key is Exclude<JWK, JWK_oct> {
   return !isSymmetricJWK(key);
 }
 
