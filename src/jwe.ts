@@ -32,6 +32,7 @@ import {
   decodePayloadFromBytes,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
+  validateJwtClaims,
 } from "./utils";
 import { sanitizeObject } from "./utils";
 
@@ -252,7 +253,7 @@ export async function decrypt<
     | string
     | Uint8Array<ArrayBuffer>
     | JWEKeyLookupFunction,
-  options?: JWEDecryptOptions,
+  options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");
   if (parts.length !== 5) {
@@ -355,6 +356,18 @@ export async function decrypt<
     ...(options?.critical || []),
     ...(options?.requiredHeaders || []),
   ]);
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    options.validateJWT !== false &&
+    (options.validateJWT === true ||
+      protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    !options.forceUint8Array &&
+    !(payload instanceof Uint8Array)
+  ) {
+    validateJwtClaims(payload as JWTClaims, options);
+  }
 
   return {
     payload,

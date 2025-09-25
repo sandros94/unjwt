@@ -45,7 +45,7 @@ describe.concurrent("JWS Utilities", () => {
       const [headerEncoded] = jws.split(".");
       const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
-      expect(header.typ).toBe("at+jwt"); // Default for object
+      expect(header.typ).toBe("JWT"); // Default for object
 
       const { payload: josePayload } = await jose.compactVerify(jws, key);
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
@@ -325,7 +325,7 @@ describe.concurrent("JWS Utilities", () => {
       );
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("HS256");
-      expect(protectedHeader.typ).toBe("at+jwt");
+      expect(protectedHeader.typ).toBe("JWT");
 
       const { payload: josePayload } = await jose.compactVerify(jws, hs256Key);
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
@@ -418,8 +418,8 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { b64: false },
       });
       // When b64 is false, and forceUint8Array is not true,
-      // and typ is not at+jwt, the payload is treated as a raw string.
-      // If typ were at+jwt, it would attempt to JSON.parse it.
+      // and typ is not JWT, the payload is treated as a raw string.
+      // If typ were JWT, it would attempt to JSON.parse it.
       // If forceUint8Array were true, it would be Uint8Array.
       const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
       expect(protectedHeader.b64).toBe(false);
@@ -609,14 +609,14 @@ describe.concurrent("JWS Utilities", () => {
       it("should validate 'typ' header parameter (success)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, {
           alg: "HS256",
-          protectedHeader: { typ: "at+jwt" },
+          protectedHeader: { typ: "JWT" },
         });
         await expect(
-          verify(jws, hs256Key, { typ: "at+jwt" }),
+          verify(jws, hs256Key, { typ: "JWT" }),
         ).resolves.toBeDefined();
 
         await expect(
-          jose.jwtVerify(jws, hs256Key, { typ: "at+jwt" }),
+          jose.jwtVerify(jws, hs256Key, { typ: "JWT" }),
         ).resolves.toBeDefined();
       });
 
@@ -625,19 +625,19 @@ describe.concurrent("JWS Utilities", () => {
           alg: "HS256",
           protectedHeader: { typ: "application/custom" },
         });
-        await expect(verify(jws, hs256Key, { typ: "at+jwt" })).rejects.toThrow(
-          'Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "at+jwt", got "application/custom".',
+        await expect(verify(jws, hs256Key, { typ: "JWT" })).rejects.toThrow(
+          'Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "JWT", got "application/custom".',
         );
 
         await expect(
-          jose.jwtVerify(jws, hs256Key, { typ: "at+jwt" }),
+          jose.jwtVerify(jws, hs256Key, { typ: "JWT" }),
         ).rejects.toThrow('unexpected "typ" JWT header value');
       });
 
       it("should succeed if options.typ is undefined, regardless of header.typ", async () => {
         const jwsWithTyp = await sign(basicJwtPayload, hs256Key, {
           alg: "HS256",
-          protectedHeader: { typ: "at+jwt" },
+          protectedHeader: { typ: "JWT" },
         });
         await expect(verify(jwsWithTyp, hs256Key, {})).resolves.toBeDefined();
         await expect(
@@ -1052,9 +1052,7 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should throw for header missing alg", async () => {
-      const headerWithoutAlg = base64UrlEncode(
-        JSON.stringify({ typ: "at+jwt" }),
-      );
+      const headerWithoutAlg = base64UrlEncode(JSON.stringify({ typ: "JWT" }));
       await expect(
         verify(`${headerWithoutAlg}.payload.sig`, hs256Key),
       ).rejects.toThrow(

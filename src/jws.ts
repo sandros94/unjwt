@@ -313,8 +313,11 @@ export async function verify<
   if (
     payload &&
     typeof payload === "object" &&
-    (protectedHeader.typ === "at+jwt" || protectedHeader.typ === "JWT") &&
-    !options.forceUint8Array
+    options.validateJWT !== false &&
+    (options.validateJWT === true ||
+      protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    !options.forceUint8Array &&
+    !(payload instanceof Uint8Array)
   ) {
     validateJwtClaims(payload as JWTClaims, options);
   }

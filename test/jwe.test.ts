@@ -410,11 +410,11 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should correctly parse plaintext as JSON or string based on typ/cty", async () => {
-      // 1. typ: "at+jwt"
+      // 1. typ: "JWT"
       const jweJwt = await encrypt(plaintextObj, key, {
         alg,
         enc,
-        protectedHeader: { typ: "at+jwt" },
+        protectedHeader: { typ: "JWT" },
       });
       const resJwt = await decrypt<JWTClaims>(jweJwt, key);
       expect(resJwt.payload).toEqual(plaintextObj);
@@ -440,11 +440,11 @@ describe.concurrent("JWE Utilities", () => {
       expect(resString.payload).toBeTypeOf("string");
       expect(resString.payload).toEqual(plaintextString);
 
-      // 4. typ: "at+jwt" but plaintext is not valid JSON
+      // 4. typ: "JWT" but plaintext is not valid JSON
       const jweMalformedJwt = await encrypt("not a json object", key, {
         alg,
         enc,
-        protectedHeader: { typ: "at+jwt" },
+        protectedHeader: { typ: "JWT" },
       });
       const resMalformedJwt = await decrypt<string>(jweMalformedJwt, key);
       expect(resMalformedJwt.payload).toBe("not a json object"); // Falls back to string
@@ -458,17 +458,22 @@ describe.concurrent("JWE Utilities", () => {
       it("computes iat/exp during encrypt when expiresIn provided and no exp present", async () => {
         const key = keys[alg]!.key as CryptoKey;
         const baseClaims: JWTClaims = { sub: "abc" };
-        const fixedDate = new Date(0); // epoch
 
         const jwe = await encrypt(baseClaims, key, {
           alg,
           enc,
           expiresIn: 60,
-          currentDate: fixedDate,
+          currentDate: new Date(0), // epoch
         });
 
-        const { payload, protectedHeader } = await decrypt<JWTClaims>(jwe, key);
-        expect(protectedHeader.typ).toBe("at+jwt");
+        const { payload, protectedHeader } = await decrypt<JWTClaims>(
+          jwe,
+          key,
+          {
+            currentDate: new Date(30_000), // 30 seconds in
+          },
+        );
+        expect(protectedHeader.typ).toBe("JWT");
         expect(protectedHeader.cty).toBe("application/json");
         expect(payload.sub).toBe("abc");
         expect(payload.iat).toBe(0);
@@ -483,10 +488,12 @@ describe.concurrent("JWE Utilities", () => {
           alg,
           enc,
           expiresIn: 60, // should be ignored because exp already set
-          currentDate: new Date(0),
+          currentDate: new Date(0), // epoch
         });
 
-        const { payload } = await decrypt<JWTClaims>(jwe, key);
+        const { payload } = await decrypt<JWTClaims>(jwe, key, {
+          currentDate: new Date(30_000),
+        });
         expect(payload.exp).toBe(999);
       });
 
@@ -496,7 +503,7 @@ describe.concurrent("JWE Utilities", () => {
 
         const jweObj = await encrypt(obj, key, { alg, enc });
         const resObj = await decrypt<JWTClaims>(jweObj, key);
-        expect(resObj.protectedHeader.typ).toBe("at+jwt");
+        expect(resObj.protectedHeader.typ).toBe("JWT");
         expect(resObj.protectedHeader.cty).toBe("application/json");
         expect(resObj.payload).toEqual(obj);
 
@@ -517,6 +524,44 @@ describe.concurrent("JWE Utilities", () => {
         await expect(
           decrypt(jweCrit, key, { requiredHeaders: ["exp"] }),
         ).resolves.toBeDefined();
+      });
+
+      it("it does have an expired claim but validation is skipped", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const claimsWithExp: JWTClaims = { sub: "abc" };
+
+        const jwe = await encrypt(claimsWithExp, key, {
+          alg,
+          enc,
+          expiresIn: 60,
+          currentDate: new Date(0), // epoch
+        });
+
+        const { payload } = await decrypt<JWTClaims>(jwe, key, {
+          currentDate: new Date(61_000),
+          validateJWT: false,
+        });
+        expect(payload.exp).toBe(60);
+      });
+
+      it("should throw if JWT has expired", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const claimsWithExp: JWTClaims = { sub: "abc" };
+
+        const jwe = await encrypt(claimsWithExp, key, {
+          alg,
+          enc,
+          expiresIn: 60,
+          currentDate: new Date(0), // epoch
+        });
+
+        await expect(
+          decrypt<JWTClaims>(jwe, key, {
+            currentDate: new Date(61_000),
+          }),
+        ).rejects.toThrow(
+          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: 1970-01-01T00:01:00.000Z`,
+        );
       });
     });
   });

@@ -49,7 +49,7 @@ export interface JWSSignOptions {
 
   /**
    * Additional protected header parameters. `alg` is automatically included.
-   * `typ` defaults to "at+jwt" if not provided.
+   * `typ` defaults to "JWT" if not provided and payload is an object.
    */
   protectedHeader?: JWSHeaderParameters;
 
@@ -83,6 +83,8 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
   algorithms?: JWSAlgorithm[];
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
   forceUint8Array?: boolean;
+  /** Unless false, will parse payload as JWT and validate claims if applicable (typ "JWT"). */
+  validateJWT?: boolean;
 }
 
 /**

@@ -111,7 +111,7 @@ Creates a JWS token.
 - `key`: The signing key (`CryptoKey`, `JWK`, or `Uint8Array` for symmetric keys).
 - `options`:
   - `alg`: (Required) The JWS algorithm (e.g., `"HS256"`, `"RS256"`, `"ES256"`, `"PS256"`).
-  - `protectedHeader`: An object for additional JWS Protected Header parameters (e.g., `kid`, `typ`, `cty`, `crit`, `b64`). If `payload` is an object and `typ` is not set, it defaults to `"at+jwt"`. The `b64` parameter ([RFC7797 section-3](https://datatracker.ietf.org/doc/html/rfc7797#section-3)) controls payload encoding (defaults to `true`, meaning Base64URL encoded).
+  - `protectedHeader`: An object for additional JWS Protected Header parameters (e.g., `kid`, `typ`, `cty`, `crit`, `b64`). If `payload` is an object and `typ` is not set, it defaults to `"JWT"`. The `b64` parameter ([RFC7797 section-3](https://datatracker.ietf.org/doc/html/rfc7797#section-3)) controls payload encoding (defaults to `true`, meaning Base64URL encoded).
   - `expiresIn`: Sets an expiration time in seconds (e.g., `3600` for 1 hour). If `iat` is missing it will be set to the current time. If `exp` is missing it will be set to `iat + expiresIn`. This is only applied if `payload` is a JWT.
   - `currentDate`: The current date for computing `expiresIn` option. Defaults to `new Date()`.
 
@@ -170,7 +170,7 @@ const secret = "supersecretkey";
 
 const { payload, protectedHeader } = await verify(token, secret);
 console.log(payload); // { message: "My important data" }
-console.log(protectedHeader); // { alg: "HS256", typ: "at+jwt" }
+console.log(protectedHeader); // { alg: "HS256", typ: "JWT" }
 ```
 
 **Example (RS256 with key lookup):**
@@ -210,7 +210,7 @@ Encrypts data to produce a JWE token.
 - `options`:
   - `alg`: (Required) The JWE Key Management algorithm (e.g., `"A128KW"`, `"RSA-OAEP-256"`, `"PBES2-HS256+A128KW"`, `"ECDH-ES+A128KW"`), defaults depends on the key provided.
   - `enc`: (Required) The JWE Content Encryption algorithm (e.g., `"A128GCM"`, `"A256CBC-HS512"`), defaults depends on the key provided.
-  - `protectedHeader`: An object for JWE Protected Header parameters (e.g., `kid`, `typ`, `cty`, `crit`, `apu`, `apv`, `p2s`, `p2c`). If `payload` is an object and `typ` is not set, it defaults to `"at+jwt"`.
+  - `protectedHeader`: An object for JWE Protected Header parameters (e.g., `kid`, `typ`, `cty`, `crit`, `apu`, `apv`, `p2s`, `p2c`). If `payload` is an object and `typ` is not set, it defaults to `"JWT"`.
   - `cek`: (Optional) Provide your own Content Encryption Key (`CryptoKey` or `Uint8Array`).
   - `contentEncryptionIV`: (Optional) Provide your own Initialization Vector for content encryption (`Uint8Array`).
   - Other algorithm-specific options like `p2s`, `p2c` (for PBES2), `keyManagementIV`, `ecdhPartyUInfo`, `ecdhPartyVInfo`.

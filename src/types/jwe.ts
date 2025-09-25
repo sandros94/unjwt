@@ -85,7 +85,7 @@ export interface JWEEncryptOptions {
   enc?: ContentEncryptionAlgorithm;
   /** Date to use when computing NumericDate claims, defaults to `new Date()`. */
   currentDate?: Date;
-  /** Time at which the JWT should expire, if no `exp` was already provided (only when typ is "at+jwt"). */
+  /** Time at which the JWT should expire, if no `exp` was already provided (only when typ is "JWT" or explicitly parsing JWT). */
   expiresIn?: number;
 
   /** Additional JWE Protected Header parameters. */
@@ -151,6 +151,8 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   extractable?: boolean;
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred based on JWE headers. */
   forceUint8Array?: boolean;
+  /** Unless false, will parse payload as JWT and validate claims if applicable (typ "JWT"). */
+  validateJWT?: boolean;
 }
 
 /**

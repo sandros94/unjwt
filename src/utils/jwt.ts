@@ -5,8 +5,8 @@ import { sanitizeObject } from "./index";
 
 /**
  * Apply default typ/cty semantics shared by JWS & JWE.
- * - If typ is undefined and payload is a non-Uint8Array object, set typ="at+jwt".
- * - If typ is "at+jwt" and payload is a non-Uint8Array object, ensure cty defaults to "application/json".
+ * - If typ is undefined and payload is a non-Uint8Array object, set typ="JWT".
+ * - If typ is "JWT" and payload is a non-Uint8Array object, ensure cty defaults to "application/json".
  */
 export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
   header: T,
@@ -17,21 +17,20 @@ export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
     payload !== null &&
     !(payload instanceof Uint8Array);
   if (header.typ === undefined && isObjectPayload) {
-    header.typ = "at+jwt";
+    header.typ = "JWT";
   }
-  if ((header.typ === "at+jwt" || header.typ === "JWT") && isObjectPayload) {
+  if (header.typ?.toLowerCase().includes("jwt") && isObjectPayload) {
     header.cty ||= "application/json";
   }
   return header;
 }
 
 /** Returns true when headers indicate JSON content. */
-export function isJsonContent(
+export function isJWTContent(
   header: { typ?: string; cty?: string } | undefined,
 ): boolean {
   if (!header) return false;
-  if (header.typ === "at+jwt") return true;
-  if (header.typ === "JWT") return true;
+  if (header.typ?.toLowerCase().includes("jwt")) return true;
   const cty = header.cty?.toLowerCase();
   return (
     cty === "json" ||
@@ -43,11 +42,11 @@ export function isJsonContent(
 /**
  * Given a decoded string and JOSE headers, return an object if JSON, otherwise the string.
  */
-export function decodeMaybeJsonString<T = unknown>(
+export function decodeMaybeJWTString<T = unknown>(
   decodedString: string,
   header: { typ?: string; cty?: string } | undefined,
 ): T | string {
-  if (isJsonContent(header)) {
+  if (isJWTContent(header)) {
     const looksLikeJson =
       (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
       (decodedString.startsWith("[") && decodedString.endsWith("]"));
@@ -73,7 +72,7 @@ export function decodePayloadFromBytes<T = unknown>(
 ): T | Uint8Array<ArrayBuffer> | string {
   if (forceUint8Array) return bytes;
   const decodedString = textDecoder.decode(bytes);
-  return decodeMaybeJsonString<T>(decodedString, header);
+  return decodeMaybeJWTString<T>(decodedString, header);
 }
 
 /**
@@ -86,7 +85,7 @@ export function decodePayloadFromB64UrlSegment<T = unknown>(
 ): T | Uint8Array<ArrayBuffer> | string {
   if (forceUint8Array) return base64UrlDecode(payloadEncoded, false);
   const decodedString = base64UrlDecode(payloadEncoded);
-  return decodeMaybeJsonString<T>(decodedString, header);
+  return decodeMaybeJWTString<T>(decodedString, header);
 }
 
 /** Convert plaintext input to bytes, shared by JWS & JWE when preparing payload. */
@@ -111,7 +110,7 @@ export function computeJwtTimeClaims(
 ): JWTClaims | undefined {
   if (
     expiresIn === undefined ||
-    (headerTyp !== "at+jwt" && headerTyp !== "JWT") ||
+    !headerTyp?.toLowerCase().includes("jwt") ||
     !(payload && typeof payload === "object") ||
     payload instanceof Uint8Array ||
     (payload as any).exp
