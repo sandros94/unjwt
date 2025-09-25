@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.5.15
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.14...v0.5.15)
+
+### 🩹 Fixes
+
+- Don't force `at+jwt`, optionally skip JWT verification and verify JWE ones by default ([8fe739d](https://github.com/sandros94/unjwt/commit/8fe739d))
+- **JWT:** `exp` computing for custom `iat` ([f078fca](https://github.com/sandros94/unjwt/commit/f078fca))
+
+### 📖 Documentation
+
+- Add `validateJWT` description ([98db1a4](https://github.com/sandros94/unjwt/commit/98db1a4))
+
+### 🏡 Chore
+
+- Setup basic benchmarks ([e94ee4e](https://github.com/sandros94/unjwt/commit/e94ee4e))
+- Update tasks ([82d9882](https://github.com/sandros94/unjwt/commit/82d9882))
+- Update deps ([6c0a209](https://github.com/sandros94/unjwt/commit/6c0a209))
+
+### ✅ Tests
+
+- **JWS:** Skip validating JWT ([3d58540](https://github.com/sandros94/unjwt/commit/3d58540))
+- **JWS:** Fix computed `exp` date calculation ([fa72522](https://github.com/sandros94/unjwt/commit/fa72522))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.14
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.13...v0.5.14)
