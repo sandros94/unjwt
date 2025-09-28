@@ -415,10 +415,7 @@ function parseEphemeralKey(
     epk = ephemeralKey;
     epkPrivateKey = ephemeralKey;
   } else if (isJWK(ephemeralKey)) {
-    if (
-      !("d" in ephemeralKey) ||
-      typeof ephemeralKey.d !== "string"
-    ) {
+    if (!("d" in ephemeralKey) || typeof ephemeralKey.d !== "string") {
       throw new TypeError(
         'ECDH-ES custom ephemeral JWK must include private parameter "d".',
       );
