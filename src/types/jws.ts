@@ -11,6 +11,7 @@ import type {
   JWK_RSA_PSS,
   JWK_ECDSA,
 } from "./jwk";
+import type { ExpiresIn } from ".";
 
 type JWS_SIGN_EXTRA = "Ed25519" | "EdDSA";
 /** JWS Signing Algorithm Identifier. */
@@ -59,7 +60,7 @@ export interface JWSSignOptions {
   /**
    * Time at which the JWS should expire, if no `exp` was already provided.
    */
-  expiresIn?: number;
+  expiresIn?: ExpiresIn;
 }
 
 /** Result of JWS verification */

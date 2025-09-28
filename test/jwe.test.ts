@@ -493,7 +493,7 @@ describe.concurrent("JWE Utilities", () => {
         const jwe = await encrypt(baseClaims, key, {
           alg,
           enc,
-          expiresIn: 60,
+          expiresIn: "1m", // 1 minute
           currentDate: new Date(0), // epoch
         });
 

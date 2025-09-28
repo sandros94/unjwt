@@ -171,7 +171,7 @@ describe.concurrent("JWS Utilities", () => {
     it("should include computed `exp`", async () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign({ ...payloadObj, iat: undefined }, key, {
-        expiresIn: 60, // 1 minute expiration
+        expiresIn: "1m", // 1 minute expiration
       });
       const [_headerEncoded, payloadEncoded] = jws.split(".");
       const payload = JSON.parse(base64UrlDecode(payloadEncoded));

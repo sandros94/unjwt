@@ -10,6 +10,7 @@ import type {
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
 } from "./jwk";
+import type { ExpiresIn } from ".";
 
 /** Recognized JWE Header Parameters, any other Header Members may also be present. */
 export interface JWEHeaderParameters extends JoseHeaderParameters {
@@ -91,7 +92,7 @@ export interface JWEEncryptOptions {
   /** Date to use when computing NumericDate claims, defaults to `new Date()`. */
   currentDate?: Date;
   /** Time at which the JWT should expire, if no `exp` was already provided (only when typ is "JWT" or explicitly parsing JWT). */
-  expiresIn?: number;
+  expiresIn?: ExpiresIn;
 
   /** Additional JWE Protected Header parameters. */
   protectedHeader?: Omit<

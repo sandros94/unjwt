@@ -1,5 +1,4 @@
-import type { JWTClaims } from "../types/jwt";
-import type { JWTClaimValidationOptions } from "../types/jwt";
+import type { JWTClaims, JWTClaimValidationOptions, ExpiresIn } from "../types";
 import { base64UrlDecode, textDecoder, textEncoder, maybeArray } from "./index";
 import { sanitizeObject } from "./index";
 
@@ -101,11 +100,66 @@ export function getPlaintextBytes(
   );
 }
 
+const TIME_CONSTANTS = Object.freeze({
+  s: 1,
+  second: 1,
+  seconds: 1,
+  m: 60,
+  minute: 60,
+  minutes: 60,
+  h: 3600,
+  hour: 3600,
+  hours: 3600,
+  D: 86_400,
+  day: 86_400,
+  days: 86_400,
+  W: 604_800,
+  week: 604_800,
+  weeks: 604_800,
+  M: 2_592_000,
+  month: 2_592_000,
+  months: 2_592_000,
+  Y: 31_536_000,
+  year: 31_536_000,
+  years: 31_536_000,
+});
+const EXPIRES_IN_REGEX =
+  /^(\d+)(s|second|seconds|m|minute|minutes|h|hour|hours|D|day|days|W|week|weeks|M|month|months|Y|year|years)?$/;
+
+export function computeExpiresInSeconds(expiresIn: ExpiresIn): number {
+  if (typeof expiresIn === "number") {
+    if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
+      throw new TypeError(
+        "If 'expiresIn' is a number, it must be a positive integer representing seconds.",
+      );
+    }
+    return expiresIn;
+  }
+
+  if (typeof expiresIn === "string") {
+    const match = expiresIn.match(EXPIRES_IN_REGEX);
+    if (!match || !match[1]) {
+      throw new TypeError(
+        "Invalid 'expiresIn' format. Must be a positive integer or a string like '10m', '2h', '7D', etc.",
+      );
+    }
+
+    const value = Number.parseInt(match[1], 10);
+    const unit = (match[2] || "s") as keyof typeof TIME_CONSTANTS;
+
+    return value * TIME_CONSTANTS[unit];
+  }
+
+  throw new TypeError(
+    "'expiresIn' must be a number or a string representing time duration.",
+  );
+}
+
 /** Optionally compute iat/exp when signing JWTs. */
 export function computeJwtTimeClaims(
   payload: unknown,
   headerTyp: string | undefined,
-  expiresIn?: number,
+  expiresIn?: ExpiresIn,
   currentDate: Date = new Date(),
 ): JWTClaims | undefined {
   if (
@@ -121,7 +175,7 @@ export function computeJwtTimeClaims(
   const now = Math.round(currentDate.getTime() / 1000);
   const claims: JWTClaims = { ...(payload as JWTClaims) };
   claims.iat ||= now;
-  claims.exp = claims.iat + expiresIn;
+  claims.exp = claims.iat + computeExpiresInSeconds(expiresIn);
   return claims;
 }
 

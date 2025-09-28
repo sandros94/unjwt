@@ -6,6 +6,8 @@ import {
   concatUint8Arrays,
   textEncoder,
   textDecoder,
+  computeExpiresInSeconds,
+  computeJwtTimeClaims,
 } from "../src/utils";
 
 describe.concurrent("Utility Functions", () => {
@@ -77,6 +79,62 @@ describe.concurrent("Utility Functions", () => {
         expect(decodedString).toEqual(input);
       });
     }
+  });
+
+  describe("computeExpiresInSeconds", () => {
+    it("should compute expiresIn correctly", () => {
+      expect(computeExpiresInSeconds("1s")).toBe(1);
+      expect(computeExpiresInSeconds("1m")).toBe(60);
+      expect(computeExpiresInSeconds("1h")).toBe(3600);
+      expect(computeExpiresInSeconds("1D")).toBe(86_400);
+      expect(computeExpiresInSeconds("2D")).toBe(172_800);
+      expect(computeExpiresInSeconds(10)).toBe(10);
+    });
+
+    it("should throw on invalid input", () => {
+      // @ts-expect-error intentional invalid input
+      expect(() => computeExpiresInSeconds("")).toThrow();
+      // @ts-expect-error intentional invalid input
+      expect(() => computeExpiresInSeconds("5x")).toThrow();
+      expect(() => computeExpiresInSeconds(-10)).toThrow();
+      expect(() => computeExpiresInSeconds(0)).toThrow();
+      expect(() => computeExpiresInSeconds(Number.NaN)).toThrow();
+    });
+  });
+
+  describe("computeJwtTimeClaims", () => {
+    it("should compute iat and exp claims correctly", () => {
+      const date = new Date(0); // epoch
+      const now = date.getTime(); // 0 seconds
+
+      let claims = computeJwtTimeClaims({}, "JWT", "1m", date)!;
+      expect(claims).toHaveProperty("iat");
+      expect(claims.iat).toBe(now);
+      expect(claims).toHaveProperty("exp");
+      expect(claims.exp).toBe(now + 60);
+
+      claims = computeJwtTimeClaims({ iat: 1000 }, "JWT", "1m", date)!;
+      expect(claims).toHaveProperty("iat");
+      expect(claims.iat).toBe(1000);
+      expect(claims).toHaveProperty("exp");
+      expect(claims.exp).toBe(1060);
+    });
+
+    it("should return undefined for invalid inputs", () => {
+      const date = new Date(0); // epoch
+
+      // no expiresIn
+      let claims = computeJwtTimeClaims({}, "JWT", undefined, date);
+      expect(claims).toBeUndefined();
+
+      // `exp` already present
+      claims = computeJwtTimeClaims({ exp: 2000 }, "JWT", "1m", date);
+      expect(claims).toBeUndefined();
+
+      // invalid `typ`
+      claims = computeJwtTimeClaims({}, "invalid", "1m", date);
+      expect(claims).toBeUndefined();
+    });
   });
 });
 
