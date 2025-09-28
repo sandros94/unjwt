@@ -10,7 +10,7 @@ export type CompositeKey = {
 
 export type GenerateKeyAlgorithm = Exclude<
   JWKAlgorithm,
-  "none" | "dir" | JWK_PBES2 | JWK_ECDH_ES
+  "none" | "dir" | JWK_PBES2
 >;
 
 /** Options for the generateKey function. */
@@ -23,6 +23,8 @@ export interface GenerateKeyOptions {
   modulusLength?: number;
   /** RSA public exponent. Defaults to 65537 (0x010001). */
   publicExponent?: Uint8Array<ArrayBuffer>;
+  /** Named curve for EC or OKP keys. Defaults to "P-256" for EC and "Ed25519" for OKP. */
+  namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448";
   /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
   toJWK?:
     | undefined
