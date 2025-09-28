@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.20
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.19...v0.5.20)
+
+### 🩹 Fixes
+
+- **jwt:** Update `maxTokenAge` type to match `ExpiresIn` and add `computeMaxTokenAgeSeconds` utility re-export ([480137e](https://github.com/sandros94/unjwt/commit/480137e))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.19
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.18...v0.5.19)
