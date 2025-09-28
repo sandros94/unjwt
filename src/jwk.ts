@@ -106,12 +106,20 @@ export async function generateKey(
       : {};
     if (key instanceof CryptoKey) {
       // Symmetric keys (HMAC, AES-KW, AES-GCM)
-      return exportKey(key, { ...additionalKeyParams, alg });
+      return exportKey(key, {
+        ...additionalKeyParams,
+        key_ops: keyUsages,
+        alg,
+      });
     } else {
       // Asymmetric keys (RSA, EC, OKP)
       const [publicKey, privateKey] = await Promise.all([
         exportKey(key.publicKey, { ...additionalKeyParams, alg }),
-        exportKey(key.privateKey, { ...additionalKeyParams, alg }),
+        exportKey(key.privateKey, {
+          ...additionalKeyParams,
+          key_ops: keyUsages,
+          alg,
+        }),
       ]);
       return { privateKey, publicKey };
     }
