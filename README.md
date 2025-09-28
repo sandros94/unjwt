@@ -40,6 +40,7 @@ import {
   importJWKFromPEM,
   exportJWKToPEM,
   deriveKeyFromPassword,
+  deriveJWKFromPassword,
 } from "unjwt/jwk";
 // Utility functions
 import {
@@ -67,6 +68,7 @@ import {
   importJWKFromPEM,
   exportJWKToPEM,
   deriveKeyFromPassword,
+  deriveJWKFromPassword,
 } from "https://esm.sh/unjwt/jwk";
 // Utility functions
 import {

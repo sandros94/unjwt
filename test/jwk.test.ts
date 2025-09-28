@@ -4,6 +4,7 @@ import {
   generateKey,
   generateJWK,
   deriveKeyFromPassword,
+  deriveJWKFromPassword,
   importKey,
   exportKey,
   wrapKey,
@@ -215,7 +216,7 @@ describe.concurrent("JWK Utilities", () => {
     });
   });
 
-  describe("deriveKeyFromPassword", () => {
+  describe("deriveKeyFromPassword/deriveJWKFromPassword", () => {
     const password = "password123";
     const salt = randomBytes(16);
     const iterations = 2000; // Keep low for tests
@@ -284,6 +285,23 @@ describe.concurrent("JWK Utilities", () => {
           iterations: 0,
         }),
       ).rejects.toThrow("must be a positive integer");
+    });
+
+    it("should derive JWK with custom `kid`", async () => {
+      const kid = "custom-key-id";
+      const jwk = await deriveJWKFromPassword(
+        password,
+        "PBES2-HS256+A128KW",
+        {
+          salt,
+          iterations,
+        },
+        { kid },
+      );
+      expect(jwk.kty).toBe("oct");
+      expect(jwk.alg).toBe("A128KW");
+      expect(typeof jwk.k).toBe("string");
+      expect(base64UrlDecode(jwk.k, false).length).toBe(16); // 128 bits
     });
   });
 

@@ -236,6 +236,33 @@ export async function deriveKeyFromPassword(
 }
 
 /**
+ * Derives a Json Web Key (JWK) from a password using PBKDF2 as specified by PBES2 algorithms.
+ *
+ * @param password The password to derive the key from (string or Uint8Array).
+ * @param alg The PBES2 algorithm identifier (e.g., "PBES2-HS256+A128KW").
+ * @param jwkParams Optional partial JWK to merge with the generated key, allowing overrides.
+ * @param options Configuration options including salt and iterations.
+ * @returns A Promise resolving to the derived JWK (JWK_oct).
+ */
+export async function deriveJWKFromPassword(
+  password: string | Uint8Array<ArrayBuffer>,
+  alg: JWK_PBES2,
+  options: Omit<DeriveKeyOptions, "toJWK">,
+  jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
+): Promise<JWK_oct> {
+  const {
+    // @ts-expect-error destructuring just to avoid passing it down
+    toJWK: _,
+    ...opts
+  } = options;
+
+  return deriveKeyFromPassword(password, alg, {
+    ...opts,
+    toJWK: (jwkParams as object) || true,
+  });
+}
+
+/**
  * Imports a key from various formats (CryptoKey, JWK, Uint8Array).
  *
  * - If `key` is a CryptoKey, it's returned directly.
