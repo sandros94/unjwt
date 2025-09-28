@@ -131,11 +131,13 @@ export interface UnwrapKeyOptions {
   /** PBES2 Iteration count (required for PBES2). */
   p2c?: number;
   /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
-  epk?: JWK_EC_Public; // Or CryptoKey?
+  epk?: JWK_EC_Public | CryptoKey;
   /** ECDH-ES Agreement PartyUInfo. Base64URL encoded or Uint8Array. */
   apu?: Uint8Array<ArrayBuffer> | string;
   /** ECDH-ES Agreement PartyVInfo. Base64URL encoded or Uint8Array. */
   apv?: Uint8Array<ArrayBuffer> | string;
+  /** Content Encryption Algorithm used with ECDH-ES (required for direct key agreement). */
+  enc?: ContentEncryptionAlgorithm;
   /** Expected unwrapped key algorithm (e.g., 'AES-GCM', 'AES-CBC'). Used by crypto.subtle.unwrapKey. */
   unwrappedKeyAlgorithm?:
     | string
@@ -319,7 +321,8 @@ export type JWK_Asymmetric_Algorithm =
   | JWK_RSA_PSS
   | JWK_ECDSA
   | JWK_RSA_ENC
-  | JWK_OKP_SIGN;
+  | JWK_OKP_SIGN
+  | JWK_ECDH_ES;
 
 export type JWKAlgorithm =
   | JWK_Symmetric_Algorithm

@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt } from "../src/jwe";
-import { generateKey, exportKey } from "../src/jwk";
+import { generateKey, exportKey, unwrapKey } from "../src/jwk";
 import {
   randomBytes,
   textEncoder,
@@ -11,8 +11,10 @@ import {
 } from "../src/utils";
 import type {
   JWK,
+  JWK_EC_Public,
   JWTClaims,
   JWEKeyLookupFunction,
+  JWEHeaderParameters,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
 } from "../src/types";
@@ -58,7 +60,7 @@ describe.concurrent("JWE Utilities", () => {
       generateKey("RSA-OAEP-256", {
         modulusLength: 2048,
       }),
-      generateKey("ES256"), // P-256 for ECDH-ES
+      generateKey("ECDH-ES+A128KW", { namedCurve: "P-256" }),
     ]);
 
     keys["A128KW"] = { key: a128kw };
@@ -566,51 +568,148 @@ describe.concurrent("JWE Utilities", () => {
     });
   });
 
-  // TODO: not working
-  // describe("ECDH-ES specific parameters", () => {
-  //   const ecdhAlg: KeyManagementAlgorithm = "ECDH-ES+A128KW";
-  //   const enc: ContentEncryptionAlgorithm = "A128GCM";
-  //   let recipientKeyPair: CryptoKeyPair;
-  //   let recipientPublicKeyJwk: JWK;
+  describe("ECDH-ES specific parameters", () => {
+    const ecdhAlg: KeyManagementAlgorithm = "ECDH-ES+A128KW";
+    const enc: ContentEncryptionAlgorithm = "A128GCM";
+    let recipientKeyPair: CryptoKeyPair;
+    let recipientPublicKeyJwk: JWK_EC_Public;
 
-  //   beforeAll(async () => {
-  //     recipientKeyPair = keys[ecdhAlg]!.key as CryptoKeyPair;
-  //     recipientPublicKeyJwk = await exportKey(recipientKeyPair.publicKey);
-  //   });
+    beforeAll(async () => {
+      recipientKeyPair = keys[ecdhAlg]!.key as CryptoKeyPair;
+      recipientPublicKeyJwk = (await exportKey(
+        recipientKeyPair.publicKey,
+      )) as JWK_EC_Public;
+    });
 
-  //   it("should encrypt and decrypt with ECDH-ES and include epk", async () => {
-  //     const apu = randomBytes(16);
-  //     const apv = randomBytes(16);
+    it("should encrypt and decrypt with ECDH-ES and include epk", async () => {
+      const apu = randomBytes(16);
+      const apv = randomBytes(16);
 
-  //     const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
-  //       // Encrypt with recipient's public key
-  //       alg: ecdhAlg,
-  //       enc,
-  //       ecdhPartyUInfo: apu,
-  //       ecdhPartyVInfo: apv,
-  //     });
+      const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
+        alg: ecdhAlg,
+        enc,
+        ecdh: {
+          partyUInfo: apu,
+          partyVInfo: apv,
+        },
+      });
 
-  //     const parts = jwe.split(".");
-  //     const protectedHeaderEncoded = parts[0];
-  //     const protectedHeader = JSON.parse(
-  //       base64UrlDecode(protectedHeaderEncoded),
-  //     ) as JWEHeaderParameters;
+      const parts = jwe.split(".");
+      const protectedHeaderEncoded = parts[0];
+      const encryptedKeyEncoded = parts[1];
+      const protectedHeader = JSON.parse(
+        base64UrlDecode(protectedHeaderEncoded),
+      ) as JWEHeaderParameters;
 
-  //     expect(protectedHeader.alg).toBe(ecdhAlg);
-  //     expect(protectedHeader.enc).toBe(enc);
-  //     expect(protectedHeader.epk).toBeDefined();
-  //     expect(protectedHeader.epk?.kty).toBe("EC");
-  //     expect(protectedHeader.epk?.crv).toBe(
-  //       (recipientPublicKeyJwk as JWK_EC_Public).crv,
-  //     );
-  //     expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
-  //     expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
+      expect(protectedHeader.alg).toBe(ecdhAlg);
+      expect(protectedHeader.enc).toBe(enc);
+      expect(protectedHeader.epk).toBeDefined();
+      expect(protectedHeader.epk?.kty).toBe("EC");
+      expect(protectedHeader.epk?.crv).toBe(recipientPublicKeyJwk.crv);
+      expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
+      expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
 
-  //     const { payload: decryptedPayload } = await decrypt(
-  //       jwe,
-  //       recipientKeyPair.privateKey, // Decrypt with recipient's private key
-  //     );
-  //     expect(decryptedPayload).toEqual(plaintextObj);
-  //   });
-  // });
+      const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
+      expect(encryptedKeyBytes).toBeInstanceOf(Uint8Array);
+      expect(encryptedKeyBytes.length).toBeGreaterThan(0);
+
+      const expectedCek = await unwrapKey<false>(
+        ecdhAlg,
+        encryptedKeyBytes,
+        recipientKeyPair.privateKey,
+        {
+          epk: protectedHeader.epk!,
+          apu: protectedHeader.apu,
+          apv: protectedHeader.apv,
+          enc,
+          returnAs: false,
+        },
+      );
+      expect(expectedCek).toBeInstanceOf(Uint8Array);
+
+      const {
+        payload: decryptedPayload,
+        cek,
+        aad,
+      } = await decrypt(jwe, recipientKeyPair.privateKey);
+
+      expect(base64UrlDecode(protectedHeader.apu!, false)).toEqual(apu);
+      expect(base64UrlDecode(protectedHeader.apv!, false)).toEqual(apv);
+      expect(cek).toEqual(expectedCek);
+      expect(aad).toEqual(textEncoder.encode(protectedHeaderEncoded));
+      expect(decryptedPayload).toEqual(plaintextObj);
+    });
+
+    it("should honor provided ECDH ephemeral public key", async () => {
+      const providedEphemeral = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+        keyUsage: ["deriveBits"],
+      })) as CryptoKeyPair;
+      const providedEphemeralJwk = (await exportKey(
+        providedEphemeral.publicKey,
+      )) as JWK_EC_Public;
+      const apu = randomBytes(16);
+      const apv = randomBytes(16);
+
+      expect(providedEphemeral.privateKey.usages).toContain("deriveBits");
+
+      const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
+        alg: ecdhAlg,
+        enc,
+        ecdh: {
+          ephemeralKey: providedEphemeral,
+          partyUInfo: apu,
+          partyVInfo: apv,
+        },
+      });
+
+      const [protectedHeaderEncoded, encryptedKeyEncoded] = jwe.split(".");
+      const protectedHeader = JSON.parse(
+        base64UrlDecode(protectedHeaderEncoded),
+      ) as JWEHeaderParameters;
+
+      expect(protectedHeader.epk).toBeDefined();
+      expect(protectedHeader.epk?.kty).toBe("EC");
+      expect(protectedHeader.epk?.x).toBe(providedEphemeralJwk.x);
+      expect(protectedHeader.epk?.y).toBe(providedEphemeralJwk.y);
+      expect(protectedHeader.epk?.crv).toBe(providedEphemeralJwk.crv);
+      expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
+      expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
+
+      const decryptResult = await decrypt(jwe, recipientKeyPair.privateKey);
+      expect(decryptResult.payload).toEqual(plaintextObj);
+
+      const derivedCek = await unwrapKey<false>(
+        ecdhAlg,
+        base64UrlDecode(encryptedKeyEncoded, false),
+        recipientKeyPair.privateKey,
+        {
+          epk: protectedHeader.epk!,
+          apu: protectedHeader.apu,
+          apv: protectedHeader.apv,
+          enc,
+          returnAs: false,
+        },
+      );
+
+      expect(decryptResult.cek).toEqual(derivedCek);
+    });
+
+    it("should reject ECDH ephemeral material missing private key", async () => {
+      const providedEphemeral = await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+      });
+
+      await expect(
+        encrypt(plaintextObj, recipientKeyPair.publicKey, {
+          alg: ecdhAlg,
+          enc,
+          ecdh: {
+            // deliberately only provide the public component
+            ephemeralKey: providedEphemeral.publicKey,
+          },
+        }),
+      ).rejects.toThrow(/private key material/i);
+    });
+  });
 });

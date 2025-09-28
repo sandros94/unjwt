@@ -1,5 +1,7 @@
 import type {
   JWK,
+  JWK_EC_Public,
+  JWK_EC_Private,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
   UnwrapKeyOptions,
@@ -27,6 +29,8 @@ import {
   randomBytes,
   textEncoder,
   isJWK,
+  isCryptoKey,
+  isCryptoKeyPair,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
@@ -94,8 +98,7 @@ export async function encrypt(
     keyManagementIV,
     p2s = randomBytes(16),
     p2c = 2048,
-    ecdhPartyUInfo,
-    ecdhPartyVInfo,
+    ecdh,
   } = options;
   let { alg, enc } = options;
 
@@ -124,10 +127,12 @@ export async function encrypt(
   if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
   if (p2s) jweKeyManagementParams.p2s = p2s;
   if (p2c) jweKeyManagementParams.p2c = p2c;
-  if (ecdhPartyUInfo) jweKeyManagementParams.apu = ecdhPartyUInfo;
-  if (ecdhPartyVInfo) jweKeyManagementParams.apv = ecdhPartyVInfo;
-  if (additionalProtectedHeader?.epk instanceof CryptoKey) {
-    jweKeyManagementParams.epk = additionalProtectedHeader.epk;
+  if (ecdh?.partyUInfo) jweKeyManagementParams.apu = ecdh.partyUInfo;
+  if (ecdh?.partyVInfo) jweKeyManagementParams.apv = ecdh.partyVInfo;
+  if (ecdh?.ephemeralKey) {
+    const { epk, epkPrivateKey } = parseEphemeralKey(ecdh.ephemeralKey);
+    jweKeyManagementParams.epk = epk;
+    jweKeyManagementParams.epkPrivateKey = epkPrivateKey;
   }
 
   const wrappingKeyMaterial = await importKey(key, alg);
@@ -323,6 +328,7 @@ export async function decrypt<
     epk: protectedHeader.epk,
     apu: protectedHeader.apu,
     apv: protectedHeader.apv,
+    enc,
     unwrappedKeyAlgorithm: options?.unwrappedKeyAlgorithm,
     keyUsage: options?.keyUsage,
     extractable: options?.extractable,
@@ -375,5 +381,58 @@ export async function decrypt<
     protectedHeader,
     cek: cekBytes,
     aad: aadBytes,
+  };
+}
+
+function parseEphemeralKey(
+  ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ephemeralKey"],
+) {
+  let epk: CryptoKey | JWK_EC_Public;
+  let epkPrivateKey: CryptoKey | JWK_EC_Private;
+  if (isCryptoKeyPair(ephemeralKey)) {
+    epk = ephemeralKey.publicKey;
+    epkPrivateKey = ephemeralKey.privateKey;
+  } else if (
+    typeof ephemeralKey === "object" &&
+    ephemeralKey !== null &&
+    "publicKey" in ephemeralKey &&
+    "privateKey" in ephemeralKey
+  ) {
+    const candidate = ephemeralKey;
+    if (!candidate.publicKey || !candidate.privateKey) {
+      throw new TypeError(
+        "ECDH-ES custom ephemeral key must include both publicKey and privateKey.",
+      );
+    }
+    epk = candidate.publicKey;
+    epkPrivateKey = candidate.privateKey;
+  } else if (isCryptoKey(ephemeralKey)) {
+    if (ephemeralKey.type !== "private") {
+      throw new TypeError(
+        "ECDH-ES custom ephemeral CryptoKey must include private key material.",
+      );
+    }
+    epk = ephemeralKey;
+    epkPrivateKey = ephemeralKey;
+  } else if (isJWK(ephemeralKey)) {
+    if (
+      !("d" in ephemeralKey) ||
+      typeof ephemeralKey.d !== "string"
+    ) {
+      throw new TypeError(
+        'ECDH-ES custom ephemeral JWK must include private parameter "d".',
+      );
+    }
+    epk = ephemeralKey;
+    epkPrivateKey = ephemeralKey;
+  } else {
+    throw new TypeError(
+      "Unsupported ECDH-ES ephemeral key material provided in options.",
+    );
+  }
+
+  return {
+    epk,
+    epkPrivateKey,
   };
 }

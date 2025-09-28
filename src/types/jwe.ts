@@ -6,6 +6,7 @@ import type {
 import type {
   JWK,
   JWK_EC_Public,
+  JWK_EC_Private,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
 } from "./jwk";
@@ -72,7 +73,11 @@ export interface JWEKeyManagementHeaderParameters {
   /**
    * For Internal use only
    */
-  epk?: CryptoKey;
+  epk?: CryptoKey | JWK_EC_Public;
+  /**
+   * For Internal use only
+   */
+  epkPrivateKey?: CryptoKey | JWK_EC_Private;
 }
 
 /**
@@ -91,7 +96,7 @@ export interface JWEEncryptOptions {
   /** Additional JWE Protected Header parameters. */
   protectedHeader?: Omit<
     JWEHeaderParameters,
-    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "apu" | "apv"
+    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
   >;
 
   // Key Wrapping specific options (passed to jwk.wrapKey)
@@ -101,10 +106,25 @@ export interface JWEEncryptOptions {
   p2s?: Uint8Array<ArrayBuffer>;
   /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
   p2c?: number;
-  /** ECDH-ES Agreement PartyUInfo. */
-  ecdhPartyUInfo?: Uint8Array<ArrayBuffer>;
-  /** ECDH-ES Agreement PartyVInfo. */
-  ecdhPartyVInfo?: Uint8Array<ArrayBuffer>;
+  /** ECDH-ES specific options. */
+  ecdh?: {
+    /**
+     * ECDH-ES Ephemeral key material. Provide a private key (CryptoKey or JWK),
+     * a CryptoKeyPair, or an object exposing both public and private parts.
+     */
+    ephemeralKey?:
+      | CryptoKey
+      | JWK_EC_Private
+      | CryptoKeyPair
+      | {
+          publicKey: CryptoKey | JWK_EC_Public;
+          privateKey: CryptoKey | JWK_EC_Private;
+        };
+    /** ECDH-ES Agreement PartyUInfo. */
+    partyUInfo?: Uint8Array<ArrayBuffer>;
+    /** ECDH-ES Agreement PartyVInfo. */
+    partyVInfo?: Uint8Array<ArrayBuffer>;
+  };
 
   /**
    * Content Encryption Key (CEK) to use.

@@ -11,11 +11,13 @@ import type {
   JWEHeaderParameters,
   JWK,
   JWK_EC,
+  JWK_EC_Public,
 } from "../types";
 import {
   base64UrlEncode,
   base64UrlDecode,
   isJWK,
+  isAsymmetricJWK,
   assertCryptoKey,
   isCryptoKey,
 } from "../utils";
@@ -27,6 +29,120 @@ import { encryptIV } from "./aesgcmkw";
 import * as ecdhes from "./ecdhes";
 import { wrap } from "./pbes2kw";
 import { sanitizeObject } from "../utils";
+
+const PUBLIC_EPK_FIELDS = new Set([
+  "kty",
+  "crv",
+  "x",
+  "y",
+  "kid",
+  "use",
+  "key_ops",
+  "alg",
+  "x5c",
+  "x5t",
+  "x5t#S256",
+  "x5u",
+]);
+
+function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(jwk)) {
+    if (value !== undefined && PUBLIC_EPK_FIELDS.has(key)) {
+      filtered[key] = value;
+    }
+  }
+
+  const { kty, crv, x, y } = filtered as {
+    kty?: unknown;
+    crv?: unknown;
+    x?: unknown;
+    y?: unknown;
+  };
+
+  if (typeof kty !== "string") {
+    throw new TypeError(
+      'ECDH-ES ephemeral key JWK must include the "kty" parameter.',
+    );
+  }
+
+  if (typeof crv !== "string") {
+    throw new TypeError(
+      'ECDH-ES ephemeral key JWK must include the "crv" parameter.',
+    );
+  }
+
+  if (typeof x !== "string") {
+    throw new TypeError(
+      'ECDH-ES ephemeral key JWK must include the "x" coordinate.',
+    );
+  }
+
+  if (kty === "EC" && typeof y !== "string") {
+    throw new TypeError(
+      'ECDH-ES EC ephemeral key JWK must include both "x" and "y" coordinates.',
+    );
+  }
+
+  const publicJwk: Record<string, unknown> = {
+    ...filtered,
+    kty,
+    crv,
+    x,
+  };
+
+  if (typeof y === "string") {
+    publicJwk.y = y;
+  } else {
+    delete publicJwk.y;
+  }
+
+  return sanitizeObject(publicJwk) as unknown as JWK_EC_Public;
+}
+
+async function ensurePrivateKey(
+  alg: string,
+  value: CryptoKey | JWK_EC,
+): Promise<CryptoKey> {
+  const normalized = await normalizeKey(value, alg);
+  if (!(normalized instanceof CryptoKey)) {
+    throw new TypeError(
+      "ECDH-ES ephemeral private key must be a CryptoKey or convertible JWK.",
+    );
+  }
+  if (normalized.type !== "private") {
+    throw new TypeError(
+      'ECDH-ES ephemeral private key must have type "private".',
+    );
+  }
+  return normalized;
+}
+
+async function exportPublicJwkFrom(
+  alg: string,
+  value: CryptoKey | JWK_EC,
+): Promise<JWK_EC_Public> {
+  if (isCryptoKey(value)) {
+    try {
+      return toPublicEpkJwk(await keyToJWK(value));
+    } catch (error_) {
+      throw new TypeError(
+        "ECDH-ES ephemeral CryptoKey must be extractable to export as JWK.",
+        { cause: error_ instanceof Error ? error_ : undefined },
+      );
+    }
+  }
+  if (isJWK(value) && isAsymmetricJWK(value) && value.kty === "EC") {
+    return toPublicEpkJwk(value);
+  }
+  const normalized = await normalizeKey(value, alg);
+  if (!(normalized instanceof CryptoKey)) {
+    throw new TypeError(
+      "ECDH-ES ephemeral public key must be a CryptoKey or convertible JWK.",
+    );
+  }
+  return exportPublicJwkFrom(alg, normalized);
+}
 
 export async function encryptKey(
   alg: string,
@@ -40,7 +156,7 @@ export async function encryptKey(
   parameters?: JWEHeaderParameters;
 }> {
   let encryptedKey: Uint8Array<ArrayBuffer> | undefined;
-  let parameters: JWEHeaderParameters & { epk?: JWK } = {};
+  let parameters: JWEHeaderParameters = {};
   let cek: CryptoKey | Uint8Array<ArrayBuffer>;
 
   switch (alg) {
@@ -60,20 +176,39 @@ export async function encryptKey(
           "ECDH with the provided key is not allowed or not supported by your javascript runtime",
         );
       }
-      const { apu, apv } = providedParameters;
-      const ephemeralKey: CryptoKey = providedParameters.epk
-        ? ((await normalizeKey(providedParameters.epk, alg)) as CryptoKey)
-        : (
-            await crypto.subtle.generateKey(
-              key.algorithm as EcKeyAlgorithm,
-              true,
-              ["deriveBits"],
-            )
-          ).privateKey;
-      const { x, y, crv, kty } = (await keyToJWK(ephemeralKey!)) as JWK_EC;
+      const { apu, apv, epk: providedEpk, epkPrivateKey } = providedParameters;
+
+      if (providedEpk && !epkPrivateKey) {
+        throw new TypeError(
+          "ECDH-ES custom ephemeral key material must include the matching private key.",
+        );
+      }
+
+      let ephemeralPrivateKey: CryptoKey;
+      let epkHeader: JWK_EC_Public;
+
+      if (epkPrivateKey) {
+        ephemeralPrivateKey = await ensurePrivateKey(alg, epkPrivateKey);
+        const publicSource = providedEpk ?? epkPrivateKey;
+        epkHeader = await exportPublicJwkFrom(alg, publicSource);
+      } else {
+        if (providedEpk) {
+          throw new TypeError(
+            "ECDH-ES custom ephemeral public key requires a matching private key.",
+          );
+        }
+        const generated = await crypto.subtle.generateKey(
+          key.algorithm as EcKeyAlgorithm,
+          true,
+          ["deriveBits"],
+        );
+        ephemeralPrivateKey = generated.privateKey;
+        epkHeader = await exportPublicJwkFrom(alg, generated.publicKey);
+      }
+
       const sharedSecret = await ecdhes.deriveECDHESKey(
         key,
-        ephemeralKey,
+        ephemeralPrivateKey,
         alg === "ECDH-ES" ? enc : alg,
         alg === "ECDH-ES"
           ? bitLengthCEK(enc)
@@ -81,7 +216,7 @@ export async function encryptKey(
         apu,
         apv,
       );
-      parameters = { epk: { x, y, crv, kty } };
+      parameters = { epk: epkHeader };
       if (apu) parameters.apu = base64UrlEncode(apu);
       if (apv) parameters.apv = base64UrlEncode(apv);
 

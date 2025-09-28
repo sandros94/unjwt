@@ -15,6 +15,7 @@ import {
   isCryptoKeyPair,
   randomBytes,
   base64UrlDecode,
+  base64UrlEncode,
 } from "../src/utils";
 import type {
   JWK,
@@ -28,6 +29,7 @@ import type {
   JWKPEMAlgorithm,
 } from "../src/types";
 import { rsa, ec } from "./keys";
+import { deriveECDHESKey } from "../src/jose";
 
 describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {
@@ -552,6 +554,107 @@ describe.concurrent("JWK Utilities", () => {
       await expect(
         unwrapKey("A128KW", encryptedKey, "not-a-key-object"),
       ).rejects.toThrow(TypeError);
+    });
+
+    it("should unwrap ECDH-ES shared secret", async () => {
+      const recipientKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+      const senderKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+
+      const apu = randomBytes(16);
+      const apv = randomBytes(16);
+
+      const expectedSharedSecret = await deriveECDHESKey(
+        recipientKeys.publicKey,
+        senderKeys.privateKey,
+        "A128GCM",
+        128,
+        apu,
+        apv,
+      );
+
+      const unwrapped = await unwrapKey(
+        "ECDH-ES",
+        new Uint8Array(0),
+        recipientKeys.privateKey,
+        {
+          epk: senderKeys.publicKey,
+          apu: base64UrlEncode(apu),
+          apv: base64UrlEncode(apv),
+          enc: "A128GCM",
+          returnAs: false,
+        },
+      );
+
+      expect(unwrapped).toBeInstanceOf(Uint8Array);
+      expect(unwrapped).toEqual(expectedSharedSecret);
+    });
+
+    it("should unwrap ECDH-ES+A128KW encrypted key", async () => {
+      const recipientKeys = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+      const senderKeys = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+
+      const apu = randomBytes(16);
+      const apv = randomBytes(16);
+
+      const sharedSecret = await deriveECDHESKey(
+        recipientKeys.publicKey,
+        senderKeys.privateKey,
+        "ECDH-ES+A128KW",
+        128,
+        apu,
+        apv,
+      );
+
+      const cekBytes = randomBytes(16); // 128-bit CEK for A128KW
+
+      const sharedSecretKey = await crypto.subtle.importKey(
+        "raw",
+        sharedSecret,
+        { name: "AES-KW" },
+        true,
+        ["wrapKey"],
+      );
+
+      const cekCryptoKey = await crypto.subtle.importKey(
+        "raw",
+        cekBytes,
+        { name: "AES-GCM" },
+        true,
+        ["encrypt", "decrypt"],
+      );
+
+      const encryptedKey = new Uint8Array(
+        await crypto.subtle.wrapKey(
+          "raw",
+          cekCryptoKey,
+          sharedSecretKey,
+          "AES-KW",
+        ),
+      );
+
+      const unwrapped = await unwrapKey(
+        "ECDH-ES+A128KW",
+        encryptedKey,
+        recipientKeys.privateKey,
+        {
+          epk: senderKeys.publicKey,
+          apu: base64UrlEncode(apu),
+          apv: base64UrlEncode(apv),
+          enc: "A128GCM",
+          returnAs: false,
+        },
+      );
+
+      expect(unwrapped).toBeInstanceOf(Uint8Array);
+      expect(unwrapped).toEqual(cekBytes);
     });
   });
 

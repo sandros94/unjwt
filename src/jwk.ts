@@ -30,6 +30,9 @@ import {
   keyToJWK,
   bitLengthCEK,
   deriveKey as deriveKeyPBES2,
+  deriveECDHESKey,
+  allowed as isEcdhKeyAllowed,
+  normalizeKey,
   wrap as _wrap,
   unwrap as _unwrap,
   encryptIV as aesGcmKwEncrypt,
@@ -524,8 +527,71 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
       if (!options.epk) {
         throw new Error("ECDH-ES requires 'epk' (Ephemeral Public Key) option");
       }
-      // ECDH-ES requires key agreement then AES-KW unwrap
-      throw new Error(`Algorithm ${alg} not yet implemented in unwrapKey`);
+      if (!(importedUnwrappingKey instanceof CryptoKey)) {
+        throw new TypeError(
+          "ECDH-ES requires the unwrapping key to be a CryptoKey",
+        );
+      }
+
+      if (!isEcdhKeyAllowed(importedUnwrappingKey)) {
+        throw new Error(
+          "ECDH with the provided key is not allowed or not supported",
+        );
+      }
+
+      const epkCandidate =
+        options.epk instanceof CryptoKey
+          ? options.epk
+          : ((await normalizeKey(options.epk, alg)) as CryptoKey);
+
+      if (!(epkCandidate instanceof CryptoKey)) {
+        throw new TypeError("Failed to normalize ECDH ephemeral public key");
+      }
+
+      const apuBytes =
+        typeof options.apu === "string"
+          ? base64UrlDecode(options.apu, false)
+          : (options.apu ?? new Uint8Array(0));
+      const apvBytes =
+        typeof options.apv === "string"
+          ? base64UrlDecode(options.apv, false)
+          : (options.apv ?? new Uint8Array(0));
+
+      const infoAlg = alg === "ECDH-ES" ? options.enc : alg;
+
+      if (!infoAlg) {
+        throw new Error(
+          "ECDH-ES requires content encryption algorithm ('enc') to derive the shared secret",
+        );
+      }
+
+      const keyLength =
+        alg === "ECDH-ES"
+          ? bitLengthCEK(infoAlg)
+          : Number.parseInt(alg.slice(-5, -2), 10);
+
+      const sharedSecret = await deriveECDHESKey(
+        epkCandidate,
+        importedUnwrappingKey,
+        infoAlg,
+        keyLength,
+        apuBytes,
+        apvBytes,
+      );
+
+      if (alg === "ECDH-ES") {
+        unwrappedCekBytes = sharedSecret;
+      } else {
+        const kwAlg = alg.slice(-6);
+        if (!(wrappedKey instanceof Uint8Array) || wrappedKey.length === 0) {
+          throw new Error(
+            "ECDH-ES key agreement with key wrapping requires an encrypted key",
+          );
+        }
+        unwrappedCekBytes = await _unwrap(kwAlg, sharedSecret, wrappedKey);
+      }
+
+      break;
     }
 
     default: {
@@ -769,6 +835,7 @@ function getGenerateKeyParams(
       keyUsages = defaultKeyUsage ?? ["sign", "verify"];
       break;
     }
+
     // RSA Signatures
     case "RS256":
     case "RS384":
@@ -783,6 +850,7 @@ function getGenerateKeyParams(
       keyUsages = defaultKeyUsage ?? ["sign", "verify"];
       break;
     }
+
     // RSA PSS Signatures
     case "PS256":
     case "PS384":
@@ -794,28 +862,6 @@ function getGenerateKeyParams(
           options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
         hash: `SHA-${alg.slice(2)}`,
       };
-      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
-      break;
-    }
-    // ECDSA Signatures
-    case "ES256": {
-      algorithm = { name: "ECDSA", namedCurve: "P-256" };
-      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
-      break;
-    }
-    case "ES384": {
-      algorithm = { name: "ECDSA", namedCurve: "P-384" };
-      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
-      break;
-    }
-    case "ES512": {
-      algorithm = { name: "ECDSA", namedCurve: "P-521" };
-      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
-      break;
-    }
-    case "Ed25519":
-    case "EdDSA": {
-      algorithm = { name: "Ed25519" };
       keyUsages = defaultKeyUsage ?? ["sign", "verify"];
       break;
     }
@@ -840,6 +886,7 @@ function getGenerateKeyParams(
       ];
       break;
     }
+
     // AES Key Wrap
     case "A128KW":
     case "A192KW":
@@ -849,6 +896,7 @@ function getGenerateKeyParams(
       keyUsages = defaultKeyUsage ?? ["wrapKey", "unwrapKey"];
       break;
     }
+
     // AES GCM Encryption
     case "A128GCM":
     case "A192GCM":
@@ -859,10 +907,71 @@ function getGenerateKeyParams(
       break;
     }
 
-    // ECDH Key Agreement (requires specific curve in JWK for import, generation is simpler)
-    // For generation, typically generate the EC key pair first (e.g., P-256, P-384, P-521, X25519)
-    // then use deriveBits/deriveKey. Direct generation for "ECDH-ES*" alg isn't standard.
-    // Handle EC key pair generation under ES256/ES384/ES512.
+    // ECDSA Signatures
+    case "ES256": {
+      algorithm = { name: "ECDSA", namedCurve: "P-256" };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
+    case "ES384": {
+      algorithm = { name: "ECDSA", namedCurve: "P-384" };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
+    case "ES512": {
+      algorithm = { name: "ECDSA", namedCurve: "P-521" };
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      break;
+    }
+    case "Ed25519": {
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      algorithm = { name: "Ed25519" };
+      break;
+    }
+    case "EdDSA": {
+      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
+      const namedCurve = options?.namedCurve ?? "Ed25519";
+      switch (namedCurve) {
+        case "Ed25519":
+        case "Ed448": {
+          algorithm = { name: namedCurve };
+          break;
+        }
+        default: {
+          throw new Error(
+            "Unsupported namedCurve provided. Supported values are: Ed25519 and Ed448",
+          );
+        }
+      }
+      break;
+    }
+
+    // ECDSA Signatures
+    case "ECDH-ES":
+    case "ECDH-ES+A128KW":
+    case "ECDH-ES+A192KW":
+    case "ECDH-ES+A256KW": {
+      keyUsages = ["deriveBits"];
+      const namedCurve = options?.namedCurve ?? "P-256";
+      switch (namedCurve) {
+        case "P-256":
+        case "P-384":
+        case "P-521": {
+          algorithm = { name: "ECDH", namedCurve };
+          break;
+        }
+        case "X25519": {
+          algorithm = { name: "X25519" };
+          break;
+        }
+        default: {
+          throw new Error(
+            "Unsupported namedCurve provided. Supported values are: P-256, P-384, P-521 and X25519",
+          );
+        }
+      }
+      break;
+    }
 
     default: {
       throw new Error(

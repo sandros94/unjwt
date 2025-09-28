@@ -17,7 +17,6 @@ A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/
 > [!WARNING]
 > Please do note that some algorithms are not fully working out-of-the-box yet, such as:
 >
-> - ECDH-ES algorithms with AES Key Wrap (e.g., ECDH-ES+A128KW)
 > - RSA algorithms in combination with some bigger CBC encodings (for example RSA-OAEP-256 with A256CBC-HS512)
 >
 > For these algorithms, you should be able to provide your own keys. Although I do plan to study and simplify this.
