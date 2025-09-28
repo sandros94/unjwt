@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.5.17
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.16...v0.5.17)
+
+### 🚀 Enhancements
+
+- **jwk:** Add generateJWK function for JWK generation and narrow JWK type returns ([cd2e9ed](https://github.com/sandros94/unjwt/commit/cd2e9ed))
+
+### 🩹 Fixes
+
+- **jwk:** Preserve full `key_ops` for private or sym JWKs ([e2ab00f](https://github.com/sandros94/unjwt/commit/e2ab00f))
+- **jwe:** `ECDH-ES` support ([90a3641](https://github.com/sandros94/unjwt/commit/90a3641))
+- **jwe:** `RSA-OAEP` 256,384,512 with CBC enc ([a289258](https://github.com/sandros94/unjwt/commit/a289258))
+
+### 📖 Documentation
+
+- Specify solved warnings ([74b836f](https://github.com/sandros94/unjwt/commit/74b836f))
+
+### 🏡 Chore
+
+- Apply automated updates ([e694619](https://github.com/sandros94/unjwt/commit/e694619))
+- Apply automated updates ([b7dc282](https://github.com/sandros94/unjwt/commit/b7dc282))
+
+### ✅ Tests
+
+- Reduce modulus (faster tests) and add more RSA-OAEP variants tests for `unwrapKey` ([8930faa](https://github.com/sandros94/unjwt/commit/8930faa))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.16
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.15...v0.5.16)
