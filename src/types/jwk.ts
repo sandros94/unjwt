@@ -32,11 +32,28 @@ export interface GenerateKeyOptions {
     | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
 }
 
+// export type JWK_Symmetric_Algorithm = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM;
+// export type JWK_Asymmetric_Algorithm =
+//   | JWK_RSA_SIGN
+//   | JWK_RSA_PSS
+//   | JWK_ECDSA
+//   | JWK_RSA_ENC
+//   | JWK_OKP_SIGN
+//   | JWK_ECDH_ES;
+
 // Conditional return type when toJWK is true
 type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> =
   TAlg extends JWK_Asymmetric_Algorithm
-    ? { privateKey: JWK; publicKey: JWK }
-    : JWK;
+    ? TAlg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
+      ? { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
+      : TAlg extends JWK_ECDSA | JWK_ECDH_ES
+        ? { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
+        : TAlg extends JWK_OKP_SIGN
+          ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
+          : never
+    : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
+      ? JWK_oct // TODO: shouldn't this be `{ encryptionKey: JWK_oct; macKey: JWK_oct }`?
+      : never;
 
 // Conditional return type when toJWK is false or undefined
 type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> =
@@ -54,6 +71,11 @@ export type GenerateKeyReturn<
   : TOptions["toJWK"] extends object
     ? GenerateKeyReturnJWK<TAlg>
     : GenerateKeyReturnCrypto<TAlg>;
+
+export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK">;
+
+export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> =
+  GenerateKeyReturnJWK<TAlg>;
 
 /** Options for the deriveKeyFromPassword function. */
 export interface DeriveKeyOptions {

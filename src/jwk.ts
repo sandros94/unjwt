@@ -8,6 +8,8 @@ import type {
   GenerateKeyAlgorithm,
   GenerateKeyOptions,
   GenerateKeyReturn,
+  GenerateJWKOptions,
+  GenerateJWKReturn,
   DeriveKeyOptions,
   DeriveKeyReturn,
   KeyManagementAlgorithm,
@@ -131,6 +133,31 @@ export async function generateKey(
   }
 
   return key;
+}
+
+/**
+ * Generates a Json Web Key (JWK) for the specified algorithm.
+ *
+ * @param alg The JWA algorithm identifier (e.g., "HS256", "RS256", "A128GCM").
+ * @param jwkParams Optional partial JWK to merge with the generated key, allowing overrides.
+ * @param options Configuration options for key generation.
+ * @returns A Promise resolving to the generated JWK or JWK pair representation.
+ */
+export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
+  alg: TAlg,
+  jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
+  options: GenerateJWKOptions = {},
+): Promise<GenerateJWKReturn<TAlg>> {
+  const {
+    // @ts-expect-error destructuring just to avoid passing it down
+    toJWK: _,
+    ...opts
+  } = options;
+
+  return generateKey(alg, {
+    ...opts,
+    toJWK: (jwkParams as object) || true,
+  });
 }
 
 /**
