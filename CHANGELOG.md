@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.18
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.17...v0.5.18)
+
+### 🚀 Enhancements
+
+- **jwk:** Add `deriveJWKFromPassword` utility variant ([459f0c9](https://github.com/sandros94/unjwt/commit/459f0c9))
+
+### 🩹 Fixes
+
+- **jwk:** Missing `deriveKeyFromPassword` custom JWK properties ([56d190c](https://github.com/sandros94/unjwt/commit/56d190c))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.17
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.16...v0.5.17)
