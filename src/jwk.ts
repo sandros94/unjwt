@@ -11,6 +11,7 @@ import type {
   DeriveKeyOptions,
   DeriveKeyReturn,
   KeyManagementAlgorithm,
+  ContentEncryptionAlgorithm,
   WrapKeyOptions,
   WrapKeyResult,
   UnwrapKeyOptions,
@@ -40,6 +41,7 @@ import {
   fromPKCS8,
   fromSPKI,
   fromX509,
+  decryptRSAES,
   toPKCS8,
   toSPKI,
   type KeyImportOptions,
@@ -502,22 +504,40 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     case "RSA-OAEP-256":
     case "RSA-OAEP-384":
     case "RSA-OAEP-512": {
-      // Use crypto.subtle.unwrapKey directly for RSA-OAEP
-      const unwrappedKey = await crypto.subtle.unwrapKey(
-        "raw",
+      if (!(importedUnwrappingKey instanceof CryptoKey)) {
+        throw new TypeError(
+          "RSA-OAEP requires the unwrapping key to be provided as a CryptoKey",
+        );
+      }
+
+      unwrappedCekBytes = await decryptRSAES(
+        alg,
+        importedUnwrappingKey,
         wrappedKey,
-        importedUnwrappingKey as CryptoKey,
-        { name: "RSA-OAEP" },
-        options.unwrappedKeyAlgorithm || { name: "AES-GCM" }, // Fallback
+      );
+
+      if (!returnAs) {
+        break;
+      }
+
+      const inferredAlgorithm =
+        options.unwrappedKeyAlgorithm ||
+        inferAesImportAlgorithm(options.enc, unwrappedCekBytes.length);
+
+      if (!inferredAlgorithm) {
+        throw new Error(
+          'Unable to infer algorithm for RSA-OAEP unwrapped key. Provide "unwrappedKeyAlgorithm" in options.',
+        );
+      }
+
+      const keyUsages = options.keyUsage || ["encrypt", "decrypt"];
+      return (await crypto.subtle.importKey(
+        "raw",
+        unwrappedCekBytes,
+        inferredAlgorithm,
         defaultExtractable,
-        options.keyUsage || ["encrypt", "decrypt"], // Default usages
-      );
-      if (returnAs) return unwrappedKey as any;
-      // Otherwise, export the bytes
-      unwrappedCekBytes = new Uint8Array(
-        await crypto.subtle.exportKey("raw", unwrappedKey),
-      );
-      break;
+        keyUsages,
+      )) as any;
     }
 
     case "ECDH-ES":
@@ -981,4 +1001,30 @@ function getGenerateKeyParams(
   }
 
   return { algorithm, keyUsages };
+}
+
+function inferAesImportAlgorithm(
+  enc: ContentEncryptionAlgorithm | undefined,
+  cekLengthBytes: number,
+): AesKeyAlgorithm | undefined {
+  const bitLength = cekLengthBytes << 3;
+
+  if (enc) {
+    if (enc.includes("GCM")) {
+      return {
+        name: "AES-GCM",
+        length: Number.parseInt(enc.slice(1, 4), 10),
+      } satisfies AesKeyAlgorithm;
+    }
+
+    if (enc.includes("CBC-HS")) {
+      return undefined;
+    }
+  }
+
+  if (bitLength === 128 || bitLength === 192 || bitLength === 256) {
+    return { name: "AES-GCM", length: bitLength } satisfies AesKeyAlgorithm;
+  }
+
+  return undefined;
 }

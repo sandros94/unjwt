@@ -14,14 +14,6 @@ A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/
 - **JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516))**: encrypt and decrypt data using various key management algorithms (AES Key Wrap, AES-GCM Key Wrap, RSA-OAEP, PBES2, ECDH-ES) and content encryption algorithms (AES-GCM, AES-CBC HMAC-SHA2).
 - **JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517))**: generate, import, export, wrap, and unwrap keys in JWK format or as `CryptoKey` objects.
 
-> [!WARNING]
-> Please do note that some algorithms are not fully working out-of-the-box yet, such as:
->
-> - ~~ECDH-ES algorithms with AES Key Wrap (e.g., ECDH-ES+A128KW)~~ (solved since v0.5.17)
-> - RSA algorithms in combination with some bigger CBC encodings (for example RSA-OAEP-256 with A256CBC-HS512)
->
-> For these algorithms, you should be able to provide your own keys. Although I do plan to study and simplify this.
-
 ## Usage
 
 Install the package:

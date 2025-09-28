@@ -48,6 +48,8 @@ describe.concurrent("JWE Utilities", () => {
       a256gcm,
       rsaOaepPair,
       rsaOaep256Pair,
+      rsaOaep384Pair,
+      rsaOaep512Pair,
       ecdhKeyPair,
     ] = await Promise.all([
       generateKey("A128KW"),
@@ -59,6 +61,12 @@ describe.concurrent("JWE Utilities", () => {
       generateKey("RSA-OAEP", { modulusLength: 2048 }),
       generateKey("RSA-OAEP-256", {
         modulusLength: 2048,
+      }),
+      generateKey("RSA-OAEP-384", {
+        modulusLength: 3072,
+      }),
+      generateKey("RSA-OAEP-512", {
+        modulusLength: 4096,
       }),
       generateKey("ECDH-ES+A128KW", { namedCurve: "P-256" }),
     ]);
@@ -80,6 +88,16 @@ describe.concurrent("JWE Utilities", () => {
       key: rsaOaep256Pair,
       publicKey: rsaOaep256Pair.publicKey,
       privateKey: rsaOaep256Pair.privateKey,
+    };
+    keys["RSA-OAEP-384"] = {
+      key: rsaOaep384Pair,
+      publicKey: rsaOaep384Pair.publicKey,
+      privateKey: rsaOaep384Pair.privateKey,
+    };
+    keys["RSA-OAEP-512"] = {
+      key: rsaOaep512Pair,
+      publicKey: rsaOaep512Pair.publicKey,
+      privateKey: rsaOaep512Pair.privateKey,
     };
 
     keys["PBES2-HS256+A128KW"] = { password: "securepassword123" };
@@ -133,13 +151,24 @@ describe.concurrent("JWE Utilities", () => {
       plaintext: plaintextObj,
       desc: "RSA-OAEP with A128GCM",
     },
-    // TODO: not working
-    /*     {
+    {
       alg: "RSA-OAEP-256",
+      enc: "A128CBC-HS256",
+      plaintext: plaintextBytes,
+      desc: "RSA-OAEP-256 with A128CBC-HS256",
+    },
+    {
+      alg: "RSA-OAEP-384",
+      enc: "A192CBC-HS384",
+      plaintext: plaintextBytes,
+      desc: "RSA-OAEP-384 with A192CBC-HS384",
+    },
+    {
+      alg: "RSA-OAEP-512",
       enc: "A256CBC-HS512",
       plaintext: plaintextBytes,
-      desc: "RSA-OAEP-256 with A256CBC-HS512",
-    }, */
+      desc: "RSA-OAEP-512 with A256CBC-HS512",
+    },
     {
       alg: "PBES2-HS256+A128KW",
       enc: "A128GCM",

@@ -45,8 +45,8 @@
     "lint:fix": "automd && eslint . --fix && prettier -w .",
     "prepack": "pnpm build",
     "release": "pnpm test && pnpm prepack && changelogen --release --push --publish",
-    "test": "pnpm lint && pnpm test:types && vitest run --slowTestThreshold=500",
-    "test:coverage": "pnpm lint && pnpm test:types && vitest run --coverage --slowTestThreshold=500",
+    "test": "pnpm lint && pnpm test:types && vitest run --slowTestThreshold=1000",
+    "test:coverage": "pnpm lint && pnpm test:types && vitest run --coverage --slowTestThreshold=1000",
     "test:types": "tsc --noEmit --skipLibCheck",
     "bench": "vitest bench --run"
   },
