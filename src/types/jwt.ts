@@ -1,4 +1,5 @@
 import type { JWK_Public } from "./jwk";
+import type { MaxTokenAge } from ".";
 
 /** Header Parameters common to JWE and JWS */
 export interface JoseHeaderParameters {
@@ -68,8 +69,8 @@ export interface JWTClaimValidationOptions {
   issuer?: string | string[];
   /** Expected JWT "sub" (Subject) Claim value. Implies presence requirement. */
   subject?: string;
-  /** Maximum token age in seconds, from the JWT "iat" (Issued At) Claim value. Implies presence requirement. */
-  maxTokenAge?: number;
+  /** Maximum token age, from the JWT "iat" (Issued At) Claim value. Implies presence requirement. */
+  maxTokenAge?: MaxTokenAge;
   /** Clock skew tolerance (in seconds) for validating time-based claims (nbf/exp/iat). */
   clockTolerance?: number;
   /** Expected JWT "typ" (Type) Header Parameter value. Implies presence requirement. */

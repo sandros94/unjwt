@@ -154,6 +154,7 @@ export function computeExpiresInSeconds(expiresIn: ExpiresIn): number {
     "'expiresIn' must be a number or a string representing time duration.",
   );
 }
+export const computeMaxTokenAgeSeconds = computeExpiresInSeconds;
 
 /** Optionally compute iat/exp when signing JWTs. */
 export function computeJwtTimeClaims(
@@ -260,7 +261,12 @@ export function validateJwtClaims(
         `JWT "iat" (Issued At) Claim validation failed: Token was issued in the future (iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
       );
     }
-    if (jwtClaims.iat < currentTime - options.maxTokenAge - clockTolerance) {
+    if (
+      jwtClaims.iat <
+      currentTime -
+        computeMaxTokenAgeSeconds(options.maxTokenAge) -
+        clockTolerance
+    ) {
       throw new Error(
         `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}s, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
       );

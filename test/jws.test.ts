@@ -897,7 +897,7 @@ describe.concurrent("JWS Utilities", () => {
         const payload = { ...basicJwtPayload, iat };
         const jws = await sign(payload, hs256Key, { alg: "HS256" });
         await expect(
-          jose.jwtVerify(jws, hs256Key, { maxTokenAge: 120 }), // Max age 120s
+          jose.jwtVerify(jws, hs256Key, { maxTokenAge: "2m" }), // Max age 120s
         ).resolves.toBeDefined();
       });
 

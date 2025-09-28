@@ -28,3 +28,5 @@ export type ExpiresIn =
       | "Y"
       | "year"
       | "years"}`;
+
+export type MaxTokenAge = ExpiresIn;
