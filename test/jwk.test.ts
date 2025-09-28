@@ -521,15 +521,10 @@ describe.concurrent("JWK Utilities", () => {
           /Unable to infer algorithm for RSA-OAEP unwrapped key/i,
         );
 
-        const unwrapped = await unwrapKey(
-          alg,
-          encryptedKey,
-          pair.privateKey,
-          {
-            enc: "A256CBC-HS512",
-            returnAs: false,
-          },
-        );
+        const unwrapped = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+          enc: "A256CBC-HS512",
+          returnAs: false,
+        });
 
         expect(unwrapped).toBeInstanceOf(Uint8Array);
         expect(unwrapped).toEqual(cekBytes);
