@@ -243,6 +243,19 @@ describe.concurrent("JWK Utilities", () => {
       expect(base64UrlDecode(jwk.k, false).length).toBe(24); // 192 bits
     });
 
+    it("should derive JWK with custom `kid`", async () => {
+      const kid = "custom-key-id";
+      const jwk = await deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
+        salt,
+        iterations,
+        toJWK: { kid },
+      });
+      expect(jwk.kty).toBe("oct");
+      expect(jwk.alg).toBe("A128KW");
+      expect(typeof jwk.k).toBe("string");
+      expect(base64UrlDecode(jwk.k, false).length).toBe(16); // 128 bits
+    });
+
     it("should respect extractable and keyUsage options", async () => {
       const key = await deriveKeyFromPassword(password, "PBES2-HS512+A256KW", {
         salt,

@@ -32,15 +32,6 @@ export interface GenerateKeyOptions {
     | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
 }
 
-// export type JWK_Symmetric_Algorithm = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM;
-// export type JWK_Asymmetric_Algorithm =
-//   | JWK_RSA_SIGN
-//   | JWK_RSA_PSS
-//   | JWK_ECDSA
-//   | JWK_RSA_ENC
-//   | JWK_OKP_SIGN
-//   | JWK_ECDH_ES;
-
 // Conditional return type when toJWK is true
 type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> =
   TAlg extends JWK_Asymmetric_Algorithm
@@ -88,12 +79,19 @@ export interface DeriveKeyOptions {
   /** Mark the derived key as extractable. Defaults to false. */
   extractable?: boolean;
   /** Export the derived key as JWK. If true, the key will be returned in JWK_oct format. */
-  toJWK?: boolean | undefined;
+  toJWK?:
+    | undefined
+    | boolean
+    | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
 }
 
 // Conditional return type for deriveKeyFromPassword
 export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> =
-  TOptions["toJWK"] extends true ? JWK_oct : CryptoKey;
+  TOptions["toJWK"] extends true
+    ? JWK_oct
+    : TOptions["toJWK"] extends object
+      ? JWK_oct
+      : CryptoKey;
 
 export type KeyManagementAlgorithm =
   | JWK_RSA_ENC

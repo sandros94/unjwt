@@ -181,7 +181,8 @@ export async function deriveKeyFromPassword(
   alg: JWK_PBES2,
   options: DeriveKeyOptions,
 ): Promise<CryptoKey | JWK_oct> {
-  const { salt, iterations, toJWK, extractable, keyUsage } = options;
+  const { salt, iterations, extractable, keyUsage } = options;
+  const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
 
   if (!(salt instanceof Uint8Array) || salt.length < 8) {
     throw new Error("PBES2 Salt Input (salt) must be 8 or more octets");
@@ -205,7 +206,7 @@ export async function deriveKeyFromPassword(
   const wrappingAlg = alg.slice(-6); // "A128KW", "A192KW", "A256KW"
   const defaultUsages: KeyUsage[] = ["wrapKey", "unwrapKey"];
   const finalUsages = keyUsage ?? defaultUsages;
-  const finalExtractable = toJWK === true ? true : extractable === true;
+  const finalExtractable = exportToJWK ? true : extractable === true;
 
   // Import the derived bytes as a CryptoKey for the wrapping algorithm
   const derivedKey = await crypto.subtle.importKey(
@@ -216,10 +217,19 @@ export async function deriveKeyFromPassword(
     finalUsages,
   );
 
-  if (toJWK === true) {
-    const jwk = (await keyToJWK(derivedKey)) as JWK_oct;
+  if (exportToJWK) {
+    const jwk = await keyToJWK<JWK_oct>(derivedKey);
+    const {
+      alg: _a,
+      kty: _k,
+      key_ops: _ko,
+      ext: _e,
+      ...additionalKeyParams
+    } = typeof options.toJWK === "object"
+      ? (options.toJWK as JWKParameters)
+      : {};
 
-    return { ...jwk, alg: wrappingAlg, kty: "oct" };
+    return { ...additionalKeyParams, ...jwk, alg: wrappingAlg, kty: "oct" };
   }
 
   return derivedKey;

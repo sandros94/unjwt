@@ -36,11 +36,7 @@ import { encrypt, decrypt } from "unjwt/jwe";
 // JWK functions
 import {
   generateKey,
-  importKey,
-  exportKey,
-  wrapKey,
-  unwrapKey,
-  getJWKFromSet,
+  generateJWK,
   importJWKFromPEM,
   exportJWKToPEM,
   deriveKeyFromPassword,
@@ -49,11 +45,10 @@ import {
 import {
   isJWK,
   isJWKSet,
-  isCryptoKey,
-  isCryptoKeyPair,
-  base64UrlEncode,
-  base64UrlDecode,
-  randomBytes,
+  isSymmetricJWK,
+  isAsymmetricJWK,
+  isPrivateJWK,
+  isPublicJWK,
 } from "unjwt/utils";
 ```
 
@@ -68,11 +63,7 @@ import { encrypt, decrypt } from "https://esm.sh/unjwt/jwe";
 // JWK functions
 import {
   generateKey,
-  importKey,
-  exportKey,
-  wrapKey,
-  unwrapKey,
-  getJWKFromSet,
+  generateJWK,
   importJWKFromPEM,
   exportJWKToPEM,
   deriveKeyFromPassword,
@@ -81,11 +72,10 @@ import {
 import {
   isJWK,
   isJWKSet,
-  isCryptoKey,
-  isCryptoKeyPair,
-  base64UrlEncode,
-  base64UrlDecode,
-  randomBytes,
+  isSymmetricJWK,
+  isAsymmetricJWK,
+  isPrivateJWK,
+  isPublicJWK,
 } from "https://esm.sh/unjwt/utils";
 ```
 
