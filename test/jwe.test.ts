@@ -63,10 +63,10 @@ describe.concurrent("JWE Utilities", () => {
         modulusLength: 2048,
       }),
       generateKey("RSA-OAEP-384", {
-        modulusLength: 3072,
+        modulusLength: 2048,
       }),
       generateKey("RSA-OAEP-512", {
-        modulusLength: 4096,
+        modulusLength: 2048,
       }),
       generateKey("ECDH-ES+A128KW", { namedCurve: "P-256" }),
     ]);
@@ -642,7 +642,7 @@ describe.concurrent("JWE Utilities", () => {
       expect(encryptedKeyBytes).toBeInstanceOf(Uint8Array);
       expect(encryptedKeyBytes.length).toBeGreaterThan(0);
 
-      const expectedCek = await unwrapKey<false>(
+      const expectedCek = await unwrapKey(
         ecdhAlg,
         encryptedKeyBytes,
         recipientKeyPair.privateKey,
@@ -708,7 +708,7 @@ describe.concurrent("JWE Utilities", () => {
       const decryptResult = await decrypt(jwe, recipientKeyPair.privateKey);
       expect(decryptResult.payload).toEqual(plaintextObj);
 
-      const derivedCek = await unwrapKey<false>(
+      const derivedCek = await unwrapKey(
         ecdhAlg,
         base64UrlDecode(encryptedKeyEncoded, false),
         recipientKeyPair.privateKey,

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as jose from "jose";
 import {
   generateKey,
@@ -29,7 +29,7 @@ import type {
   JWKPEMAlgorithm,
 } from "../src/types";
 import { rsa, ec } from "./keys";
-import { deriveECDHESKey } from "../src/jose";
+import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/jose";
 
 describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {
@@ -434,6 +434,106 @@ describe.concurrent("JWK Utilities", () => {
       const exportedUnwrapped = await exportKey<JWK_oct>(unwrappedKey);
       const exportedOriginal = await exportKey<JWK_oct>(cekCryptoKey);
       expect(exportedUnwrapped.k).toEqual(exportedOriginal.k);
+    });
+
+    describe("RSA-OAEP variants", () => {
+      const rsaAlgorithms = [
+        "RSA-OAEP",
+        "RSA-OAEP-256",
+        "RSA-OAEP-384",
+        "RSA-OAEP-512",
+      ] as const;
+      type RSAAlg = (typeof rsaAlgorithms)[number];
+      const rsaKeyPairs: Partial<Record<RSAAlg, CryptoKeyPair>> = {};
+
+      beforeAll(async () => {
+        await Promise.all(
+          rsaAlgorithms.map(async (alg) => {
+            rsaKeyPairs[alg] = (await generateKey(alg, {
+              modulusLength: 2048,
+            })) as CryptoKeyPair;
+          }),
+        );
+      });
+
+      it.each(rsaAlgorithms)(
+        "should return raw CEK bytes for %s when returnAs is false",
+        async (alg) => {
+          const pair = rsaKeyPairs[alg]!;
+          const cekBytes = randomBytes(32);
+          const encryptedKey = await encryptRSAES(
+            alg,
+            pair.publicKey,
+            cekBytes,
+          );
+
+          const unwrapped = await unwrapKey(
+            alg,
+            encryptedKey,
+            pair.privateKey,
+            {
+              enc: "A128GCM",
+              returnAs: false,
+            },
+          );
+
+          expect(unwrapped).toBeInstanceOf(Uint8Array);
+          expect(unwrapped).toEqual(cekBytes);
+        },
+      );
+
+      it.each(rsaAlgorithms)(
+        "should infer AES-GCM CryptoKey for %s when enc is provided",
+        async (alg) => {
+          const pair = rsaKeyPairs[alg]!;
+          const cekBytes = randomBytes(32);
+          const encryptedKey = await encryptRSAES(
+            alg,
+            pair.publicKey,
+            cekBytes,
+          );
+
+          const unwrappedKey = await unwrapKey(
+            alg,
+            encryptedKey,
+            pair.privateKey,
+            {
+              enc: "A256GCM",
+            },
+          );
+
+          expect(isCryptoKey(unwrappedKey)).toBe(true);
+          expect(unwrappedKey.algorithm.name).toBe("AES-GCM");
+        },
+      );
+
+      it("should handle composite CBC CEK via RSA-OAEP-256", async () => {
+        const alg: RSAAlg = "RSA-OAEP-256";
+        const pair = rsaKeyPairs[alg]!;
+        const cekBytes = randomBytes(bitLengthCEK("A256CBC-HS512") >> 3);
+        const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
+
+        await expect(
+          unwrapKey(alg, encryptedKey, pair.privateKey, {
+            enc: "A256CBC-HS512",
+          }),
+        ).rejects.toThrow(
+          /Unable to infer algorithm for RSA-OAEP unwrapped key/i,
+        );
+
+        const unwrapped = await unwrapKey(
+          alg,
+          encryptedKey,
+          pair.privateKey,
+          {
+            enc: "A256CBC-HS512",
+            returnAs: false,
+          },
+        );
+
+        expect(unwrapped).toBeInstanceOf(Uint8Array);
+        expect(unwrapped).toEqual(cekBytes);
+      });
     });
 
     // --- AES-GCMKW ---
