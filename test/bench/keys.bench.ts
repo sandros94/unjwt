@@ -1,7 +1,7 @@
 import { bench, describe } from "vitest";
 
-import { generateKey } from "../../src/jwk";
-import { sign, verify } from "../../src/jws";
+import { generateKey } from "../../src/core/jwk";
+import { sign, verify } from "../../src/core/jws";
 
 describe("RSA vs OKP signing", async () => {
   const [rsa256Keys, rsa384Keys, rsa512Keys, okpKeys] = await Promise.all([

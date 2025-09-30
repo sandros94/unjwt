@@ -1,6 +1,6 @@
-export * from "./types";
+export * from "./core/types";
 
-export * as utils from "./utils";
-export * as jwe from "./jwe";
-export * as jwk from "./jwk";
-export * as jws from "./jws";
+export * as utils from "./core/utils";
+export * as jwe from "./core/jwe";
+export * as jwk from "./core/jwk";
+export * as jws from "./core/jws";

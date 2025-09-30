@@ -6,22 +6,22 @@ export default defineBuildConfig({
   entries: [
     "./src/index",
     {
-      input: "./src/jwe",
+      input: "./src/core/jwe",
       outDir: "./dist/jwe",
       name: "jwe",
     },
     {
-      input: "./src/jwk",
+      input: "./src/core/jwk",
       outDir: "./dist/jwk",
       name: "jwk",
     },
     {
-      input: "./src/jws",
+      input: "./src/core/jws",
       outDir: "./dist/jws",
       name: "jws",
     },
     {
-      input: "./src/utils",
+      input: "./src/core/utils",
       outDir: "./dist/utils",
       name: "utils",
     },

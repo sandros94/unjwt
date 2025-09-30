@@ -11,14 +11,14 @@ import {
   unwrapKey,
   importJWKFromPEM,
   exportJWKToPEM,
-} from "../src/jwk";
+} from "../src/core/jwk";
 import {
   isCryptoKey,
   isCryptoKeyPair,
   randomBytes,
   base64UrlDecode,
   base64UrlEncode,
-} from "../src/utils";
+} from "../src/core/utils";
 import type {
   JWK_oct,
   JWK_EC_Private,
@@ -26,9 +26,9 @@ import type {
   JWK_RSA_Private,
   JWK_RSA_Public,
   JWKPEMAlgorithm,
-} from "../src/types";
+} from "../src/core/types";
 import { rsa, ec } from "./keys";
-import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/jose";
+import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/core/jose";
 
 describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {

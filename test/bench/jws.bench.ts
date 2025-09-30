@@ -1,8 +1,8 @@
 import { bench, describe } from "vitest";
 import * as jose from "jose";
 
-import { generateKey } from "../../src/jwk";
-import { sign, verify } from "../../src/jws";
+import { generateKey } from "../../src/core/jwk";
+import { sign, verify } from "../../src/core/jws";
 
 describe("Library comparison signing", async () => {
   const okpKeys = await generateKey("Ed25519");

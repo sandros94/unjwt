@@ -1,14 +1,19 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
-import { sign, verify } from "../src/jws";
-import { generateKey, exportKey } from "../src/jwk";
+import { sign, verify } from "../src/core/jws";
+import { generateKey, exportKey } from "../src/core/jwk";
 import {
   base64UrlEncode,
   base64UrlDecode,
   textEncoder,
   textDecoder,
-} from "../src/utils";
-import type { JWSProtectedHeader, JWTClaims, JWK, JWKSet } from "../src/types";
+} from "../src/core/utils";
+import type {
+  JWSProtectedHeader,
+  JWTClaims,
+  JWK,
+  JWKSet,
+} from "../src/core/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {

@@ -1,8 +1,8 @@
 import { bench, describe } from "vitest";
 import * as jose from "jose";
 
-import { generateKey } from "../../src/jwk";
-import { encrypt, decrypt } from "../../src/jwe";
+import { generateKey } from "../../src/core/jwk";
+import { encrypt, decrypt } from "../../src/core/jwe";
 
 describe("Library comparison encryption", async () => {
   const keys = await generateKey("RSA-OAEP-256", { toJWK: true });

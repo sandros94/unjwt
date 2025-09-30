@@ -1,14 +1,14 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
-import { encrypt, decrypt } from "../src/jwe";
-import { generateKey, exportKey, unwrapKey } from "../src/jwk";
+import { encrypt, decrypt } from "../src/core/jwe";
+import { generateKey, exportKey, unwrapKey } from "../src/core/jwk";
 import {
   randomBytes,
   textEncoder,
   textDecoder,
   base64UrlEncode,
   base64UrlDecode,
-} from "../src/utils";
+} from "../src/core/utils";
 import type {
   JWK,
   JWK_EC_Public,
@@ -17,7 +17,7 @@ import type {
   JWEHeaderParameters,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
-} from "../src/types";
+} from "../src/core/types";
 
 describe.concurrent("JWE Utilities", () => {
   const plaintextObj: JWTClaims = {

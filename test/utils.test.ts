@@ -8,7 +8,7 @@ import {
   textDecoder,
   computeExpiresInSeconds,
   computeJwtTimeClaims,
-} from "../src/utils";
+} from "../src/core/utils";
 
 describe.concurrent("Utility Functions", () => {
   describe("textEncoder and textDecoder", () => {
