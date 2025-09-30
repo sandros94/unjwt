@@ -1,0 +1,342 @@
+/**
+ * This is a fork of h3 library's session utility functions.
+ * @source https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/test/session.test.ts
+ * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
+ */
+
+import type { CookieSerializeOptions } from "cookie-es";
+import { type H3Event, isEvent, setCookie } from "h3";
+import { parse as parseCookies } from "cookie-es";
+import {
+  type JWK,
+  type JWTClaims,
+  type JWSSignOptions,
+  type JWTClaimValidationOptions,
+  sign,
+  verify,
+} from "../../../core/jws";
+import { isAsymmetricJWK, isPrivateJWK } from "../../../core/utils";
+import type { SessionData, SessionManager } from "./jwe";
+
+type SessionDataT = Record<string, any>;
+
+const kGetSessionPromise = Symbol("h3_jws_getSession");
+
+export interface SessionJWS<T extends SessionDataT = SessionDataT> {
+  id: string; // from jti
+  createdAt: number; // ms, from iat * 1000
+  data: SessionData<T>;
+  [kGetSessionPromise]?: Promise<SessionJWS<T>>;
+}
+
+export interface SessionJWSConfig {
+  /**
+   * JWK (private for signing with RS/ES/PS, or symmetric oct) used for signing.
+   */
+  key: JWK;
+  /** Session lifetime in seconds (sets exp = iat + maxAge) */
+  maxAge?: number;
+  /** Default cookie / header name base */
+  name?: string;
+  /** Cookie options (false to disable cookies) */
+  cookie?: false | CookieSerializeOptions;
+  /** Custom header (false to disable header lookup) */
+  sessionHeader?: false | string;
+  /** Provide a custom WebCrypto (if needed for algorithm operations) */
+  crypto?: Crypto;
+  /** Custom ID generator (defaults to crypto.randomUUID) */
+  generateId?: () => string;
+  /** JWS customization */
+  jws?: {
+    signOptions?: Omit<JWSSignOptions, "expiresIn"> & {
+      extraClaims?: Omit<JWTClaims, "jti" | "iat" | "exp">;
+    };
+    verifyOptions?: JWTClaimValidationOptions;
+  };
+}
+
+const DEFAULT_NAME = "h3-jws";
+const DEFAULT_COOKIE: SessionJWSConfig["cookie"] = {
+  path: "/",
+  secure: true,
+  httpOnly: false,
+};
+
+// Compatible type with h3 v2 and external usage
+type CompatEvent =
+  | { request: { headers: Headers }; context: any }
+  | { headers: Headers; context: any };
+
+type SessionUpdate<T extends SessionDataT = SessionDataT> =
+  | Partial<SessionData<T>>
+  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
+
+/**
+ * Create a session manager for the current request using JWS (signed only, not encrypted).
+ * NOTE: Contents are visible to clients (Base64URL-decoded JSON). Do not store secrets in session data.
+ */
+export async function useJWSSession<T extends SessionDataT = SessionDataT>(
+  event: H3Event | CompatEvent,
+  config: SessionJWSConfig,
+): Promise<SessionManager<T>> {
+  const sessionName = config.name || DEFAULT_NAME;
+  await getJWSSession<T>(event, config);
+
+  const sessionManager: SessionManager<T> = {
+    get id() {
+      return event.context.sessions?.[sessionName]?.id;
+    },
+    get data() {
+      return (event.context.sessions?.[sessionName]?.data || {}) as T;
+    },
+    update: async (update: SessionUpdate<T>) => {
+      if (!isEvent(event)) {
+        throw new Error("[h3] Cannot update read-only session.");
+      }
+      await updateJWSSession<T>(event as H3Event, config, update);
+      return sessionManager;
+    },
+    clear: () => {
+      if (!isEvent(event)) {
+        throw new Error("[h3] Cannot clear read-only session.");
+      }
+      clearJWSSession(event as H3Event, config);
+      return Promise.resolve(sessionManager);
+    },
+  };
+  return sessionManager;
+}
+
+/**
+ * Retrieve (and lazily initialize) the session.
+ */
+export async function getJWSSession<T extends SessionDataT = SessionDataT>(
+  event: H3Event | CompatEvent,
+  config: SessionJWSConfig,
+): Promise<SessionJWS<T>> {
+  const sessionName = config.name || DEFAULT_NAME;
+
+  if (!event.context.sessions) {
+    event.context.sessions = Object.create(null);
+  }
+
+  const existing = event.context.sessions[sessionName] as SessionJWS<T>;
+  if (existing) {
+    return existing[kGetSessionPromise] || existing;
+  }
+
+  const session: SessionJWS<T> = {
+    id: "",
+    createdAt: 0,
+    data: Object.create(null),
+  };
+  event.context.sessions[sessionName] = session;
+
+  let token: string | undefined;
+
+  if (config.sessionHeader !== false) {
+    const headerName =
+      typeof config.sessionHeader === "string"
+        ? config.sessionHeader.toLowerCase()
+        : `x-${sessionName.toLowerCase()}-session`;
+    const headerValue = _getReqHeader(event, headerName);
+    if (typeof headerValue === "string") {
+      token = headerValue;
+    }
+  }
+
+  if (!token) {
+    const cookieHeader = _getReqHeader(event, "cookie");
+    if (cookieHeader) {
+      token = parseCookies(String(cookieHeader))[sessionName];
+    }
+  }
+
+  if (token) {
+    const promise = unsealJWSSession(event, config, token)
+      .catch(() => {
+        // ignore -> new session
+      })
+      .then((unsealed) => {
+        if (unsealed) {
+          Object.assign(session, unsealed);
+        }
+        delete event.context.sessions[sessionName][kGetSessionPromise];
+        return session;
+      });
+    session[kGetSessionPromise] = promise;
+    await promise;
+  }
+
+  // Initialize new session if none
+  if (!session.id) {
+    if (!isEvent(event)) {
+      throw new Error(
+        "Cannot initialize a new session outside main handler. Use `useJWSSession(event)` properly.",
+      );
+    }
+    session.id =
+      config.generateId?.() ??
+      (config.crypto || globalThis.crypto).randomUUID();
+    session.createdAt = Date.now();
+    await updateJWSSession<T>(event as H3Event, config);
+  }
+
+  return session;
+}
+
+function _getReqHeader(event: H3Event | CompatEvent, name: string) {
+  if ((event as H3Event).node) {
+    return (event as H3Event).node!.req.headers[name];
+  }
+  if ((event as { request?: Request }).request) {
+    return (event as { request?: Request }).request!.headers.get(name);
+  }
+  if ((event as { headers?: Headers }).headers) {
+    return (event as { headers?: Headers }).headers!.get(name);
+  }
+}
+
+/**
+ * Update session data (if provided) and reissue JWS.
+ */
+export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
+  event: H3Event,
+  config: SessionJWSConfig,
+  update?: SessionUpdate<T>,
+): Promise<SessionJWS<T>> {
+  const sessionName = config.name || DEFAULT_NAME;
+
+  const session: SessionJWS<T> =
+    (event.context.sessions?.[sessionName] as SessionJWS<T>) ||
+    (await getJWSSession<T>(event, config));
+
+  if (typeof update === "function") {
+    update = update(session.data);
+  }
+  if (update) {
+    Object.assign(session.data, update);
+  }
+
+  if (config.cookie !== false) {
+    const token = await sealJWSSession<T>(event, config);
+    setCookie(event, sessionName, token, {
+      ...DEFAULT_COOKIE,
+      ...config.cookie,
+      expires: config.maxAge
+        ? new Date(session.createdAt + config.maxAge * 1000)
+        : undefined,
+    });
+  }
+
+  return session;
+}
+
+/**
+ * Sign current session as a compact JWS.
+ * Payload claims:
+ *  jti, iat, exp?, data, plus optional extraClaims (cannot override reserved)
+ */
+export async function sealJWSSession<T extends SessionDataT = SessionDataT>(
+  event: H3Event | CompatEvent,
+  config: SessionJWSConfig,
+): Promise<string> {
+  if (isAsymmetricJWK(config.key) && !isPrivateJWK(config.key)) {
+    throw new Error("Session: JWS key cannot be a public asymmetric JWK.");
+  }
+
+  const sessionName = config.name || DEFAULT_NAME;
+
+  const session: SessionJWS<T> =
+    (event.context.sessions?.[sessionName] as SessionJWS<T>) ||
+    (await getJWSSession<T>(event, config));
+
+  const iatSeconds = Math.floor(session.createdAt / 1000);
+  const expSeconds =
+    config.maxAge == null ? undefined : iatSeconds + config.maxAge;
+  const { extraClaims, ...signOptions } = config.jws?.signOptions || {};
+
+  const payload: Record<string, any> = {
+    ...extraClaims,
+    jti: session.id,
+    iat: iatSeconds,
+    data: session.data,
+  };
+  if (expSeconds) {
+    payload.exp = expSeconds;
+  }
+
+  const token = await sign(payload, config.key, {
+    ...signOptions,
+    protectedHeader: {
+      ...signOptions.protectedHeader,
+      typ: "JWT",
+    },
+  });
+
+  return token;
+}
+
+/**
+ * Verify and parse a compact JWS into a Session structure.
+ * Performs:
+ *  - cryptographic signature verification
+ *  - (optional) standard claim checks if validateJWT true
+ *  - ensures jti & iat presence
+ *  - enforces maxAge if provided
+ */
+export async function unsealJWSSession(
+  _event: H3Event | CompatEvent,
+  config: SessionJWSConfig,
+  token: string,
+): Promise<Partial<SessionJWS>> {
+  const alg = config.jws?.signOptions?.alg;
+
+  const { payload } = await verify<
+    JWTClaims & { jti: string; iat: number; exp?: number }
+  >(token, config.key, {
+    ...config.jws?.verifyOptions,
+    requiredClaims: [
+      ...(config.jws?.verifyOptions?.requiredClaims?.filter(
+        (claim) => claim !== "jti" && claim !== "iat",
+      ) || []),
+      "jti",
+      "iat",
+    ],
+    algorithms: alg ? [alg] : undefined,
+    forceUint8Array: false,
+    validateJWT: true,
+  }).catch((error_: unknown) => {
+    const message = error_ instanceof Error ? error_.message : String(error_);
+    throw new Error(`Invalid session token: ${message}`);
+  });
+
+  const { jti, iat, data } = payload;
+
+  return {
+    id: jti,
+    createdAt: iat * 1000, // Convert back to ms
+    data: (data && typeof data === "object"
+      ? data
+      : Object.create(null)) as any,
+  };
+}
+
+/**
+ * Destroy the session (context + cookie).
+ */
+export function clearJWSSession(
+  event: H3Event,
+  config: Partial<SessionJWSConfig>,
+): Promise<void> {
+  const sessionName = config.name || DEFAULT_NAME;
+  if (event.context.sessions?.[sessionName]) {
+    delete event.context.sessions[sessionName];
+  }
+  setCookie(event, sessionName, "", {
+    ...DEFAULT_COOKIE,
+    ...config.cookie,
+    expires: new Date(0),
+  });
+  return Promise.resolve();
+}

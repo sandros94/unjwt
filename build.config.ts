@@ -25,6 +25,11 @@ export default defineBuildConfig({
       outDir: "./dist/utils",
       name: "utils",
     },
+    {
+      input: "./src/adapters/h3",
+      outDir: "./dist/h3",
+      name: "h3",
+    },
   ],
   declaration: true,
   hooks: {
