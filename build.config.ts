@@ -45,7 +45,12 @@ async function removeDtsFiles(directory: string) {
       }
     }
   } catch (error) {
-    if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
       return;
     }
     console.error(`Error processing ${directory}: ${error}`);
