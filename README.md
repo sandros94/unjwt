@@ -20,11 +20,12 @@ A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/
 ## Table of Contents
 
 - [Usage](#usage)
-  - [Adapters](#adapters)
   - [JWS](#jws-json-web-signature-rfc-7515)
   - [JWE](#jwe-json-web-encryption-rfc-7516)
   - [JWK](#jwk-json-web-key-rfc-7517)
   - [Utility Functions](#utility-functions)
+  - [Adapters](#adapters)
+    - [H3 (Nuxt, Nitro)](#h3-nuxt-nitro)
 - [Development](#development)
 - [Credits](#credits)
 - [License](#license)
