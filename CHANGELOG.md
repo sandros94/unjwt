@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.5.21
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.20...v0.5.21)
+
+### 🚀 Enhancements
+
+- H3 adapter ([7cb4584](https://github.com/sandros94/unjwt/commit/7cb4584))
+- **h3:** Expose `expiresAt` if available ([57373f5](https://github.com/sandros94/unjwt/commit/57373f5))
+
+### 🩹 Fixes
+
+- **jwk:** Double sanitization ([a6be563](https://github.com/sandros94/unjwt/commit/a6be563))
+- **h3:** Support asym keys with strictier types and re-export JWK utils ([d2c5669](https://github.com/sandros94/unjwt/commit/d2c5669))
+- **h3:** Improve session exp validation ([462bcad](https://github.com/sandros94/unjwt/commit/462bcad))
+- **h3:** Use payload's root as data storage ([1db6d7e](https://github.com/sandros94/unjwt/commit/1db6d7e))
+
+### 📖 Documentation
+
+- **adapters:** Show h3 example ([72d882c](https://github.com/sandros94/unjwt/commit/72d882c))
+
+### 🏡 Chore
+
+- Refactor project structure for future adapters ([9fede28](https://github.com/sandros94/unjwt/commit/9fede28))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.20
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.19...v0.5.20)
