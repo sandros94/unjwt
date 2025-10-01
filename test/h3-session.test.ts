@@ -13,8 +13,8 @@ import {
   type SessionJWSConfig,
   useJWESession,
   useJWSSession,
+  generateJWK,
 } from "../src/adapters/h3";
-import { generateJWK } from "../src/core/jwk";
 
 describe("adapter h3", () => {
   let app: App;
@@ -106,9 +106,10 @@ describe("adapter h3", () => {
   describe("jws session", async () => {
     let cookie = "";
     let sessionIdCtr = 0;
+    const keys = await generateJWK("RS256");
     const sessionConfig: SessionJWSConfig = {
       name: "h3-jws-test",
-      key: await generateJWK("HS256"),
+      key: keys,
       generateId: () => String(++sessionIdCtr),
     };
 

@@ -8,7 +8,10 @@ import type { CookieSerializeOptions } from "cookie-es";
 import { type H3Event, isEvent, setCookie } from "h3";
 import { parse as parseCookies } from "cookie-es";
 import {
-  type JWK,
+  type JWK_Symmetric,
+  type JWK_Public,
+  type JWK_Private,
+  type JWKSet,
   type JWTClaims,
   type JWSSignOptions,
   type JWTClaimValidationOptions,
@@ -33,7 +36,12 @@ export interface SessionJWSConfig {
   /**
    * JWK (private for signing with RS/ES/PS, or symmetric oct) used for signing.
    */
-  key: JWK;
+  key:
+    | JWK_Symmetric
+    | {
+        privateKey: JWK_Private;
+        publicKey: JWK_Public | JWK_Public[] | JWKSet;
+      };
   /** Session lifetime in seconds (sets exp = iat + maxAge) */
   maxAge?: number;
   /** Default cookie / header name base */
@@ -153,7 +161,7 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
   }
 
   if (token) {
-    const promise = unsealJWSSession(event, config, token)
+    const promise = verifyJWSSession(event, config, token)
       .catch(() => {
         // ignore -> new session
       })
@@ -219,7 +227,7 @@ export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
   }
 
   if (config.cookie !== false) {
-    const token = await sealJWSSession<T>(event, config);
+    const token = await signJWSSession<T>(event, config);
     setCookie(event, sessionName, token, {
       ...DEFAULT_COOKIE,
       ...config.cookie,
@@ -237,11 +245,12 @@ export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
  * Payload claims:
  *  jti, iat, exp?, data, plus optional extraClaims (cannot override reserved)
  */
-export async function sealJWSSession<T extends SessionDataT = SessionDataT>(
+export async function signJWSSession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
   config: SessionJWSConfig,
 ): Promise<string> {
-  if (isAsymmetricJWK(config.key) && !isPrivateJWK(config.key)) {
+  const key = getSignKey(config.key);
+  if (isAsymmetricJWK(key) && !isPrivateJWK(key)) {
     throw new Error("Session: JWS key cannot be a public asymmetric JWK.");
   }
 
@@ -266,7 +275,7 @@ export async function sealJWSSession<T extends SessionDataT = SessionDataT>(
     payload.exp = expSeconds;
   }
 
-  const token = await sign(payload, config.key, {
+  const token = await sign(payload, key, {
     ...signOptions,
     protectedHeader: {
       ...signOptions.protectedHeader,
@@ -285,16 +294,20 @@ export async function sealJWSSession<T extends SessionDataT = SessionDataT>(
  *  - ensures jti & iat presence
  *  - enforces maxAge if provided
  */
-export async function unsealJWSSession(
+export async function verifyJWSSession(
   _event: H3Event | CompatEvent,
   config: SessionJWSConfig,
   token: string,
 ): Promise<Partial<SessionJWS>> {
   const alg = config.jws?.signOptions?.alg;
+  const jwk = getVerifyKey(config.key);
+  if (isAsymmetricJWK(jwk) && isPrivateJWK(jwk)) {
+    throw new Error("Session: JWS key cannot be a private asymmetric JWK.");
+  }
 
   const { payload } = await verify<
     JWTClaims & { jti: string; iat: number; exp?: number }
-  >(token, config.key, {
+  >(token, jwk, {
     ...config.jws?.verifyOptions,
     requiredClaims: [
       ...(config.jws?.verifyOptions?.requiredClaims?.filter(
@@ -339,4 +352,19 @@ export function clearJWSSession(
     expires: new Date(0),
   });
   return Promise.resolve();
+}
+
+function getSignKey(key: SessionJWSConfig["key"]) {
+  if ("privateKey" in key) {
+    return key.privateKey;
+  }
+  return key;
+}
+function getVerifyKey(key: SessionJWSConfig["key"]) {
+  if ("publicKey" in key) {
+    return Array.isArray(key.publicKey)
+      ? { keys: key.publicKey }
+      : key.publicKey;
+  }
+  return key;
 }

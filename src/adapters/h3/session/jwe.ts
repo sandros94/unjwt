@@ -9,6 +9,9 @@ import { type H3Event, isEvent, setCookie } from "h3";
 import { parse as parseCookies } from "cookie-es";
 import {
   type JWK,
+  type JWK_Symmetric,
+  type JWK_Public,
+  type JWK_Private,
   type JWTClaims,
   type JWEEncryptOptions,
   type JWTClaimValidationOptions,
@@ -40,7 +43,13 @@ export interface SessionManager<T extends SessionDataT = SessionDataT> {
 
 export interface SessionJWEConfig {
   /** Shared secret used, string for PBES2 or Json Web Key (JWK) */
-  secret: string | JWK;
+  secret:
+    | string
+    | JWK_Symmetric
+    | {
+        privateKey: JWK_Private | JWK_Symmetric;
+        publicKey?: JWK_Public;
+      };
   /** Session lifetime in seconds (used to derive exp from iat) */
   maxAge?: number;
   /** Default is "h3" */
@@ -257,11 +266,8 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
   config: SessionJWEConfig,
 ): Promise<string> {
-  if (
-    typeof config.secret !== "string" &&
-    !isSymmetricJWK(config.secret) &&
-    !isPrivateJWK(config.secret)
-  ) {
+  const key = getEncryptKey(config.secret);
+  if (typeof key !== "string" && !isSymmetricJWK(key) && !isPrivateJWK(key)) {
     throw new Error(
       "Session: JWE secret must be a password string or a private JWK.",
     );
@@ -288,7 +294,7 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
     payload.exp = expSeconds;
   }
 
-  const token = await encrypt(payload, config.secret, {
+  const token = await encrypt(payload, key, {
     ...encryptOptions,
     protectedHeader: {
       ...encryptOptions?.protectedHeader,
@@ -307,11 +313,8 @@ export async function unsealJWESession(
   config: SessionJWEConfig,
   sealed: string,
 ): Promise<Partial<SessionJWE>> {
-  if (
-    typeof config.secret !== "string" &&
-    !isSymmetricJWK(config.secret) &&
-    !isPrivateJWK(config.secret)
-  ) {
+  const key = getDecryptKey(config.secret);
+  if (typeof key !== "string" && !isSymmetricJWK(key) && !isPrivateJWK(key)) {
     throw new Error(
       "Session: JWE secret must be a password string or a private JWK.",
     );
@@ -322,7 +325,7 @@ export async function unsealJWESession(
 
   const { payload } = await decrypt<
     JWTClaims & { jti: string; iat: number; exp?: number }
-  >(sealed, config.secret, {
+  >(sealed, key, {
     ...config.jwe?.decryptOptions,
     requiredClaims: [
       ...(config.jwe?.decryptOptions?.requiredClaims?.filter(
@@ -375,4 +378,21 @@ export function clearJWESession(
     expires: new Date(0),
   });
   return Promise.resolve();
+}
+
+function getEncryptKey(secret: SessionJWEConfig["secret"]): string | JWK {
+  if (typeof secret === "string") {
+    return secret;
+  } else if (isSymmetricJWK(secret)) {
+    return secret;
+  }
+  return secret.publicKey || secret.privateKey;
+}
+function getDecryptKey(secret: SessionJWEConfig["secret"]) {
+  if (typeof secret === "string") {
+    return secret;
+  } else if ("privateKey" in secret) {
+    return secret.privateKey;
+  }
+  return secret;
 }
