@@ -609,7 +609,7 @@ The `h3` adapter bundles session helpers that store data inside signed or encryp
 - `useJWESession(event, config)` encrypts the session payload with the provided `secret` (password string or private/symmetric JWK). Use this when session data must remain confidential. (cookie's `httpOnly: true` by default)
 - `useJWSSession(event, config)` signs, but does not encrypt, the session payload with `config.key`. Use this when clients may read the session content but you still need tamper protection. (cookie's `httpOnly: false` by default)
 
-Both helpers expose the same API: read `session.id` / `session.data`, call `session.update()` to patch values, and `session.clear()` to invalidate the cookie.
+Both helpers expose the same API: read `session.id` / `session.data`, call `session.update()` to patch values, and `session.clear()` to invalidate the cookie. When setting `maxAge`, `exp` claim is automatically managed and validated.
 
 ```ts
 import { defineEventHandler } from "h3";

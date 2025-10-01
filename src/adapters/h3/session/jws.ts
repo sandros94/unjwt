@@ -98,6 +98,12 @@ export async function useJWSSession<T extends SessionDataT = SessionDataT>(
     get id() {
       return event.context.sessions?.[sessionName]?.id;
     },
+    get createdAt() {
+      return event.context.sessions?.[sessionName]?.createdAt || Date.now();
+    },
+    get expiresAt() {
+      return event.context.sessions?.[sessionName]?.expiresAt;
+    },
     get data() {
       return (event.context.sessions?.[sessionName]?.data || {}) as T;
     },
@@ -132,9 +138,20 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
     event.context.sessions = Object.create(null);
   }
 
-  const existing = event.context.sessions[sessionName] as SessionJWS<T>;
-  if (existing) {
-    return existing[kGetSessionPromise] || existing;
+  const existingSession = event.context.sessions[sessionName] as SessionJWS<T>;
+  if (existingSession) {
+    /**
+     * We check if a session is expired before returning it. If it is expired we clear it and create a new one,
+     * unless we have a read-only event in which case we just return it as it was valid at the time of reading
+     * the cookie/header (like in a websocket upgrade)
+     */
+    return existingSession.expiresAt === undefined
+      ? existingSession[kGetSessionPromise] || existingSession
+      : existingSession.expiresAt < Date.now() && isEvent(event)
+        ? clearJWSSession(event, config).then(() =>
+            getJWSSession<T>(event, config),
+          )
+        : existingSession[kGetSessionPromise] || existingSession;
   }
 
   const session: SessionJWS<T> = {

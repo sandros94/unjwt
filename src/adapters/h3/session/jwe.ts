@@ -38,6 +38,8 @@ export interface SessionJWE<T extends SessionDataT = SessionDataT> {
 
 export interface SessionManager<T extends SessionDataT = SessionDataT> {
   readonly id: string | undefined;
+  readonly createdAt: number;
+  readonly expiresAt: number | undefined;
   readonly data: SessionData<T>;
   update: (update: SessionUpdate<T>) => Promise<SessionManager<T>>;
   clear: () => Promise<SessionManager<T>>;
@@ -103,6 +105,12 @@ export async function useJWESession<T extends SessionDataT = SessionDataT>(
     get id() {
       return event.context.sessions?.[sessionName]?.id;
     },
+    get createdAt() {
+      return event.context.sessions?.[sessionName]?.createdAt || Date.now();
+    },
+    get expiresAt() {
+      return event.context.sessions?.[sessionName]?.expiresAt;
+    },
     get data() {
       return (event.context.sessions?.[sessionName]?.data || {}) as T;
     },
@@ -140,7 +148,18 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
 
   const existingSession = event.context.sessions![sessionName] as SessionJWE<T>;
   if (existingSession) {
-    return existingSession[kGetSessionPromise] || existingSession;
+    /**
+     * We check if a session is expired before returning it. If it is expired we clear it and create a new one,
+     * unless we have a read-only event in which case we just return it as it was valid at the time of reading
+     * the cookie/header (like in a websocket upgrade)
+     */
+    return existingSession.expiresAt === undefined
+      ? existingSession[kGetSessionPromise] || existingSession
+      : existingSession.expiresAt < Date.now() && isEvent(event)
+        ? clearJWESession(event, config).then(() =>
+            getJWESession<T>(event, config),
+          )
+        : existingSession[kGetSessionPromise] || existingSession;
   }
 
   // Placeholder session object
