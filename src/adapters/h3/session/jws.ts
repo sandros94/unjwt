@@ -21,7 +21,7 @@ import {
 import { isAsymmetricJWK, isPrivateJWK } from "../../../core/utils";
 import type { SessionData, SessionManager } from "./jwe";
 
-type SessionDataT = Record<string, any>;
+type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
 
 const kGetSessionPromise = Symbol("h3_jws_getSession");
 
@@ -60,9 +60,7 @@ export interface SessionJWSConfig {
   generateId?: () => string;
   /** JWS customization */
   jws?: {
-    signOptions?: Omit<JWSSignOptions, "expiresIn"> & {
-      extraClaims?: Omit<JWTClaims, "jti" | "iat" | "exp">;
-    };
+    signOptions?: Omit<JWSSignOptions, "expiresIn">;
     verifyOptions?: JWTClaimValidationOptions;
   };
 }
@@ -292,22 +290,20 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
   const iatSeconds = Math.floor(session.createdAt / 1000);
   const expSeconds =
     config.maxAge == null ? undefined : iatSeconds + config.maxAge;
-  const { extraClaims, ...signOptions } = config.jws?.signOptions || {};
 
   const payload: Record<string, any> = {
-    ...extraClaims,
+    ...session.data,
     jti: session.id,
     iat: iatSeconds,
-    data: session.data,
   };
   if (expSeconds) {
     payload.exp = expSeconds;
   }
 
   const token = await sign(payload, key, {
-    ...signOptions,
+    ...config.jws?.signOptions,
     protectedHeader: {
-      ...signOptions.protectedHeader,
+      ...config.jws?.signOptions?.protectedHeader,
       typ: "JWT",
     },
   });
@@ -345,6 +341,7 @@ export async function verifyJWSSession(
       "jti",
       "iat",
     ],
+    typ: "JWT",
     algorithms: alg ? [alg] : undefined,
     forceUint8Array: false,
     validateJWT: true,
@@ -353,7 +350,7 @@ export async function verifyJWSSession(
     throw new Error(`Invalid session token: ${message}`);
   });
 
-  const { jti, iat, data } = payload;
+  const { jti, iat, ...data } = payload;
 
   return {
     id: jti,

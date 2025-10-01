@@ -20,7 +20,7 @@ import {
 } from "../../../core/jwe";
 import { isPrivateJWK, isSymmetricJWK } from "../../../core/utils";
 
-type SessionDataT = Record<string, any>;
+type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
 export type SessionData<T extends SessionDataT = SessionDataT> = T;
 
 const kGetSessionPromise = Symbol("h3_jwe_getSession");
@@ -68,9 +68,7 @@ export interface SessionJWEConfig {
   generateId?: () => string;
   /** JWE configuration overrides */
   jwe?: {
-    encryptOptions?: Omit<JWEEncryptOptions, "expiresIn"> & {
-      extraClaims?: Omit<JWTClaims, "jti" | "iat" | "exp">;
-    };
+    encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
     decryptOptions?: JWTClaimValidationOptions;
   };
 }
@@ -311,23 +309,22 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
   const iatSeconds = Math.floor(session.createdAt / 1000);
   const expSeconds =
     config.maxAge == null ? undefined : iatSeconds + config.maxAge;
-  const { extraClaims, ...encryptOptions } = config.jwe?.encryptOptions || {};
 
   const payload: Record<string, any> = {
-    ...extraClaims,
+    ...session.data,
     jti: session.id,
     iat: iatSeconds,
-    data: session.data,
   };
   if (expSeconds) {
     payload.exp = expSeconds;
   }
 
   const token = await encrypt(payload, key, {
-    ...encryptOptions,
+    ...config.jwe?.encryptOptions,
     protectedHeader: {
-      ...encryptOptions?.protectedHeader,
+      ...config.jwe?.encryptOptions?.protectedHeader,
       typ: "JWT",
+      cty: "application/json",
     },
   });
 
@@ -363,6 +360,7 @@ export async function unsealJWESession(
       "jti",
       "iat",
     ],
+    typ: "JWT",
     maxTokenAge: config.maxAge,
     algorithms: alg ? [alg] : undefined,
     encryptionAlgorithms: enc ? [enc] : undefined,
@@ -378,7 +376,7 @@ export async function unsealJWESession(
     throw new Error(error_);
   });
 
-  const { jti, iat, data } = payload;
+  const { jti, iat, ...data } = payload;
 
   return {
     id: jti,
