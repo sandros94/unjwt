@@ -14,6 +14,21 @@ A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/
 - **JWE (JSON Web Encryption, [RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516))**: encrypt and decrypt data using various key management algorithms (AES Key Wrap, AES-GCM Key Wrap, RSA-OAEP, PBES2, ECDH-ES) and content encryption algorithms (AES-GCM, AES-CBC HMAC-SHA2).
 - **JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517))**: generate, import, export, wrap, and unwrap keys in JWK format or as `CryptoKey` objects.
 
+- **Adapters** for popular frameworks (PRs welcome for more!):
+  - [H3 (Nuxt, Nitro)](./src/adapters/h3.ts): `useJWSSession()`, `useJWESession()`
+
+## Table of Contents
+
+- [Usage](#usage)
+  - [Adapters](#adapters)
+  - [JWS](#jws-json-web-signature-rfc-7515)
+  - [JWE](#jwe-json-web-encryption-rfc-7516)
+  - [JWK](#jwk-json-web-key-rfc-7517)
+  - [Utility Functions](#utility-functions)
+- [Development](#development)
+- [Credits](#credits)
+- [License](#license)
+
 ## Usage
 
 Install the package:
@@ -583,6 +598,46 @@ console.log(rsaPublicSpki);
 // -----BEGIN PUBLIC KEY-----
 // MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQE...
 // -----END PUBLIC KEY-----
+```
+
+### Adapters
+
+#### H3 (Nuxt, Nitro)
+
+The `h3` adapter bundles session helpers that store data inside signed or encrypted JWTs.
+
+- `useJWESession(event, config)` encrypts the session payload with the provided `secret` (password string or private/symmetric JWK). Use this when session data must remain confidential. (cookie's `httpOnly: true` by default)
+- `useJWSSession(event, config)` signs, but does not encrypt, the session payload with `config.key`. Use this when clients may read the session content but you still need tamper protection. (cookie's `httpOnly: false` by default)
+
+Both helpers expose the same API: read `session.id` / `session.data`, call `session.update()` to patch values, and `session.clear()` to invalidate the cookie.
+
+```ts
+import { defineEventHandler } from "h3";
+import { useJWESession, useJWSSession, generateJWK } from "unjwt/adapters/h3";
+
+const keys = await generateJWK("RS256");
+
+export default defineEventHandler(async (event) => {
+  const privateSession = await useJWESession(event, {
+    name: "app-session",
+    secret: process.env.SESSION_SECRET!, // or symmetric or asymmetric keypair
+  });
+
+  await privateSession.update((data) => ({
+    visits: (data.visits ?? 0) + 1,
+  }));
+
+  const publicSession = await useJWSSession(event, {
+    name: "app-session-public",
+    key: keys, // you can directly pass symmetric or asymmetric keypairs
+    maxAge: 60 * 60, // seconds
+  });
+
+  return {
+    encryptedSession: privateSession.data,
+    signedSession: publicSession.data,
+  };
+});
 ```
 
 ---
