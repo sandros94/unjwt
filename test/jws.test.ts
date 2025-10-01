@@ -12,6 +12,7 @@ import type {
   JWSProtectedHeader,
   JWTClaims,
   JWK,
+  JWK_Private,
   JWKSet,
 } from "../src/core/types";
 
@@ -467,7 +468,9 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should verify with JWK known in the keyset", async () => {
-      const rsPrKey = await exportKey(rs256KeyPair.privateKey, { kid: "key1" });
+      const rsPrKey = await exportKey<JWK_Private>(rs256KeyPair.privateKey, {
+        kid: "key1",
+      });
       const jws = await sign(payloadObj, rsPrKey);
 
       const { protectedHeader, payload } = await verify(jws, jwkSet);

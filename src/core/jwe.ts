@@ -1,5 +1,7 @@
 import type {
   JWK,
+  JWK_Symmetric,
+  JWK_Private,
   JWK_EC_Public,
   JWK_EC_Private,
   KeyManagementAlgorithm,
@@ -231,7 +233,8 @@ export async function decrypt<
   jwe: string,
   key:
     | CryptoKey
-    | JWK
+    | JWK_Symmetric
+    | JWK_Private
     | string
     | Uint8Array<ArrayBuffer>
     | JWEKeyLookupFunction,
@@ -241,7 +244,8 @@ export async function decrypt(
   jwe: string,
   key:
     | CryptoKey
-    | JWK
+    | JWK_Symmetric
+    | JWK_Private
     | string
     | Uint8Array<ArrayBuffer>
     | JWEKeyLookupFunction,
@@ -255,7 +259,8 @@ export async function decrypt<
   jwe: string,
   key:
     | CryptoKey
-    | JWK
+    | JWK_Symmetric
+    | JWK_Private
     | string
     | Uint8Array<ArrayBuffer>
     | JWEKeyLookupFunction,

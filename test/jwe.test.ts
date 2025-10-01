@@ -11,6 +11,9 @@ import {
 } from "../src/core/utils";
 import type {
   JWK,
+  JWK_Symmetric,
+  JWK_Public,
+  JWK_Private,
   JWK_EC_Public,
   JWTClaims,
   JWEKeyLookupFunction,
@@ -32,8 +35,8 @@ describe.concurrent("JWE Utilities", () => {
 
   interface TestKeySet {
     key?: CryptoKey | CryptoKeyPair | string; // string for password
-    publicKey?: CryptoKey | JWK;
-    privateKey?: CryptoKey | JWK;
+    publicKey?: CryptoKey | JWK_Symmetric | JWK_Public;
+    privateKey?: CryptoKey | JWK_Symmetric | JWK_Private;
     password?: string;
   }
   const keys: Record<string, TestKeySet> = {};
@@ -183,7 +186,8 @@ describe.concurrent("JWE Utilities", () => {
         let encryptionKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>;
         let decryptionKey:
           | CryptoKey
-          | JWK
+          | JWK_Symmetric
+          | JWK_Private
           | string
           | Uint8Array<ArrayBuffer>
           | JWEKeyLookupFunction;

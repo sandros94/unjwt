@@ -285,6 +285,12 @@ export interface JWK_oct extends JWKParameters {
   k: string;
 }
 
+/** Symmetric JSON Web Keys */
+export type JWK_Symmetric = JWK_oct;
+
+/** Asymmetric JSON Web Keys */
+export type JWK_Asymmetric = JWK_RSA | JWK_EC | JWK_OKP;
+
 /** Public JSON Web Keys */
 export type JWK_Public = JWK_RSA_Public | JWK_EC_Public | JWK_OKP_Public;
 

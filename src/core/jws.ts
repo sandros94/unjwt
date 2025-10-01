@@ -1,5 +1,7 @@
 import type {
-  JWK,
+  JWK_Symmetric,
+  JWK_Public,
+  JWK_Private,
   JWKSet,
   JWSAlgorithm,
   JWSSignOptions,
@@ -41,12 +43,12 @@ export type * from "./types/jwt";
  */
 export async function sign(
   payload: JWTClaims,
-  key: JWK,
+  key: JWK_Symmetric | JWK_Private,
   options?: JWSSignOptions,
 ): Promise<string>;
 export async function sign(
   payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: JWK,
+  key: JWK_Symmetric | JWK_Private,
   options?: JWSSignOptions,
 ): Promise<string>;
 export async function sign(
@@ -71,12 +73,12 @@ export async function sign(
 ): Promise<string>;
 export async function sign(
   payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
   payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
   const { protectedHeader: additionalProtectedHeader } = options;
@@ -174,7 +176,8 @@ export async function verify<
   jws: string,
   key:
     | CryptoKey
-    | JWK
+    | JWK_Symmetric
+    | JWK_Public
     | JWKSet
     | Uint8Array<ArrayBuffer>
     | JWSKeyLookupFunction,
@@ -184,7 +187,8 @@ export async function verify(
   jws: string,
   key:
     | CryptoKey
-    | JWK
+    | JWK_Symmetric
+    | JWK_Public
     | JWKSet
     | Uint8Array<ArrayBuffer>
     | JWSKeyLookupFunction,
@@ -196,7 +200,8 @@ export async function verify<
   jws: string,
   key:
     | CryptoKey
-    | JWK
+    | JWK_Symmetric
+    | JWK_Public
     | JWKSet
     | Uint8Array<ArrayBuffer>
     | JWSKeyLookupFunction,
@@ -257,11 +262,18 @@ export async function verify<
   }
 
   // 5. Obtain and Import Key
-  const keyInput: CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> =
+  const keyInput:
+    | CryptoKey
+    | JWK_Symmetric
+    | JWK_Public
+    | JWKSet
+    | Uint8Array<ArrayBuffer> =
     typeof key === "function" ? await key(protectedHeader, jws) : key;
-  const resolvedKey: CryptoKey | JWK | Uint8Array<ArrayBuffer> = isJWKSet(
-    keyInput,
-  )
+  const resolvedKey:
+    | CryptoKey
+    | JWK_Symmetric
+    | JWK_Public
+    | Uint8Array<ArrayBuffer> = isJWKSet(keyInput)
     ? getJWKFromSet(keyInput, protectedHeader)
     : keyInput;
 
@@ -330,7 +342,7 @@ export async function verify<
 }
 
 function validateKeyLength(
-  key: JWK | CryptoKey | Uint8Array<ArrayBuffer>,
+  key: JWK_Symmetric | JWK_Public | CryptoKey | Uint8Array<ArrayBuffer>,
   alg?: string,
 ): void {
   if (!alg || isJWK(key)) return;
