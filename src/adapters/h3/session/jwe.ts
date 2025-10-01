@@ -30,6 +30,8 @@ export interface SessionJWE<T extends SessionDataT = SessionDataT> {
   id: string;
   // Mapped from payload.iat (in ms)
   createdAt: number;
+  // Mapped from payload.exp (in ms)
+  expiresAt?: number;
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWE<T>>;
 }
@@ -145,6 +147,7 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
   const session: SessionJWE<T> = {
     id: "",
     createdAt: 0,
+    expiresAt: undefined,
     data: Object.create(null),
   };
   event.context.sessions![sessionName] = session;
@@ -195,7 +198,14 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
     }
     session.id =
       config.generateId?.() ?? (config.crypto || crypto).randomUUID();
-    session.createdAt = Date.now();
+    session.createdAt =
+      config.jwe?.encryptOptions?.currentDate === undefined
+        ? Date.now()
+        : config.jwe.encryptOptions.currentDate.getTime();
+    session.expiresAt = config.maxAge
+      ? session.createdAt + config.maxAge * 1000
+      : undefined;
+    session.data = Object.create(null);
     await updateJWESession<T>(event as H3Event, config);
   }
 
@@ -354,6 +364,7 @@ export async function unsealJWESession(
   return {
     id: jti,
     createdAt: iat * 1000, // Convert back to ms
+    expiresAt: payload.exp ? payload.exp * 1000 : undefined,
     data: (data && typeof data === "object"
       ? data
       : Object.create(null)) as any,
