@@ -115,7 +115,6 @@ export async function generateKey(
       // Symmetric keys (HMAC, AES-KW, AES-GCM)
       return exportKey(key, {
         ...additionalKeyParams,
-        key_ops: keyUsages,
         alg,
       });
     } else {
@@ -124,7 +123,6 @@ export async function generateKey(
         exportKey(key.publicKey, { ...additionalKeyParams, alg }),
         exportKey(key.privateKey, {
           ...additionalKeyParams,
-          key_ops: keyUsages,
           alg,
         }),
       ]);
@@ -301,18 +299,17 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
-    const safeJwk = sanitizeObject(key as any) as unknown as JWK;
-    if ("k" in safeJwk && typeof safeJwk.k === "string") {
-      return base64UrlDecode(safeJwk.k as string, false);
+    if ("k" in key && typeof key.k === "string") {
+      return base64UrlDecode(key.k as string, false);
     } else {
-      if (!safeJwk.alg && !alg) {
+      if (!key.alg && !alg) {
         throw new TypeError(
           "Algorithm must be provided when importing non-oct JWK",
         );
       }
       return jwkTokey({
-        ...safeJwk,
-        alg: safeJwk.alg || alg,
+        ...key,
+        alg: key.alg || alg,
       });
     }
   }
@@ -992,18 +989,10 @@ function getGenerateKeyParams(
     }
 
     // ECDSA Signatures
-    case "ES256": {
-      algorithm = { name: "ECDSA", namedCurve: "P-256" };
-      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
-      break;
-    }
-    case "ES384": {
-      algorithm = { name: "ECDSA", namedCurve: "P-384" };
-      keyUsages = defaultKeyUsage ?? ["sign", "verify"];
-      break;
-    }
+    case "ES256":
+    case "ES384":
     case "ES512": {
-      algorithm = { name: "ECDSA", namedCurve: "P-521" };
+      algorithm = { name: "ECDSA", namedCurve: `P-${alg.slice(2)}` };
       keyUsages = defaultKeyUsage ?? ["sign", "verify"];
       break;
     }
