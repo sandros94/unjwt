@@ -45,7 +45,7 @@ export interface SessionManager<T extends SessionDataT = SessionDataT> {
   clear: () => Promise<SessionManager<T>>;
 }
 
-export interface SessionJWEConfig {
+export interface SessionConfigJWE {
   /** Shared secret used, string for PBES2 or Json Web Key (JWK) */
   secret:
     | string
@@ -73,8 +73,13 @@ export interface SessionJWEConfig {
   };
 }
 
+/**
+ * @deprecated use `SessionConfigJWE` instead
+ */
+export type SessionJWEConfig = SessionConfigJWE;
+
 const DEFAULT_NAME = "h3-jwe";
-const DEFAULT_COOKIE: SessionJWEConfig["cookie"] = {
+const DEFAULT_COOKIE: SessionConfigJWE["cookie"] = {
   path: "/",
   secure: true,
   httpOnly: true,
@@ -94,7 +99,7 @@ type SessionUpdate<T extends SessionDataT = SessionDataT> =
  */
 export async function useJWESession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
-  config: SessionJWEConfig,
+  config: SessionConfigJWE,
 ): Promise<SessionManager<T>> {
   const sessionName = config.name || DEFAULT_NAME;
   await getJWESession<T>(event, config); // Ensure initialization/loading
@@ -136,7 +141,7 @@ export async function useJWESession<T extends SessionDataT = SessionDataT>(
  */
 export async function getJWESession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
-  config: SessionJWEConfig,
+  config: SessionConfigJWE,
 ): Promise<SessionJWE<T>> {
   const sessionName = config.name || DEFAULT_NAME;
 
@@ -246,7 +251,7 @@ function _getReqHeader(event: H3Event | CompatEvent, name: string) {
  */
 export async function updateJWESession<T extends SessionDataT = SessionDataT>(
   event: H3Event,
-  config: SessionJWEConfig,
+  config: SessionConfigJWE,
   update?: SessionUpdate<T>,
 ): Promise<SessionJWE<T>> {
   const sessionName = config.name || DEFAULT_NAME;
@@ -291,7 +296,7 @@ export async function updateJWESession<T extends SessionDataT = SessionDataT>(
  */
 export async function sealJWESession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
-  config: SessionJWEConfig,
+  config: SessionConfigJWE,
 ): Promise<string> {
   const key = getEncryptKey(config.secret);
   if (typeof key !== "string" && !isSymmetricJWK(key) && !isPrivateJWK(key)) {
@@ -336,7 +341,7 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
  */
 export async function unsealJWESession(
   _event: H3Event | CompatEvent,
-  config: SessionJWEConfig,
+  config: SessionConfigJWE,
   sealed: string,
 ): Promise<Partial<SessionJWE>> {
   const key = getDecryptKey(config.secret);
@@ -393,7 +398,7 @@ export async function unsealJWESession(
  */
 export function clearJWESession(
   event: H3Event,
-  config: Partial<SessionJWEConfig>,
+  config: Partial<SessionConfigJWE>,
 ): Promise<void> {
   const sessionName = config.name || DEFAULT_NAME;
   if (event.context.sessions?.[sessionName]) {
@@ -408,7 +413,7 @@ export function clearJWESession(
   return Promise.resolve();
 }
 
-function getEncryptKey(secret: SessionJWEConfig["secret"]): string | JWK {
+function getEncryptKey(secret: SessionConfigJWE["secret"]): string | JWK {
   if (typeof secret === "string") {
     return secret;
   } else if (isSymmetricJWK(secret)) {
@@ -416,7 +421,7 @@ function getEncryptKey(secret: SessionJWEConfig["secret"]): string | JWK {
   }
   return secret.publicKey || secret.privateKey;
 }
-function getDecryptKey(secret: SessionJWEConfig["secret"]) {
+function getDecryptKey(secret: SessionConfigJWE["secret"]) {
   if (typeof secret === "string") {
     return secret;
   } else if ("privateKey" in secret) {

@@ -36,7 +36,7 @@ export interface SessionJWS<T extends SessionDataT = SessionDataT> {
   [kGetSessionPromise]?: Promise<SessionJWS<T>>;
 }
 
-export interface SessionJWSConfig {
+export interface SessionConfigJWS {
   /**
    * JWK (private for signing with RS/ES/PS, or symmetric oct) used for signing.
    */
@@ -65,8 +65,13 @@ export interface SessionJWSConfig {
   };
 }
 
+/**
+ * @deprecated use `SessionConfigJWS` instead
+ */
+export type SessionJWSConfig = SessionConfigJWS;
+
 const DEFAULT_NAME = "h3-jws";
-const DEFAULT_COOKIE: SessionJWSConfig["cookie"] = {
+const DEFAULT_COOKIE: SessionConfigJWS["cookie"] = {
   path: "/",
   secure: true,
   httpOnly: false,
@@ -87,7 +92,7 @@ type SessionUpdate<T extends SessionDataT = SessionDataT> =
  */
 export async function useJWSSession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
-  config: SessionJWSConfig,
+  config: SessionConfigJWS,
 ): Promise<SessionManager<T>> {
   const sessionName = config.name || DEFAULT_NAME;
   await getJWSSession<T>(event, config);
@@ -128,7 +133,7 @@ export async function useJWSSession<T extends SessionDataT = SessionDataT>(
  */
 export async function getJWSSession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
-  config: SessionJWSConfig,
+  config: SessionConfigJWS,
 ): Promise<SessionJWS<T>> {
   const sessionName = config.name || DEFAULT_NAME;
 
@@ -237,7 +242,7 @@ function _getReqHeader(event: H3Event | CompatEvent, name: string) {
  */
 export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
   event: H3Event,
-  config: SessionJWSConfig,
+  config: SessionConfigJWS,
   update?: SessionUpdate<T>,
 ): Promise<SessionJWS<T>> {
   const sessionName = config.name || DEFAULT_NAME;
@@ -274,7 +279,7 @@ export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
  */
 export async function signJWSSession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
-  config: SessionJWSConfig,
+  config: SessionConfigJWS,
 ): Promise<string> {
   const key = getSignKey(config.key);
   if (isAsymmetricJWK(key) && !isPrivateJWK(key)) {
@@ -321,7 +326,7 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
  */
 export async function verifyJWSSession(
   _event: H3Event | CompatEvent,
-  config: SessionJWSConfig,
+  config: SessionConfigJWS,
   token: string,
 ): Promise<Partial<SessionJWS>> {
   const alg = config.jws?.signOptions?.alg;
@@ -367,7 +372,7 @@ export async function verifyJWSSession(
  */
 export function clearJWSSession(
   event: H3Event,
-  config: Partial<SessionJWSConfig>,
+  config: Partial<SessionConfigJWS>,
 ): Promise<void> {
   const sessionName = config.name || DEFAULT_NAME;
   if (event.context.sessions?.[sessionName]) {
@@ -381,13 +386,13 @@ export function clearJWSSession(
   return Promise.resolve();
 }
 
-function getSignKey(key: SessionJWSConfig["key"]) {
+function getSignKey(key: SessionConfigJWS["key"]) {
   if ("privateKey" in key) {
     return key.privateKey;
   }
   return key;
 }
-function getVerifyKey(key: SessionJWSConfig["key"]) {
+function getVerifyKey(key: SessionConfigJWS["key"]) {
   if ("publicKey" in key) {
     return Array.isArray(key.publicKey)
       ? { keys: key.publicKey }
