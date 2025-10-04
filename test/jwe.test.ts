@@ -595,7 +595,7 @@ describe.concurrent("JWE Utilities", () => {
             currentDate: new Date(61_000),
           }),
         ).rejects.toThrow(
-          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: 1970-01-01T00:01:00.000Z`,
+          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: 1970-01-01T00:01:00.000Z)`,
         );
       });
     });

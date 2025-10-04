@@ -36,6 +36,14 @@ export interface SessionJWS<T extends SessionDataT = SessionDataT> {
   [kGetSessionPromise]?: Promise<SessionJWS<T>>;
 }
 
+export interface SessionHooksJWS {
+  onRead?: (session: SessionJWS, event: H3Event) => void | Promise<void>;
+  onUpdate?: (session: SessionJWS, event: H3Event) => void | Promise<void>;
+  onClear?: (event: H3Event) => void | Promise<void>;
+  onExpire?: (event: H3Event, error: any | undefined) => void | Promise<void>;
+  onError?: (event: H3Event, error: any) => void | Promise<void>;
+}
+
 export interface SessionConfigJWS {
   /**
    * JWK (private for signing with RS/ES/PS, or symmetric oct) used for signing.
@@ -63,6 +71,7 @@ export interface SessionConfigJWS {
     signOptions?: Omit<JWSSignOptions, "expiresIn">;
     verifyOptions?: JWTClaimValidationOptions;
   };
+  hooks?: SessionHooksJWS;
 }
 
 /**
@@ -148,13 +157,22 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    return existingSession.expiresAt === undefined
-      ? existingSession[kGetSessionPromise] || existingSession
-      : existingSession.expiresAt < Date.now() && isEvent(event)
-        ? clearJWSSession(event, config).then(() =>
-            getJWSSession<T>(event, config),
-          )
-        : existingSession[kGetSessionPromise] || existingSession;
+    if (existingSession.expiresAt === undefined) {
+      const session = existingSession[kGetSessionPromise] || existingSession;
+      await config.hooks?.onRead?.(await session, event as H3Event);
+      return session;
+    } else {
+      if (existingSession.expiresAt < Date.now() && isEvent(event)) {
+        await config.hooks?.onExpire?.(event as H3Event, undefined);
+        return clearJWSSession(event as H3Event, config).then(() =>
+          getJWSSession<T>(event, config),
+        );
+      } else {
+        const session = existingSession[kGetSessionPromise] || existingSession;
+        await config.hooks?.onRead?.(await session, event as H3Event);
+        return session;
+      }
+    }
   }
 
   const session: SessionJWS<T> = {
@@ -187,8 +205,21 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
 
   if (token) {
     const promise = verifyJWSSession(event, config, token)
-      .catch(() => {
-        // ignore -> new session
+      .catch(async (error_) => {
+        // Silently ignore invalid/expired tokens -> new session will be created
+        // Check if error_ is about expiration
+        if (error_ instanceof Error) {
+          const message = error_.message;
+          if (
+            message.includes("Token has expired") ||
+            message.includes("Token is too old")
+          ) {
+            await config.hooks?.onExpire?.(event as H3Event, error_);
+            return undefined;
+          }
+        }
+        await config.hooks?.onError?.(event as H3Event, error_);
+        return undefined;
       })
       .then((unsealed) => {
         if (unsealed) {
@@ -222,6 +253,7 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
     await updateJWSSession<T>(event as H3Event, config);
   }
 
+  await config.hooks?.onRead?.(session, event as H3Event);
   return session;
 }
 
@@ -256,6 +288,7 @@ export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
   }
   if (update) {
     Object.assign(session.data, update);
+    await config.hooks?.onUpdate?.(session, event);
   }
 
   if (config.cookie !== false) {
@@ -370,7 +403,7 @@ export async function verifyJWSSession(
 /**
  * Destroy the session (context + cookie).
  */
-export function clearJWSSession(
+export async function clearJWSSession(
   event: H3Event,
   config: Partial<SessionConfigJWS>,
 ): Promise<void> {
@@ -378,12 +411,15 @@ export function clearJWSSession(
   if (event.context.sessions?.[sessionName]) {
     delete event.context.sessions[sessionName];
   }
+
   setCookie(event, sessionName, "", {
     ...DEFAULT_COOKIE,
     ...config.cookie,
     expires: new Date(0),
+    maxAge: undefined,
   });
-  return Promise.resolve();
+
+  await config.hooks?.onClear?.(event);
 }
 
 function getSignKey(key: SessionConfigJWS["key"]) {

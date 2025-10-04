@@ -36,6 +36,14 @@ export interface SessionJWE<T extends SessionDataT = SessionDataT> {
   [kGetSessionPromise]?: Promise<SessionJWE<T>>;
 }
 
+export interface SessionHooksJWE {
+  onRead?: (session: SessionJWE, event: H3Event) => void | Promise<void>;
+  onUpdate?: (session: SessionJWE, event: H3Event) => void | Promise<void>;
+  onClear?: (event: H3Event) => void | Promise<void>;
+  onExpire?: (event: H3Event, error: any | undefined) => void | Promise<void>;
+  onError?: (event: H3Event, error: any) => void | Promise<void>;
+}
+
 export interface SessionManager<T extends SessionDataT = SessionDataT> {
   readonly id: string | undefined;
   readonly createdAt: number;
@@ -71,6 +79,7 @@ export interface SessionConfigJWE {
     encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
     decryptOptions?: JWTClaimValidationOptions;
   };
+  hooks?: SessionHooksJWE;
 }
 
 /**
@@ -156,13 +165,22 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    return existingSession.expiresAt === undefined
-      ? existingSession[kGetSessionPromise] || existingSession
-      : existingSession.expiresAt < Date.now() && isEvent(event)
-        ? clearJWESession(event, config).then(() =>
-            getJWESession<T>(event, config),
-          )
-        : existingSession[kGetSessionPromise] || existingSession;
+    if (existingSession.expiresAt === undefined) {
+      const session = existingSession[kGetSessionPromise] || existingSession;
+      await config.hooks?.onRead?.(await session, event as H3Event);
+      return session;
+    } else {
+      if (existingSession.expiresAt < Date.now() && isEvent(event)) {
+        await config.hooks?.onExpire?.(event as H3Event, undefined);
+        return clearJWESession(event as H3Event, config).then(() =>
+          getJWESession<T>(event, config),
+        );
+      } else {
+        const session = existingSession[kGetSessionPromise] || existingSession;
+        await config.hooks?.onRead?.(await session, event as H3Event);
+        return session;
+      }
+    }
   }
 
   // Placeholder session object
@@ -197,8 +215,21 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
 
   if (jweToken) {
     const promise = unsealJWESession(event, config, jweToken)
-      .catch(() => {
+      .catch(async (error_) => {
         // Silently ignore invalid/expired tokens -> new session will be created
+        // Check if error_ is about expiration
+        if (error_ instanceof Error) {
+          const message = error_.message;
+          if (
+            message.includes("Token has expired") ||
+            message.includes("Token is too old")
+          ) {
+            await config.hooks?.onExpire?.(event as H3Event, error_);
+            return undefined;
+          }
+        }
+        await config.hooks?.onError?.(event as H3Event, error_);
+        return undefined;
       })
       .then((unsealed) => {
         if (unsealed) {
@@ -231,6 +262,7 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
     await updateJWESession<T>(event as H3Event, config);
   }
 
+  await config.hooks?.onRead?.(session, event as H3Event);
   return session;
 }
 
@@ -265,6 +297,7 @@ export async function updateJWESession<T extends SessionDataT = SessionDataT>(
   }
   if (update) {
     Object.assign(session.data, update);
+    await config.hooks?.onUpdate?.(session, event);
   }
 
   if (config.cookie !== false) {
@@ -396,7 +429,7 @@ export async function unsealJWESession(
 /**
  * Clear the session (delete from context and drop cookie).
  */
-export function clearJWESession(
+export async function clearJWESession(
   event: H3Event,
   config: Partial<SessionConfigJWE>,
 ): Promise<void> {
@@ -404,13 +437,16 @@ export function clearJWESession(
   if (event.context.sessions?.[sessionName]) {
     delete event.context.sessions![sessionName];
   }
+
   setCookie(event, sessionName, "", {
     ...DEFAULT_COOKIE,
     ...config.cookie,
     // Optionally set expires in the past
     expires: new Date(0),
+    maxAge: undefined,
   });
-  return Promise.resolve();
+
+  await config.hooks?.onClear?.(event);
 }
 
 function getEncryptKey(secret: SessionConfigJWE["secret"]): string | JWK {
