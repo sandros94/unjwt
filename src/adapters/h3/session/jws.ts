@@ -1,6 +1,6 @@
 /**
  * This is a fork of h3 library's session utility functions.
- * @source https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/test/session.test.ts
+ * @source https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/src/utils/session.ts
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
