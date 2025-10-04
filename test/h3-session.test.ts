@@ -9,8 +9,8 @@ import {
   readBody,
 } from "h3";
 import {
-  type SessionJWEConfig,
-  type SessionJWSConfig,
+  type SessionConfigJWE,
+  type SessionConfigJWS,
   useJWESession,
   useJWSSession,
   generateJWK,
@@ -24,7 +24,7 @@ describe("adapter h3", () => {
   describe("jwe session", () => {
     let cookie = "";
     let sessionIdCtr = 0;
-    const sessionConfig: SessionJWEConfig = {
+    const sessionConfig: SessionConfigJWE = {
       name: "h3-jwe-test",
       secret: "jwe-secret",
       generateId: () => String(++sessionIdCtr),
@@ -107,7 +107,7 @@ describe("adapter h3", () => {
     let cookie = "";
     let sessionIdCtr = 0;
     const keys = await generateJWK("RS256");
-    const sessionConfig: SessionJWSConfig = {
+    const sessionConfig: SessionConfigJWS = {
       name: "h3-jws-test",
       key: keys,
       generateId: () => String(++sessionIdCtr),
