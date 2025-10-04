@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.22
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.21...v0.5.22)
+
+### 🚀 Enhancements
+
+- **h3:** Session hooks ([346d88c](https://github.com/sandros94/unjwt/commit/346d88c))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.21
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.20...v0.5.21)
