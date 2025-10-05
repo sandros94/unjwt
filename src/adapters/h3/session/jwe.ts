@@ -70,8 +70,6 @@ export interface SessionConfigJWE {
   cookie?: false | CookieSerializeOptions;
   /** Default is x-h3-session / x-{name}-session */
   sessionHeader?: false | string;
-  /** Optional WebCrypto implementation override */
-  crypto?: Crypto;
   /** Default is crypto.randomUUID */
   generateId?: () => string;
   /** JWE configuration overrides */
@@ -169,7 +167,11 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    if (session.expiresAt !== undefined && session.expiresAt < Date.now() && isEvent(event)) {
+    if (
+      session.expiresAt !== undefined &&
+      session.expiresAt < Date.now() &&
+      isEvent(event)
+    ) {
       await config.hooks?.onExpire?.(event as H3Event, undefined);
       return clearJWESession(event as H3Event, config).then(() =>
         getJWESession<T>(event, config),
@@ -246,8 +248,7 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
         "Cannot initialize a new session. Use `useSession(event)` within the main handler.",
       );
     }
-    session.id =
-      config.generateId?.() ?? (config.crypto || crypto).randomUUID();
+    session.id = config.generateId?.() ?? crypto.randomUUID();
     session.createdAt =
       config.jwe?.encryptOptions?.currentDate === undefined
         ? Date.now()

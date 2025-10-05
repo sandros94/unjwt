@@ -62,8 +62,6 @@ export interface SessionConfigJWS {
   cookie?: false | CookieSerializeOptions;
   /** Custom header (false to disable header lookup) */
   sessionHeader?: false | string;
-  /** Provide a custom WebCrypto (if needed for algorithm operations) */
-  crypto?: Crypto;
   /** Custom ID generator (defaults to crypto.randomUUID) */
   generateId?: () => string;
   /** JWS customization */
@@ -161,7 +159,11 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    if (session.expiresAt !== undefined && session.expiresAt < Date.now() && isEvent(event)) {
+    if (
+      session.expiresAt !== undefined &&
+      session.expiresAt < Date.now() &&
+      isEvent(event)
+    ) {
       await config.hooks?.onExpire?.(event as H3Event, undefined);
       return clearJWSSession(event as H3Event, config).then(() =>
         getJWSSession<T>(event, config),
@@ -236,9 +238,7 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
         "Cannot initialize a new session outside main handler. Use `useJWSSession(event)` properly.",
       );
     }
-    session.id =
-      config.generateId?.() ??
-      (config.crypto || globalThis.crypto).randomUUID();
+    session.id = config.generateId?.() ?? crypto.randomUUID();
     session.createdAt =
       config.jws?.signOptions?.currentDate === undefined
         ? Date.now()
