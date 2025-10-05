@@ -332,11 +332,21 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
     payload.exp = expSeconds;
   }
 
+
+  let typ: string | undefined = undefined;
+  if (
+    config.jws?.signOptions?.protectedHeader?.typ
+    && typeof config.jws.signOptions.protectedHeader.typ === "string"
+    && config.jws.signOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+  ) {
+    typ = config.jws.signOptions.protectedHeader.typ;
+  }
   const token = await sign(payload, key, {
     ...config.jws?.signOptions,
     protectedHeader: {
       ...config.jws?.signOptions?.protectedHeader,
-      typ: "JWT",
+      typ: typ || "JWT",
+      cty: "application/json",
     },
   });
 
@@ -362,6 +372,14 @@ export async function verifyJWSSession(
     throw new Error("Session: JWS key cannot be a private asymmetric JWK.");
   }
 
+  let typ: string | undefined = undefined;
+  if (
+    config.jws?.signOptions?.protectedHeader?.typ
+    && typeof config.jws.signOptions.protectedHeader.typ === "string"
+    && config.jws.signOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+  ) {
+    typ = config.jws.signOptions.protectedHeader.typ;
+  }
   const { payload } = await verify<
     JWTClaims & { jti: string; iat: number; exp?: number }
   >(token, jwk, {
@@ -373,7 +391,7 @@ export async function verifyJWSSession(
       "jti",
       "iat",
     ],
-    typ: "JWT",
+    typ: typ || "JWT",
     algorithms: alg ? [alg] : undefined,
     forceUint8Array: false,
     validateJWT: true,

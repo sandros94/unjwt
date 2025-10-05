@@ -352,11 +352,20 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
     payload.exp = expSeconds;
   }
 
+
+  let typ: string | undefined = undefined;
+  if (
+    config.jwe?.encryptOptions?.protectedHeader?.typ
+    && typeof config.jwe.encryptOptions.protectedHeader.typ === "string"
+    && config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+  ) {
+    typ = config.jwe.encryptOptions.protectedHeader.typ;
+  }
   const token = await encrypt(payload, key, {
     ...config.jwe?.encryptOptions,
     protectedHeader: {
       ...config.jwe?.encryptOptions?.protectedHeader,
-      typ: "JWT",
+      typ: typ || "JWT",
       cty: "application/json",
     },
   });
@@ -382,6 +391,14 @@ export async function unsealJWESession(
   const alg = config.jwe?.encryptOptions?.alg;
   const enc = config.jwe?.encryptOptions?.enc;
 
+  let typ: string | undefined = undefined;
+  if (
+    config.jwe?.encryptOptions?.protectedHeader?.typ
+    && typeof config.jwe.encryptOptions.protectedHeader.typ === "string"
+    && config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+  ) {
+    typ = config.jwe.encryptOptions.protectedHeader.typ;
+  }
   const { payload } = await decrypt<
     JWTClaims & { jti: string; iat: number; exp?: number }
   >(sealed, key, {
@@ -393,7 +410,7 @@ export async function unsealJWESession(
       "jti",
       "iat",
     ],
-    typ: "JWT",
+    typ: typ || "JWT",
     maxTokenAge: config.maxAge,
     algorithms: alg ? [alg] : undefined,
     encryptionAlgorithms: enc ? [enc] : undefined,
