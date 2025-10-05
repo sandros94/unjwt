@@ -240,13 +240,10 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
     }
     session.id = config.generateId?.() ?? crypto.randomUUID();
     session.createdAt =
-      config.jws?.signOptions?.currentDate === undefined
-        ? Date.now()
-        : config.jws.signOptions.currentDate.getTime();
+      config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
     session.expiresAt = config.maxAge
       ? session.createdAt + config.maxAge * 1000
       : undefined;
-    session.data = Object.create(null);
     await updateJWSSession<T>(event as H3Event, config);
   }
 

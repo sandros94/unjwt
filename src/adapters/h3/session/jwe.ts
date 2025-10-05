@@ -250,13 +250,10 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
     }
     session.id = config.generateId?.() ?? crypto.randomUUID();
     session.createdAt =
-      config.jwe?.encryptOptions?.currentDate === undefined
-        ? Date.now()
-        : config.jwe.encryptOptions.currentDate.getTime();
+      config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
     session.expiresAt = config.maxAge
       ? session.createdAt + config.maxAge * 1000
       : undefined;
-    session.data = Object.create(null);
     await updateJWESession<T>(event as H3Event, config);
   }
 
