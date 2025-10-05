@@ -35,6 +35,10 @@
       "types": "./dist/h3.d.mts",
       "default": "./dist/h3.mjs"
     },
+    "./h3v1": {
+      "types": "./dist/h3v1.d.mts",
+      "default": "./dist/h3v1.mjs"
+    },
     "./h3v2": {
       "types": "./dist/h3v2.d.mts",
       "default": "./dist/h3v2.mjs"

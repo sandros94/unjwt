@@ -26,9 +26,14 @@ export default defineBuildConfig({
       name: "utils",
     },
     {
-      input: "./src/adapters/h3",
+      input: "./src/adapters/h3v1",
       outDir: "./dist/h3",
       name: "h3",
+    },
+    {
+      input: "./src/adapters/h3v1",
+      outDir: "./dist/h3v1",
+      name: "h3v1",
     },
     {
       input: "./src/adapters/h3v2",
