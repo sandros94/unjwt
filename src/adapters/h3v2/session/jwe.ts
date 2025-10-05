@@ -405,12 +405,12 @@ export async function unsealJWESession(
     throw new Error(String(error_));
   });
 
-  const { jti, iat, ...data } = payload;
+  const { jti, iat, exp, ...data } = payload;
 
   return {
     id: jti,
     createdAt: iat * 1000,
-    expiresAt: payload.exp ? payload.exp * 1000 : undefined,
+    expiresAt: exp ? exp * 1000 : undefined,
     data: (data && typeof data === "object" ? data : new NullProtoObj()) as any,
   };
 }

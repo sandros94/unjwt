@@ -412,12 +412,12 @@ export async function verifyJWSSession(
     throw new Error(`Invalid session token: ${message}`);
   });
 
-  const { jti, iat, ...data } = payload;
+  const { jti, iat, exp, ...data } = payload;
 
   return {
     id: jti,
     createdAt: iat * 1000, // Convert back to ms
-    expiresAt: payload.exp ? payload.exp * 1000 : undefined,
+    expiresAt: exp ? exp * 1000 : undefined,
     data: (data && typeof data === "object"
       ? data
       : Object.create(null)) as any,
