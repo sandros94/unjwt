@@ -7,7 +7,7 @@ import {
   toNodeListener,
   eventHandler,
   readBody,
-} from "h3";
+} from "h3v1";
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
@@ -17,10 +17,10 @@ import {
   useJWSSession,
   updateJWESession,
   generateJWK,
-} from "../src/adapters/h3";
+} from "../src/adapters/h3v1";
 import { base64UrlDecode } from "../src/core/utils";
 
-describe("adapter h3", () => {
+describe("adapter h3 v1", () => {
   let app: App;
   let router: ReturnType<typeof createRouter>;
   let request: ReturnType<typeof supertest>;

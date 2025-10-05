@@ -11,8 +11,11 @@ importers:
         specifier: ^1.2.2 || ^2.0.0
         version: 2.0.0
       h3:
-        specifier: ^1.15.4 || ^2.0.0-rc.0 || ^2.0.0
+        specifier: ^1.15.4 || >=2.0.0-beta.5 <2.0.0 || ^2.0.1
         version: 1.15.4
+      rou3:
+        specifier: ^0.7.7
+        version: 0.7.7
     devDependencies:
       "@types/node":
         specifier: ^22
@@ -29,12 +32,24 @@ importers:
       changelogen:
         specifier: ^0.6.2
         version: 0.6.2(magicast@0.3.5)
+      cookie-esv1:
+        specifier: npm:cookie-es@^1.2.2
+        version: cookie-es@1.2.2
+      cookie-esv2:
+        specifier: npm:cookie-es@^2.0.0
+        version: cookie-es@2.0.0
       eslint:
         specifier: ^9.36.0
         version: 9.36.0(jiti@2.5.1)
       eslint-config-unjs:
         specifier: ^0.5.0
         version: 0.5.0(eslint@9.36.0(jiti@2.5.1))(typescript@5.9.2)
+      h3v1:
+        specifier: npm:h3@^1.15.4
+        version: h3@1.15.4
+      h3v2:
+        specifier: npm:h3@^2.0.0-beta.5
+        version: h3@2.0.0-beta.5
       jose:
         specifier: ^6.1.0
         version: 6.1.0
@@ -56,15 +71,6 @@ importers:
 
   playground:
     devDependencies:
-      cookie-esv2:
-        specifier: npm:cookie-es@^2.0.0
-        version: cookie-es@2.0.0
-      h3v2:
-        specifier: npm:h3@2.0.0-beta.5
-        version: h3@2.0.0-beta.5
-      rou3:
-        specifier: ^0.7.7
-        version: 0.7.7
       unjwt:
         specifier: "workspace:"
         version: link:..
