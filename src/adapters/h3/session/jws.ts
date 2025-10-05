@@ -356,6 +356,7 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
   }
   const token = await sign(payload, key, {
     ...config.jws?.signOptions,
+    expiresIn: undefined, // controlled via 'exp' claim
     protectedHeader: {
       ...config.jws?.signOptions?.protectedHeader,
       kid: key.kid,

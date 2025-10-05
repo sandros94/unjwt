@@ -384,6 +384,7 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
   }
   const token = await encrypt(payload, key, {
     ...config.jwe?.encryptOptions,
+    expiresIn: undefined, // controlled via 'exp' claim
     protectedHeader: {
       ...config.jwe?.encryptOptions?.protectedHeader,
       kid: typeof key === "string" ? undefined : key.kid,
