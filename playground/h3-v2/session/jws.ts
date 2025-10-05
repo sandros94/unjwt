@@ -22,7 +22,11 @@ import {
   sign,
   verify,
 } from "../../../src/core/jws";
-import { isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../src/core/utils";
+import {
+  isSymmetricJWK,
+  isPrivateJWK,
+  isPublicJWK,
+} from "../../../src/core/utils";
 
 type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
 
@@ -105,7 +109,9 @@ export async function useJWSSession<T extends SessionDataT = SessionDataT>(
       return getSessionFromContext<T>(event, sessionName)?.id;
     },
     get createdAt() {
-      return getSessionFromContext<T>(event, sessionName)?.createdAt ?? Date.now();
+      return (
+        getSessionFromContext<T>(event, sessionName)?.createdAt ?? Date.now()
+      );
     },
     get expiresAt() {
       return getSessionFromContext<T>(event, sessionName)?.expiresAt;

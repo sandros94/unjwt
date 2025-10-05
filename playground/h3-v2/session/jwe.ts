@@ -22,7 +22,11 @@ import {
   encrypt,
   decrypt,
 } from "../../../src/core/jwe";
-import { isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../src/core/utils";
+import {
+  isSymmetricJWK,
+  isPrivateJWK,
+  isPublicJWK,
+} from "../../../src/core/utils";
 
 type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
 export type SessionData<T extends SessionDataT = SessionDataT> = T;
