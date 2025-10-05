@@ -332,12 +332,11 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
     payload.exp = expSeconds;
   }
 
-
   let typ: string | undefined = undefined;
   if (
-    config.jws?.signOptions?.protectedHeader?.typ
-    && typeof config.jws.signOptions.protectedHeader.typ === "string"
-    && config.jws.signOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+    config.jws?.signOptions?.protectedHeader?.typ &&
+    typeof config.jws.signOptions.protectedHeader.typ === "string" &&
+    config.jws.signOptions.protectedHeader.typ.toLowerCase().includes("jwt")
   ) {
     typ = config.jws.signOptions.protectedHeader.typ;
   }
@@ -374,9 +373,9 @@ export async function verifyJWSSession(
 
   let typ: string | undefined = undefined;
   if (
-    config.jws?.signOptions?.protectedHeader?.typ
-    && typeof config.jws.signOptions.protectedHeader.typ === "string"
-    && config.jws.signOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+    config.jws?.signOptions?.protectedHeader?.typ &&
+    typeof config.jws.signOptions.protectedHeader.typ === "string" &&
+    config.jws.signOptions.protectedHeader.typ.toLowerCase().includes("jwt")
   ) {
     typ = config.jws.signOptions.protectedHeader.typ;
   }

@@ -16,6 +16,7 @@ import {
   updateJWESession,
   generateJWK,
 } from "../src/adapters/h3";
+import { base64UrlDecode } from "../src/core/utils";
 
 describe("adapter h3", () => {
   let app: App;
@@ -394,11 +395,18 @@ describe("adapter h3", () => {
         };
 
         refreshConfig = {
-          name: "h3-jwe-refresh",
+          name: "refresh_token",
           secret: "jwe-refresh-secret",
           maxAge: 30,
           generateId: () => `refresh-${++refreshIdCtr}`,
           hooks: refreshHooks,
+          jwe: {
+            encryptOptions: {
+              protectedHeader: {
+                typ: "rt+jwt", // allow custom `typ`
+              },
+            },
+          },
         };
 
         accessHooks = {
@@ -422,11 +430,18 @@ describe("adapter h3", () => {
         };
 
         accessConfig = {
-          name: "h3-jws-hooks",
+          name: "access_token",
           key: keys,
           maxAge: 1,
           generateId: () => `access-${++accessIdCtr}`,
           hooks: accessHooks,
+          jws: {
+            signOptions: {
+              protectedHeader: {
+                typ: "at+jwt", // allow custom `typ`
+              },
+            },
+          },
         };
 
         router = createRouter({ preemptive: true });
@@ -560,6 +575,28 @@ describe("adapter h3", () => {
           .set("Cookie", accessCookie);
         expect(clearResponse.body).toMatchObject({ cleared: true });
         expect(accessHooks.onClear).toHaveBeenCalledTimes(1);
+      });
+
+      it("has correct custom `typ` headers", async () => {
+        const first = await request.get("/tokens");
+        const accessHeader = getCookieValue(
+          first.headers["set-cookie"],
+          accessConfig.name!,
+        )!
+          .split("=")[1]!
+          .split(".")[0]!;
+        const refreshHeader = getCookieValue(
+          first.headers["set-cookie"],
+          refreshConfig.name!,
+        )!
+          .split("=")[1]!
+          .split(".")[0]!;
+
+        const accessDecoded = JSON.parse(base64UrlDecode(accessHeader));
+        const refreshDecoded = JSON.parse(base64UrlDecode(refreshHeader));
+
+        expect(accessDecoded.typ).toBe("at+jwt");
+        expect(refreshDecoded.typ).toBe("rt+jwt");
       });
     });
   });

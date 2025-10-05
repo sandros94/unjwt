@@ -352,12 +352,11 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
     payload.exp = expSeconds;
   }
 
-
   let typ: string | undefined = undefined;
   if (
-    config.jwe?.encryptOptions?.protectedHeader?.typ
-    && typeof config.jwe.encryptOptions.protectedHeader.typ === "string"
-    && config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+    config.jwe?.encryptOptions?.protectedHeader?.typ &&
+    typeof config.jwe.encryptOptions.protectedHeader.typ === "string" &&
+    config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
   ) {
     typ = config.jwe.encryptOptions.protectedHeader.typ;
   }
@@ -393,9 +392,9 @@ export async function unsealJWESession(
 
   let typ: string | undefined = undefined;
   if (
-    config.jwe?.encryptOptions?.protectedHeader?.typ
-    && typeof config.jwe.encryptOptions.protectedHeader.typ === "string"
-    && config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
+    config.jwe?.encryptOptions?.protectedHeader?.typ &&
+    typeof config.jwe.encryptOptions.protectedHeader.typ === "string" &&
+    config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
   ) {
     typ = config.jwe.encryptOptions.protectedHeader.typ;
   }
