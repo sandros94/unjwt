@@ -154,7 +154,13 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
 
   return generateKey(alg, {
     ...opts,
-    toJWK: (jwkParams as object) || true,
+    toJWK: {
+      kid:
+        typeof jwkParams?.kid === "string"
+          ? jwkParams.kid
+          : crypto.randomUUID(),
+      ...jwkParams,
+    },
   });
 }
 
