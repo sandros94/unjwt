@@ -1,0 +1,16 @@
+{
+  "name": "unauth-playground",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types --watch ./main.ts",
+    "bun": "bun --watch main.ts",
+    "deno": "deno --watch -A main.ts"
+  },
+  "devDependencies": {
+    "cookie-esv2": "npm:cookie-es@^2.0.0",
+    "h3v2": "npm:h3@2.0.0-beta.5",
+    "rou3": "^0.7.7",
+    "unjwt": "workspace:"
+  }
+}
