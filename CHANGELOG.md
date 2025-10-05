@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.5.23
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.22...v0.5.23)
+
+### 🚀 Enhancements
+
+- **h3:** Propagate session configs via hook's last argument ([e9524c2](https://github.com/sandros94/unjwt/commit/e9524c2))
+
+### 🩹 Fixes
+
+- **h3:** Fork permalink ([6399c01](https://github.com/sandros94/unjwt/commit/6399c01))
+- **h3:** Session validation when available in-context ([a5ecb4d](https://github.com/sandros94/unjwt/commit/a5ecb4d))
+- **h3:** Remove `crypto` leftoff ([01ce93e](https://github.com/sandros94/unjwt/commit/01ce93e))
+- **h3:** Conditional initialization ([3269537](https://github.com/sandros94/unjwt/commit/3269537))
+- **h3:** Allow custom `typ` ([4e739fd](https://github.com/sandros94/unjwt/commit/4e739fd))
+- **h3:** Simplify error checking ([794b936](https://github.com/sandros94/unjwt/commit/794b936))
+- **h3:** Standardize `key` param in JWE sessions ([2e9306a](https://github.com/sandros94/unjwt/commit/2e9306a))
+- **jwk:** Automatically create `kid` for `generateJWK` ([3ffcba3](https://github.com/sandros94/unjwt/commit/3ffcba3))
+- **h3:** Improve JWK constrains ([fb8f90c](https://github.com/sandros94/unjwt/commit/fb8f90c))
+- **h3:** Explicit `expiresIn: undefined` ([99efc2b](https://github.com/sandros94/unjwt/commit/99efc2b))
+
+### ✅ Tests
+
+- **h3:** Custom `typ` header ([efa3d77](https://github.com/sandros94/unjwt/commit/efa3d77))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.22
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.21...v0.5.22)
