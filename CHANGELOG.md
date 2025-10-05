@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.24
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.23...v0.5.24)
+
+### 🚀 Enhancements
+
+- **adapters:** New H3 v2 adapter ([#5](https://github.com/sandros94/unjwt/pull/5))
+
+### 🩹 Fixes
+
+- **h3:** Prevent `exp` spill ([01d8d14](https://github.com/sandros94/unjwt/commit/01d8d14))
+
+### 📖 Documentation
+
+- Describe h3v2 example with hooks ([cc4c9a7](https://github.com/sandros94/unjwt/commit/cc4c9a7))
+
+### 📦 Build
+
+- Fix exports ([f2f698d](https://github.com/sandros94/unjwt/commit/f2f698d))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.23
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.22...v0.5.23)
