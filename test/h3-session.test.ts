@@ -11,6 +11,8 @@ import {
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
+  type SessionHooksJWE,
+  type SessionHooksJWS,
   useJWESession,
   useJWSSession,
   updateJWESession,
@@ -203,13 +205,7 @@ describe("adapter h3", () => {
       let cookie = "";
       let sessionIdCtr = 0;
       let sessionConfig: SessionConfigJWE;
-      let hooks: {
-        onRead: ReturnType<typeof vi.fn>;
-        onUpdate: ReturnType<typeof vi.fn>;
-        onClear: ReturnType<typeof vi.fn>;
-        onExpire: ReturnType<typeof vi.fn>;
-        onError: ReturnType<typeof vi.fn>;
-      };
+      let hooks: SessionHooksJWE;
       const errors: unknown[] = [];
 
       beforeEach(() => {
@@ -218,15 +214,13 @@ describe("adapter h3", () => {
         sessionIdCtr = 0;
         errors.length = 0;
 
-        let configRef: SessionConfigJWE | null = null;
-
         hooks = {
-          onRead: vi.fn(async (session, event) => {
+          onRead: vi.fn(async (session, event, config) => {
             if (session.expiresAt !== undefined) {
               const timeLeft = session.expiresAt - session.createdAt;
               // if time left is less than half of maxAge, refresh
-              if (timeLeft < configRef!.maxAge! / 2) {
-                await updateJWESession(event, configRef!);
+              if (timeLeft < config.maxAge! / 2) {
+                await updateJWESession(event, config);
               }
             }
           }),
@@ -245,7 +239,6 @@ describe("adapter h3", () => {
           generateId: () => String(++sessionIdCtr),
           hooks,
         };
-        configRef = sessionConfig;
 
         router = createRouter({ preemptive: true });
         app = createApp({ debug: true }).use(router);
@@ -356,20 +349,8 @@ describe("adapter h3", () => {
       let refreshCookie = "";
       let accessConfig: SessionConfigJWS;
       let refreshConfig: SessionConfigJWE;
-      let accessHooks: {
-        onRead: ReturnType<typeof vi.fn>;
-        onUpdate: ReturnType<typeof vi.fn>;
-        onClear: ReturnType<typeof vi.fn>;
-        onExpire: ReturnType<typeof vi.fn>;
-        onError: ReturnType<typeof vi.fn>;
-      };
-      let refreshHooks: {
-        onRead: ReturnType<typeof vi.fn>;
-        onUpdate: ReturnType<typeof vi.fn>;
-        onClear: ReturnType<typeof vi.fn>;
-        onExpire: ReturnType<typeof vi.fn>;
-        onError: ReturnType<typeof vi.fn>;
-      };
+      let accessHooks: SessionHooksJWS;
+      let refreshHooks: SessionHooksJWE;
       const refreshChecks: string[] = [];
       const accessErrors: unknown[] = [];
       let accessIdCtr = 0;
