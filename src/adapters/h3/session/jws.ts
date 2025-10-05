@@ -152,27 +152,24 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
 
   const existingSession = event.context.sessions[sessionName] as SessionJWS<T>;
   if (existingSession) {
+    const session = existingSession[kGetSessionPromise]
+      ? await existingSession[kGetSessionPromise]
+      : existingSession;
+
     /**
      * We check if a session is expired before returning it. If it is expired we clear it and create a new one,
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    if (existingSession.expiresAt === undefined) {
-      const session = existingSession[kGetSessionPromise] || existingSession;
-      await config.hooks?.onRead?.(await session, event as H3Event);
-      return session;
-    } else {
-      if (existingSession.expiresAt < Date.now() && isEvent(event)) {
-        await config.hooks?.onExpire?.(event as H3Event, undefined);
-        return clearJWSSession(event as H3Event, config).then(() =>
-          getJWSSession<T>(event, config),
-        );
-      } else {
-        const session = existingSession[kGetSessionPromise] || existingSession;
-        await config.hooks?.onRead?.(await session, event as H3Event);
-        return session;
-      }
+    if (session.expiresAt !== undefined && session.expiresAt < Date.now() && isEvent(event)) {
+      await config.hooks?.onExpire?.(event as H3Event, undefined);
+      return clearJWSSession(event as H3Event, config).then(() =>
+        getJWSSession<T>(event, config),
+      );
     }
+
+    await config.hooks?.onRead?.(session, event as H3Event);
+    return session;
   }
 
   const session: SessionJWS<T> = {
