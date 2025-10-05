@@ -73,8 +73,16 @@ export interface SessionManager<T extends SessionDataT = SessionDataT> {
 }
 
 export interface SessionConfigJWE {
-  /** Shared secret used, string for PBES2 or Json Web Key (JWK) */
-  secret:
+  /** @deprecated use `key` instead */
+  secret?:
+    | string
+    | JWK_Symmetric
+    | {
+        privateKey: JWK_Private | JWK_Symmetric;
+        publicKey?: JWK_Public;
+      };
+  /** Shared key used, string for PBES2 or Json Web Key (JWK) */
+  key:
     | string
     | JWK_Symmetric
     | {
@@ -343,10 +351,10 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
   event: H3Event | CompatEvent,
   config: SessionConfigJWE,
 ): Promise<string> {
-  const key = getEncryptKey(config.secret);
+  const key = getEncryptKey(config.key || config.secret);
   if (typeof key !== "string" && !isSymmetricJWK(key) && !isPrivateJWK(key)) {
     throw new Error(
-      "Session: JWE secret must be a password string or a private JWK.",
+      "Session: JWE key must be a password string or a private JWK.",
     );
   }
 
@@ -397,10 +405,10 @@ export async function unsealJWESession(
   config: SessionConfigJWE,
   sealed: string,
 ): Promise<Partial<SessionJWE>> {
-  const key = getDecryptKey(config.secret);
+  const key = getDecryptKey(config.key || config.secret);
   if (typeof key !== "string" && !isSymmetricJWK(key) && !isPrivateJWK(key)) {
     throw new Error(
-      "Session: JWE secret must be a password string or a private JWK.",
+      "Session: JWE key must be a password string or a private JWK.",
     );
   }
 
@@ -476,19 +484,29 @@ export async function clearJWESession(
   await config.hooks?.onClear?.(event, config);
 }
 
-function getEncryptKey(secret: SessionConfigJWE["secret"]): string | JWK {
-  if (typeof secret === "string") {
-    return secret;
-  } else if (isSymmetricJWK(secret)) {
-    return secret;
+function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK {
+  if (!key) {
+    throw new Error("Session: JWE key is required.");
   }
-  return secret.publicKey || secret.privateKey;
+
+  if (typeof key === "string") {
+    return key;
+  } else if (isSymmetricJWK(key)) {
+    return key;
+  }
+
+  return key.publicKey || key.privateKey;
 }
-function getDecryptKey(secret: SessionConfigJWE["secret"]) {
-  if (typeof secret === "string") {
-    return secret;
-  } else if ("privateKey" in secret) {
-    return secret.privateKey;
+function getDecryptKey(key: SessionConfigJWE["key"] | undefined) {
+  if (!key) {
+    throw new Error("Session: JWE key is required.");
   }
-  return secret;
+
+  if (typeof key === "string") {
+    return key;
+  } else if ("privateKey" in key) {
+    return key.privateKey;
+  }
+
+  return key;
 }

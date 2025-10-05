@@ -30,7 +30,7 @@ describe("adapter h3", () => {
     let sessionIdCtr = 0;
     const sessionConfig: SessionConfigJWE = {
       name: "h3-jwe-test",
-      secret: "jwe-secret",
+      key: "jwe-secret",
       generateId: () => String(++sessionIdCtr),
     };
 
@@ -234,7 +234,7 @@ describe("adapter h3", () => {
 
         sessionConfig = {
           name: "h3-jwe-hooks",
-          secret: "jwe-hook-secret",
+          key: "jwe-hook-secret",
           maxAge: 2,
           generateId: () => String(++sessionIdCtr),
           hooks,
@@ -377,7 +377,7 @@ describe("adapter h3", () => {
 
         refreshConfig = {
           name: "refresh_token",
-          secret: "jwe-refresh-secret",
+          key: "jwe-refresh-secret",
           maxAge: 30,
           generateId: () => `refresh-${++refreshIdCtr}`,
           hooks: refreshHooks,
