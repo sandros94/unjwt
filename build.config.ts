@@ -30,7 +30,19 @@ export default defineBuildConfig({
       outDir: "./dist/h3",
       name: "h3",
     },
+    {
+      input: "./src/adapters/h3v2",
+      outDir: "./dist/h3v2",
+      name: "h3v2",
+    },
   ],
+  replace: {
+    h3v1: "h3",
+    h3v2: "h3",
+    "cookie-esv1": "cookie-es",
+    "cookie-esv2": "cookie-es",
+  },
+  externals: ["h3v1", "h3v2", "cookie-esv1", "cookie-esv2"],
   declaration: true,
   hooks: {
     async "build:done"() {

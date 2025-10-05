@@ -7,7 +7,7 @@ import {
   toNodeListener,
   eventHandler,
   readBody,
-} from "h3";
+} from "h3v1";
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,

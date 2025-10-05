@@ -34,6 +34,10 @@
     "./h3": {
       "types": "./dist/h3.d.mts",
       "default": "./dist/h3.mjs"
+    },
+    "./h3v2": {
+      "types": "./dist/h3v2.d.mts",
+      "default": "./dist/h3v2.mjs"
     }
   },
   "main": "./dist/index.mjs",
@@ -60,8 +64,12 @@
     "@vitest/coverage-v8": "^3.2.4",
     "automd": "^0.4.2",
     "changelogen": "^0.6.2",
+    "cookie-esv1": "npm:cookie-es@^1.2.2",
+    "cookie-esv2": "npm:cookie-es@^2.0.0",
     "eslint": "^9.36.0",
     "eslint-config-unjs": "^0.5.0",
+    "h3v1": "npm:h3@^1.15.4",
+    "h3v2": "npm:h3@^2.0.0-beta.5",
     "jose": "^6.1.0",
     "prettier": "^3.6.2",
     "supertest": "^7.1.4",
@@ -71,7 +79,8 @@
   },
   "peerDependencies": {
     "cookie-es": "^1.2.2 || ^2.0.0",
-    "h3": "^1.15.4 || ^2.0.0-rc.0 || ^2.0.0"
+    "h3": "^1.15.4 || >=2.0.0-beta.5 <2.0.0 || ^2.0.1",
+    "rou3": "^0.7.7"
   },
   "peerDependenciesMeta": {
     "cookie-es": {

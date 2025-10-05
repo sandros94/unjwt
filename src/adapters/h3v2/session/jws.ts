@@ -1,11 +1,11 @@
 import {
   type H3Event,
   type HTTPEvent,
-  H3EventContext,
+  type H3EventContext,
   getEventContext,
 } from "h3v2";
 // TODO: replace with h3v2 export when available
-import { getChunkedCookie, setChunkedCookie } from "./cookie.ts";
+import { getChunkedCookie, setChunkedCookie } from "./cookie";
 
 import type { CookieSerializeOptions } from "cookie-esv2";
 import { NullProtoObj } from "rou3";
@@ -21,12 +21,8 @@ import {
   type JWTClaimValidationOptions,
   sign,
   verify,
-} from "../../../src/core/jws";
-import {
-  isSymmetricJWK,
-  isPrivateJWK,
-  isPublicJWK,
-} from "../../../src/core/utils";
+} from "../../../core/jws";
+import { isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../core/utils";
 
 type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
 

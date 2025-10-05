@@ -1,12 +1,12 @@
 import { H3, HTTPError, serve } from "h3v2";
 
-import { generateJWK } from "unjwt/jwk";
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
   useJWESession,
   useJWSSession,
-} from "./h3-v2/session";
+  generateJWK,
+} from "../src/adapters/h3v2";
 
 const atJwk = await generateJWK("RS256");
 

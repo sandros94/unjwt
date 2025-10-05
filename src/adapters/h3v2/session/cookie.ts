@@ -3,13 +3,13 @@
  * @see https://github.com/h3js/h3/pull/1211
  */
 
-import type { CookieSerializeOptions, SetCookie } from "cookie-es";
+import type { CookieSerializeOptions, SetCookie } from "cookie-esv2";
 import type { H3Event, HTTPEvent } from "h3v2";
 import {
   parse as parseCookie,
   serialize as serializeCookie,
   parseSetCookie,
-} from "cookie-es";
+} from "cookie-esv2";
 
 const CHUNKED_COOKIE = "__chunked__";
 
@@ -75,7 +75,7 @@ export function setCookie(
   event.res.headers.delete("set-cookie");
   for (const cookie of currentCookies) {
     const _key = _getDistinctCookieKey(
-      cookie.split("=")?.[0],
+      cookie.split("=")[0]!,
       parseSetCookie(cookie),
     );
     if (_key === newCookieKey) {

@@ -4,9 +4,9 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
-import type { CookieSerializeOptions } from "cookie-es";
-import { type H3Event, isEvent, setCookie } from "h3";
-import { parse as parseCookies } from "cookie-es";
+import type { CookieSerializeOptions } from "cookie-esv1";
+import { type H3Event, isEvent, setCookie } from "h3v1";
+import { parse as parseCookies } from "cookie-esv1";
 import {
   type JWK_Symmetric,
   type JWK_Public,

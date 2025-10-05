@@ -18,7 +18,13 @@
     "noImplicitAny": true,
     "outDir": "dist",
     "sourceMap": true,
-    "lib": ["ESNext", "DOM"]
+    "lib": ["ESNext", "DOM"],
+    "paths": {
+      "#cookie-esv1": ["./node_modules/cookie-esv1/index"],
+      "#cookie-esv2": ["./node_modules/cookie-esv2/index"],
+      "#h3v1": ["./node_modules/h3v1/dist/index"],
+      "#h3v2": ["./node_modules/h3v2/dist/index"]
+    }
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
