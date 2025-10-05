@@ -9,6 +9,7 @@ import { type H3Event, isEvent, setCookie } from "h3";
 import { parse as parseCookies } from "cookie-es";
 import {
   type JWK,
+  type JWK_oct,
   type JWK_Symmetric,
   type JWK_Public,
   type JWK_Private,
@@ -18,7 +19,7 @@ import {
   encrypt,
   decrypt,
 } from "../../../core/jwe";
-import { isPrivateJWK, isSymmetricJWK } from "../../../core/utils";
+import { isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../core/utils";
 
 type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
 export type SessionData<T extends SessionDataT = SessionDataT> = T;
@@ -85,6 +86,7 @@ export interface SessionConfigJWE {
   key:
     | string
     | JWK_Symmetric
+    | JWK_Private
     | {
         privateKey: JWK_Private | JWK_Symmetric;
         publicKey?: JWK_Public;
@@ -352,11 +354,6 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
   config: SessionConfigJWE,
 ): Promise<string> {
   const key = getEncryptKey(config.key || config.secret);
-  if (typeof key !== "string" && !isSymmetricJWK(key) && !isPrivateJWK(key)) {
-    throw new Error(
-      "Session: JWE key must be a password string or a private JWK.",
-    );
-  }
 
   const sessionName = config.name || DEFAULT_NAME;
 
@@ -389,6 +386,7 @@ export async function sealJWESession<T extends SessionDataT = SessionDataT>(
     ...config.jwe?.encryptOptions,
     protectedHeader: {
       ...config.jwe?.encryptOptions?.protectedHeader,
+      kid: typeof key === "string" ? undefined : key.kid,
       typ: typ || "JWT",
       cty: "application/json",
     },
@@ -406,11 +404,6 @@ export async function unsealJWESession(
   sealed: string,
 ): Promise<Partial<SessionJWE>> {
   const key = getDecryptKey(config.key || config.secret);
-  if (typeof key !== "string" && !isSymmetricJWK(key) && !isPrivateJWK(key)) {
-    throw new Error(
-      "Session: JWE key must be a password string or a private JWK.",
-    );
-  }
 
   const alg = config.jwe?.encryptOptions?.alg;
   const enc = config.jwe?.encryptOptions?.enc;
@@ -489,24 +482,48 @@ function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK {
     throw new Error("Session: JWE key is required.");
   }
 
+  let _key: string | JWK | undefined;
   if (typeof key === "string") {
-    return key;
-  } else if (isSymmetricJWK(key)) {
-    return key;
+    _key = key;
+  } else if (isSymmetricJWK(key) || isPrivateJWK(key)) {
+    _key = key;
+  } else if ("publicKey" in key && isPublicJWK(key.publicKey)) {
+    _key = key.publicKey;
+  } else if ("privateKey" in key && isPrivateJWK(key.privateKey)) {
+    _key = key.privateKey;
   }
 
-  return key.publicKey || key.privateKey;
+  if (!_key) {
+    throw new Error(
+      "Session: Invalid JWE key. It must be a password string or valid JWK.",
+      { cause: key },
+    );
+  }
+
+  return _key;
 }
-function getDecryptKey(key: SessionConfigJWE["key"] | undefined) {
+function getDecryptKey(
+  key: SessionConfigJWE["key"] | undefined,
+): string | JWK_oct | JWK_Private {
   if (!key) {
     throw new Error("Session: JWE key is required.");
   }
 
+  let _key: string | JWK_oct | JWK_Private | undefined = undefined;
   if (typeof key === "string") {
-    return key;
+    _key = key;
+  } else if (isSymmetricJWK(key)) {
+    _key = key;
   } else if ("privateKey" in key) {
-    return key.privateKey;
+    _key = key.privateKey;
   }
 
-  return key;
+  if (!_key) {
+    throw new Error(
+      "Session: Invalid JWE key. It must be a password string or a valid private JWK.",
+      { cause: key },
+    );
+  }
+
+  return _key;
 }

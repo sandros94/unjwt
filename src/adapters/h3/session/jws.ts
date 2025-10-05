@@ -18,7 +18,7 @@ import {
   sign,
   verify,
 } from "../../../core/jws";
-import { isAsymmetricJWK, isPrivateJWK } from "../../../core/utils";
+import { isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../core/utils";
 import type { SessionData, SessionManager } from "./jwe";
 
 type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
@@ -326,9 +326,6 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
   config: SessionConfigJWS,
 ): Promise<string> {
   const key = getSignKey(config.key);
-  if (isAsymmetricJWK(key) && !isPrivateJWK(key)) {
-    throw new Error("Session: JWS key cannot be a public asymmetric JWK.");
-  }
 
   const sessionName = config.name || DEFAULT_NAME;
 
@@ -361,6 +358,7 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
     ...config.jws?.signOptions,
     protectedHeader: {
       ...config.jws?.signOptions?.protectedHeader,
+      kid: key.kid,
       typ: typ || "JWT",
       cty: "application/json",
     },
@@ -384,9 +382,6 @@ export async function verifyJWSSession(
 ): Promise<Partial<SessionJWS>> {
   const alg = config.jws?.signOptions?.alg;
   const jwk = getVerifyKey(config.key);
-  if (isAsymmetricJWK(jwk) && isPrivateJWK(jwk)) {
-    throw new Error("Session: JWS key cannot be a private asymmetric JWK.");
-  }
 
   let typ: string | undefined = undefined;
   if (
@@ -450,17 +445,55 @@ export async function clearJWSSession(
   await config.hooks?.onClear?.(event, config);
 }
 
-function getSignKey(key: SessionConfigJWS["key"]) {
-  if ("privateKey" in key) {
-    return key.privateKey;
+function getSignKey(
+  key: SessionConfigJWS["key"] | undefined,
+): JWK_Symmetric | JWK_Private {
+  if (!key) {
+    throw new Error("Session: JWS key is required.");
   }
-  return key;
+
+  let _key: JWK_Symmetric | JWK_Private | undefined = undefined;
+  if (isSymmetricJWK(key)) {
+    _key = key;
+  } else if ("privateKey" in key && isPrivateJWK(key.privateKey)) {
+    _key = key.privateKey;
+  }
+
+  if (!_key) {
+    throw new Error(
+      "Session: Invalid JWS key. It must be a symmetric JWK or a private JWK.",
+      { cause: key },
+    );
+  }
+
+  return _key;
 }
-function getVerifyKey(key: SessionConfigJWS["key"]) {
-  if ("publicKey" in key) {
-    return Array.isArray(key.publicKey)
-      ? { keys: key.publicKey }
-      : key.publicKey;
+function getVerifyKey(
+  key: SessionConfigJWS["key"] | undefined,
+): JWK_Symmetric | JWK_Public | JWKSet {
+  if (!key) {
+    throw new Error("Session: JWS key is required.");
   }
-  return key;
+
+  let _key: JWK_Symmetric | JWK_Public | JWKSet | undefined = undefined;
+  if (isSymmetricJWK(key)) {
+    _key = key;
+  } else if ("publicKey" in key && isPublicJWK(key.publicKey)) {
+    _key = key.publicKey;
+  } else if ("publicKey" in key && Array.isArray(key.publicKey)) {
+    const keys = key.publicKey.filter((k) => isPublicJWK(k));
+
+    if (keys && keys.length > 0) {
+      _key = { keys };
+    }
+  }
+
+  if (!_key) {
+    throw new Error(
+      "Session: Invalid JWS key. It must be a symmetric JWK or a public JWK/set.",
+      { cause: key },
+    );
+  }
+
+  return _key;
 }
