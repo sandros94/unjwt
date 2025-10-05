@@ -217,15 +217,13 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
       .catch(async (error_) => {
         // Silently ignore invalid/expired tokens -> new session will be created
         // Check if error_ is about expiration
-        if (error_ instanceof Error) {
-          const message = error_.message;
-          if (
-            message.includes("Token has expired") ||
-            message.includes("Token is too old")
-          ) {
-            await config.hooks?.onExpire?.(event as H3Event, error_);
-            return undefined;
-          }
+        if (
+          error_ instanceof Error &&
+          (error_.message.includes("Token has expired") ||
+            error_.message.includes("Token is too old"))
+        ) {
+          await config.hooks?.onExpire?.(event as H3Event, error_);
+          return undefined;
         }
         await config.hooks?.onError?.(event as H3Event, error_);
         return undefined;
@@ -452,7 +450,6 @@ export async function clearJWESession(
   setCookie(event, sessionName, "", {
     ...DEFAULT_COOKIE,
     ...config.cookie,
-    // Optionally set expires in the past
     expires: new Date(0),
     maxAge: undefined,
   });
