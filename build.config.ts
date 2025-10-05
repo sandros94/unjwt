@@ -27,18 +27,18 @@ export default defineBuildConfig({
     },
     {
       input: "./src/adapters/h3v1",
-      outDir: "./dist/h3",
-      name: "h3",
+      outDir: "./dist/adapters/h3",
+      name: "adapters/h3",
     },
     {
       input: "./src/adapters/h3v1",
-      outDir: "./dist/h3v1",
-      name: "h3v1",
+      outDir: "./dist/adapters/h3v1",
+      name: "adapters/h3v1",
     },
     {
       input: "./src/adapters/h3v2",
-      outDir: "./dist/h3v2",
-      name: "h3v2",
+      outDir: "./dist/adapters/h3v2",
+      name: "adapters/h3v2",
     },
   ],
   replace: {
