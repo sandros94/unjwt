@@ -5,25 +5,65 @@ import {
   type SessionConfigJWS,
   useJWESession,
   useJWSSession,
+  getJWESession,
+  updateJWSSession,
   generateJWK,
 } from "../src/adapters/h3v2";
 
 const atJwk = await generateJWK("RS256");
-
-const jwsOptions = {
-  key: atJwk,
-  name: "access_token",
-  maxAge: 15 * 60, // 15 minutes
-} satisfies SessionConfigJWS;
 
 const jweOptions = {
   key: "refresh_token_secret",
   name: "refresh_token",
 } satisfies SessionConfigJWE;
 
+const jwsOptions = {
+  key: atJwk,
+  name: "access_token",
+  maxAge: 15 * 60, // 15 minutes
+  hooks: {
+    async onExpire(event, _error, config) {
+      const refreshSession = await getJWESession(event, jweOptions);
+      if (!refreshSession.data.sub) {
+        // no valid refresh session, nothing to do
+        return;
+      }
+
+      console.log("Access token expired, refreshing...");
+
+      // refresh the access token
+      await updateJWSSession(event, config, {
+        sub: refreshSession.data.sub,
+        scope: refreshSession.data.scope,
+      });
+    },
+  },
+} satisfies SessionConfigJWS;
+
 const app = new H3();
 
 app.post("/login", async (event) => {
+  const refreshSession = await useJWESession(event, jweOptions);
+  const accessSession = await useJWSSession(event, jwsOptions);
+
+  if (accessSession.data.sub) {
+    // user already logged in, return existing info
+    return {
+      accessToken: {
+        id: accessSession.id,
+        createdAt: accessSession.createdAt,
+        expiresAt: accessSession.expiresAt,
+        data: accessSession.data,
+      },
+      refreshSession: {
+        id: refreshSession.id,
+        createdAt: refreshSession.createdAt,
+        expiresAt: refreshSession.expiresAt,
+        data: refreshSession.data,
+      },
+    };
+  }
+
   const data = (await event.req.json()) as {
     username?: string;
     password?: string;
@@ -33,23 +73,23 @@ app.post("/login", async (event) => {
     throw new HTTPError("Username and password are required", { status: 400 });
   }
 
-  const accessSession = await useJWSSession(event, jwsOptions);
-  await accessSession.update({
+  // validate user credentials here
+
+  const claims = {
     sub: data.username,
     scope: ["read:profile"],
-  });
+  };
 
-  const refreshSession = await useJWESession(event, jweOptions);
-  await refreshSession.update({
-    sub: data.username,
-  });
+  await accessSession.update(claims);
+
+  await refreshSession.update(claims);
 
   return {
     accessToken: {
       id: accessSession.id,
       createdAt: accessSession.createdAt,
       expiresAt: accessSession.expiresAt,
-      claims: accessSession.data,
+      data: accessSession.data,
     },
     refreshSession: {
       id: refreshSession.id,
