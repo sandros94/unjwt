@@ -3,9 +3,9 @@ import {
   type HTTPEvent,
   type H3EventContext,
   getEventContext,
+  getChunkedCookie,
+  setChunkedCookie,
 } from "h3v2";
-// TODO: replace with h3v2 export when available
-import { getChunkedCookie, setChunkedCookie } from "./cookie";
 
 import type { CookieSerializeOptions } from "cookie-esv2";
 import { NullProtoObj } from "rou3";
