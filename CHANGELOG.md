@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.25
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.24...v0.5.25)
+
+### 🩹 Fixes
+
+- Use h3's v2 chuncked cookie utils ([885f1ab](https://github.com/sandros94/unjwt/commit/885f1ab))
+
+### 🏡 Chore
+
+- Update h3 v2 ([8d3db63](https://github.com/sandros94/unjwt/commit/8d3db63))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.24
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.23...v0.5.24)
