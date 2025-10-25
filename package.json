@@ -94,5 +94,8 @@
       "optional": true
     }
   },
-  "packageManager": "pnpm@10.18.3"
+  "resolutions": {
+    "@eslint/plugin-kit": "^0.3.4"
+  },
+  "packageManager": "pnpm@10.19.0"
 }
