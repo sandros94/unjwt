@@ -57,7 +57,7 @@ export interface SessionHooksJWE {
   }) => void | Promise<void>;
   onExpire?: (args: {
     event: HTTPEvent;
-    error: any | undefined;
+    error: Error;
     config: SessionConfigJWE;
   }) => void | Promise<void>;
   onError?: (args: {
@@ -188,7 +188,9 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
     ) {
       await config.hooks?.onExpire?.({
         event,
-        error: undefined,
+        error: new Error(
+          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
+        ),
         config,
       });
       return clearJWESession(event, config).then(() =>

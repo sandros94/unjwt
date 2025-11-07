@@ -53,7 +53,7 @@ export interface SessionHooksJWS {
   }) => void | Promise<void>;
   onExpire?: (args: {
     event: H3Event;
-    error: any | undefined;
+    error: Error;
     config: SessionConfigJWS;
   }) => void | Promise<void>;
   onError?: (args: {
@@ -185,7 +185,9 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
     ) {
       await config.hooks?.onExpire?.({
         event,
-        error: undefined,
+        error: new Error(
+          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
+        ),
         config,
       });
       return clearJWSSession(event as H3Event, config).then(() =>
