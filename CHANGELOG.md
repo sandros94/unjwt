@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.5.26
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.25...v0.5.26)
+
+### 🚀 Enhancements
+
+- **h3:** Automatically support `Bearer` style tokens in headers ([434c6db](https://github.com/sandros94/unjwt/commit/434c6db))
+
+### 🩹 Fixes
+
+- Use Set while constructing `requiredClaims` in h3 adapters ([b1dc462](https://github.com/sandros94/unjwt/commit/b1dc462))
+- Set rou3 as optional peerDep ([de777bf](https://github.com/sandros94/unjwt/commit/de777bf))
+- **h3:** Use object-style arguments for hooks ([6a5472e](https://github.com/sandros94/unjwt/commit/6a5472e))
+- **h3:** Change error type to Error in `onExpire` hook and always provide detailed expiration error message ([1338d05](https://github.com/sandros94/unjwt/commit/1338d05))
+
+### 📖 Documentation
+
+- Fix H3 adapter documentation links ([ceb7817](https://github.com/sandros94/unjwt/commit/ceb7817))
+- Add adapters dedicated readmes ([a3a8b6d](https://github.com/sandros94/unjwt/commit/a3a8b6d))
+
+### 🏡 Chore
+
+- Update `@eslint/plugin-kit` ([1663c91](https://github.com/sandros94/unjwt/commit/1663c91))
+- Update h3 v2 to rc.5 ([5af244f](https://github.com/sandros94/unjwt/commit/5af244f))
+- Update rou3 ([596bd9f](https://github.com/sandros94/unjwt/commit/596bd9f))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.25
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.24...v0.5.25)
