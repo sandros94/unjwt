@@ -18,8 +18,8 @@ importers:
         specifier: ^1.15.4 || >=2.0.1-rc.5 || ^2.0.1
         version: 1.15.4
       rou3:
-        specifier: ^0.7.7
-        version: 0.7.7
+        specifier: ^0.7.10
+        version: 0.7.10
     devDependencies:
       '@types/node':
         specifier: ^22
@@ -2366,9 +2366,6 @@ packages:
 
   rou3@0.7.10:
     resolution: {integrity: sha512-aoFj6f7MJZ5muJ+Of79nrhs9N3oLGqi2VEMe94Zbkjb6Wupha46EuoYgpWSOZlXww3bbd8ojgXTAA2mzimX5Ww==}
-
-  rou3@0.7.7:
-    resolution: {integrity: sha512-z+6o7c3DarUbuBMLIdhzj2CqJLtUWrGk4fZlf07dIMitX3UpBXeInJ3lMD9huxj9yh9eo1RqtXf9aL0YzkDDUA==}
 
   run-applescript@7.0.0:
     resolution: {integrity: sha512-9by4Ij99JUr/MCFBUkDKLWK3G9HVXmabKz9U5MlIAIuvuzkiOicRYs8XJLxX+xahD+mLiiCYDqF9dKAgtzKP1A==}
@@ -4867,8 +4864,6 @@ snapshots:
       fsevents: 2.3.3
 
   rou3@0.7.10: {}
-
-  rou3@0.7.7: {}
 
   run-applescript@7.0.0: {}
 
