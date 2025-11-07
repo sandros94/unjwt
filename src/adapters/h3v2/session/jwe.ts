@@ -384,11 +384,11 @@ export async function unsealJWESession(
   >(sealed, key, {
     ...config.jwe?.decryptOptions,
     requiredClaims: [
-      ...(config.jwe?.decryptOptions?.requiredClaims?.filter(
-        (claim) => claim !== "jti" && claim !== "iat",
-      ) || []),
-      "jti",
-      "iat",
+      ...new Set([
+        ...(config.jwe?.decryptOptions?.requiredClaims || []),
+        "jti",
+        "iat",
+      ]),
     ],
     typ: typ || "JWT",
     maxTokenAge: config.maxAge,

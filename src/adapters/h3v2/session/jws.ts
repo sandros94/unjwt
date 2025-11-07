@@ -330,11 +330,11 @@ export async function verifyJWSSession(
   >(token, jwk, {
     ...config.jws?.verifyOptions,
     requiredClaims: [
-      ...(config.jws?.verifyOptions?.requiredClaims?.filter(
-        (claim) => claim !== "jti" && claim !== "iat",
-      ) || []),
-      "jti",
-      "iat",
+      ...new Set([
+        ...(config.jws?.verifyOptions?.requiredClaims || []),
+        "jti",
+        "iat",
+      ]),
     ],
     typ: typ || "JWT",
     algorithms: alg ? [alg] : undefined,
