@@ -15,7 +15,8 @@ A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/
 - **JWK (JSON Web Key, [RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517))**: generate, import, export, wrap, and unwrap keys in JWK format or as `CryptoKey` objects.
 
 - **Adapters** for popular frameworks (PRs welcome for more!):
-  - [H3 (Nuxt, Nitro)](./src/adapters/h3.ts): `useJWSSession()`, `useJWESession()`
+  - [H3 v1 (Nuxt v4, Nitro v2)](./src/adapters/h3v1/): `useJWSSession()`, `useJWESession()`
+  - [H3 v2 (Nuxt v5, Nitro v3)](./src/adapters/h3v2/): `useJWSSession()`, `useJWESession()`
 
 ## Table of Contents
 
@@ -25,7 +26,8 @@ A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/
   - [JWK](#jwk-json-web-key-rfc-7517)
   - [Utility Functions](#utility-functions)
   - [Adapters](#adapters)
-    - [H3 (Nuxt, Nitro)](#h3-nuxt-nitro)
+    - [H3 v1 (Nuxt up to v4, Nitro up to v2)](#h3-v1-nuxt-v4-nitro-v2)
+    - [H3 v2 (Nuxt v5, Nitro v3)](#h3-v2-nuxt-v5-nitro-v3)
 - [Development](#development)
 - [Credits](#credits)
 - [License](#license)
