@@ -206,7 +206,7 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
   context.sessions![sessionName] = session;
 
   // Load session from cookie or header
-  let jweToken: string | undefined;
+  let token: string | undefined;
 
   // Check header first
   if (config.sessionHeader !== false) {
@@ -216,18 +216,20 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
         : `x-${sessionName.toLowerCase()}-session`;
     const headerValue = event.req.headers.get(headerName);
     if (typeof headerValue === "string") {
-      jweToken = headerValue;
+      token = headerValue.startsWith("Bearer ")
+        ? headerValue.slice(7).trim()
+        : headerValue;
     }
   }
 
   // Fallback to cookie if not found in header
-  if (!jweToken) {
-    jweToken = getChunkedCookie(event, sessionName);
+  if (!token) {
+    token = getChunkedCookie(event, sessionName);
   }
 
   // If we have a token, try to unseal and load into session context
-  if (jweToken) {
-    const promise = unsealJWESession(event, config, jweToken)
+  if (token) {
+    const promise = unsealJWESession(event, config, token)
       .catch(async (error_) => {
         if (error_ instanceof Error) {
           const message = error_.message;

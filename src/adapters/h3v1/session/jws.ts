@@ -210,7 +210,9 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
         : `x-${sessionName.toLowerCase()}-session`;
     const headerValue = _getReqHeader(event, headerName);
     if (typeof headerValue === "string") {
-      token = headerValue;
+      token = headerValue.startsWith("Bearer ")
+        ? headerValue.slice(7).trim()
+        : headerValue;
     }
   }
 

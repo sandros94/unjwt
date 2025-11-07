@@ -7,6 +7,8 @@ import {
   useJWSSession,
   generateJWK,
 } from "../src/adapters/h3v2";
+import { encrypt } from "../src/core/jwe";
+import { sign } from "../src/core/jws";
 
 describe("adapter h3 v2", () => {
   let app: H3;
@@ -14,11 +16,12 @@ describe("adapter h3 v2", () => {
   describe("jwe session", () => {
     let cookie = "";
     let sessionIdCtr = 0;
-    const sessionConfig: SessionConfigJWE = {
+    const sessionConfig = {
       name: "h3-jwe-test",
       key: "jwe-secret",
       generateId: () => String(++sessionIdCtr),
-    };
+      sessionHeader: "Authorization",
+    } as const satisfies SessionConfigJWE;
 
     beforeEach(() => {
       app = new H3({ debug: true });
@@ -122,17 +125,41 @@ describe("adapter h3 v2", () => {
       const body = await res.json();
       expect(body.session.data.token).toBe(token);
     });
+
+    it("accepts token from authorization header", async () => {
+      // Lets create a new sealed session token first
+      const sealed = await encrypt(
+        {
+          jti: "999",
+          iat: Math.floor(Date.now() / 1000),
+          hello: "world",
+        },
+        sessionConfig.key,
+      );
+
+      // Now request with authorization header
+      const result = await app.request("/", {
+        headers: {
+          Authorization: `Bearer ${sealed}`,
+        },
+      });
+
+      expect(await result.json()).toMatchObject({
+        session: { id: "999", data: { hello: "world" } },
+      });
+    });
   });
 
   describe("jws session", async () => {
     let cookie = "";
     let sessionIdCtr = 0;
     const keys = await generateJWK("RS256");
-    const sessionConfig: SessionConfigJWS = {
+    const sessionConfig = {
       name: "h3-jws-test",
       key: keys,
       generateId: () => String(++sessionIdCtr),
-    };
+      sessionHeader: "Authorization",
+    } as const satisfies SessionConfigJWS;
 
     beforeEach(() => {
       app = new H3({ debug: true });
@@ -235,6 +262,29 @@ describe("adapter h3 v2", () => {
 
       const body = await res.json();
       expect(body.session.data.token).toBe(token);
+    });
+
+    it("accepts token from authorization header", async () => {
+      // Lets create a new signed session token first
+      const signed = await sign(
+        {
+          jti: "999",
+          iat: Math.floor(Date.now() / 1000),
+          hello: "world",
+        },
+        sessionConfig.key.privateKey,
+      );
+
+      // Now request with authorization header
+      const result = await app.request("/", {
+        headers: {
+          Authorization: `Bearer ${signed}`,
+        },
+      });
+
+      expect(await result.json()).toMatchObject({
+        session: { id: "999", data: { hello: "world" } },
+      });
     });
   });
 });

@@ -221,7 +221,7 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
   event.context.sessions![sessionName] = session;
 
   // Attempt to read existing token from headers/cookies
-  let jweToken: string | undefined;
+  let token: string | undefined;
 
   if (config.sessionHeader !== false) {
     const headerName =
@@ -230,19 +230,21 @@ export async function getJWESession<T extends SessionDataT = SessionDataT>(
         : `x-${sessionName.toLowerCase()}-session`;
     const headerValue = _getReqHeader(event, headerName);
     if (typeof headerValue === "string") {
-      jweToken = headerValue;
+      token = headerValue.startsWith("Bearer ")
+        ? headerValue.slice(7).trim()
+        : headerValue;
     }
   }
 
-  if (!jweToken) {
+  if (!token) {
     const cookieHeader = _getReqHeader(event, "cookie");
     if (cookieHeader) {
-      jweToken = parseCookies(String(cookieHeader))[sessionName];
+      token = parseCookies(String(cookieHeader))[sessionName];
     }
   }
 
-  if (jweToken) {
-    const promise = unsealJWESession(event, config, jweToken)
+  if (token) {
+    const promise = unsealJWESession(event, config, token)
       .catch(async (error_) => {
         // Silently ignore invalid/expired tokens -> new session will be created
         // Check if error_ is about expiration
