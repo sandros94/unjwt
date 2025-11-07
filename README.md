@@ -618,7 +618,7 @@ Both helpers expose the same API: read `session.id` / `session.data`, call `sess
 import { defineEventHandler } from "h3";
 import { useJWESession, useJWSSession, generateJWK } from "unjwt/adapters/h3v1";
 
-const keys = await generateJWK("RS256");
+const keys = await generateJWK("RS256"); // Make sure to persist these keys somewhere!
 
 export default defineEventHandler(async (event) => {
   const privateSession = await useJWESession(event, {
@@ -665,7 +665,7 @@ import {
   generateJWK,
 } from "unjwt/adapters/h3v2";
 
-const atJwk = await generateJWK("RS256");
+const atJwk = await generateJWK("RS256"); // Make sure to persist these keys somewhere!
 
 const jweOptions = {
   key: "refresh_token_secret",
