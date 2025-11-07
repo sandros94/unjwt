@@ -32,7 +32,7 @@ const jwsOptions = {
   name: "access_token",
   maxAge: 15 * 60, // 15 minutes
   hooks: {
-    async onExpire(event, _error, config) {
+    async onExpire({ event, config }) {
       const refreshSession = await getJWESession(event, jweOptions);
       if (!refreshSession.data.sub) {
         // no valid refresh session, nothing to do

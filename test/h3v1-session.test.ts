@@ -215,7 +215,7 @@ describe("adapter h3 v1", () => {
         errors.length = 0;
 
         hooks = {
-          onRead: vi.fn(async (session, event, config) => {
+          onRead: vi.fn(async ({ session, event, config }) => {
             if (session.expiresAt !== undefined) {
               const timeLeft = session.expiresAt - session.createdAt;
               // if time left is less than half of maxAge, refresh
@@ -227,7 +227,7 @@ describe("adapter h3 v1", () => {
           onUpdate: vi.fn(),
           onClear: vi.fn(),
           onExpire: vi.fn(),
-          onError: vi.fn((_event, error) => {
+          onError: vi.fn(({ error }) => {
             errors.push(error);
           }),
         };
@@ -394,7 +394,7 @@ describe("adapter h3 v1", () => {
           onRead: vi.fn(),
           onUpdate: vi.fn(),
           onClear: vi.fn(),
-          onExpire: vi.fn(async (event, error) => {
+          onExpire: vi.fn(async ({ event, error }) => {
             const refreshSession = await useJWESession(event, refreshConfig);
             const refreshId = refreshSession.id;
             if (!refreshId) {
@@ -405,7 +405,7 @@ describe("adapter h3 v1", () => {
               accessErrors.push(error);
             }
           }),
-          onError: vi.fn((_event, error) => {
+          onError: vi.fn(({ error }) => {
             accessErrors.push(error);
           }),
         };

@@ -37,30 +37,30 @@ export interface SessionJWS<T extends SessionDataT = SessionDataT> {
 }
 
 export interface SessionHooksJWS {
-  onRead?: (
-    session: SessionJWS,
-    event: HTTPEvent,
-    config: SessionConfigJWS,
-  ) => void | Promise<void>;
-  onUpdate?: (
-    session: SessionJWS,
-    event: HTTPEvent,
-    config: SessionConfigJWS,
-  ) => void | Promise<void>;
-  onClear?: (
-    event: HTTPEvent,
-    config: Partial<SessionConfigJWS>,
-  ) => void | Promise<void>;
-  onExpire?: (
-    event: HTTPEvent,
-    error: any | undefined,
-    config: SessionConfigJWS,
-  ) => void | Promise<void>;
-  onError?: (
-    event: HTTPEvent,
-    error: any,
-    config: SessionConfigJWS,
-  ) => void | Promise<void>;
+  onRead?: (args: {
+    session: SessionJWS;
+    event: HTTPEvent;
+    config: SessionConfigJWS;
+  }) => void | Promise<void>;
+  onUpdate?: (args: {
+    session: SessionJWS;
+    event: HTTPEvent;
+    config: SessionConfigJWS;
+  }) => void | Promise<void>;
+  onClear?: (args: {
+    event: HTTPEvent;
+    config: Partial<SessionConfigJWS>;
+  }) => void | Promise<void>;
+  onExpire?: (args: {
+    event: HTTPEvent;
+    error: any | undefined;
+    config: SessionConfigJWS;
+  }) => void | Promise<void>;
+  onError?: (args: {
+    event: HTTPEvent;
+    error: any;
+    config: SessionConfigJWS;
+  }) => void | Promise<void>;
 }
 
 export interface SessionConfigJWS {
@@ -152,13 +152,21 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
       session.expiresAt < Date.now() &&
       hasWritableResponse(event)
     ) {
-      await config.hooks?.onExpire?.(event, undefined, config);
+      await config.hooks?.onExpire?.({
+        event,
+        error: undefined,
+        config,
+      });
       return clearJWSSession(event, config).then(() =>
         getJWSSession<T>(event, config),
       );
     }
 
-    await config.hooks?.onRead?.(session, event, config);
+    await config.hooks?.onRead?.({
+      event,
+      session,
+      config,
+    });
     return session;
   }
 
@@ -197,10 +205,18 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
           (error_.message.includes("Token has expired") ||
             error_.message.includes("Token is too old"))
         ) {
-          await config.hooks?.onExpire?.(event, error_, config);
+          await config.hooks?.onExpire?.({
+            event,
+            error: error_,
+            config,
+          });
           return undefined;
         }
-        await config.hooks?.onError?.(event, error_, config);
+        await config.hooks?.onError?.({
+          event,
+          error: error_,
+          config,
+        });
         return undefined;
       })
       .then((unsealed) => {
@@ -224,7 +240,11 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
     await updateJWSSession<T>(event, config);
   }
 
-  await config.hooks?.onRead?.(session, event, config);
+  await config.hooks?.onRead?.({
+    event,
+    session,
+    config,
+  });
   return session;
 }
 
@@ -245,7 +265,11 @@ export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
   }
   if (update) {
     Object.assign(session.data, update);
-    await config.hooks?.onUpdate?.(session, event, config);
+    await config.hooks?.onUpdate?.({
+      event,
+      session,
+      config,
+    });
   }
 
   if (config.cookie !== false && hasWritableResponse(event)) {
@@ -378,7 +402,10 @@ export async function clearJWSSession(
       maxAge: undefined,
     });
 
-    await config.hooks?.onClear?.(event, config);
+    await config.hooks?.onClear?.({
+      event,
+      config,
+    });
   }
 }
 
