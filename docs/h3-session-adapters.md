@@ -27,7 +27,7 @@ The adapters are API-compatible, with only one developer-facing difference:
 
 ```typescript
 // h3v2 supports chunkMaxLength in cookie config
-import { useJWESession } from 'unjwt/adapters/h3v2';
+import { useJWESession } from "unjwt/adapters/h3v2";
 
 const session = await useJWESession(event, {
   key: process.env.SESSION_SECRET!,
@@ -85,19 +85,22 @@ These session adapters are **high-level utilities** that handle the complete ses
 ```typescript
 // SessionData - Your application's session data
 // Automatically excludes reserved JWT claims (jti, iat, exp)
-type SessionData<T extends JWTClaims = JWTClaims> = Omit<T, "jti" | "iat" | "exp">;
+type SessionData<T extends JWTClaims = JWTClaims> = Omit<
+  T,
+  "jti" | "iat" | "exp"
+>;
 
 // SessionUpdate - How to update session data
 type SessionUpdate<T extends JWTClaims = JWTClaims> =
-  | Partial<SessionData<T>>  // Direct partial update
-  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);  // Function update
+  | Partial<SessionData<T>> // Direct partial update
+  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined); // Function update
 
 // SessionManager - The main interface you interact with
 interface SessionManager<T extends JWTClaims = JWTClaims> {
-  readonly id: string | undefined;           // Session identifier (from jti)
-  readonly createdAt: number;                // Session creation timestamp in ms (from iat)
-  readonly expiresAt: number | undefined;    // Expiration timestamp in ms (from exp)
-  readonly data: SessionData<T>;             // Your application data
+  readonly id: string | undefined; // Session identifier (from jti)
+  readonly createdAt: number; // Session creation timestamp in ms (from iat)
+  readonly expiresAt: number | undefined; // Expiration timestamp in ms (from exp)
+  readonly data: SessionData<T>; // Your application data
   update: (update: SessionUpdate<T>) => Promise<SessionManager<T>>;
   clear: () => Promise<SessionManager<T>>;
 }
@@ -137,11 +140,30 @@ Both adapters support lifecycle hooks:
 
 ```typescript
 interface SessionHooks<T extends JWTClaims = JWTClaims> {
-  onRead?: (args: { session: Session<T>; event: H3Event; config: SessionConfig<T> }) => void | Promise<void>;
-  onUpdate?: (args: { session: Session<T>; event: H3Event; config: SessionConfig<T> }) => void | Promise<void>;
-  onClear?: (args: { event: H3Event; config: Partial<SessionConfig<T>> }) => void | Promise<void>;
-  onExpire?: (args: { event: H3Event; error: Error; config: SessionConfig<T> }) => void | Promise<void>;
-  onError?: (args: { event: H3Event; error: any; config: SessionConfig<T> }) => void | Promise<void>;
+  onRead?: (args: {
+    session: Session<T>;
+    event: H3Event;
+    config: SessionConfig<T>;
+  }) => void | Promise<void>;
+  onUpdate?: (args: {
+    session: Session<T>;
+    event: H3Event;
+    config: SessionConfig<T>;
+  }) => void | Promise<void>;
+  onClear?: (args: {
+    event: H3Event;
+    config: Partial<SessionConfig<T>>;
+  }) => void | Promise<void>;
+  onExpire?: (args: {
+    event: H3Event;
+    error: Error;
+    config: SessionConfig<T>;
+  }) => void | Promise<void>;
+  onError?: (args: {
+    event: H3Event;
+    error: any;
+    config: SessionConfig<T>;
+  }) => void | Promise<void>;
 }
 ```
 
@@ -152,12 +174,14 @@ interface SessionHooks<T extends JWTClaims = JWTClaims> {
 ### JWE (JSON Web Encryption) - **Recommended for Most Cases**
 
 **Use JWE when:**
+
 - Session data contains sensitive information (user details, permissions, etc.)
 - You need privacy and confidentiality
 - Session data should NOT be readable by clients
 - You want both encryption AND integrity protection
 
 **Key Features:**
+
 - Data is encrypted (not visible to clients)
 - Can use symmetric keys (passwords/oct JWKs) or asymmetric keys
 - Slightly larger token size due to encryption overhead
@@ -166,21 +190,24 @@ interface SessionHooks<T extends JWTClaims = JWTClaims> {
 ### JWS (JSON Web Signature) - **Use with Caution**
 
 **Use JWS when:**
+
 - Session data is NOT sensitive (e.g., theme preference, language)
 - You only need integrity protection, not confidentiality
 - Clients need to read session data client-side
 - You need smaller token sizes
 
 **⚠️ WARNING:**
+
 - JWS tokens are **NOT encrypted** - data is only Base64URL-encoded
 - Anyone can decode and read the payload
 - Only signature prevents tampering
 - Default cookie: `httpOnly: false, secure: true` (readable by client JS)
 
 **Example of JWS payload visibility:**
+
 ```javascript
 // A JWS token can be decoded client-side:
-const parts = jwsToken.split('.');
+const parts = jwsToken.split(".");
 const payload = JSON.parse(atob(parts[1])); // Reveals all session data!
 ```
 
@@ -193,8 +220,8 @@ For 95% of use cases, you only need `useJWESession()` or `useJWSSession()`. Thes
 ### Basic JWE Session (Encrypted, Recommended)
 
 ```typescript
-import { defineEventHandler } from 'h3';
-import { type JWTClaims, useJWESession } from 'unjwt/adapters/h3';
+import { defineEventHandler } from "h3";
+import { type JWTClaims, useJWESession } from "unjwt/adapters/h3";
 
 // Define your session data type
 interface MySessionData extends JWTClaims {
@@ -211,19 +238,19 @@ export default defineEventHandler(async (event) => {
   });
 
   // Read session data
-  console.log('Session ID:', session.id);
-  console.log('User ID:', session.data.userId);
-  console.log('Expires at:', new Date(session.expiresAt));
+  console.log("Session ID:", session.id);
+  console.log("User ID:", session.data.userId);
+  console.log("Expires at:", new Date(session.expiresAt));
 
   // Update session data (automatically re-encrypts and updates cookie)
   await session.update({
-    username: 'new-username',
-    roles: ['admin', 'user'],
+    username: "new-username",
+    roles: ["admin", "user"],
   });
 
   // Or update using a function
   await session.update((oldData) => ({
-    roles: [...oldData.roles, 'moderator'],
+    roles: [...oldData.roles, "moderator"],
   }));
 
   // Clear session (deletes from context and expires cookie)
@@ -236,19 +263,19 @@ export default defineEventHandler(async (event) => {
 ### Basic JWS Session (Signed, Not Encrypted)
 
 ```typescript
-import { defineEventHandler } from 'h3';
-import { type JWTClaims, useJWSSession, generateJWK } from 'unjwt/adapters/h3';
+import { defineEventHandler } from "h3";
+import { type JWTClaims, useJWSSession, generateJWK } from "unjwt/adapters/h3";
 
 // Non-sensitive session data only!
 interface PublicSessionData extends JWTClaims {
-  theme: 'light' | 'dark';
+  theme: "light" | "dark";
   language: string;
   userId: string; // ID is OK, but no sensitive details
 }
 
 export default defineEventHandler(async (event) => {
   // For JWS, you need a JWK (not a password string)
-  const { privateKey, publicKey } = await generateJWK('ES256');
+  const { privateKey, publicKey } = await generateJWK("ES256");
 
   const session = await useJWSSession<PublicSessionData>(event, {
     key: { privateKey, publicKey },
@@ -256,9 +283,9 @@ export default defineEventHandler(async (event) => {
   });
 
   // Read and update session
-  console.log('Theme:', session.data.theme);
+  console.log("Theme:", session.data.theme);
 
-  await session.update({ theme: 'dark' });
+  await session.update({ theme: "dark" });
 
   return { theme: session.data.theme };
 });
@@ -267,7 +294,7 @@ export default defineEventHandler(async (event) => {
 ### Using Hooks for Logging and Validation
 
 ```typescript
-import { useJWESession } from 'unjwt/adapters/h3';
+import { useJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const session = await useJWESession(event, {
@@ -286,18 +313,18 @@ export default defineEventHandler(async (event) => {
 
       // Called when session is cleared
       onClear: async ({ event }) => {
-        console.log('Session cleared');
+        console.log("Session cleared");
       },
 
       // Called when session expires
       onExpire: async ({ event, error }) => {
-        console.warn('Session expired:', error.message);
+        console.warn("Session expired:", error.message);
         // You could redirect to login here
       },
 
       // Called on any error (invalid token, decryption failure, etc.)
       onError: async ({ event, error }) => {
-        console.error('Session error:', error);
+        console.error("Session error:", error);
       },
     },
   });
@@ -309,19 +336,19 @@ export default defineEventHandler(async (event) => {
 ### Custom Cookie Configuration
 
 ```typescript
-import { useJWESession } from 'unjwt/adapters/h3';
+import { useJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const session = await useJWESession(event, {
     key: process.env.SESSION_SECRET!,
-    name: 'my-app-session', // Custom cookie name
+    name: "my-app-session", // Custom cookie name
     maxAge: 3600,
     cookie: {
-      path: '/api',
+      path: "/api",
       secure: true,
       httpOnly: true,
-      sameSite: 'strict',
-      domain: '.example.com', // Share across subdomains
+      sameSite: "strict",
+      domain: ".example.com", // Share across subdomains
     },
   });
 
@@ -334,13 +361,13 @@ export default defineEventHandler(async (event) => {
 #### Read from Authorization Header (fallback to cookie)
 
 ```typescript
-import { useJWESession } from 'unjwt/adapters/h3';
+import { useJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const session = await useJWESession(event, {
     key: process.env.SESSION_SECRET!,
     maxAge: 3600,
-    sessionHeader: 'Authorization', // It will try to read from this header first then cookie
+    sessionHeader: "Authorization", // It will try to read from this header first then cookie
   });
 
   // Client must send: Authorization: Bearer <jwt-token>
@@ -352,14 +379,14 @@ export default defineEventHandler(async (event) => {
 #### Read from Custom Header Only
 
 ```typescript
-import { useJWESession } from 'unjwt/adapters/h3';
+import { useJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const session = await useJWESession(event, {
     key: process.env.SESSION_SECRET!,
     maxAge: 3600,
     cookie: false, // Disable cookies entirely
-    sessionHeader: 'X-API-Session', // Read from this header
+    sessionHeader: "X-API-Session", // Read from this header
   });
 
   // Client must send: X-API-Session: <jwt-token>
@@ -372,7 +399,7 @@ export default defineEventHandler(async (event) => {
 ### TypeScript: Strongly Typed Sessions
 
 ```typescript
-import { type JWTClaims, useJWESession } from 'unjwt/adapters/h3';
+import { type JWTClaims, useJWESession } from "unjwt/adapters/h3";
 
 interface UserSession extends JWTClaims {
   userId: string;
@@ -398,7 +425,7 @@ export default defineEventHandler(async (event) => {
   // ✅ Type-safe updates
   await session.update({
     preferences: {
-      theme: 'dark',
+      theme: "dark",
       notifications: true,
     },
   });
@@ -413,7 +440,7 @@ export default defineEventHandler(async (event) => {
 ### Conditional Session Updates
 
 ```typescript
-import { useJWESession } from 'unjwt/adapters/h3';
+import { useJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const session = await useJWESession(event, {
@@ -443,6 +470,7 @@ For advanced scenarios where you need fine-grained control over the session life
 ### Advanced Use Cases
 
 When to use advanced functions:
+
 - Custom token storage (e.g., database, Redis)
 - Server-to-server token passing
 - WebSocket authentication
@@ -456,7 +484,7 @@ When to use advanced functions:
 Use when you need to read a session without immediately updating it.
 
 ```typescript
-import { getJWESession } from 'unjwt/adapters/h3';
+import { getJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -468,10 +496,10 @@ export default defineEventHandler(async (event) => {
   const session = await getJWESession(event, config);
 
   // Session is stored in event.context.sessions['h3-jwe']
-  console.log('Session ID:', session.id);
-  console.log('Session data:', session.data);
-  console.log('Created at:', new Date(session.createdAt));
-  console.log('Expires at:', new Date(session.expiresAt));
+  console.log("Session ID:", session.id);
+  console.log("Session data:", session.data);
+  console.log("Created at:", new Date(session.createdAt));
+  console.log("Expires at:", new Date(session.expiresAt));
 
   return { session };
 });
@@ -482,7 +510,7 @@ export default defineEventHandler(async (event) => {
 Use when you want to update session data and automatically re-issue the encrypted token.
 
 ```typescript
-import { getJWESession, updateJWESession } from 'unjwt/adapters/h3';
+import { getJWESession, updateJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -495,7 +523,7 @@ export default defineEventHandler(async (event) => {
 
   // Update with partial data
   await updateJWESession(event, config, {
-    username: 'new-username',
+    username: "new-username",
   });
 
   // Update with function
@@ -516,7 +544,7 @@ export default defineEventHandler(async (event) => {
 Use when you need to manually create a JWE token (e.g., for server-to-server communication).
 
 ```typescript
-import { getJWESession, sealJWESession } from 'unjwt/adapters/h3';
+import { getJWESession, sealJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -551,7 +579,7 @@ export default defineEventHandler(async (event) => {
 Use when you need to verify and decrypt a JWE token from external sources.
 
 ```typescript
-import { unsealJWESession } from 'unjwt/adapters/h3';
+import { unsealJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -560,13 +588,13 @@ export default defineEventHandler(async (event) => {
   };
 
   // Get token from custom source (e.g., query param, database)
-  const tokenFromQuery = event.node.req.url?.split('token=')[1];
+  const tokenFromQuery = event.node.req.url?.split("token=")[1];
 
   if (tokenFromQuery) {
     try {
       const sessionData = await unsealJWESession(event, config, tokenFromQuery);
 
-      console.log('Decrypted session:', sessionData);
+      console.log("Decrypted session:", sessionData);
       // {
       //   id: "session-id",
       //   createdAt: 1234567890000,  // milliseconds
@@ -590,12 +618,12 @@ export default defineEventHandler(async (event) => {
 Use when you need to clear a session in custom scenarios.
 
 ```typescript
-import { clearJWESession } from 'unjwt/adapters/h3';
+import { clearJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
     key: process.env.SESSION_SECRET!,
-    name: 'my-session',
+    name: "my-session",
   };
 
   // Clear session (removes from context and expires cookie)
@@ -612,10 +640,10 @@ JWS functions mirror JWE functions but use signing instead of encryption.
 #### `getJWSSession()` - Read or Initialize Session
 
 ```typescript
-import { getJWSSession, generateJWK } from 'unjwt/adapters/h3';
+import { getJWSSession, generateJWK } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
-  const { privateKey, publicKey } = await generateJWK('ES256');
+  const { privateKey, publicKey } = await generateJWK("ES256");
 
   const config = {
     key: { privateKey, publicKey },
@@ -631,10 +659,14 @@ export default defineEventHandler(async (event) => {
 #### `updateJWSSession()` - Update and Re-sign
 
 ```typescript
-import { getJWSSession, updateJWSSession, generateJWK } from 'unjwt/adapters/h3';
+import {
+  getJWSSession,
+  updateJWSSession,
+  generateJWK,
+} from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
-  const { privateKey, publicKey } = await generateJWK('ES256');
+  const { privateKey, publicKey } = await generateJWK("ES256");
 
   const config = {
     key: { privateKey, publicKey },
@@ -645,7 +677,7 @@ export default defineEventHandler(async (event) => {
 
   // Update session data
   await updateJWSSession(event, config, {
-    theme: 'dark',
+    theme: "dark",
   });
 
   return { success: true };
@@ -655,10 +687,10 @@ export default defineEventHandler(async (event) => {
 #### `signJWSSession()` - Generate Signed Token
 
 ```typescript
-import { getJWSSession, signJWSSession, generateJWK } from 'unjwt/adapters/h3';
+import { getJWSSession, signJWSSession, generateJWK } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
-  const { privateKey, publicKey } = await generateJWK('ES256');
+  const { privateKey, publicKey } = await generateJWK("ES256");
 
   const config = {
     key: { privateKey, publicKey },
@@ -680,24 +712,24 @@ export default defineEventHandler(async (event) => {
 #### `verifyJWSSession()` - Verify Token Manually
 
 ```typescript
-import { verifyJWSSession, generateJWK } from 'unjwt/adapters/h3';
+import { verifyJWSSession, generateJWK } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
-  const { privateKey, publicKey } = await generateJWK('ES256');
+  const { privateKey, publicKey } = await generateJWK("ES256");
 
   const config = {
     key: { privateKey, publicKey },
     maxAge: 3600,
   };
 
-  const tokenFromHeader = event.node.req.headers['x-custom-token'];
+  const tokenFromHeader = event.node.req.headers["x-custom-token"];
 
   if (tokenFromHeader) {
     try {
       const sessionData = await verifyJWSSession(
         event,
         config,
-        String(tokenFromHeader)
+        String(tokenFromHeader),
       );
 
       return { valid: true, session: sessionData };
@@ -713,10 +745,10 @@ export default defineEventHandler(async (event) => {
 #### `clearJWSSession()` - Manually Clear Session
 
 ```typescript
-import { clearJWSSession, generateJWK } from 'unjwt/adapters/h3';
+import { clearJWSSession, generateJWK } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
-  const { privateKey, publicKey } = await generateJWK('ES256');
+  const { privateKey, publicKey } = await generateJWK("ES256");
 
   const config = {
     key: { privateKey, publicKey },
@@ -733,8 +765,12 @@ export default defineEventHandler(async (event) => {
 Store tokens in Redis instead of cookies:
 
 ```typescript
-import { getJWESession, sealJWESession, unsealJWESession } from 'unjwt/adapters/h3';
-import { redis } from './redis-client';
+import {
+  getJWESession,
+  sealJWESession,
+  unsealJWESession,
+} from "unjwt/adapters/h3";
+import { redis } from "./redis-client";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -744,7 +780,7 @@ export default defineEventHandler(async (event) => {
     sessionHeader: false, // Disable automatic header reading
   };
 
-  const sessionId = event.node.req.headers['x-session-id'];
+  const sessionId = event.node.req.headers["x-session-id"];
 
   if (sessionId) {
     // Load token from Redis
@@ -759,7 +795,7 @@ export default defineEventHandler(async (event) => {
         if (!event.context.sessions) {
           event.context.sessions = {};
         }
-        event.context.sessions['h3-jwe'] = {
+        event.context.sessions["h3-jwe"] = {
           ...sessionData,
           data: sessionData.data || {},
         };
@@ -775,7 +811,7 @@ export default defineEventHandler(async (event) => {
 
   // Store updated token in Redis
   const token = await sealJWESession(event, config);
-  await redis.set(`session:${session.id}`, token, 'EX', 3600);
+  await redis.set(`session:${session.id}`, token, "EX", 3600);
 
   return {
     sessionId: session.id,
@@ -789,8 +825,8 @@ export default defineEventHandler(async (event) => {
 Authenticate WebSocket connections using session tokens:
 
 ```typescript
-import { defineWebSocketHandler } from 'h3';
-import { unsealJWESession } from 'unjwt/adapters/h3';
+import { defineWebSocketHandler } from "h3";
+import { unsealJWESession } from "unjwt/adapters/h3";
 
 export default defineWebSocketHandler({
   async upgrade(event) {
@@ -800,11 +836,11 @@ export default defineWebSocketHandler({
     };
 
     // Get token from query param or header
-    const url = new URL(event.node.req.url!, 'http://localhost');
-    const token = url.searchParams.get('token');
+    const url = new URL(event.node.req.url!, "http://localhost");
+    const token = url.searchParams.get("token");
 
     if (!token) {
-      return { statusCode: 401, statusMessage: 'Unauthorized' };
+      return { statusCode: 401, statusMessage: "Unauthorized" };
     }
 
     try {
@@ -816,13 +852,13 @@ export default defineWebSocketHandler({
 
       return { statusCode: 101 }; // Proceed with upgrade
     } catch (error) {
-      return { statusCode: 401, statusMessage: 'Invalid token' };
+      return { statusCode: 401, statusMessage: "Invalid token" };
     }
   },
 
   async message(peer, message) {
     // Access authenticated user
-    console.log('Message from user:', peer.ctx.user.userId);
+    console.log("Message from user:", peer.ctx.user.userId);
   },
 });
 ```
@@ -833,7 +869,7 @@ Share session tokens between microservices:
 
 ```typescript
 // Service A: Create token
-import { getJWESession, sealJWESession } from 'unjwt/adapters/h3';
+import { getJWESession, sealJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -842,14 +878,14 @@ export default defineEventHandler(async (event) => {
   };
 
   const session = await getJWESession(event, config);
-  session.data.serviceRole = 'api-gateway';
+  session.data.serviceRole = "api-gateway";
 
   const token = await sealJWESession(event, config);
 
   // Send token to Service B
-  const response = await fetch('https://service-b/api/data', {
+  const response = await fetch("https://service-b/api/data", {
     headers: {
-      'Authorization': token,
+      Authorization: token,
     },
   });
 
@@ -857,7 +893,7 @@ export default defineEventHandler(async (event) => {
 });
 
 // Service B: Verify token
-import { unsealJWESession } from 'unjwt/adapters/h3';
+import { unsealJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -865,23 +901,23 @@ export default defineEventHandler(async (event) => {
     maxAge: 300,
   };
 
-  const token = event.node.req.headers['x-service-token'];
+  const token = event.node.req.headers["x-service-token"];
 
   if (!token) {
-    throw createError({ statusCode: 401, message: 'Missing service token' });
+    throw createError({ statusCode: 401, message: "Missing service token" });
   }
 
   try {
     const sessionData = await unsealJWESession(event, config, String(token));
 
     // Verify service role
-    if (sessionData.data.serviceRole !== 'api-gateway') {
-      throw createError({ statusCode: 403, message: 'Invalid service role' });
+    if (sessionData.data.serviceRole !== "api-gateway") {
+      throw createError({ statusCode: 403, message: "Invalid service role" });
     }
 
-    return { data: 'Sensitive service data' };
+    return { data: "Sensitive service data" };
   } catch (error) {
-    throw createError({ statusCode: 401, message: 'Invalid service token' });
+    throw createError({ statusCode: 401, message: "Invalid service token" });
   }
 });
 ```
@@ -891,7 +927,7 @@ export default defineEventHandler(async (event) => {
 For contexts where you can't modify the session (e.g., WebSocket upgrade events):
 
 ```typescript
-import { getJWESession } from 'unjwt/adapters/h3';
+import { getJWESession } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const config = {
@@ -904,7 +940,7 @@ export default defineEventHandler(async (event) => {
   const session = await getJWESession(event, config);
 
   // ✅ Reading is safe
-  console.log('User ID:', session.data.userId);
+  console.log("User ID:", session.data.userId);
 
   // ❌ This would throw an error on read-only events
   // await updateJWESession(event, config, { ... });
@@ -924,11 +960,11 @@ export default defineEventHandler(async (event) => {
 ```typescript
 // ✅ Good - Simple and handles everything
 const session = await useJWESession(event, config);
-await session.update({ userId: '123' });
+await session.update({ userId: "123" });
 
 // ❌ Avoid unless necessary
 const session = await getJWESession(event, config);
-await updateJWESession(event, config, { userId: '123' });
+await updateJWESession(event, config, { userId: "123" });
 ```
 
 ### 2. Choose JWE by Default
@@ -937,10 +973,10 @@ For single use, or when in doubt, use JWE for security:
 
 ```typescript
 // ✅ Default choice - encrypted
-import { useJWESession } from 'unjwt/adapters/h3';
+import { useJWESession } from "unjwt/adapters/h3";
 
 // ⚠️ Only use JWS when you need readable tokens
-import { useJWSSession } from 'unjwt/adapters/h3';
+import { useJWSSession } from "unjwt/adapters/h3";
 ```
 
 ### 3. Never Manually Manage event.context.sessions
@@ -950,7 +986,7 @@ The adapters handle this automatically:
 ```typescript
 // ❌ NEVER DO THIS
 event.context.sessions = {
-  'h3-jwe': { id: '123', data: {} }
+  "h3-jwe": { id: "123", data: {} },
 };
 
 // ✅ Let the adapter handle it
@@ -1011,7 +1047,7 @@ const session = await useJWESession(event, {
       // Redirect to login, send 401, etc.
       throw createError({
         statusCode: 401,
-        message: 'Session expired, please login again',
+        message: "Session expired, please login again",
       });
     },
   },
@@ -1026,7 +1062,7 @@ const session = await useJWESession(event, {
 
 ```typescript
 // ❌ WRONG - Don't manually set session cookies
-setCookie(event, 'session', token);
+setCookie(event, "session", token);
 
 // ✅ RIGHT - Let the adapter handle it
 await session.update(data); // Automatically updates cookie
@@ -1038,13 +1074,13 @@ await session.update(data); // Automatically updates cookie
 // ❌ WRONG - JWS exposes data to clients
 const session = await useJWSSession(event, config);
 await session.update({
-  creditCardNumber: '1234-5678-9012-3456', // ⚠️ Visible to client!
+  creditCardNumber: "1234-5678-9012-3456", // ⚠️ Visible to client!
 });
 
 // ✅ RIGHT - Use JWE for sensitive data
 const session = await useJWESession(event, config);
 await session.update({
-  creditCardNumber: '1234-5678-9012-3456', // ✅ Encrypted
+  creditCardNumber: "1234-5678-9012-3456", // ✅ Encrypted
 });
 ```
 
@@ -1075,15 +1111,15 @@ await session.update(data);
 ```typescript
 // ❌ WRONG - Reserved claims are managed automatically
 await session.update({
-  jti: 'new-id',     // ❌ Ignored
-  iat: Date.now(),   // ❌ Ignored
-  exp: Date.now(),   // ❌ Ignored
+  jti: "new-id", // ❌ Ignored
+  iat: Date.now(), // ❌ Ignored
+  exp: Date.now(), // ❌ Ignored
 });
 
 // ✅ RIGHT - Only update your data
 await session.update({
-  userId: '123',     // ✅ Your data
-  username: 'john',  // ✅ Your data
+  userId: "123", // ✅ Your data
+  username: "john", // ✅ Your data
 });
 ```
 
