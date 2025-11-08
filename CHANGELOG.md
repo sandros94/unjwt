@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.29
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.28...v0.5.29)
+
+### 🩹 Fixes
+
+- **h3:** Type `SessionManager` prefer `ConfigMaxAge` for `expiresAt` typing ([d78ef92](https://github.com/sandros94/unjwt/commit/d78ef92))
+- **h3:** Update session management types to use `ExpiresIn` for maxAge and expiresAt ([9f2850e](https://github.com/sandros94/unjwt/commit/9f2850e))
+
+### 📖 Documentation
+
+- Add comprehensive guide for H3 session adapters and JWT management ([06ca61b](https://github.com/sandros94/unjwt/commit/06ca61b))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.28
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.27...v0.5.28)
