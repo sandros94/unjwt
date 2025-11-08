@@ -1,4 +1,4 @@
-import type { JWTClaims } from "../../../core/types";
+import type { JWTClaims, ExpiresIn } from "../../../core/types";
 
 export type { JWTClaims } from "../../../core/types";
 export type SessionData<T extends JWTClaims = JWTClaims> = Omit<
@@ -12,11 +12,11 @@ export type SessionUpdate<T extends JWTClaims = JWTClaims> =
 
 export interface SessionManager<
   T extends JWTClaims = JWTClaims,
-  ConfigMaxAge extends number | undefined = number | undefined,
+  ConfigMaxAge extends ExpiresIn | undefined = number | undefined,
 > {
   readonly id: string | undefined;
   readonly createdAt: number;
-  readonly expiresAt: ConfigMaxAge extends number ? number : T["exp"];
+  readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : T["exp"];
   readonly data: SessionData<T>;
   update: (update: SessionUpdate<T>) => Promise<SessionManager<T>>;
   clear: () => Promise<SessionManager<T>>;

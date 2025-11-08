@@ -113,7 +113,7 @@ Both JWE and JWS adapters share similar configuration patterns:
 ```typescript
 interface SessionConfigJWE<T extends JWTClaims = JWTClaims> {
   key: string | JWK_Symmetric | JWK_Private | { privateKey: JWK_Private | JWK_Symmetric; publicKey?: JWK_Public };
-  maxAge?: number;                           // Session lifetime in seconds
+  maxAge?: ExpiresIn;                        // Session lifetime in seconds (or string representation: "1h", "7D", "2weeks", etc.)
   name?: string;                             // Cookie/header name (default: "h3-jwe" or "h3-jws")
   cookie?: false | CookieSerializeOptions;   // Cookie options or false to disable
   sessionHeader?: false | string;            // Custom header name or false to disable
@@ -124,7 +124,7 @@ interface SessionConfigJWE<T extends JWTClaims = JWTClaims> {
 
 interface SessionConfigJWS<T extends JWTClaims = JWTClaims> {
   key: JWK_Symmetric | { privateKey: JWK_Private; publicKey: JWK_Public | JWK_Public[] | JWKSet };
-  maxAge?: number;
+  maxAge?: ExpiresIn;
   name?: string;
   cookie?: false | CookieSerializeOptions;
   sessionHeader?: false | string;

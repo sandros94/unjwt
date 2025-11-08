@@ -11,6 +11,7 @@ import type { CookieSerializeOptions } from "cookie-esv2";
 import { NullProtoObj } from "rou3";
 
 import type {
+  ExpiresIn,
   JWK,
   JWK_oct,
   JWK_Symmetric,
@@ -21,28 +22,33 @@ import type {
   JWTClaimValidationOptions,
 } from "../../../core/types";
 import { encrypt, decrypt } from "../../../core/jwe";
-import { isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../core/utils";
+import {
+  isSymmetricJWK,
+  isPrivateJWK,
+  isPublicJWK,
+  computeExpiresInSeconds,
+} from "../../../core/utils";
 import type { SessionData, SessionUpdate, SessionManager } from "./types";
 
 const kGetSessionPromise = Symbol("h3_jwe_getSession");
 
 export interface SessionJWE<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   // Mapped from payload.jti
   id: string;
   // Mapped from payload.iat (in ms)
   createdAt: number;
   // Mapped from payload.exp (in ms)
-  expiresAt: MaxAge extends number ? number : T["exp"];
+  expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWE<T, MaxAge>>;
 }
 
 export interface SessionHooksJWE<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   onRead?: (args: {
     session: SessionJWE<T, MaxAge>;
@@ -72,7 +78,7 @@ export interface SessionHooksJWE<
 
 export interface SessionConfigJWE<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   /** Shared secret used, string for PBES2 or Json Web Key (JWK) */
   key:
@@ -112,7 +118,7 @@ const DEFAULT_COOKIE: SessionConfigJWE["cookie"] = {
  */
 export async function useJWESession<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: HTTPEvent,
   config: SessionConfigJWE<T, MaxAge>,
@@ -128,11 +134,8 @@ export async function useJWESession<
       return getSessionFromContext(event, sessionName)?.createdAt ?? Date.now();
     },
     get expiresAt() {
-      return getSessionFromContext(event, sessionName)?.expiresAt as T extends {
-        exp: number;
-      }
-        ? number
-        : MaxAge;
+      return getSessionFromContext(event, sessionName)
+        ?.expiresAt as MaxAge extends ExpiresIn ? number : T["exp"];
     },
     get data() {
       return (getSessionFromContext(event, sessionName)?.data || {}) as T;
@@ -155,7 +158,7 @@ export async function useJWESession<
  */
 export async function getJWESession<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: HTTPEvent,
   config: SessionConfigJWE<T, MaxAge>,
@@ -211,7 +214,7 @@ export async function getJWESession<
   const session: SessionJWE<T, MaxAge> = {
     id: "",
     createdAt: 0,
-    expiresAt: undefined as MaxAge extends number ? number : T["exp"],
+    expiresAt: undefined as MaxAge extends ExpiresIn ? number : T["exp"],
     data: new NullProtoObj(),
   };
   context.sessions![sessionName] = session;
@@ -279,9 +282,10 @@ export async function getJWESession<
     session.id = config.generateId?.() ?? crypto.randomUUID();
     session.createdAt =
       config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-    (session.expiresAt as any) = config.maxAge
-      ? session.createdAt + config.maxAge * 1000
-      : undefined;
+    (session.expiresAt as any) =
+      config.maxAge === undefined
+        ? undefined
+        : session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000;
     await updateJWESession(event, config);
   }
 
@@ -298,7 +302,7 @@ export async function getJWESession<
  */
 export async function updateJWESession<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: HTTPEvent,
   config: SessionConfigJWE<T, MaxAge>,
@@ -330,9 +334,12 @@ export async function updateJWESession<
     const sealed = await sealJWESession(event, config);
     setChunkedCookie(event, sessionName, sealed, {
       ...DEFAULT_COOKIE,
-      expires: config.maxAge
-        ? new Date(session.createdAt + config.maxAge * 1000)
-        : undefined,
+      expires:
+        config.maxAge === undefined
+          ? undefined
+          : new Date(
+              session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
+            ),
       ...config.cookie,
     });
   }
@@ -345,7 +352,7 @@ export async function updateJWESession<
  */
 export async function sealJWESession<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(event: HTTPEvent, config: SessionConfigJWE<T, MaxAge>): Promise<string> {
   const key = getEncryptKey(config.key);
   const sessionName = config.name || DEFAULT_NAME;
@@ -358,7 +365,9 @@ export async function sealJWESession<
 
   const iatSeconds = Math.floor(session.createdAt / 1000);
   const expSeconds =
-    config.maxAge == null ? undefined : iatSeconds + config.maxAge;
+    config.maxAge === undefined
+      ? undefined
+      : iatSeconds + computeExpiresInSeconds(config.maxAge);
 
   const payload: Record<string, any> = {
     ...session.data,
@@ -395,7 +404,7 @@ export async function sealJWESession<
  */
 export async function unsealJWESession<
   T extends JWTClaims = JWTClaims,
-  MaxAge extends number | undefined = number | undefined,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   _event: HTTPEvent,
   config: SessionConfigJWE<T, MaxAge>,
@@ -443,9 +452,9 @@ export async function unsealJWESession<
   return {
     id: jti,
     createdAt: iat * 1000,
-    expiresAt: (exp ? exp * 1000 : undefined) as T extends { exp: number }
+    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn
       ? number
-      : MaxAge,
+      : T["exp"],
     data: (data && typeof data === "object"
       ? data
       : new NullProtoObj()) as SessionData<T>,
@@ -457,7 +466,7 @@ export async function unsealJWESession<
  */
 export async function clearJWESession<
   T extends JWTClaims,
-  MaxAge extends number | undefined,
+  MaxAge extends ExpiresIn | undefined,
 >(
   event: HTTPEvent,
   config: Partial<SessionConfigJWE<T, MaxAge>>,
@@ -486,7 +495,7 @@ export async function clearJWESession<
 
 function getSessionFromContext<
   T extends JWTClaims,
-  MaxAge extends number | undefined,
+  MaxAge extends ExpiresIn | undefined,
 >(event: HTTPEvent, sessionName: string): SessionJWE<T, MaxAge> | undefined {
   const context = getEventContext<H3EventContext>(event);
   return context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;
