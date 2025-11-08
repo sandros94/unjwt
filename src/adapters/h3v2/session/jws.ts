@@ -10,67 +10,76 @@ import {
 import type { CookieSerializeOptions } from "cookie-esv2";
 import { NullProtoObj } from "rou3";
 
-import type { SessionData, SessionManager } from "./jwe.ts";
-import {
-  type JWK_Symmetric,
-  type JWK_Public,
-  type JWK_Private,
-  type JWKSet,
-  type JWTClaims,
-  type JWSSignOptions,
-  type JWTClaimValidationOptions,
-  sign,
-  verify,
-} from "../../../core/jws";
+import type {
+  JWK_Symmetric,
+  JWK_Public,
+  JWK_Private,
+  JWKSet,
+  JWTClaims,
+  JWSSignOptions,
+  JWTClaimValidationOptions,
+} from "../../../core/types";
+import { sign, verify } from "../../../core/jws";
 import { isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../core/utils";
-
-type SessionDataT = Omit<JWTClaims, "jti" | "iat" | "exp">;
+import type { SessionData, SessionUpdate, SessionManager } from "./types";
 
 const kGetSessionPromise = Symbol("h3_jws_getSession");
 
-export interface SessionJWS<T extends SessionDataT = SessionDataT> {
+export interface SessionJWS<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends number | undefined = number | undefined,
+> {
+  // Mapped from payload.jti
   id: string;
+  // Mapped from payload.iat (in ms)
   createdAt: number;
-  expiresAt?: number;
+  // Mapped from payload.exp (in ms)
+  expiresAt: T extends { exp: number } ? number : MaxAge;
   data: SessionData<T>;
-  [kGetSessionPromise]?: Promise<SessionJWS<T>>;
+  [kGetSessionPromise]?: Promise<SessionJWS<T, MaxAge>>;
 }
 
-export interface SessionHooksJWS {
+export interface SessionHooksJWS<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends number | undefined = number | undefined,
+> {
   onRead?: (args: {
-    session: SessionJWS;
+    session: SessionJWS<T, MaxAge>;
     event: HTTPEvent;
-    config: SessionConfigJWS;
+    config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onUpdate?: (args: {
-    session: SessionJWS;
+    session: SessionJWS<T, MaxAge>;
     event: HTTPEvent;
-    config: SessionConfigJWS;
+    config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
     event: HTTPEvent;
-    config: Partial<SessionConfigJWS>;
+    config: Partial<SessionConfigJWS<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
     event: HTTPEvent;
     error: Error;
-    config: SessionConfigJWS;
+    config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onError?: (args: {
     event: HTTPEvent;
     error: any;
-    config: SessionConfigJWS;
+    config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
 }
 
-export interface SessionConfigJWS {
+export interface SessionConfigJWS<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends number | undefined = number | undefined,
+> {
   key:
     | JWK_Symmetric
     | {
         privateKey: JWK_Private;
         publicKey: JWK_Public | JWK_Public[] | JWKSet;
       };
-  maxAge?: number;
+  maxAge?: MaxAge;
   name?: string;
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
   sessionHeader?: false | string;
@@ -79,7 +88,7 @@ export interface SessionConfigJWS {
     signOptions?: Omit<JWSSignOptions, "expiresIn">;
     verifyOptions?: JWTClaimValidationOptions;
   };
-  hooks?: SessionHooksJWS;
+  hooks?: SessionHooksJWS<T, MaxAge>;
 }
 
 const DEFAULT_NAME = "h3-jws";
@@ -89,38 +98,40 @@ const DEFAULT_COOKIE: SessionConfigJWS["cookie"] = {
   httpOnly: false,
 };
 
-type SessionUpdate<T extends SessionDataT = SessionDataT> =
-  | Partial<SessionData<T>>
-  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
-
-export async function useJWSSession<T extends SessionDataT = SessionDataT>(
+export async function useJWSSession<
+  T extends JWTClaims,
+  MaxAge extends number | undefined,
+>(
   event: HTTPEvent,
-  config: SessionConfigJWS,
-): Promise<SessionManager<T>> {
+  config: SessionConfigJWS<T, MaxAge>,
+): Promise<SessionManager<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
-  await getJWSSession<T>(event, config);
+  await getJWSSession<T, MaxAge>(event, config);
 
-  const sessionManager: SessionManager<T> = {
+  const sessionManager: SessionManager<T, MaxAge> = {
     get id() {
-      return getSessionFromContext<T>(event, sessionName)?.id;
+      return getSessionFromContext<T, MaxAge>(event, sessionName)?.id;
     },
     get createdAt() {
       return (
-        getSessionFromContext<T>(event, sessionName)?.createdAt ?? Date.now()
+        getSessionFromContext<T, MaxAge>(event, sessionName)?.createdAt ??
+        Date.now()
       );
     },
     get expiresAt() {
-      return getSessionFromContext<T>(event, sessionName)?.expiresAt;
+      return getSessionFromContext<T, MaxAge>(event, sessionName)
+        ?.expiresAt as T extends { exp: number } ? number : MaxAge;
     },
     get data() {
-      return (getSessionFromContext<T>(event, sessionName)?.data || {}) as T;
+      return (getSessionFromContext<T, MaxAge>(event, sessionName)?.data ||
+        {}) as T;
     },
     update: async (update: SessionUpdate<T>) => {
-      await updateJWSSession<T>(event, config, update);
+      await updateJWSSession<T, MaxAge>(event, config, update);
       return sessionManager;
     },
     clear: async () => {
-      await clearJWSSession(event, config);
+      await clearJWSSession<T, MaxAge>(event, config);
       return sessionManager;
     },
   };
@@ -128,10 +139,13 @@ export async function useJWSSession<T extends SessionDataT = SessionDataT>(
   return sessionManager;
 }
 
-export async function getJWSSession<T extends SessionDataT = SessionDataT>(
+export async function getJWSSession<
+  T extends JWTClaims,
+  MaxAge extends number | undefined,
+>(
   event: HTTPEvent,
-  config: SessionConfigJWS,
-): Promise<SessionJWS<T>> {
+  config: SessionConfigJWS<T, MaxAge>,
+): Promise<SessionJWS<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
   const context = getEventContext<H3EventContext>(event);
 
@@ -140,7 +154,7 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
   }
 
   const existingSession = context.sessions![sessionName] as
-    | SessionJWS<T>
+    | SessionJWS<T, MaxAge>
     | undefined;
   if (existingSession) {
     const session = existingSession[kGetSessionPromise]
@@ -160,7 +174,7 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
         config,
       });
       return clearJWSSession(event, config).then(() =>
-        getJWSSession<T>(event, config),
+        getJWSSession<T, MaxAge>(event, config),
       );
     }
 
@@ -172,10 +186,10 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
     return session;
   }
 
-  const session: SessionJWS<T> = {
+  const session: SessionJWS<T, MaxAge> = {
     id: "",
     createdAt: 0,
-    expiresAt: undefined,
+    expiresAt: undefined as T extends { exp: number } ? number : MaxAge,
     data: new NullProtoObj(),
   };
   context.sessions![sessionName] = session;
@@ -226,7 +240,7 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
           Object.assign(session, unsealed);
         }
         delete session[kGetSessionPromise];
-        return session as SessionJWS<T>;
+        return session as SessionJWS<T, MaxAge>;
       });
     session[kGetSessionPromise] = promise;
     await promise;
@@ -236,10 +250,10 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
     session.id = config.generateId?.() ?? crypto.randomUUID();
     session.createdAt =
       config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
-    session.expiresAt = config.maxAge
+    (session.expiresAt as any) = config.maxAge
       ? session.createdAt + config.maxAge * 1000
       : undefined;
-    await updateJWSSession<T>(event, config);
+    await updateJWSSession<T, MaxAge>(event, config);
   }
 
   await config.hooks?.onRead?.({
@@ -250,17 +264,20 @@ export async function getJWSSession<T extends SessionDataT = SessionDataT>(
   return session;
 }
 
-export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
+export async function updateJWSSession<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends number | undefined = number | undefined,
+>(
   event: HTTPEvent,
-  config: SessionConfigJWS,
+  config: SessionConfigJWS<T, MaxAge>,
   update?: SessionUpdate<T>,
-): Promise<SessionJWS<T>> {
+): Promise<SessionJWS<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
   const context = getEventContext<H3EventContext>(event);
 
-  const session: SessionJWS<T> =
-    (context.sessions?.[sessionName] as SessionJWS<T>) ||
-    (await getJWSSession<T>(event, config));
+  const session: SessionJWS<T, MaxAge> =
+    (context.sessions?.[sessionName] as SessionJWS<T, MaxAge>) ||
+    (await getJWSSession<T, MaxAge>(event, config));
 
   if (typeof update === "function") {
     update = update(session.data);
@@ -288,17 +305,17 @@ export async function updateJWSSession<T extends SessionDataT = SessionDataT>(
   return session;
 }
 
-export async function signJWSSession<T extends SessionDataT = SessionDataT>(
-  event: HTTPEvent,
-  config: SessionConfigJWS,
-): Promise<string> {
+export async function signJWSSession<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends number | undefined = number | undefined,
+>(event: HTTPEvent, config: SessionConfigJWS<T, MaxAge>): Promise<string> {
   const key = getSignKey(config.key);
   const sessionName = config.name || DEFAULT_NAME;
   const context = getEventContext<H3EventContext>(event);
 
-  const session: SessionJWS<T> =
-    (context.sessions?.[sessionName] as SessionJWS<T>) ||
-    (await getJWSSession<T>(event, config));
+  const session: SessionJWS<T, MaxAge> =
+    (context.sessions?.[sessionName] as SessionJWS<T, MaxAge>) ||
+    (await getJWSSession<T, MaxAge>(event, config));
 
   const iatSeconds = Math.floor(session.createdAt / 1000);
   const expSeconds =
@@ -336,11 +353,14 @@ export async function signJWSSession<T extends SessionDataT = SessionDataT>(
   return token;
 }
 
-export async function verifyJWSSession(
+export async function verifyJWSSession<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends number | undefined = number | undefined,
+>(
   _event: HTTPEvent,
-  config: SessionConfigJWS,
+  config: SessionConfigJWS<T, MaxAge>,
   token: string,
-): Promise<Partial<SessionJWS>> {
+): Promise<Partial<SessionJWS<T, MaxAge>>> {
   const jwk = getVerifyKey(config.key);
   const alg = config.jws?.signOptions?.alg;
 
@@ -353,9 +373,7 @@ export async function verifyJWSSession(
     typ = config.jws.signOptions.protectedHeader.typ;
   }
 
-  const { payload } = await verify<
-    JWTClaims & { jti: string; iat: number; exp?: number }
-  >(token, jwk, {
+  const { payload } = await verify<T & { iat: number }>(token, jwk, {
     ...config.jws?.verifyOptions,
     requiredClaims: [
       ...new Set([
@@ -378,16 +396,21 @@ export async function verifyJWSSession(
   return {
     id: jti,
     createdAt: iat * 1000,
-    expiresAt: exp ? exp * 1000 : undefined,
+    expiresAt: (exp ? exp * 1000 : undefined) as T extends { exp: number }
+      ? number
+      : MaxAge,
     data: (data && typeof data === "object"
       ? data
-      : new NullProtoObj()) as SessionData,
+      : new NullProtoObj()) as SessionData<T>,
   };
 }
 
-export async function clearJWSSession(
+export async function clearJWSSession<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends number | undefined = number | undefined,
+>(
   event: HTTPEvent,
-  config: Partial<SessionConfigJWS>,
+  config: Partial<SessionConfigJWS<T, MaxAge>>,
 ): Promise<void> {
   const context = getEventContext<H3EventContext>(event);
   const sessionName = config.name || DEFAULT_NAME;
@@ -411,12 +434,12 @@ export async function clearJWSSession(
   }
 }
 
-function getSessionFromContext<T extends SessionDataT>(
-  event: HTTPEvent,
-  sessionName: string,
-): SessionJWS<T> | undefined {
+function getSessionFromContext<
+  T extends JWTClaims,
+  MaxAge extends number | undefined,
+>(event: HTTPEvent, sessionName: string): SessionJWS<T, MaxAge> | undefined {
   const context = getEventContext<H3EventContext>(event);
-  return context.sessions?.[sessionName] as SessionJWS<T> | undefined;
+  return context.sessions?.[sessionName] as SessionJWS<T, MaxAge> | undefined;
 }
 
 function hasWritableResponse(event: HTTPEvent): event is H3Event {

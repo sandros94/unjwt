@@ -1,6 +1,7 @@
 import { H3, HTTPError, serve } from "h3v2";
 
 import {
+  type JWTClaims,
   type SessionConfigJWE,
   type SessionConfigJWS,
   useJWESession,
@@ -15,6 +16,7 @@ const atJwk = await generateJWK("RS256");
 const jweOptions = {
   key: "refresh_token_secret",
   name: "refresh_token",
+  maxAge: 7 * 24 * 60 * 60, // 7 days
 } satisfies SessionConfigJWE;
 
 const jwsOptions = {
@@ -38,7 +40,7 @@ const jwsOptions = {
       });
     },
   },
-} satisfies SessionConfigJWS;
+} satisfies SessionConfigJWS<JWTClaims, number>;
 
 const app = new H3();
 
