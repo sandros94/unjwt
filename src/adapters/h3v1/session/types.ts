@@ -16,7 +16,7 @@ export interface SessionManager<
 > {
   readonly id: string | undefined;
   readonly createdAt: number;
-  readonly expiresAt: T extends { exp: number } ? number : ConfigMaxAge;
+  readonly expiresAt: ConfigMaxAge extends number ? number : T["exp"];
   readonly data: SessionData<T>;
   update: (update: SessionUpdate<T>) => Promise<SessionManager<T>>;
   clear: () => Promise<SessionManager<T>>;
