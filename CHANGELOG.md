@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.5.28
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.27...v0.5.28)
+
+### 🏡 Chore
+
+- Apply automated updates ([12118fa](https://github.com/sandros94/unjwt/commit/12118fa))
+
 ## v0.5.27
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.26...v0.5.27)
