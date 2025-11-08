@@ -31,7 +31,7 @@ export interface SessionJWS<
   // Mapped from payload.iat (in ms)
   createdAt: number;
   // Mapped from payload.exp (in ms)
-  expiresAt: MaxAge extends number ? number : T['exp'];
+  expiresAt: MaxAge extends number ? number : T["exp"];
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWS<T, MaxAge>>;
 }
@@ -217,7 +217,7 @@ export async function getJWSSession<
   const session: SessionJWS<T, MaxAge> = {
     id: "",
     createdAt: 0,
-    expiresAt: undefined as MaxAge extends number ? number : T['exp'],
+    expiresAt: undefined as MaxAge extends number ? number : T["exp"],
     data: Object.create(null),
   };
   event.context.sessions[sessionName] = session;
