@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.27
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.26...v0.5.27)
+
 ## v0.5.26
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.25...v0.5.26)
