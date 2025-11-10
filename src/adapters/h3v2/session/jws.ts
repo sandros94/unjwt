@@ -132,6 +132,9 @@ export async function useJWSSession<
       return (getSessionFromContext<T, MaxAge>(event, sessionName)?.data ||
         {}) as T;
     },
+    get token() {
+      return getJWSSessionToken<T, MaxAge>(event, config);
+    },
     update: async (update: SessionUpdate<T>) => {
       await updateJWSSession<T, MaxAge>(event, config, update);
       return sessionManager;
@@ -200,24 +203,7 @@ export async function getJWSSession<
   };
   context.sessions![sessionName] = session;
 
-  let token: string | undefined;
-
-  if (config.sessionHeader !== false) {
-    const headerName =
-      typeof config.sessionHeader === "string"
-        ? config.sessionHeader.toLowerCase()
-        : `x-${sessionName.toLowerCase()}-session`;
-    const headerValue = event.req.headers.get(headerName);
-    if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ")
-        ? headerValue.slice(7).trim()
-        : headerValue;
-    }
-  }
-
-  if (!token) {
-    token = getChunkedCookie(event, sessionName);
-  }
+  const token = getJWSSessionToken<T, MaxAge>(event, config);
 
   if (token) {
     const promise = verifyJWSSession(event, config, token)
@@ -269,6 +255,34 @@ export async function getJWSSession<
     config,
   });
   return session;
+}
+
+export function getJWSSessionToken<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+>(event: HTTPEvent, config: SessionConfigJWS<T, MaxAge>): string | undefined {
+  const sessionName = config.name || DEFAULT_NAME;
+
+  let token: string | undefined;
+
+  if (config.sessionHeader !== false) {
+    const headerName =
+      typeof config.sessionHeader === "string"
+        ? config.sessionHeader.toLowerCase()
+        : `x-${sessionName.toLowerCase()}-session`;
+    const headerValue = event.req.headers.get(headerName);
+    if (typeof headerValue === "string") {
+      token = headerValue.startsWith("Bearer ")
+        ? headerValue.slice(7).trim()
+        : headerValue;
+    }
+  }
+
+  if (!token) {
+    token = getChunkedCookie(event, sessionName);
+  }
+
+  return token;
 }
 
 export async function updateJWSSession<

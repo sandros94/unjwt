@@ -33,6 +33,11 @@ describe("adapter h3 v2", () => {
         }
         return { session };
       });
+
+      app.get("/token", async (event) => {
+        const session = await useJWESession(event, sessionConfig);
+        return session.token;
+      });
     });
 
     it("initiates session", async () => {
@@ -148,6 +153,19 @@ describe("adapter h3 v2", () => {
         session: { id: "999", data: { hello: "world" } },
       });
     });
+
+    it("retrieves the raw session token", async () => {
+      const result = await app.request("/token", {
+        headers: {
+          Cookie: cookie,
+        },
+      });
+      const token = await result.text();
+
+      expect(token).toBeDefined();
+      expect(token.length).toBeGreaterThan(0);
+      expect(token).toBeTypeOf("string");
+    });
   });
 
   describe("jws session", async () => {
@@ -170,6 +188,11 @@ describe("adapter h3 v2", () => {
           await session.update(await event.req.json());
         }
         return { session };
+      });
+
+      app.get("/token", async (event) => {
+        const session = await useJWSSession(event, sessionConfig);
+        return session.token;
       });
     });
 
@@ -285,6 +308,19 @@ describe("adapter h3 v2", () => {
       expect(await result.json()).toMatchObject({
         session: { id: "999", data: { hello: "world" } },
       });
+    });
+
+    it("retrieves the raw session token", async () => {
+      const result = await app.request("/token", {
+        headers: {
+          Cookie: cookie,
+        },
+      });
+      const token = await result.text();
+
+      expect(token).toBeDefined();
+      expect(token.length).toBeGreaterThan(0);
+      expect(token).toBeTypeOf("string");
     });
   });
 });

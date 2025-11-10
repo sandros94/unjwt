@@ -147,6 +147,9 @@ export async function useJWSSession<
     get data() {
       return (event.context.sessions?.[sessionName]?.data || {}) as T;
     },
+    get token() {
+      return getJWSSessionToken<T, MaxAge>(event, config);
+    },
     update: async (update: SessionUpdate<T>) => {
       if (!isEvent(event)) {
         throw new Error("[h3] Cannot update read-only session.");
@@ -228,27 +231,7 @@ export async function getJWSSession<
   };
   event.context.sessions[sessionName] = session;
 
-  let token: string | undefined;
-
-  if (config.sessionHeader !== false) {
-    const headerName =
-      typeof config.sessionHeader === "string"
-        ? config.sessionHeader.toLowerCase()
-        : `x-${sessionName.toLowerCase()}-session`;
-    const headerValue = _getReqHeader(event, headerName);
-    if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ")
-        ? headerValue.slice(7).trim()
-        : headerValue;
-    }
-  }
-
-  if (!token) {
-    const cookieHeader = _getReqHeader(event, "cookie");
-    if (cookieHeader) {
-      token = parseCookies(String(cookieHeader))[sessionName];
-    }
-  }
+  const token = getJWSSessionToken<T, MaxAge>(event, config);
 
   if (token) {
     const promise = verifyJWSSession<T, MaxAge>(event, config, token)
@@ -308,6 +291,39 @@ export async function getJWSSession<
     config,
   });
   return session;
+}
+
+function getJWSSessionToken<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+>(
+  event: H3Event | CompatEvent,
+  config: SessionConfigJWS<T, MaxAge>,
+): string | undefined {
+  const sessionName = config.name || DEFAULT_NAME;
+  let token: string | undefined;
+
+  if (config.sessionHeader !== false) {
+    const headerName =
+      typeof config.sessionHeader === "string"
+        ? config.sessionHeader.toLowerCase()
+        : `x-${sessionName.toLowerCase()}-session`;
+    const headerValue = _getReqHeader(event, headerName);
+    if (typeof headerValue === "string") {
+      token = headerValue.startsWith("Bearer ")
+        ? headerValue.slice(7).trim()
+        : headerValue;
+    }
+  }
+
+  if (!token) {
+    const cookieHeader = _getReqHeader(event, "cookie");
+    if (cookieHeader) {
+      token = parseCookies(String(cookieHeader))[sessionName];
+    }
+  }
+
+  return token;
 }
 
 function _getReqHeader(event: H3Event | CompatEvent, name: string) {

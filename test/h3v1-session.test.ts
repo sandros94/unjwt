@@ -49,6 +49,15 @@ describe("adapter h3 v1", () => {
           return { session };
         }),
       );
+
+      router.use(
+        "/token",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, sessionConfig);
+
+          return session.token;
+        }),
+      );
     });
 
     it("initiates session", async () => {
@@ -105,6 +114,15 @@ describe("adapter h3 v1", () => {
         sessions: [1, 2, 3].map(() => ({ id: "1", data: { foo: "bar" } })),
       });
     });
+
+    it("retrieves the raw session token", async () => {
+      const result = await request.get("/token").set("Cookie", cookie);
+      const token = result.text;
+
+      expect(token).toBeDefined();
+      expect(token.length).toBeGreaterThan(0);
+      expect(token).toBeTypeOf("string");
+    });
   });
 
   describe("jws session", async () => {
@@ -130,6 +148,15 @@ describe("adapter h3 v1", () => {
             await session.update(await readBody(event));
           }
           return { session };
+        }),
+      );
+
+      router.use(
+        "/token",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, sessionConfig);
+
+          return session.token;
         }),
       );
     });
@@ -187,6 +214,15 @@ describe("adapter h3 v1", () => {
       expect(result.body).toMatchObject({
         sessions: [1, 2, 3].map(() => ({ id: "1", data: { foo: "bar" } })),
       });
+    });
+
+    it("retrieves the raw session token", async () => {
+      const result = await request.get("/token").set("Cookie", cookie);
+      const token = result.text;
+
+      expect(token).toBeDefined();
+      expect(token.length).toBeGreaterThan(0);
+      expect(token).toBeTypeOf("string");
     });
   });
 

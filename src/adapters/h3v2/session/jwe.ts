@@ -140,6 +140,9 @@ export async function useJWESession<
     get data() {
       return (getSessionFromContext(event, sessionName)?.data || {}) as T;
     },
+    get token() {
+      return getJWESessionToken<T, MaxAge>(event, config);
+    },
     update: async (update: SessionUpdate<T>) => {
       await updateJWESession<T, MaxAge>(event, config, update);
       return sessionManager;
@@ -219,27 +222,7 @@ export async function getJWESession<
   };
   context.sessions![sessionName] = session;
 
-  // Load session from cookie or header
-  let token: string | undefined;
-
-  // Check header first
-  if (config.sessionHeader !== false) {
-    const headerName =
-      typeof config.sessionHeader === "string"
-        ? config.sessionHeader.toLowerCase()
-        : `x-${sessionName.toLowerCase()}-session`;
-    const headerValue = event.req.headers.get(headerName);
-    if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ")
-        ? headerValue.slice(7).trim()
-        : headerValue;
-    }
-  }
-
-  // Fallback to cookie if not found in header
-  if (!token) {
-    token = getChunkedCookie(event, sessionName);
-  }
+  const token = getJWESessionToken<T, MaxAge>(event, config);
 
   // If we have a token, try to unseal and load into session context
   if (token) {
@@ -295,6 +278,37 @@ export async function getJWESession<
     config,
   });
   return session;
+}
+
+export function getJWESessionToken<
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+>(event: HTTPEvent, config: SessionConfigJWE<T, MaxAge>): string | undefined {
+  const sessionName = config.name || DEFAULT_NAME;
+
+  // Load session from cookie or header
+  let token: string | undefined;
+
+  // Check header first
+  if (config.sessionHeader !== false) {
+    const headerName =
+      typeof config.sessionHeader === "string"
+        ? config.sessionHeader.toLowerCase()
+        : `x-${sessionName.toLowerCase()}-session`;
+    const headerValue = event.req.headers.get(headerName);
+    if (typeof headerValue === "string") {
+      token = headerValue.startsWith("Bearer ")
+        ? headerValue.slice(7).trim()
+        : headerValue;
+    }
+  }
+
+  // Fallback to cookie if not found in header
+  if (!token) {
+    token = getChunkedCookie(event, sessionName);
+  }
+
+  return token;
 }
 
 /**
