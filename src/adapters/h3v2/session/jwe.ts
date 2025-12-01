@@ -479,8 +479,8 @@ export async function unsealJWESession<
  * Clear the session (delete from context and drop cookie).
  */
 export async function clearJWESession<
-  T extends JWTClaims,
-  MaxAge extends ExpiresIn | undefined,
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: HTTPEvent,
   config: Partial<SessionConfigJWE<T, MaxAge>>,
@@ -508,8 +508,8 @@ export async function clearJWESession<
 }
 
 function getSessionFromContext<
-  T extends JWTClaims,
-  MaxAge extends ExpiresIn | undefined,
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(event: HTTPEvent, sessionName: string): SessionJWE<T, MaxAge> | undefined {
   const context = getEventContext<H3EventContext>(event);
   return context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;

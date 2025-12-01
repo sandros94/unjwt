@@ -105,8 +105,8 @@ const DEFAULT_COOKIE: SessionConfigJWS["cookie"] = {
 };
 
 export async function useJWSSession<
-  T extends JWTClaims,
-  MaxAge extends ExpiresIn | undefined,
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: HTTPEvent,
   config: SessionConfigJWS<T, MaxAge>,
@@ -149,8 +149,8 @@ export async function useJWSSession<
 }
 
 export async function getJWSSession<
-  T extends JWTClaims,
-  MaxAge extends ExpiresIn | undefined,
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: HTTPEvent,
   config: SessionConfigJWS<T, MaxAge>,
@@ -461,8 +461,8 @@ export async function clearJWSSession<
 }
 
 function getSessionFromContext<
-  T extends JWTClaims,
-  MaxAge extends ExpiresIn | undefined,
+  T extends JWTClaims = JWTClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(event: HTTPEvent, sessionName: string): SessionJWS<T, MaxAge> | undefined {
   const context = getEventContext<H3EventContext>(event);
   return context.sessions?.[sessionName] as SessionJWS<T, MaxAge> | undefined;
