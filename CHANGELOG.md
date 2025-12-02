@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.32
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.31...v0.5.32)
+
+### 🤖 CI
+
+- Remove duplicate build step ([2e36b20](https://github.com/sandros94/unjwt/commit/2e36b20))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.31
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.30...v0.5.31)
