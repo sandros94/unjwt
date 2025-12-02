@@ -5,7 +5,7 @@ export type { JWTClaims } from "../../../core/types";
 
 export interface SessionClaims
   extends Required<Pick<JWTClaims, "jti" | "iat">>,
-    Pick<JWTClaims, "exp"> {}
+    StrictOmit<JWTClaims, "jti" | "iat"> {}
 
 export type SessionData<T extends Record<string, any> = SessionClaims> =
   StrictOmit<T, "jti" | "iat" | "exp">;
