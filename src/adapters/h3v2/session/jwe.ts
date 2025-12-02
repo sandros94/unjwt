@@ -18,6 +18,7 @@ import type {
   JWK_Public,
   JWK_Private,
   JWEEncryptOptions,
+  JWEHeaderParameters,
   JWTClaimValidationOptions,
 } from "../../../core/types";
 import { encrypt, decrypt } from "../../../core/jwe";
@@ -78,6 +79,11 @@ export interface SessionHooksJWE<
     error: any;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
+  onUnsealKeyLookup?: (args: {
+    header: JWEHeaderParameters;
+    event: HTTPEvent;
+    config: SessionConfigJWE<T, MaxAge>;
+  }) => JWK_Symmetric | JWK_Private | Promise<JWK_Symmetric | JWK_Private>;
 }
 
 export interface SessionConfigJWE<
@@ -432,11 +438,18 @@ export async function unsealJWESession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
-  _event: HTTPEvent,
+  event: HTTPEvent,
   config: SessionConfigJWE<T, MaxAge>,
   sealed: string,
 ): Promise<Partial<SessionJWE<T, MaxAge>>> {
-  const key = getDecryptKey(config.key);
+  const key = config.hooks?.onUnsealKeyLookup
+    ? (header: JWEHeaderParameters) =>
+        config.hooks!.onUnsealKeyLookup!({
+          header,
+          event,
+          config,
+        })
+    : getDecryptKey(config.key);
 
   const alg = config.jwe?.encryptOptions?.alg;
   const enc = config.jwe?.encryptOptions?.enc;

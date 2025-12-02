@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { H3 } from "h3v2";
 import {
   type SessionConfigJWE,
@@ -321,6 +321,113 @@ describe("adapter h3 v2", () => {
       expect(token).toBeDefined();
       expect(token.length).toBeGreaterThan(0);
       expect(token).toBeTypeOf("string");
+    });
+  });
+
+  describe("hooks", () => {
+    describe("jwe session hooks", () => {
+      it("uses onUnsealKeyLookup to find the correct key", async () => {
+        const [key, otherKey] = await Promise.all([
+          generateJWK("A256GCM", {
+            kid: "test-key-1",
+          }),
+          generateJWK("A256GCM", {
+            kid: "test-key-2",
+          }),
+        ]);
+
+        const lookupSpy = vi.fn((args) => {
+          if (args.header.kid === "test-key-1") {
+            return key;
+          }
+          throw new Error("Key not found");
+        });
+
+        const config: SessionConfigJWE = {
+          name: "h3-jwe-lookup",
+          key: otherKey, // Default key is different
+          hooks: {
+            onUnsealKeyLookup: lookupSpy,
+          },
+        };
+
+        // Manually create a token with the correct key
+        const token = await encrypt(
+          { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
+          key,
+          {
+            alg: "A256GCMKW",
+          },
+        );
+
+        const app = new H3({ debug: true });
+        app.all("/", async (event) => {
+          const session = await useJWESession(event, config);
+          return { session };
+        });
+
+        const result = await app.request("/", {
+          headers: {
+            Cookie: `${config.name}=${token}`,
+          },
+        });
+
+        expect(lookupSpy).toHaveBeenCalled();
+        expect(await result.json()).toMatchObject({
+          session: { data: { foo: "bar" } },
+        });
+      });
+    });
+
+    describe("jws session hooks", () => {
+      it("uses onVerifyKeyLookup to find the correct key", async () => {
+        const [key, otherKey] = await Promise.all([
+          generateJWK("RS256", {
+            kid: "test-key-1",
+          }),
+          generateJWK("RS256", {
+            kid: "test-key-2",
+          }),
+        ]);
+
+        const lookupSpy = vi.fn((args) => {
+          if (args.header.kid === "test-key-1") {
+            return key.publicKey;
+          }
+          throw new Error("Key not found");
+        });
+
+        const config: SessionConfigJWS = {
+          name: "h3-jws-lookup",
+          key: otherKey, // Default key is different
+          hooks: {
+            onVerifyKeyLookup: lookupSpy,
+          },
+        };
+
+        // Manually create a token with the correct key
+        const token = await sign(
+          { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
+          key.privateKey,
+        );
+
+        const app = new H3({ debug: true });
+        app.all("/", async (event) => {
+          const session = await useJWSSession(event, config);
+          return { session };
+        });
+
+        const result = await app.request("/", {
+          headers: {
+            Cookie: `${config.name}=${token}`,
+          },
+        });
+
+        expect(lookupSpy).toHaveBeenCalled();
+        expect(await result.json()).toMatchObject({
+          session: { data: { foo: "bar" } },
+        });
+      });
     });
   });
 });

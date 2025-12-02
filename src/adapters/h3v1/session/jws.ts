@@ -14,6 +14,7 @@ import type {
   JWK_Private,
   JWK_Symmetric,
   JWSSignOptions,
+  JWSProtectedHeader,
   JWTClaimValidationOptions,
 } from "../../../core/types";
 import { sign, verify } from "../../../core/jws";
@@ -74,6 +75,15 @@ export interface SessionHooksJWS<
     error: any;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
+  onVerifyKeyLookup?: (args: {
+    header: JWSProtectedHeader;
+    event: H3Event;
+    config: SessionConfigJWS<T, MaxAge>;
+  }) =>
+    | JWKSet
+    | JWK_Symmetric
+    | JWK_Public
+    | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
 }
 
 export interface SessionConfigJWS<
@@ -482,12 +492,19 @@ export async function verifyJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
-  _event: H3Event | CompatEvent,
+  event: H3Event | CompatEvent,
   config: SessionConfigJWS<T, MaxAge>,
   token: string,
 ): Promise<Partial<SessionJWS<T, MaxAge>>> {
   const alg = config.jws?.signOptions?.alg;
-  const jwk = getVerifyKey(config.key);
+  const jwk = config.hooks?.onVerifyKeyLookup
+    ? (header: JWSProtectedHeader) =>
+        config.hooks!.onVerifyKeyLookup!({
+          header,
+          event: event as H3Event,
+          config,
+        })
+    : getVerifyKey(config.key);
 
   let typ: string | undefined = undefined;
   if (
