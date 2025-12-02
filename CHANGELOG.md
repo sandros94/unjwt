@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.5.31
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.30...v0.5.31)
+
+### 🩹 Fixes
+
+- **h3v2:** Type generics not being optional ([6cab06c](https://github.com/sandros94/unjwt/commit/6cab06c))
+- **adapters:** Token read on session initialization for supported responses ([9a98be1](https://github.com/sandros94/unjwt/commit/9a98be1))
+
+### 💅 Refactors
+
+- **adapters:** Replace JWTClaims with SessionClaims and fix exp typing ([9bf9b3c](https://github.com/sandros94/unjwt/commit/9bf9b3c))
+
+### 🤖 CI
+
+- Adjust CI conditions and update test command ([8180a23](https://github.com/sandros94/unjwt/commit/8180a23))
+- Add publish.yml ([de054bd](https://github.com/sandros94/unjwt/commit/de054bd))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.30
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.29...v0.5.30)
