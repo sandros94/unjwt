@@ -307,17 +307,17 @@ export function getJWESessionToken<
     }
   }
 
-  // Fallback to cookie if not found in header
-  if (!token) {
-    token = getChunkedCookie(event, sessionName);
-  }
-
-  // Check Set-Cookie as last resort (in case of redirects)
-  if (!token && hasWritableResponse(event)) {
+  // Check Set-Cookie (eg. in case of redirects)
+  if (config.cookie !== false && hasWritableResponse(event)) {
     const setCookie = event.res.headers.get("set-cookie");
     if (typeof setCookie === "string") {
       token = findSetCookie(setCookie, sessionName);
     }
+  }
+
+  // Fallback to cookie if not found earlier
+  if (!token) {
+    token = getChunkedCookie(event, sessionName);
   }
 
   return token;

@@ -331,15 +331,8 @@ export function getJWESessionToken<
     }
   }
 
-  if (!token) {
-    const cookieHeader = _getReqHeader(event, "cookie");
-    if (cookieHeader) {
-      token = parseCookies(String(cookieHeader))[sessionName];
-    }
-  }
-
-  // Check Set-Cookie as last resort (in case of redirects)
-  if (!token) {
+  // Check Set-Cookie (eg. in case of redirects)
+  if (config.cookie !== false) {
     const setCookie = _getResHeader(event, "set-cookie");
     if (typeof setCookie === "string") {
       token = findSetCookie(setCookie, sessionName);
@@ -350,6 +343,14 @@ export function getJWESessionToken<
           break;
         }
       }
+    }
+  }
+
+  // Fallback to cookie if not found earlier
+  if (!token) {
+    const cookieHeader = _getReqHeader(event, "cookie");
+    if (cookieHeader) {
+      token = parseCookies(String(cookieHeader))[sessionName];
     }
   }
 
