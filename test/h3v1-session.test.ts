@@ -65,7 +65,7 @@ describe("adapter h3 v1", () => {
       expect(result.headers["set-cookie"]).toHaveLength(1);
       cookie = result.headers["set-cookie"]![0]!;
       expect(result.body).toMatchObject({
-        session: { id: "1", data: {} },
+        session: { id: "1", data: {}, token: expect.any(String) },
       });
     });
 
@@ -166,7 +166,7 @@ describe("adapter h3 v1", () => {
       expect(result.headers["set-cookie"]).toHaveLength(1);
       cookie = result.headers["set-cookie"]![0]!;
       expect(result.body).toMatchObject({
-        session: { id: "1", data: {} },
+        session: { id: "1", data: {}, token: expect.any(String) },
       });
     });
 

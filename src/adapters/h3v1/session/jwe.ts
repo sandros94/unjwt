@@ -338,6 +338,21 @@ export function getJWESessionToken<
     }
   }
 
+  // Check Set-Cookie as last resort (in case of redirects)
+  if (!token) {
+    const setCookie = _getResHeader(event, "set-cookie");
+    if (typeof setCookie === "string") {
+      token = findSetCookie(setCookie, sessionName);
+    } else if (Array.isArray(setCookie)) {
+      for (const sc of setCookie) {
+        token = findSetCookie(sc, sessionName);
+        if (token) {
+          break;
+        }
+      }
+    }
+  }
+
   return token;
 }
 
@@ -350,6 +365,15 @@ function _getReqHeader(event: H3Event | CompatEvent, name: string) {
   }
   if ((event as { headers?: Headers }).headers) {
     return (event as { headers?: Headers }).headers!.get(name);
+  }
+}
+
+function _getResHeader(event: H3Event | CompatEvent, name: string) {
+  if ((event as H3Event).node) {
+    return (event as H3Event).node?.res.getHeader(name);
+  }
+  if ((event as { response?: Response }).response) {
+    return (event as { response?: Response }).response!.headers?.get(name);
   }
 }
 
@@ -601,4 +625,10 @@ function getDecryptKey(
   }
 
   return _key;
+}
+function findSetCookie(setCookie: string, name: string): string | undefined {
+  const regex = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`);
+  const match = setCookie.match(regex);
+
+  return match ? match[1] : undefined;
 }

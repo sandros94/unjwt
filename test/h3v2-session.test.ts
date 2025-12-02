@@ -45,7 +45,7 @@ describe("adapter h3 v2", () => {
       expect(result.headers.getSetCookie()).toHaveLength(1);
       cookie = result.headers.getSetCookie()[0]!;
       expect(await result.json()).toMatchObject({
-        session: { id: "1", data: {} },
+        session: { id: "1", data: {}, token: expect.any(String) },
       });
     });
 
@@ -201,7 +201,7 @@ describe("adapter h3 v2", () => {
       expect(result.headers.getSetCookie()).toHaveLength(1);
       cookie = result.headers.getSetCookie()[0]!;
       expect(await result.json()).toMatchObject({
-        session: { id: "1", data: {} },
+        session: { id: "1", data: {}, token: expect.any(String) },
       });
     });
 

@@ -286,6 +286,14 @@ export function getJWSSessionToken<
     token = getChunkedCookie(event, sessionName);
   }
 
+  // Check Set-Cookie as last resort (in case of redirects)
+  if (!token && hasWritableResponse(event)) {
+    const setCookie = event.res.headers.get("set-cookie");
+    if (typeof setCookie === "string") {
+      token = findSetCookie(setCookie, sessionName);
+    }
+  }
+
   return token;
 }
 
@@ -543,4 +551,10 @@ function getVerifyKey(
   }
 
   return _key;
+}
+function findSetCookie(setCookie: string, name: string): string | undefined {
+  const regex = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`);
+  const match = setCookie.match(regex);
+
+  return match ? match[1] : undefined;
 }
