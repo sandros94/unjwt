@@ -14,7 +14,6 @@ import type {
   JWK_Symmetric,
   JWK_Public,
   JWK_Private,
-  JWTClaims,
   JWEEncryptOptions,
   JWTClaimValidationOptions,
 } from "../../../core/types";
@@ -25,12 +24,17 @@ import {
   isPublicJWK,
   computeExpiresInSeconds,
 } from "../../../core/utils";
-import type { SessionData, SessionUpdate, SessionManager } from "./types";
+import type {
+  SessionClaims,
+  SessionData,
+  SessionUpdate,
+  SessionManager,
+} from "./types";
 
 const kGetSessionPromise = Symbol("h3_jwe_getSession");
 
 export interface SessionJWE<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   // Mapped from payload.jti
@@ -44,7 +48,7 @@ export interface SessionJWE<
 }
 
 export interface SessionHooksJWE<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   onRead?: (args: {
@@ -74,7 +78,7 @@ export interface SessionHooksJWE<
 }
 
 export interface SessionConfigJWE<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   /** @deprecated use `key` instead */
@@ -133,7 +137,7 @@ type CompatEvent =
  * Create a session manager for the current request.
  */
 export async function useJWESession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -181,7 +185,7 @@ export async function useJWESession<
  * Get (and lazily initialize) the session for the current request.
  */
 export async function getJWESession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -305,7 +309,7 @@ export async function getJWESession<
 }
 
 export function getJWESessionToken<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -353,7 +357,7 @@ function _getReqHeader(event: H3Event | CompatEvent, name: string) {
  * Update the session (optionally mutating the session data) and re-issue the JWE token.
  */
 export async function updateJWESession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event,
@@ -407,7 +411,7 @@ export async function updateJWESession<
  * }
  */
 export async function sealJWESession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -462,7 +466,7 @@ export async function sealJWESession<
  * Decrypt the JWE and return a Session-compatible object.
  */
 export async function unsealJWESession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   _event: H3Event | CompatEvent,
@@ -483,7 +487,7 @@ export async function unsealJWESession<
     typ = config.jwe.encryptOptions.protectedHeader.typ;
   }
   const { payload } = await decrypt<
-    JWTClaims & { jti: string; iat: number; exp?: number }
+    T & { jti: string; iat: number; exp?: number }
   >(sealed, key, {
     ...config.jwe?.decryptOptions,
     requiredClaims: [
@@ -527,7 +531,7 @@ export async function unsealJWESession<
  * Clear the session (delete from context and drop cookie).
  */
 export async function clearJWESession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(event: H3Event, config: Partial<SessionConfigJWE<T, MaxAge>>): Promise<void> {
   const sessionName = config.name || DEFAULT_NAME;

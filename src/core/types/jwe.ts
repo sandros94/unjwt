@@ -11,6 +11,7 @@ import type {
   ContentEncryptionAlgorithm,
 } from "./jwk";
 import type { ExpiresIn } from ".";
+import type { StrictOmit } from "../utils/types";
 
 /** Recognized JWE Header Parameters, any other Header Members may also be present. */
 export interface JWEHeaderParameters extends JoseHeaderParameters {
@@ -95,7 +96,7 @@ export interface JWEEncryptOptions {
   expiresIn?: ExpiresIn;
 
   /** Additional JWE Protected Header parameters. */
-  protectedHeader?: Omit<
+  protectedHeader?: StrictOmit<
     JWEHeaderParameters,
     "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
   >;

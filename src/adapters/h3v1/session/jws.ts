@@ -10,7 +10,6 @@ import { parse as parseCookies } from "cookie-esv1";
 import type {
   ExpiresIn,
   JWKSet,
-  JWTClaims,
   JWK_Public,
   JWK_Private,
   JWK_Symmetric,
@@ -24,12 +23,17 @@ import {
   isPublicJWK,
   computeExpiresInSeconds,
 } from "../../../core/utils";
-import type { SessionData, SessionUpdate, SessionManager } from "./types";
+import type {
+  SessionClaims,
+  SessionData,
+  SessionUpdate,
+  SessionManager,
+} from "./types";
 
 const kGetSessionPromise = Symbol("h3_jws_getSession");
 
 export interface SessionJWS<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   // Mapped from payload.jti
@@ -43,7 +47,7 @@ export interface SessionJWS<
 }
 
 export interface SessionHooksJWS<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   onRead?: (args: {
@@ -73,7 +77,7 @@ export interface SessionHooksJWS<
 }
 
 export interface SessionConfigJWS<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   /**
@@ -125,7 +129,7 @@ type CompatEvent =
  * NOTE: Contents are visible to clients (Base64URL-decoded JSON). Do not store secrets in session data.
  */
 export async function useJWSSession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -172,7 +176,7 @@ export async function useJWSSession<
  * Retrieve (and lazily initialize) the session.
  */
 export async function getJWSSession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -294,7 +298,7 @@ export async function getJWSSession<
 }
 
 function getJWSSessionToken<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -342,7 +346,7 @@ function _getReqHeader(event: H3Event | CompatEvent, name: string) {
  * Update session data (if provided) and reissue JWS.
  */
 export async function updateJWSSession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event,
@@ -390,7 +394,7 @@ export async function updateJWSSession<
  *  jti, iat, exp?, data, plus optional extraClaims (cannot override reserved)
  */
 export async function signJWSSession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   event: H3Event | CompatEvent,
@@ -450,7 +454,7 @@ export async function signJWSSession<
  *  - enforces maxAge if provided
  */
 export async function verifyJWSSession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(
   _event: H3Event | CompatEvent,
@@ -504,7 +508,7 @@ export async function verifyJWSSession<
  * Destroy the session (context + cookie).
  */
 export async function clearJWSSession<
-  T extends JWTClaims = JWTClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(event: H3Event, config: Partial<SessionConfigJWS<T, MaxAge>>): Promise<void> {
   const sessionName = config.name || DEFAULT_NAME;
