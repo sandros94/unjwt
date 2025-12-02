@@ -102,9 +102,7 @@ export async function sign(
   // 2. Construct Protected Header
   const protectedHeader: JWSProtectedHeader = {
     ...safeAdditionalHeader,
-    ...(isJWK(key) && key.kid
-      ? { kid: safeAdditionalHeader?.kid || key.kid }
-      : {}), // Include kid if available
+    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}), // Include kid if available
     alg: alg,
     typ: safeAdditionalHeader?.typ,
   };

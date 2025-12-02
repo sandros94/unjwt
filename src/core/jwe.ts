@@ -158,6 +158,7 @@ export async function encrypt(
   const jweProtectedHeader = sanitizeObject<JWEHeaderParameters>({
     ...baseProtectedHeader,
     ...keyManagementHeaderParams,
+    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}), // Include kid if available
     alg,
     enc,
   });
