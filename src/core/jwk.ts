@@ -987,10 +987,21 @@ function getGenerateKeyParams(
     // AES GCM Encryption
     case "A128GCM":
     case "A192GCM":
-    case "A256GCM": {
-      const length = Number.parseInt(alg.slice(1, 4), 10);
+    case "A256GCM":
+    case "A128GCMKW":
+    case "A192GCMKW":
+    case "A256GCMKW": {
+      // If it ends in KW, strip it to get the length
+      const baseAlg = alg.replace("KW", "");
+      const length = Number.parseInt(baseAlg.slice(1, 4), 10);
       algorithm = { name: "AES-GCM", length };
-      keyUsages = defaultKeyUsage ?? ["encrypt", "decrypt"];
+
+      // If it's explicitly KW, default to wrapping usages, otherwise encrypt/decrypt
+      keyUsages =
+        defaultKeyUsage ??
+        (alg.endsWith("KW")
+          ? ["wrapKey", "unwrapKey"]
+          : ["encrypt", "decrypt"]);
       break;
     }
 

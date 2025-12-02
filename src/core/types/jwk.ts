@@ -324,12 +324,12 @@ export type JWK_RSA_ENC =
   | "RSA-OAEP-384"
   | "RSA-OAEP-512";
 export type JWK_AES_KW = "A128KW" | "A192KW" | "A256KW";
-export type JWK_AES_GCM_KW = "A128GCMKW" | "A192GCMKW" | "A256GCMKW";
 export type JWK_AES_CBC_HMAC =
   | "A128CBC-HS256"
   | "A192CBC-HS384"
   | "A256CBC-HS512";
 export type JWK_AES_GCM = "A128GCM" | "A192GCM" | "A256GCM";
+export type JWK_AES_GCM_KW = "A128GCMKW" | "A192GCMKW" | "A256GCMKW";
 export type JWK_PBES2 =
   | "PBES2-HS256+A128KW"
   | "PBES2-HS384+A192KW"
@@ -341,7 +341,11 @@ export type JWK_ECDH_ES =
   | "ECDH-ES+A256KW";
 export type JWK_OKP_SIGN = "Ed25519" | "EdDSA";
 
-export type JWK_Symmetric_Algorithm = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM;
+export type JWK_Symmetric_Algorithm =
+  | JWK_HMAC
+  | JWK_AES_KW
+  | JWK_AES_GCM
+  | JWK_AES_GCM_KW;
 export type JWK_Asymmetric_Algorithm =
   | JWK_RSA_SIGN
   | JWK_RSA_PSS

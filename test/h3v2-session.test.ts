@@ -328,10 +328,10 @@ describe("adapter h3 v2", () => {
     describe("jwe session hooks", () => {
       it("uses onUnsealKeyLookup to find the correct key", async () => {
         const [key, otherKey] = await Promise.all([
-          generateJWK("A256GCM", {
+          generateJWK("A256GCMKW", {
             kid: "test-key-1",
           }),
-          generateJWK("A256GCM", {
+          generateJWK("A256GCMKW", {
             kid: "test-key-2",
           }),
         ]);
@@ -355,9 +355,6 @@ describe("adapter h3 v2", () => {
         const token = await encrypt(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key,
-          {
-            alg: "A256GCMKW",
-          },
         );
 
         const app = new H3({ debug: true });
