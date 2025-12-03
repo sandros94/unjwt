@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.5.33
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.32...v0.5.33)
+
+### 🚀 Enhancements
+
+- **adapters:** Key lookup hook during verify/unseal ([741b194](https://github.com/sandros94/unjwt/commit/741b194))
+
+### 🩹 Fixes
+
+- **adapters:** Improve token retriveal for updated sessions ([623ebd5](https://github.com/sandros94/unjwt/commit/623ebd5))
+- **JWS/JWE:** Automatically populate correct `kid` if available ([e987cf1](https://github.com/sandros94/unjwt/commit/e987cf1))
+- **jwe/jwk:** Update key management algorithms to support AES-GCM key wrapping ([899642e](https://github.com/sandros94/unjwt/commit/899642e))
+
+### 🏡 Chore
+
+- Update deps ([2c9a8a6](https://github.com/sandros94/unjwt/commit/2c9a8a6))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.32
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.31...v0.5.32)
