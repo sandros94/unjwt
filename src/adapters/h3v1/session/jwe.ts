@@ -63,6 +63,7 @@ export interface SessionHooksJWE<
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
+    session: SessionJWE<T, MaxAge> | undefined;
     event: H3Event;
     config: Partial<SessionConfigJWE<T, MaxAge>>;
   }) => void | Promise<void>;
@@ -573,6 +574,15 @@ export async function clearJWESession<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 >(event: H3Event, config: Partial<SessionConfigJWE<T, MaxAge>>): Promise<void> {
   const sessionName = config.name || DEFAULT_NAME;
+
+  // If session exists in context store for hook and delete it
+  let session = event.context.sessions?.[sessionName] as
+    | SessionJWE<T, MaxAge>
+    | undefined;
+  if (session && session[kGetSessionPromise]) {
+    session = await session[kGetSessionPromise];
+  }
+
   if (event.context.sessions?.[sessionName]) {
     delete event.context.sessions![sessionName];
   }
@@ -585,6 +595,7 @@ export async function clearJWESession<
   });
 
   await config.hooks?.onClear?.({
+    session,
     event,
     config,
   });
