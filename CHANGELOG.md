@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.34
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.33...v0.5.34)
+
+### 🩹 Fixes
+
+- **adapters:** Add `session` to `onClear` hook ([afff527](https://github.com/sandros94/unjwt/commit/afff527))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.33
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.32...v0.5.33)
