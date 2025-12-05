@@ -61,6 +61,7 @@ export interface SessionHooksJWS<
   }) => void | Promise<void>;
   onUpdate?: (args: {
     session: SessionJWS<T, MaxAge>;
+    oldSession: SessionJWS<T, MaxAge>;
     event: HTTPEvent;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
@@ -328,10 +329,14 @@ export async function updateJWSSession<
     update = update(session.data);
   }
   if (update) {
+    const oldSession = { ...session, data: { ...session.data } };
+
     Object.assign(session.data, update);
+
     await config.hooks?.onUpdate?.({
-      event,
       session,
+      oldSession,
+      event,
       config,
     });
   }
