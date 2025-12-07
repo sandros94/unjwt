@@ -1,6 +1,6 @@
 {
   "name": "unjwt",
-  "version": "0.5.35",
+  "version": "0.5.36",
   "description": "Low-level JWT utilities",
   "repository": "sandros94/unjwt",
   "license": "MIT",
