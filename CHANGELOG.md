@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.37
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.36...v0.5.37)
+
+### 🩹 Fixes
+
+- **adapters:** Do not allow nullish ids ([f49df49](https://github.com/sandros94/unjwt/commit/f49df49))
+- **adapters:** Properly use `jti`, `iat` and `exp` as per JWT spec ([ad159cd](https://github.com/sandros94/unjwt/commit/ad159cd))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.36
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.35...v0.5.36)
