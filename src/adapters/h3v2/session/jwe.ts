@@ -274,7 +274,7 @@ export async function getJWESession<
 
   // New session store in response cookies
   if (!session.id) {
-    session.id = config.generateId?.() ?? crypto.randomUUID();
+    session.id = config.generateId?.() || crypto.randomUUID();
     session.createdAt =
       config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
     (session.expiresAt as any) =

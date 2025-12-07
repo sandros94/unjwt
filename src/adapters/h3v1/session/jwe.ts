@@ -298,7 +298,7 @@ export async function getJWESession<
         "Cannot initialize a new session. Use `useSession(event)` within the main handler.",
       );
     }
-    session.id = config.generateId?.() ?? crypto.randomUUID();
+    session.id = config.generateId?.() || crypto.randomUUID();
     session.createdAt =
       config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
     (session.expiresAt as any) =

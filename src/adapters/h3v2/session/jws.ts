@@ -255,7 +255,7 @@ export async function getJWSSession<
   }
 
   if (!session.id) {
-    session.id = config.generateId?.() ?? crypto.randomUUID();
+    session.id = config.generateId?.() || crypto.randomUUID();
     session.createdAt =
       config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
     (session.expiresAt as any) =

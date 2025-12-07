@@ -291,7 +291,7 @@ export async function getJWSSession<
         "Cannot initialize a new session outside main handler. Use `useJWSSession(event)` properly.",
       );
     }
-    session.id = config.generateId?.() ?? crypto.randomUUID();
+    session.id = config.generateId?.() || crypto.randomUUID();
     session.createdAt =
       config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
     (session.expiresAt as any) =
