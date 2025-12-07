@@ -274,13 +274,6 @@ export async function getJWESession<
 
   // New session store in response cookies
   if (!session.id) {
-    session.id = config.generateId?.() || crypto.randomUUID();
-    session.createdAt =
-      config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-    (session.expiresAt as any) =
-      config.maxAge === undefined
-        ? undefined
-        : session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000;
     await updateJWESession(event, config);
   }
 
@@ -367,6 +360,17 @@ export async function updateJWESession<
     });
   }
 
+  const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
+  const createdAt = now - (now % 1000); // round to seconds
+  Object.assign(session, {
+    id: config.generateId?.() || crypto.randomUUID(),
+    createdAt,
+    expiresAt:
+      config.maxAge === undefined
+        ? undefined
+        : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
+  });
+
   // Seal and store in cookie
   if (config.cookie !== false && hasWritableResponse(event)) {
     const sealed = await sealJWESession(event, config);
@@ -401,11 +405,10 @@ export async function sealJWESession<
     (context.sessions?.[sessionName] as SessionJWE<T, MaxAge>) ||
     (await getJWESession<T, MaxAge>(event, config));
 
-  const iat = Math.floor(Date.now() / 1000);
-  const exp =
-    config.maxAge === undefined
-      ? undefined
-      : iat + computeExpiresInSeconds(config.maxAge);
+  const iat = Math.floor(session.createdAt / 1000);
+  const exp = session.expiresAt
+    ? Math.floor(session.expiresAt / 1000)
+    : undefined;
 
   const payload: Record<string, any> = {
     ...session.data,

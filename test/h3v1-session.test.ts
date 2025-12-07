@@ -16,6 +16,7 @@ import {
   useJWESession,
   useJWSSession,
   updateJWESession,
+  updateJWSSession,
   generateJWK,
 } from "../src/adapters/h3v1";
 import { base64UrlDecode } from "../src/core/utils";
@@ -60,6 +61,40 @@ describe("adapter h3 v1", () => {
           return session.token;
         }),
       );
+
+      router.use(
+        "/update",
+        eventHandler(async (event) => {
+          const date = new Date();
+          const session = await useJWESession(event, {
+            ...sessionConfig,
+            jwe: {
+              encryptOptions: {
+                currentDate: date,
+              },
+            },
+          });
+          const createdAtBefore = session.createdAt;
+
+          await updateJWESession(
+            event,
+            {
+              ...sessionConfig,
+              jwe: {
+                encryptOptions: {
+                  currentDate: new Date(date.getTime() + 1000), // date manipulation to ensure time difference
+                },
+              },
+            },
+            { updated: true },
+          );
+
+          return {
+            createdAtBefore,
+            createdAtAfter: session.createdAt,
+          };
+        }),
+      );
     });
 
     it("initiates session", async () => {
@@ -85,12 +120,12 @@ describe("adapter h3 v1", () => {
         .send({ foo: "bar" });
       cookie = result.headers["set-cookie"]![0]!;
       expect(result.body).toMatchObject({
-        session: { id: "1", data: { foo: "bar" } },
+        session: { id: "2", data: { foo: "bar" } },
       });
 
       const result2 = await request.get("/").set("Cookie", cookie);
       expect(result2.body).toMatchObject({
-        session: { id: "1", data: { foo: "bar" } },
+        session: { id: "2", data: { foo: "bar" } },
       });
     });
 
@@ -113,7 +148,7 @@ describe("adapter h3 v1", () => {
       );
       const result = await request.get("/concurrent").set("Cookie", cookie);
       expect(result.body).toMatchObject({
-        sessions: [1, 2, 3].map(() => ({ id: "1", data: { foo: "bar" } })),
+        sessions: [1, 2, 3].map(() => ({ id: "2", data: { foo: "bar" } })),
       });
     });
 
@@ -124,6 +159,13 @@ describe("adapter h3 v1", () => {
       expect(token).toBeDefined();
       expect(token.length).toBeGreaterThan(0);
       expect(token).toBeTypeOf("string");
+    });
+
+    it("updates createdAt on session update", async () => {
+      const result = await request.post("/update").set("Cookie", cookie);
+      expect(result.body.createdAtBefore).toBeDefined();
+      expect(result.body.createdAtAfter).toBeDefined();
+      expect(result.body.createdAtAfter).not.toBe(result.body.createdAtBefore);
     });
   });
 
@@ -161,6 +203,40 @@ describe("adapter h3 v1", () => {
           return session.token;
         }),
       );
+
+      router.use(
+        "/update",
+        eventHandler(async (event) => {
+          const date = new Date();
+          const session = await useJWSSession(event, {
+            ...sessionConfig,
+            jws: {
+              signOptions: {
+                currentDate: date,
+              },
+            },
+          });
+          const createdAtBefore = session.createdAt;
+
+          await updateJWSSession(
+            event,
+            {
+              ...sessionConfig,
+              jws: {
+                signOptions: {
+                  currentDate: new Date(date.getTime() + 1000), // date manipulation to ensure time difference
+                },
+              },
+            },
+            { updated: true },
+          );
+
+          return {
+            createdAtBefore,
+            createdAtAfter: session.createdAt,
+          };
+        }),
+      );
     });
 
     it("initiates session", async () => {
@@ -186,12 +262,12 @@ describe("adapter h3 v1", () => {
         .send({ foo: "bar" });
       cookie = result.headers["set-cookie"]![0]!;
       expect(result.body).toMatchObject({
-        session: { id: "1", data: { foo: "bar" } },
+        session: { id: "2", data: { foo: "bar" } },
       });
 
       const result2 = await request.get("/").set("Cookie", cookie);
       expect(result2.body).toMatchObject({
-        session: { id: "1", data: { foo: "bar" } },
+        session: { id: "2", data: { foo: "bar" } },
       });
     });
 
@@ -214,7 +290,7 @@ describe("adapter h3 v1", () => {
       );
       const result = await request.get("/concurrent").set("Cookie", cookie);
       expect(result.body).toMatchObject({
-        sessions: [1, 2, 3].map(() => ({ id: "1", data: { foo: "bar" } })),
+        sessions: [1, 2, 3].map(() => ({ id: "2", data: { foo: "bar" } })),
       });
     });
 
@@ -225,6 +301,13 @@ describe("adapter h3 v1", () => {
       expect(token).toBeDefined();
       expect(token.length).toBeGreaterThan(0);
       expect(token).toBeTypeOf("string");
+    });
+
+    it("updates createdAt on session update", async () => {
+      const result = await request.post("/update").set("Cookie", cookie);
+      expect(result.body.createdAtBefore).toBeDefined();
+      expect(result.body.createdAtAfter).toBeDefined();
+      expect(result.body.createdAtAfter).not.toBe(result.body.createdAtBefore);
     });
   });
 

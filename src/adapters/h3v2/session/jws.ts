@@ -255,13 +255,6 @@ export async function getJWSSession<
   }
 
   if (!session.id) {
-    session.id = config.generateId?.() || crypto.randomUUID();
-    session.createdAt =
-      config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
-    (session.expiresAt as any) =
-      config.maxAge === undefined
-        ? undefined
-        : session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000;
     await updateJWSSession<T, MaxAge>(event, config);
   }
 
@@ -341,6 +334,17 @@ export async function updateJWSSession<
     });
   }
 
+  const now = config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
+  const createdAt = now - (now % 1000); // round to seconds
+  Object.assign(session, {
+    id: config.generateId?.() || crypto.randomUUID(),
+    createdAt,
+    expiresAt:
+      config.maxAge === undefined
+        ? undefined
+        : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
+  });
+
   if (config.cookie !== false && hasWritableResponse(event)) {
     const token = await signJWSSession(event, config);
     setChunkedCookie(event, sessionName, token, {
@@ -370,11 +374,10 @@ export async function signJWSSession<
     (context.sessions?.[sessionName] as SessionJWS<T, MaxAge>) ||
     (await getJWSSession<T, MaxAge>(event, config));
 
-  const iat = Math.floor(Date.now() / 1000);
-  const exp =
-    config.maxAge === undefined
-      ? undefined
-      : iat + computeExpiresInSeconds(config.maxAge);
+  const iat = Math.floor(session.createdAt / 1000);
+  const exp = session.expiresAt
+    ? Math.floor(session.expiresAt / 1000)
+    : undefined;
 
   const payload: Record<string, any> = {
     ...session.data,
