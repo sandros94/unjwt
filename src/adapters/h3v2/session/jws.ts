@@ -370,19 +370,19 @@ export async function signJWSSession<
     (context.sessions?.[sessionName] as SessionJWS<T, MaxAge>) ||
     (await getJWSSession<T, MaxAge>(event, config));
 
-  const iatSeconds = Math.floor(session.createdAt / 1000);
-  const expSeconds =
+  const iat = Math.floor(Date.now() / 1000);
+  const exp =
     config.maxAge === undefined
       ? undefined
-      : iatSeconds + computeExpiresInSeconds(config.maxAge);
+      : iat + computeExpiresInSeconds(config.maxAge);
 
   const payload: Record<string, any> = {
     ...session.data,
     jti: session.id,
-    iat: iatSeconds,
+    iat,
   };
-  if (expSeconds) {
-    payload.exp = expSeconds;
+  if (exp) {
+    payload.exp = exp;
   }
 
   let typ: string | undefined;
