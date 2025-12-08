@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.38
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.37...v0.5.38)
+
+### 💅 Refactors
+
+- **adapters:** Session init and id tracking ([#9](https://github.com/sandros94/unjwt/pull/9))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.37
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.36...v0.5.37)
