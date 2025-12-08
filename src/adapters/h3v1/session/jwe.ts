@@ -39,7 +39,7 @@ export interface SessionJWE<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   // Mapped from payload.jti
-  id: string;
+  id: string | undefined;
   // Mapped from payload.iat (in ms)
   createdAt: number;
   // Mapped from payload.exp (in ms)
@@ -175,7 +175,9 @@ export async function useJWESession<
         throw new Error("[h3] Cannot update read-only session.");
       }
       await updateJWESession<T, MaxAge>(event as H3Event, config, update);
-      return sessionManager;
+      return sessionManager as SessionManager<T, MaxAge> & {
+        readonly id: string;
+      };
     },
     clear: () => {
       if (!isEvent(event)) {
@@ -245,10 +247,16 @@ export async function getJWESession<
   }
 
   // Placeholder session object
+  const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
+  const createdAt = now - (now % 1000); // round to seconds
   const session: SessionJWE<T, MaxAge> = {
-    id: "",
-    createdAt: 0,
-    expiresAt: undefined as MaxAge extends ExpiresIn ? number : T["exp"],
+    id: undefined,
+    createdAt,
+    expiresAt: (config.maxAge === undefined
+      ? undefined
+      : createdAt +
+        computeExpiresInSeconds(config.maxAge) *
+          1000) as MaxAge extends ExpiresIn ? number : T["exp"],
     data: Object.create(null),
   };
   event.context.sessions![sessionName] = session;
@@ -289,16 +297,6 @@ export async function getJWESession<
       });
     event.context.sessions![sessionName][kGetSessionPromise] = promise;
     await promise;
-  }
-
-  // If no valid session loaded, create a new one
-  if (!session.id) {
-    if (!isEvent(event)) {
-      throw new Error(
-        "Cannot initialize a new session. Use `useSession(event)` within the main handler.",
-      );
-    }
-    await updateJWESession<T, MaxAge>(event as H3Event, config);
   }
 
   await config.hooks?.onRead?.({
@@ -390,6 +388,13 @@ export async function updateJWESession<
   config: SessionConfigJWE<T, MaxAge>,
   update?: SessionUpdate<T>,
 ): Promise<SessionJWE<T, MaxAge>> {
+  // Ensure we can update a session
+  if (!isEvent(event)) {
+    throw new Error(
+      "Cannot update a new session. Use `useSession(event)` within the main handler.",
+    );
+  }
+
   const sessionName = config.name || DEFAULT_NAME;
 
   const session: SessionJWE<T, MaxAge> =

@@ -42,7 +42,7 @@ export interface SessionJWE<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   // Mapped from payload.jti
-  id: string;
+  id: string | undefined;
   // Mapped from payload.iat (in ms)
   createdAt: number;
   // Mapped from payload.exp (in ms)
@@ -225,13 +225,20 @@ export async function getJWESession<
     return session;
   }
 
-  // Prepare an empty session object and store in context
+  // Placeholder session object
+  const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
+  const createdAt = now - (now % 1000); // round to seconds
   const session: SessionJWE<T, MaxAge> = {
-    id: "",
-    createdAt: 0,
-    expiresAt: undefined as MaxAge extends ExpiresIn ? number : T["exp"],
+    id: undefined,
+    createdAt,
+    expiresAt: (config.maxAge === undefined
+      ? undefined
+      : createdAt +
+        computeExpiresInSeconds(config.maxAge) *
+          1000) as MaxAge extends ExpiresIn ? number : T["exp"],
     data: new NullProtoObj(),
   };
+  // @ts-expect-error upstream types expect an empty id string
   context.sessions![sessionName] = session;
 
   const token = getJWESessionToken<T, MaxAge>(event, config);
@@ -270,11 +277,6 @@ export async function getJWESession<
       });
     session[kGetSessionPromise] = promise;
     await promise;
-  }
-
-  // New session store in response cookies
-  if (!session.id) {
-    await updateJWESession(event, config);
   }
 
   await config.hooks?.onRead?.({
