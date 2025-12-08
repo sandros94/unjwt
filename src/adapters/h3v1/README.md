@@ -2,6 +2,9 @@
 
 The `h3` adapter bundles session helpers that store data inside signed or encrypted JWTs.
 
+> [!WARNING]
+> While these adapters try to be compatible with h3's `useSession` API, the key difference is that new sessions are not automatically created when calling `useJWESession` or `useJWSSession`, marking their `id` as `undefined` until you explicitly call `session.update()`. This is to comply with various specs that do integrate JWT one (such as OAuth) where sessions are only created upon valid operations (like user authorization).
+
 For an in-depth guide on using these adapters, please refer to the [H3 Session Adapters - Usage Guide](../../../docs/h3-session-adapters.md).
 
 - `useJWESession(event, config)` encrypts the session payload with the provided `secret` (password string or private/symmetric JWK). Use this when session data must remain confidential. (cookie's `httpOnly: true` by default)

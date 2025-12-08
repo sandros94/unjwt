@@ -605,6 +605,9 @@ console.log(rsaPublicSpki);
 
 ### Adapters
 
+> [!WARNING]
+> While these adapters try to be compatible with h3's `useSession` API, the key difference is that new sessions are not automatically created when calling `useJWESession` or `useJWSSession`, marking their `id` as `undefined` until you explicitly call `session.update()`. This is to comply with various specs that do integrate JWT one (such as OAuth) where sessions are only created upon valid operations (like user authorization).
+
 #### H3 v1 (Nuxt v4, Nitro v2)
 
 The `h3v1` adapter bundles session helpers that store data inside signed or encrypted JWTs.

@@ -28,6 +28,14 @@ describe("adapter h3 v2", () => {
     beforeEach(() => {
       app = new H3({ debug: true });
 
+      app.all("/init", async (event) => {
+        const session = await useJWESession(event, sessionConfig).then((s) =>
+          s.update({}),
+        );
+
+        return { session };
+      });
+
       app.all("/", async (event) => {
         const session = await useJWESession(event, sessionConfig);
         if (event.req.method === "POST") {
@@ -74,7 +82,7 @@ describe("adapter h3 v2", () => {
     });
 
     it("initiates session", async () => {
-      const result = await app.request("/");
+      const result = await app.request("/init");
       expect(result.headers.getSetCookie()).toHaveLength(1);
       cookie = result.headers.getSetCookie()[0]!;
       expect(await result.json()).toMatchObject({
@@ -229,6 +237,14 @@ describe("adapter h3 v2", () => {
     beforeEach(() => {
       app = new H3({ debug: true });
 
+      app.all("/init", async (event) => {
+        const session = await useJWSSession(event, sessionConfig).then((s) =>
+          s.update({}),
+        );
+
+        return { session };
+      });
+
       app.all("/", async (event) => {
         const session = await useJWSSession(event, sessionConfig);
         if (event.req.method === "POST") {
@@ -275,7 +291,7 @@ describe("adapter h3 v2", () => {
     });
 
     it("initiates session", async () => {
-      const result = await app.request("/");
+      const result = await app.request("/init");
       expect(result.headers.getSetCookie()).toHaveLength(1);
       cookie = result.headers.getSetCookie()[0]!;
       expect(await result.json()).toMatchObject({
