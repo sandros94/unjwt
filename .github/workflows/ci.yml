@@ -2,20 +2,25 @@ name: ci
 
 on:
   push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
+
+permissions:
+  contents: read
 
 jobs:
   ci:
     if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) }}
     runs-on: ubuntu-latest
+    outputs:
+      lint_passed: ${{ steps.lint.outcome == 'success' }}
     steps:
       - uses: actions/checkout@v6
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
@@ -23,10 +28,42 @@ jobs:
           cache: "pnpm"
 
       - run: pnpm install
-      - run: pnpm lint
-      - run: pnpm test
-      - run: pnpm build
 
-      # - uses: codecov/codecov-action@v5
-      #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
+      # ---- LINT (may fail, tracked via outcome) ----
+      - id: lint
+        name: Run lint
+        run: pnpm lint
+        continue-on-error: true
+
+      # ---- TEST & BUILD only if lint succeeded ----
+      - name: Test
+        if: steps.lint.outcome == 'success'
+        run: pnpm test
+
+      - name: Build
+        if: steps.lint.outcome == 'success'
+        run: pnpm build
+
+  # AUTOFIX — only runs when lint failed
+  autofix:
+    needs: ci
+    if: needs.ci.outputs.lint_passed == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: "package.json"
+          cache: "pnpm"
+
+      - run: pnpm install
+      - run: pnpm lint:fix
+
+      - uses: autofix-ci/action@551dded8c6cc8a1054039c8bc0b8b48c51dfc6ef
+        with:
+          commit-message: "chore: apply automated updates"
