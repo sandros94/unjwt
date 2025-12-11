@@ -10,6 +10,10 @@
     "name": "Sandro Circi",
     "email": "sandro.circi@digitoolmedia.com"
   },
+  "engines": {
+    "node": "22"
+  },
+  "packageManager": "pnpm@10.25.0",
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
@@ -101,6 +105,5 @@
     "@eslint/plugin-kit": "^0.3.4",
     "brace-expansion": "^2.0.2",
     "js-yaml": "^4.1.1"
-  },
-  "packageManager": "pnpm@10.25.0"
+  }
 }
