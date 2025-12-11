@@ -65,21 +65,21 @@
   "devDependencies": {
     "@types/node": "^22",
     "@types/supertest": "^6.0.3",
-    "@vitest/coverage-v8": "^4.0.14",
+    "@vitest/coverage-v8": "^4.0.15",
     "automd": "^0.4.2",
     "changelogen": "^0.6.2",
     "cookie-esv1": "npm:cookie-es@^1.2.2",
     "cookie-esv2": "npm:cookie-es@^2.0.0",
-    "eslint": "^9.36.0",
+    "eslint": "^9.39.1",
     "eslint-config-unjs": "^0.5.0",
     "h3v1": "npm:h3@^1.15.4",
     "h3v2": "npm:h3@^2.0.1-rc.5",
-    "jose": "^6.1.0",
-    "prettier": "^3.6.2",
+    "jose": "^6.1.3",
+    "prettier": "^3.7.4",
     "supertest": "^7.1.4",
-    "typescript": "^5.9.2",
+    "typescript": "^5.9.3",
     "unbuild": "^3.6.1",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.15"
   },
   "peerDependencies": {
     "cookie-es": "^1.2.2 || ^2.0.0",
@@ -98,7 +98,9 @@
     }
   },
   "resolutions": {
-    "@eslint/plugin-kit": "^0.3.4"
+    "@eslint/plugin-kit": "^0.3.4",
+    "brace-expansion": "^2.0.2",
+    "js-yaml": "^4.1.1"
   },
-  "packageManager": "pnpm@10.19.0"
+  "packageManager": "pnpm@10.25.0"
 }
