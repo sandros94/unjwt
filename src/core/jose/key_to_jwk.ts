@@ -19,9 +19,7 @@ export async function keyToJWK<T extends JWK>(
     } as T;
   }
   if (!isCryptoKey(key)) {
-    throw new TypeError(
-      `Key must be ${key} one of type: CryptoKey, or Uint8Array`,
-    );
+    throw new TypeError("Key must be one of type: CryptoKey or Uint8Array");
   }
   if (!key.extractable) {
     throw new TypeError(

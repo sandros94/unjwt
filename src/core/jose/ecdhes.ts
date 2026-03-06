@@ -78,7 +78,7 @@ export function allowed(key: CryptoKey) {
   }
 }
 
-export async function digest(
+async function digest(
   algorithm: "sha256" | "sha384" | "sha512",
   data: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {

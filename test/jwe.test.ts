@@ -664,7 +664,9 @@ describe.concurrent("JWE Utilities", () => {
         payload: decryptedPayload,
         cek,
         aad,
-      } = await decrypt(jwe, recipientKeyPair.privateKey);
+      } = await decrypt(jwe, recipientKeyPair.privateKey, {
+        returnCek: true,
+      });
 
       expect(base64UrlDecode(protectedHeader.apu!, false)).toEqual(apu);
       expect(base64UrlDecode(protectedHeader.apv!, false)).toEqual(apv);
@@ -709,7 +711,9 @@ describe.concurrent("JWE Utilities", () => {
       expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
       expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
 
-      const decryptResult = await decrypt(jwe, recipientKeyPair.privateKey);
+      const decryptResult = await decrypt(jwe, recipientKeyPair.privateKey, {
+        returnCek: true,
+      });
       expect(decryptResult.payload).toEqual(plaintextObj);
 
       const derivedCek = await unwrapKey(

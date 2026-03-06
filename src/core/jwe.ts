@@ -33,6 +33,7 @@ import {
   isJWK,
   isCryptoKey,
   isCryptoKeyPair,
+  sanitizeObject,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
@@ -40,7 +41,6 @@ import {
   validateCriticalHeadersJWE,
   validateJwtClaims,
 } from "./utils";
-import { sanitizeObject } from "./utils";
 
 export type * from "./types/jwe";
 export type * from "./types/jwk";
@@ -386,12 +386,17 @@ export async function decrypt<
     validateJwtClaims(payload as JWTClaims, options);
   }
 
-  return {
+  const result: JWEDecryptResult<T> = {
     payload,
     protectedHeader,
-    cek: cekBytes,
-    aad: aadBytes,
   };
+
+  if (options.returnCek) {
+    result.cek = cekBytes;
+    result.aad = aadBytes;
+  }
+
+  return result;
 }
 
 function parseEphemeralKey(

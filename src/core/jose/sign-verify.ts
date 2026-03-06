@@ -5,6 +5,8 @@
  * @license MIT https://github.com/panva/jose/blob/69b7960c67e05be55fa2ec31c74b987696c20c60/LICENSE.md
  */
 
+import { checkSigCryptoKey } from "./crypto_key";
+
 export async function sign(
   alg: string,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -47,8 +49,6 @@ export function checkKeyLength(alg: string, key: CryptoKey) {
   }
 }
 
-import { checkSigCryptoKey } from "./crypto_key.js";
-
 export async function getSignVerifyKey(
   alg: string,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -57,7 +57,7 @@ export async function getSignVerifyKey(
   if (key instanceof Uint8Array) {
     if (!alg.startsWith("HS")) {
       throw new TypeError(
-        `Key must be ${key} of type: CryptoKey or JSON Web Key`,
+        "Key must be of type CryptoKey or JSON Web Key for non-HMAC algorithms",
       );
     }
     return crypto.subtle.importKey(

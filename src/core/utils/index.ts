@@ -19,13 +19,17 @@ export type * from "./types";
 export const textEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder = /* @__PURE__ */ new TextDecoder();
 
+// @ts-expect-error check if toBase64 is available
+const _hasToBase64 = typeof Uint8Array.prototype.toBase64 === "function";
+// @ts-expect-error check if fromBase64 is available
+const _hasFromBase64 = typeof Uint8Array.fromBase64 === "function";
+
 /* Base64 encoding function */
 export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
   const encodedData =
     data instanceof Uint8Array ? data : textEncoder.encode(data);
 
-  // @ts-expect-error check if toBase64 is available
-  if (Uint8Array.prototype.toBase64) {
+  if (_hasToBase64) {
     // @ts-expect-error
     return encodedData.toBase64();
   }
@@ -40,8 +44,7 @@ export function base64UrlEncode(
   const encodedData =
     data instanceof Uint8Array ? data : textEncoder.encode(data);
 
-  // @ts-expect-error check if toBase64 is available
-  if (Uint8Array.prototype.toBase64) {
+  if (_hasToBase64) {
     // @ts-expect-error
     return encodedData.toBase64({ alphabet: "base64url", omitPadding: true });
   }
@@ -68,8 +71,7 @@ export function base64Decode(
     return decodeToString ? "" : new Uint8Array(0);
   }
 
-  // @ts-expect-error check if fromBase64 is available
-  const data: Uint8Array<ArrayBuffer> = Uint8Array.fromBase64
+  const data: Uint8Array<ArrayBuffer> = _hasFromBase64
     ? // @ts-expect-error
       Uint8Array.fromBase64(str)
     : Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
@@ -95,8 +97,7 @@ export function base64UrlDecode(
 
   let data: Uint8Array<ArrayBuffer>;
 
-  // @ts-expect-error check if fromBase64 is available
-  if (Uint8Array.fromBase64) {
+  if (_hasFromBase64) {
     // @ts-expect-error
     data = Uint8Array.fromBase64(str, { alphabet: "base64url" });
   } else {

@@ -20,6 +20,7 @@ import {
   isAsymmetricJWK,
   assertCryptoKey,
   isCryptoKey,
+  sanitizeObject,
 } from "../utils";
 import { bitLengthCEK, generateCEK } from "./cek-iv";
 import { jwkTokey } from "./jwk_to_key";
@@ -28,7 +29,6 @@ import { encryptRSAES } from "./rsaes";
 import { encryptIV } from "./aesgcmkw";
 import * as ecdhes from "./ecdhes";
 import { wrap } from "./pbes2kw";
-import { sanitizeObject } from "../utils";
 
 const PUBLIC_EPK_FIELDS = new Set([
   "kty",

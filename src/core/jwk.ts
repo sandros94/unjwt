@@ -24,10 +24,10 @@ import {
   isCryptoKey,
   isJWK,
   isJWKSet,
+  sanitizeObject,
   textEncoder,
   randomBytes,
 } from "./utils";
-import { sanitizeObject } from "./utils";
 import {
   jwkTokey,
   keyToJWK,
@@ -345,6 +345,22 @@ export async function exportKey<T extends JWK>(
   return exportedJwk;
 }
 
+async function resolveWrappingKey(
+  alg: KeyManagementAlgorithm,
+  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
+  if (
+    alg.startsWith("PBES2") &&
+    (typeof key === "string" || key instanceof Uint8Array)
+  ) {
+    return typeof key === "string" ? textEncoder.encode(key) : key;
+  }
+  if (typeof key === "string") {
+    throw new TypeError(`Key must be CryptoKey, JWK, or Uint8Array for ${alg}`);
+  }
+  return importKey(key as any, alg);
+}
+
 /**
  * Wraps a Content Encryption Key (CEK) using the specified algorithm and wrapping key.
  *
@@ -365,36 +381,7 @@ export async function wrapKey(
       ? keyToWrap
       : new Uint8Array(await crypto.subtle.exportKey("raw", keyToWrap));
 
-  let importedWrappingKey: CryptoKey | Uint8Array<ArrayBuffer>;
-  const isPbes = alg.startsWith("PBES2");
-  const isAesKw = ["A128KW", "A192KW", "A256KW"].includes(alg);
-
-  if (
-    isPbes &&
-    (typeof wrappingKey === "string" || wrappingKey instanceof Uint8Array)
-  ) {
-    // PBES2 uses password bytes directly
-    importedWrappingKey =
-      typeof wrappingKey === "string"
-        ? textEncoder.encode(wrappingKey)
-        : wrappingKey;
-  } else if (isPbes || isAesKw) {
-    // Import AES-KW key or the key derived *from* password for PBES2
-    if (typeof wrappingKey === "string") {
-      throw new TypeError(
-        "Wrapping key must be a CryptoKey, JWK, or Uint8Array for AES-KW or non-password PBES2",
-      );
-    }
-    importedWrappingKey = await importKey(wrappingKey as any, alg);
-  } else {
-    // Handle other algorithms (RSA, AESGCMKW, ECDH-ES)
-    if (typeof wrappingKey === "string") {
-      throw new TypeError(
-        "Wrapping key must be a CryptoKey, JWK, or Uint8Array for non-PBES2 algorithms",
-      );
-    }
-    importedWrappingKey = await importKey(wrappingKey as any, alg);
-  }
+  const importedWrappingKey = await resolveWrappingKey(alg, wrappingKey);
 
   switch (alg) {
     // AES Key Wrap and PBES2 are handled by the same helper
@@ -405,7 +392,7 @@ export async function wrapKey(
     case "PBES2-HS384+A192KW":
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
-      if (isPbes && (!p2s || typeof p2c !== "number")) {
+      if (alg.startsWith("PBES2") && (!p2s || typeof p2c !== "number")) {
         throw new Error(
           "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
         );
@@ -480,36 +467,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
   const { returnAs = true } = options; // Default to returning CryptoKey
   const defaultExtractable = options.extractable !== false; // Default true
 
-  let importedUnwrappingKey: CryptoKey | Uint8Array<ArrayBuffer>;
-  const isPbes = alg.startsWith("PBES2");
-  const isAesKw = ["A128KW", "A192KW", "A256KW"].includes(alg);
-
-  if (
-    isPbes &&
-    (typeof unwrappingKey === "string" || unwrappingKey instanceof Uint8Array)
-  ) {
-    // PBES2 uses password bytes directly
-    importedUnwrappingKey =
-      typeof unwrappingKey === "string"
-        ? textEncoder.encode(unwrappingKey)
-        : unwrappingKey;
-  } else if (isPbes || isAesKw) {
-    // Import AES-KW key or the key derived *from* password for PBES2
-    if (typeof unwrappingKey === "string") {
-      throw new TypeError(
-        "Unwrapping key must be a CryptoKey, JWK, or Uint8Array for AES-KW or non-password PBES2",
-      );
-    }
-    importedUnwrappingKey = await importKey(unwrappingKey as any, alg);
-  } else {
-    // Handle other algorithms (RSA, AESGCMKW, ECDH-ES)
-    if (typeof unwrappingKey === "string") {
-      throw new TypeError(
-        "Unwrapping key must be a CryptoKey, JWK, or Uint8Array for non-PBES2 algorithms",
-      );
-    }
-    importedUnwrappingKey = await importKey(unwrappingKey as any, alg);
-  }
+  const importedUnwrappingKey = await resolveWrappingKey(alg, unwrappingKey);
 
   let unwrappedCekBytes: Uint8Array<ArrayBuffer>;
 
@@ -523,7 +481,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
       let p2sBytes: Uint8Array<ArrayBuffer> | undefined;
-      if (isPbes) {
+      if (alg.startsWith("PBES2")) {
         if (!p2s || typeof p2c !== "number") {
           throw new Error(
             "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",

@@ -11,6 +11,39 @@ import { uint64be } from "./buffer_utils";
 import { checkIvLength, checkCEKLength, generateIV } from "./cek-iv";
 import { checkEncCryptoKey } from "./crypto_key";
 
+async function importCBCKeys(
+  enc: string,
+  cek: Uint8Array<ArrayBuffer>,
+  usage: KeyUsage,
+) {
+  const keySize = Number.parseInt(enc.slice(1, 4), 10);
+  const [encKey, macKey] = await Promise.all([
+    crypto.subtle.importKey(
+      "raw",
+      cek.subarray(keySize >> 3),
+      "AES-CBC",
+      false,
+      [usage],
+    ),
+    crypto.subtle.importKey(
+      "raw",
+      cek.subarray(0, keySize >> 3),
+      { hash: `SHA-${keySize << 1}`, name: "HMAC" },
+      false,
+      ["sign"],
+    ),
+  ]);
+  return { encKey, macKey, keySize };
+}
+
+function cbcMacData(
+  aad: Uint8Array<ArrayBuffer>,
+  iv: Uint8Array<ArrayBuffer>,
+  ciphertext: Uint8Array<ArrayBuffer>,
+) {
+  return concatUint8Arrays(aad, iv, ciphertext, uint64be(aad.length << 3));
+}
+
 async function cbcEncrypt(
   enc: string,
   plaintext: Uint8Array<ArrayBuffer>,
@@ -19,26 +52,9 @@ async function cbcEncrypt(
   aad: Uint8Array<ArrayBuffer>,
 ) {
   if (!(cek instanceof Uint8Array)) {
-    throw new TypeError(`Key must be ${cek} of type: Uint8Array`);
+    throw new TypeError("CBC key must be of type Uint8Array");
   }
-  const keySize = Number.parseInt(enc.slice(1, 4), 10);
-  const encKey = await crypto.subtle.importKey(
-    "raw",
-    cek.subarray(keySize >> 3),
-    "AES-CBC",
-    false,
-    ["encrypt"],
-  );
-  const macKey = await crypto.subtle.importKey(
-    "raw",
-    cek.subarray(0, keySize >> 3),
-    {
-      hash: `SHA-${keySize << 1}`,
-      name: "HMAC",
-    },
-    false,
-    ["sign"],
-  );
+  const { encKey, macKey, keySize } = await importCBCKeys(enc, cek, "encrypt");
 
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt(
@@ -51,12 +67,7 @@ async function cbcEncrypt(
     ),
   );
 
-  const macData = concatUint8Arrays(
-    aad,
-    iv,
-    ciphertext,
-    uint64be(aad.length << 3),
-  );
+  const macData = cbcMacData(aad, iv, ciphertext);
   const tag = new Uint8Array(
     (await crypto.subtle.sign("HMAC", macKey, macData)).slice(0, keySize >> 3),
   );
@@ -112,9 +123,7 @@ export async function encrypt(
   iv: Uint8Array<ArrayBuffer> | undefined;
 }> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
-    throw new TypeError(
-      `Key must be ${cek} one of type: CryptoKey or Uint8Array`,
-    );
+    throw new TypeError("Key must be one of type: CryptoKey or Uint8Array");
   }
 
   if (iv) {
@@ -150,6 +159,18 @@ export async function encrypt(
  * Decrypt fork
  */
 
+let _timingSafeKey: Promise<CryptoKey> | undefined;
+function getTimingSafeKey(): Promise<CryptoKey> {
+  if (!_timingSafeKey) {
+    _timingSafeKey = crypto.subtle.generateKey(
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    ) as Promise<CryptoKey>;
+  }
+  return _timingSafeKey;
+}
+
 async function timingSafeEqual(
   a: Uint8Array<ArrayBuffer>,
   b: Uint8Array<ArrayBuffer>,
@@ -162,9 +183,7 @@ async function timingSafeEqual(
   }
 
   const algorithm = { name: "HMAC", hash: "SHA-256" };
-  const key = (await crypto.subtle.generateKey(algorithm, false, [
-    "sign",
-  ])) as CryptoKey;
+  const key = await getTimingSafeKey();
 
   const aHmac = new Uint8Array(await crypto.subtle.sign(algorithm, key, a));
   const bHmac = new Uint8Array(await crypto.subtle.sign(algorithm, key, b));
@@ -187,33 +206,11 @@ async function cbcDecrypt(
   aad: Uint8Array<ArrayBuffer>,
 ) {
   if (!(cek instanceof Uint8Array)) {
-    throw new TypeError(`Key must be ${cek} of type: Uint8Array`);
+    throw new TypeError("CBC key must be of type Uint8Array");
   }
-  const keySize = Number.parseInt(enc.slice(1, 4), 10);
-  const encKey = await crypto.subtle.importKey(
-    "raw",
-    cek.subarray(keySize >> 3),
-    "AES-CBC",
-    false,
-    ["decrypt"],
-  );
-  const macKey = await crypto.subtle.importKey(
-    "raw",
-    cek.subarray(0, keySize >> 3),
-    {
-      hash: `SHA-${keySize << 1}`,
-      name: "HMAC",
-    },
-    false,
-    ["sign"],
-  );
+  const { encKey, macKey, keySize } = await importCBCKeys(enc, cek, "decrypt");
 
-  const macData = concatUint8Arrays(
-    aad,
-    iv,
-    ciphertext,
-    uint64be(aad.length << 3),
-  );
+  const macData = cbcMacData(aad, iv, ciphertext);
   const expectedTag = new Uint8Array(
     (await crypto.subtle.sign("HMAC", macKey, macData)).slice(0, keySize >> 3),
   );
@@ -288,9 +285,7 @@ export async function decrypt(
   aad: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
-    throw new TypeError(
-      `Key must be ${cek} one of type: CryptoKey or Uint8Array`,
-    );
+    throw new TypeError("Key must be one of type: CryptoKey or Uint8Array");
   }
 
   if (!iv) {

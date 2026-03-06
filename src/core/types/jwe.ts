@@ -175,6 +175,8 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   forceUint8Array?: boolean;
   /** Unless false, will parse payload as JWT and validate claims if applicable (typ "JWT"). */
   validateJWT?: boolean;
+  /** If true, include the Content Encryption Key (CEK) and Additional Authenticated Data (AAD) in the result. */
+  returnCek?: boolean;
 }
 
 /**
@@ -190,8 +192,8 @@ export interface JWEDecryptResult<
   payload: T;
   /** The JWE Protected Header. */
   protectedHeader: JWEHeaderParameters;
-  /** The Content Encryption Key (CEK) used for decryption, as Uint8Array. */
-  cek: Uint8Array<ArrayBuffer>;
-  /** The Additional Authenticated Data (AAD) used, as Uint8Array. */
-  aad: Uint8Array<ArrayBuffer>;
+  /** The Content Encryption Key (CEK) used for decryption, as Uint8Array. Only present when `returnCek` is true. */
+  cek?: Uint8Array<ArrayBuffer>;
+  /** The Additional Authenticated Data (AAD) used, as Uint8Array. Only present when `returnCek` is true. */
+  aad?: Uint8Array<ArrayBuffer>;
 }

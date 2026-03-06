@@ -1,6 +1,11 @@
 import type { JWTClaims, JWTClaimValidationOptions, ExpiresIn } from "../types";
-import { base64UrlDecode, textDecoder, textEncoder, maybeArray } from "./index";
-import { sanitizeObject } from "./index";
+import {
+  base64UrlDecode,
+  textDecoder,
+  textEncoder,
+  maybeArray,
+  sanitizeObject,
+} from "./index";
 
 /**
  * Apply default typ/cty semantics shared by JWS & JWE.
@@ -274,6 +279,18 @@ export function validateJwtClaims(
   }
 }
 
+const BASE_HEADER_PARAMS = [
+  "alg",
+  "typ",
+  "cty",
+  "kid",
+  "jwk",
+  "jku",
+  "x5c",
+  "x5t",
+  "x5u",
+];
+
 /** Validate critical headers in JWS semantics. */
 export function validateCriticalHeadersJWS(
   protectedHeader: { crit?: string[] } & Record<string, any>,
@@ -283,15 +300,7 @@ export function validateCriticalHeadersJWS(
   const missingHeaderParams = new Set<string>();
   const recognizedParams = new Set<string>([
     ...requiredHeaders,
-    "alg",
-    "typ",
-    "cty",
-    "kid",
-    "jwk",
-    "jku",
-    "x5c",
-    "x5t",
-    "x5u",
+    ...BASE_HEADER_PARAMS,
     "b64",
   ]);
 
@@ -327,17 +336,8 @@ export function validateCriticalHeadersJWE(
 
   const understoodParams = new Set<string>([
     ...(understoodFromOptions || []),
-    // JWE specific standard headers:
-    "alg",
+    ...BASE_HEADER_PARAMS,
     "enc",
-    "typ",
-    "cty",
-    "kid",
-    "jwk",
-    "jku",
-    "x5c",
-    "x5t",
-    "x5u",
     "iv",
     "tag",
     "p2s",

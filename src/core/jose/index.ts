@@ -4,16 +4,15 @@
  * @license MIT https://github.com/panva/jose/blob/69b7960c67e05be55fa2ec31c74b987696c20c60/LICENSE.md
  */
 
-export * from "./aesgcmkw";
-export * from "./asn1";
-export * from "./buffer_utils";
-export * from "./cek-iv";
-export * from "./crypto_key";
-export * from "./ecdhes";
-export * from "./encrypt-decrypt";
-export * from "./encrypt_key";
-export * from "./jwk_to_key";
-export * from "./key_to_jwk";
-export * from "./pbes2kw";
-export * from "./rsaes";
-export * from "./sign-verify";
+export { sign, verify } from "./sign-verify";
+export { encrypt, decrypt } from "./encrypt-decrypt";
+export { generateIV, generateCEK, bitLengthCEK } from "./cek-iv";
+export { encryptKey, normalizeKey } from "./encrypt_key";
+export { jwkTokey } from "./jwk_to_key";
+export { keyToJWK } from "./key_to_jwk";
+export { deriveKey, wrap, unwrap } from "./pbes2kw";
+export { deriveECDHESKey, allowed } from "./ecdhes";
+export { encryptIV, decryptIV } from "./aesgcmkw";
+export { encryptRSAES, decryptRSAES } from "./rsaes";
+export { fromPKCS8, fromSPKI, fromX509, toPKCS8, toSPKI } from "./asn1";
+export type { KeyImportOptions } from "./asn1";

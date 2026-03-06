@@ -21,13 +21,13 @@ import {
   textDecoder,
   isJWK,
   isJWKSet,
+  sanitizeObject,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromB64UrlSegment,
   validateCriticalHeadersJWS,
   validateJwtClaims,
 } from "./utils";
-import { sanitizeObject } from "./utils";
 
 export type * from "./types/jws";
 export type * from "./types/jwk";
