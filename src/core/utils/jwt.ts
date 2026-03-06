@@ -1,11 +1,5 @@
 import type { JWTClaims, JWTClaimValidationOptions, ExpiresIn } from "../types";
-import {
-  base64UrlDecode,
-  textDecoder,
-  textEncoder,
-  maybeArray,
-  sanitizeObject,
-} from "./index";
+import { base64UrlDecode, textDecoder, textEncoder, maybeArray, sanitizeObject } from "./index";
 
 /**
  * Apply default typ/cty semantics shared by JWS & JWE.
@@ -17,9 +11,7 @@ export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
   payload: unknown,
 ): T {
   const isObjectPayload =
-    typeof payload === "object" &&
-    payload !== null &&
-    !(payload instanceof Uint8Array);
+    typeof payload === "object" && payload !== null && !(payload instanceof Uint8Array);
   if (header.typ === undefined && isObjectPayload) {
     header.typ = "JWT";
   }
@@ -30,17 +22,11 @@ export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
 }
 
 /** Returns true when headers indicate JSON content. */
-export function isJWTContent(
-  header: { typ?: string; cty?: string } | undefined,
-): boolean {
+export function isJWTContent(header: { typ?: string; cty?: string } | undefined): boolean {
   if (!header) return false;
   if (header.typ?.toLowerCase().includes("jwt")) return true;
   const cty = header.cty?.toLowerCase();
-  return (
-    cty === "json" ||
-    cty === "application/json" ||
-    (!!cty && cty.endsWith("+json"))
-  );
+  return cty === "json" || cty === "application/json" || (!!cty && cty.endsWith("+json"));
 }
 
 /**
@@ -100,9 +86,7 @@ export function getPlaintextBytes(
   if (typeof payload === "string") return textEncoder.encode(payload);
   if (typeof payload === "object" && payload !== null)
     return textEncoder.encode(JSON.stringify(payload));
-  throw new TypeError(
-    "Plaintext must be a string, Uint8Array, or a JSON-serializable object.",
-  );
+  throw new TypeError("Plaintext must be a string, Uint8Array, or a JSON-serializable object.");
 }
 
 const TIME_CONSTANTS = Object.freeze({
@@ -155,11 +139,9 @@ export function computeExpiresInSeconds(expiresIn: ExpiresIn): number {
     return value * TIME_CONSTANTS[unit];
   }
 
-  throw new TypeError(
-    "'expiresIn' must be a number or a string representing time duration.",
-  );
+  throw new TypeError("'expiresIn' must be a number or a string representing time duration.");
 }
-export const computeMaxTokenAgeSeconds = computeExpiresInSeconds;
+export const computeMaxTokenAgeSeconds: (expiresIn: ExpiresIn) => number = computeExpiresInSeconds;
 
 /** Optionally compute iat/exp when signing JWTs. */
 export function computeJwtTimeClaims(
@@ -191,9 +173,7 @@ export function validateJwtClaims(
   options: JWTClaimValidationOptions = {},
 ): void {
   const clockTolerance = options.clockTolerance ?? 0; // seconds
-  const currentTime = Math.round(
-    (options.currentDate ?? new Date()).getTime() / 1000,
-  );
+  const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
 
   const allRequiredClaims = new Set<string>(options.requiredClaims || []);
   const missingClaims = new Set<string>();
@@ -206,9 +186,7 @@ export function validateJwtClaims(
     if (!(claimName in jwtClaims)) missingClaims.add(claimName);
   }
   if (missingClaims.size > 0) {
-    throw new Error(
-      `Missing required JWT Claims: ${[...missingClaims].join(", ")}`,
-    );
+    throw new Error(`Missing required JWT Claims: ${[...missingClaims].join(", ")}`);
   }
 
   if (options.issuer) {
@@ -236,19 +214,13 @@ export function validateJwtClaims(
     }
   }
 
-  if (
-    typeof jwtClaims.nbf === "number" &&
-    jwtClaims.nbf > currentTime + clockTolerance
-  ) {
+  if (typeof jwtClaims.nbf === "number" && jwtClaims.nbf > currentTime + clockTolerance) {
     throw new Error(
       `JWT "nbf" (Not Before) Claim validation failed: Token is not yet valid (nbf: ${new Date(jwtClaims.nbf * 1000).toISOString()})`,
     );
   }
 
-  if (
-    typeof jwtClaims.exp === "number" &&
-    jwtClaims.exp <= currentTime - clockTolerance
-  ) {
+  if (typeof jwtClaims.exp === "number" && jwtClaims.exp <= currentTime - clockTolerance) {
     throw new Error(
       `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(jwtClaims.exp * 1000).toISOString()})`,
     );
@@ -256,9 +228,7 @@ export function validateJwtClaims(
 
   if (options.maxTokenAge) {
     if (typeof jwtClaims.iat !== "number") {
-      throw new TypeError(
-        'JWT "iat" (Issued At) Claim must be a number when maxTokenAge is set.',
-      );
+      throw new TypeError('JWT "iat" (Issued At) Claim must be a number when maxTokenAge is set.');
     }
     // iat must not be in the future (beyond clock tolerance)
     if (jwtClaims.iat > currentTime + clockTolerance) {
@@ -268,9 +238,7 @@ export function validateJwtClaims(
     }
     if (
       jwtClaims.iat <
-      currentTime -
-        computeMaxTokenAgeSeconds(options.maxTokenAge) -
-        clockTolerance
+      currentTime - computeMaxTokenAgeSeconds(options.maxTokenAge) - clockTolerance
     ) {
       throw new Error(
         `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}s, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
@@ -279,17 +247,7 @@ export function validateJwtClaims(
   }
 }
 
-const BASE_HEADER_PARAMS = [
-  "alg",
-  "typ",
-  "cty",
-  "kid",
-  "jwk",
-  "jku",
-  "x5c",
-  "x5t",
-  "x5u",
-];
+const BASE_HEADER_PARAMS = ["alg", "typ", "cty", "kid", "jwk", "jku", "x5c", "x5t", "x5u"];
 
 /** Validate critical headers in JWS semantics. */
 export function validateCriticalHeadersJWS(
@@ -298,27 +256,18 @@ export function validateCriticalHeadersJWS(
 ): void {
   if (!protectedHeader.crit) return;
   const missingHeaderParams = new Set<string>();
-  const recognizedParams = new Set<string>([
-    ...requiredHeaders,
-    ...BASE_HEADER_PARAMS,
-    "b64",
-  ]);
+  const recognizedParams = new Set<string>([...requiredHeaders, ...BASE_HEADER_PARAMS, "b64"]);
 
   for (const param of protectedHeader.crit) {
     // `b64` is special: its absence should still be considered valid
-    if (
-      recognizedParams.has(param) &&
-      (param in protectedHeader || param === "b64")
-    ) {
+    if (recognizedParams.has(param) && (param in protectedHeader || param === "b64")) {
       continue;
     }
     missingHeaderParams.add(param);
   }
 
   if (missingHeaderParams.size > 0) {
-    throw new Error(
-      `Missing critical header parameters: ${[...missingHeaderParams].join(", ")}`,
-    );
+    throw new Error(`Missing critical header parameters: ${[...missingHeaderParams].join(", ")}`);
   }
 }
 
@@ -328,9 +277,7 @@ export function validateCriticalHeadersJWE(
   understoodFromOptions?: string[],
 ): void {
   if (protectedHeader.crit && !understoodFromOptions) {
-    throw new Error(
-      `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
-    );
+    throw new Error(`Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`);
   }
   if (!protectedHeader.crit) return;
 

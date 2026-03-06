@@ -39,9 +39,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(key.algorithm.name).toBe("HMAC");
 
       const jwk = await exportKey(key);
-      await expect(
-        jose.importJWK({ ...jwk, alg: "HS256" }),
-      ).resolves.toBeInstanceOf(Object);
+      await expect(jose.importJWK({ ...jwk, alg: "HS256" })).resolves.toBeInstanceOf(Object);
     });
 
     it("should generate symmetric JWK (HS256, toJWK: true)", async () => {
@@ -60,9 +58,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(key.algorithm.name).toBe("AES-KW");
 
       const jwk = await exportKey(key);
-      await expect(
-        jose.importJWK({ ...jwk, alg: "A128KW" }),
-      ).resolves.toBeInstanceOf(Object);
+      await expect(jose.importJWK({ ...jwk, alg: "A128KW" })).resolves.toBeInstanceOf(Object);
     });
 
     it("should generate symmetric JWK (A128KW, toJWK: true)", async () => {
@@ -82,9 +78,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(keyPair.privateKey.algorithm.name).toBe("RSASSA-PKCS1-v1_5");
 
       const jwk = await exportKey(keyPair.privateKey);
-      await expect(
-        jose.importJWK({ ...jwk, alg: "RS256" }),
-      ).resolves.toBeInstanceOf(Object);
+      await expect(jose.importJWK({ ...jwk, alg: "RS256" })).resolves.toBeInstanceOf(Object);
     });
 
     it("should generate asymmetric JWK pair (RS256, toJWK: true)", async () => {
@@ -101,26 +95,18 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwkPair.publicKey.d).toBeUndefined();
       expect(jwkPair.publicKey.n).toBe(jwkPair.privateKey.n);
 
-      await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(
-        CryptoKey,
-      );
-      await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(
-        CryptoKey,
-      );
+      await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(CryptoKey);
+      await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(CryptoKey);
     });
 
     it("should generate asymmetric CryptoKeyPair (ES256)", async () => {
       const keyPair = await generateKey("ES256");
       expect(isCryptoKeyPair(keyPair)).toBe(true);
       expect(keyPair.publicKey.algorithm.name).toBe("ECDSA");
-      expect((keyPair.publicKey.algorithm as EcKeyAlgorithm).namedCurve).toBe(
-        "P-256",
-      );
+      expect((keyPair.publicKey.algorithm as EcKeyAlgorithm).namedCurve).toBe("P-256");
 
       const jwk = await exportKey(keyPair.privateKey);
-      await expect(
-        jose.importJWK({ ...jwk, alg: "ES256" }),
-      ).resolves.toBeInstanceOf(Object);
+      await expect(jose.importJWK({ ...jwk, alg: "ES256" })).resolves.toBeInstanceOf(Object);
     });
 
     it("should generate asymmetric JWK pair (ES256, toJWK: true)", async () => {
@@ -136,12 +122,8 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwkPair.publicKey.d).toBeUndefined();
       expect(jwkPair.publicKey.x).toBe(jwkPair.privateKey.x);
 
-      await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(
-        CryptoKey,
-      );
-      await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(
-        CryptoKey,
-      );
+      await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(CryptoKey);
+      await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(CryptoKey);
     });
 
     it("should generate asymmetric JWK pair with custom `kid`", async () => {
@@ -160,12 +142,8 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwkPair.publicKey.d).toBeUndefined();
       expect(jwkPair.publicKey.x).toBe(jwkPair.privateKey.x);
 
-      await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(
-        CryptoKey,
-      );
-      await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(
-        CryptoKey,
-      );
+      await expect(jose.importJWK(jwkPair.privateKey)).resolves.toBeInstanceOf(CryptoKey);
+      await expect(jose.importJWK(jwkPair.publicKey)).resolves.toBeInstanceOf(CryptoKey);
     });
 
     it("should generate AES-CBC key as Uint8Array", async () => {
@@ -377,9 +355,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.x).toBeDefined();
       expect(jwk.y).toBeDefined();
 
-      await expect(jose.importJWK(jwk, "ES256")).resolves.toBeInstanceOf(
-        Object,
-      );
+      await expect(jose.importJWK(jwk, "ES256")).resolves.toBeInstanceOf(Object);
     });
 
     it("should export asymmetric private CryptoKey to JWK", async () => {
@@ -391,9 +367,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.x).toBeDefined();
       expect(jwk.y).toBeDefined();
 
-      await expect(jose.importJWK(jwk, "ES256")).resolves.toBeInstanceOf(
-        Object,
-      );
+      await expect(jose.importJWK(jwk, "ES256")).resolves.toBeInstanceOf(Object);
     });
 
     it("should merge provided partial JWK properties", async () => {
@@ -413,13 +387,10 @@ describe.concurrent("JWK Utilities", () => {
 
   describe("wrapKey / unwrapKey", async () => {
     const cek = randomBytes(32); // Example: 256-bit key
-    const cekCryptoKey = await crypto.subtle.importKey(
-      "raw",
-      cek,
-      { name: "AES-GCM" },
-      true,
-      ["encrypt", "decrypt"],
-    );
+    const cekCryptoKey = await crypto.subtle.importKey("raw", cek, { name: "AES-GCM" }, true, [
+      "encrypt",
+      "decrypt",
+    ]);
 
     // --- AES-KW ---
     it("should wrap/unwrap with AES-KW (A128KW)", async () => {
@@ -427,20 +398,15 @@ describe.concurrent("JWK Utilities", () => {
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
 
-      const unwrappedBytes = await unwrapKey(
-        "A128KW",
-        encryptedKey,
-        wrappingKey,
-        { returnAs: false },
-      );
+      const unwrappedBytes = await unwrapKey("A128KW", encryptedKey, wrappingKey, {
+        returnAs: false,
+      });
       expect(unwrappedBytes).toEqual(cek);
 
-      const unwrappedKey = await unwrapKey(
-        "A128KW",
-        encryptedKey,
-        wrappingKey,
-        { returnAs: true, unwrappedKeyAlgorithm: { name: "AES-GCM" } },
-      );
+      const unwrappedKey = await unwrapKey("A128KW", encryptedKey, wrappingKey, {
+        returnAs: true,
+        unwrappedKeyAlgorithm: { name: "AES-GCM" },
+      });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
       expect(unwrappedKey.algorithm.name).toBe("AES-GCM");
     });
@@ -450,19 +416,13 @@ describe.concurrent("JWK Utilities", () => {
       const { publicKey, privateKey } = await generateKey("RSA-OAEP", {
         modulusLength: 2048,
       });
-      const { encryptedKey } = await wrapKey(
-        "RSA-OAEP",
-        cekCryptoKey,
-        publicKey,
-      );
+      const { encryptedKey } = await wrapKey("RSA-OAEP", cekCryptoKey, publicKey);
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
 
-      const unwrappedKey = await unwrapKey(
-        "RSA-OAEP",
-        encryptedKey,
-        privateKey,
-        { returnAs: true, unwrappedKeyAlgorithm: { name: "AES-GCM" } },
-      );
+      const unwrappedKey = await unwrapKey("RSA-OAEP", encryptedKey, privateKey, {
+        returnAs: true,
+        unwrappedKeyAlgorithm: { name: "AES-GCM" },
+      });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
       const exportedUnwrapped = await exportKey<JWK_oct>(unwrappedKey);
       const exportedOriginal = await exportKey<JWK_oct>(cekCryptoKey);
@@ -470,12 +430,7 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     describe("RSA-OAEP variants", () => {
-      const rsaAlgorithms = [
-        "RSA-OAEP",
-        "RSA-OAEP-256",
-        "RSA-OAEP-384",
-        "RSA-OAEP-512",
-      ] as const;
+      const rsaAlgorithms = ["RSA-OAEP", "RSA-OAEP-256", "RSA-OAEP-384", "RSA-OAEP-512"] as const;
       type RSAAlg = (typeof rsaAlgorithms)[number];
       const rsaKeyPairs: Partial<Record<RSAAlg, CryptoKeyPair>> = {};
 
@@ -494,21 +449,12 @@ describe.concurrent("JWK Utilities", () => {
         async (alg) => {
           const pair = rsaKeyPairs[alg]!;
           const cekBytes = randomBytes(32);
-          const encryptedKey = await encryptRSAES(
-            alg,
-            pair.publicKey,
-            cekBytes,
-          );
+          const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
-          const unwrapped = await unwrapKey(
-            alg,
-            encryptedKey,
-            pair.privateKey,
-            {
-              enc: "A128GCM",
-              returnAs: false,
-            },
-          );
+          const unwrapped = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+            enc: "A128GCM",
+            returnAs: false,
+          });
 
           expect(unwrapped).toBeInstanceOf(Uint8Array);
           expect(unwrapped).toEqual(cekBytes);
@@ -520,20 +466,11 @@ describe.concurrent("JWK Utilities", () => {
         async (alg) => {
           const pair = rsaKeyPairs[alg]!;
           const cekBytes = randomBytes(32);
-          const encryptedKey = await encryptRSAES(
-            alg,
-            pair.publicKey,
-            cekBytes,
-          );
+          const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
-          const unwrappedKey = await unwrapKey(
-            alg,
-            encryptedKey,
-            pair.privateKey,
-            {
-              enc: "A256GCM",
-            },
-          );
+          const unwrappedKey = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+            enc: "A256GCM",
+          });
 
           expect(isCryptoKey(unwrappedKey)).toBe(true);
           expect(unwrappedKey.algorithm.name).toBe("AES-GCM");
@@ -550,9 +487,7 @@ describe.concurrent("JWK Utilities", () => {
           unwrapKey(alg, encryptedKey, pair.privateKey, {
             enc: "A256CBC-HS512",
           }),
-        ).rejects.toThrow(
-          /Unable to infer algorithm for RSA-OAEP unwrapped key/i,
-        );
+        ).rejects.toThrow(/Unable to infer algorithm for RSA-OAEP unwrapped key/i);
 
         const unwrapped = await unwrapKey(alg, encryptedKey, pair.privateKey, {
           enc: "A256CBC-HS512",
@@ -567,29 +502,24 @@ describe.concurrent("JWK Utilities", () => {
     // --- AES-GCMKW ---
     it("should wrap/unwrap with AES-GCMKW (A128GCMKW)", async () => {
       const wrappingKey = await generateKey("A128GCM", { extractable: true }); // Key for AES-GCMKW must be AES-GCM
-      const { encryptedKey, iv, tag } = await wrapKey(
-        "A128GCMKW",
-        cek,
-        wrappingKey,
-      );
+      const { encryptedKey, iv, tag } = await wrapKey("A128GCMKW", cek, wrappingKey);
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
       expect(typeof iv).toBe("string");
       expect(typeof tag).toBe("string");
 
-      const unwrappedBytes = await unwrapKey(
-        "A128GCMKW",
-        encryptedKey,
-        wrappingKey,
-        { iv, tag, returnAs: false },
-      );
+      const unwrappedBytes = await unwrapKey("A128GCMKW", encryptedKey, wrappingKey, {
+        iv,
+        tag,
+        returnAs: false,
+      });
       expect(unwrappedBytes).toEqual(cek);
 
-      const unwrappedKey = await unwrapKey(
-        "A128GCMKW",
-        encryptedKey,
-        wrappingKey,
-        { iv, tag, returnAs: true, unwrappedKeyAlgorithm: { name: "AES-GCM" } },
-      );
+      const unwrappedKey = await unwrapKey("A128GCMKW", encryptedKey, wrappingKey, {
+        iv,
+        tag,
+        returnAs: true,
+        unwrappedKeyAlgorithm: { name: "AES-GCM" },
+      });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
     });
 
@@ -608,32 +538,24 @@ describe.concurrent("JWK Utilities", () => {
       expect(returnedP2s).toBeDefined();
       expect(returnedP2c).toBe(p2c);
 
-      const unwrappedBytes = await unwrapKey(
-        "PBES2-HS256+A128KW",
-        encryptedKey,
-        password,
-        { p2s: returnedP2s!, p2c: returnedP2c!, returnAs: false },
-      );
+      const unwrappedBytes = await unwrapKey("PBES2-HS256+A128KW", encryptedKey, password, {
+        p2s: returnedP2s!,
+        p2c: returnedP2c!,
+        returnAs: false,
+      });
       expect(unwrappedBytes).toEqual(cek);
 
-      const unwrappedKey = await unwrapKey(
-        "PBES2-HS256+A128KW",
-        encryptedKey,
-        password,
-        {
-          p2s: returnedP2s!,
-          p2c: returnedP2c!,
-          returnAs: true,
-          unwrappedKeyAlgorithm: { name: "AES-GCM" },
-        },
-      );
+      const unwrappedKey = await unwrapKey("PBES2-HS256+A128KW", encryptedKey, password, {
+        p2s: returnedP2s!,
+        p2c: returnedP2c!,
+        returnAs: true,
+        unwrappedKeyAlgorithm: { name: "AES-GCM" },
+      });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
     });
 
     it("should throw wrapKey if PBES2 options missing", async () => {
-      await expect(
-        wrapKey("PBES2-HS256+A128KW", cek, "password"),
-      ).rejects.toThrow(
+      await expect(wrapKey("PBES2-HS256+A128KW", cek, "password")).rejects.toThrow(
         "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
       );
     });
@@ -641,21 +563,17 @@ describe.concurrent("JWK Utilities", () => {
     it("should throw unwrapKey if AES-GCMKW options missing", async () => {
       const wrappingKey = await generateKey("A128GCM", { extractable: true });
       const { encryptedKey } = await wrapKey("A128GCMKW", cek, wrappingKey);
-      await expect(
-        unwrapKey("A128GCMKW", encryptedKey, wrappingKey),
-      ).rejects.toThrow("AES-GCMKW requires 'iv' and 'tag' options");
+      await expect(unwrapKey("A128GCMKW", encryptedKey, wrappingKey)).rejects.toThrow(
+        "AES-GCMKW requires 'iv' and 'tag' options",
+      );
     });
 
     it("should throw unwrapKey if PBES2 options missing", async () => {
-      const { encryptedKey } = await wrapKey(
-        "PBES2-HS256+A128KW",
-        cek,
-        "password",
-        { p2s: randomBytes(8), p2c: 1000 },
-      );
-      await expect(
-        unwrapKey("PBES2-HS256+A128KW", encryptedKey, "password"),
-      ).rejects.toThrow(
+      const { encryptedKey } = await wrapKey("PBES2-HS256+A128KW", cek, "password", {
+        p2s: randomBytes(8),
+        p2c: 1000,
+      });
+      await expect(unwrapKey("PBES2-HS256+A128KW", encryptedKey, "password")).rejects.toThrow(
         "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
       );
     });
@@ -664,24 +582,20 @@ describe.concurrent("JWK Utilities", () => {
       const wrappingKey1 = await generateKey("A128KW");
       const wrappingKey2 = await generateKey("A128KW");
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey1);
-      await expect(
-        unwrapKey("A128KW", encryptedKey, wrappingKey2),
-      ).rejects.toThrow(); // Subtle crypto errors vary, check for any throw
+      await expect(unwrapKey("A128KW", encryptedKey, wrappingKey2)).rejects.toThrow(); // Subtle crypto errors vary, check for any throw
     });
 
     it("should throw wrapKey for invalid key type", async () => {
-      await expect(wrapKey("A128KW", cek, "not-a-key-object")).rejects.toThrow(
-        TypeError,
-      );
+      await expect(wrapKey("A128KW", cek, "not-a-key-object")).rejects.toThrow(TypeError);
       await expect(wrapKey("RSA-OAEP", cek, randomBytes(32))).rejects.toThrow(); // RSA needs CryptoKey
     });
 
     it("should throw unwrapKey for invalid key type", async () => {
       const wrappingKey = await generateKey("A128KW");
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
-      await expect(
-        unwrapKey("A128KW", encryptedKey, "not-a-key-object"),
-      ).rejects.toThrow(TypeError);
+      await expect(unwrapKey("A128KW", encryptedKey, "not-a-key-object")).rejects.toThrow(
+        TypeError,
+      );
     });
 
     it("should unwrap ECDH-ES shared secret", async () => {
@@ -704,18 +618,13 @@ describe.concurrent("JWK Utilities", () => {
         apv,
       );
 
-      const unwrapped = await unwrapKey(
-        "ECDH-ES",
-        new Uint8Array(0),
-        recipientKeys.privateKey,
-        {
-          epk: senderKeys.publicKey,
-          apu: base64UrlEncode(apu),
-          apv: base64UrlEncode(apv),
-          enc: "A128GCM",
-          returnAs: false,
-        },
-      );
+      const unwrapped = await unwrapKey("ECDH-ES", new Uint8Array(0), recipientKeys.privateKey, {
+        epk: senderKeys.publicKey,
+        apu: base64UrlEncode(apu),
+        apv: base64UrlEncode(apv),
+        enc: "A128GCM",
+        returnAs: false,
+      });
 
       expect(unwrapped).toBeInstanceOf(Uint8Array);
       expect(unwrapped).toEqual(expectedSharedSecret);
@@ -760,26 +669,16 @@ describe.concurrent("JWK Utilities", () => {
       );
 
       const encryptedKey = new Uint8Array(
-        await crypto.subtle.wrapKey(
-          "raw",
-          cekCryptoKey,
-          sharedSecretKey,
-          "AES-KW",
-        ),
+        await crypto.subtle.wrapKey("raw", cekCryptoKey, sharedSecretKey, "AES-KW"),
       );
 
-      const unwrapped = await unwrapKey(
-        "ECDH-ES+A128KW",
-        encryptedKey,
-        recipientKeys.privateKey,
-        {
-          epk: senderKeys.publicKey,
-          apu: base64UrlEncode(apu),
-          apv: base64UrlEncode(apv),
-          enc: "A128GCM",
-          returnAs: false,
-        },
-      );
+      const unwrapped = await unwrapKey("ECDH-ES+A128KW", encryptedKey, recipientKeys.privateKey, {
+        epk: senderKeys.publicKey,
+        apu: base64UrlEncode(apu),
+        apv: base64UrlEncode(apv),
+        enc: "A128GCM",
+        returnAs: false,
+      });
 
       expect(unwrapped).toBeInstanceOf(Uint8Array);
       expect(unwrapped).toEqual(cekBytes);
@@ -789,22 +688,14 @@ describe.concurrent("JWK Utilities", () => {
   describe("PEM <-> JWK Conversion", () => {
     describe("importJWKFromPEM", () => {
       it("should import PKCS#8 PEM to JWK (RSA)", async () => {
-        const jwk = await importJWKFromPEM<JWK_RSA_Private>(
-          rsa.pem.pkcs8,
-          "pkcs8",
-          "RS256",
-        );
+        const jwk = await importJWKFromPEM<JWK_RSA_Private>(rsa.pem.pkcs8, "pkcs8", "RS256");
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         expect(jwk.d).toBeDefined();
       });
 
       it("should import SPKI PEM to JWK (RSA)", async () => {
-        const jwk = await importJWKFromPEM<JWK_RSA_Public>(
-          rsa.pem.spki,
-          "spki",
-          "RS256",
-        );
+        const jwk = await importJWKFromPEM<JWK_RSA_Public>(rsa.pem.spki, "spki", "RS256");
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         // @ts-expect-error d should not be on public key
@@ -828,11 +719,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import PKCS#8 PEM to JWK (EC)", async () => {
-        const jwk = await importJWKFromPEM<JWK_EC_Private>(
-          ec.pem.pkcs8,
-          "pkcs8",
-          "ES256",
-        );
+        const jwk = await importJWKFromPEM<JWK_EC_Private>(ec.pem.pkcs8, "pkcs8", "ES256");
         expect(jwk.kty).toBe("EC");
         expect(jwk.alg).toBe("ES256");
         expect(jwk.crv).toBe("P-256");
@@ -840,11 +727,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import SPKI PEM to JWK (EC)", async () => {
-        const jwk = await importJWKFromPEM<JWK_EC_Public>(
-          ec.pem.spki,
-          "spki",
-          "ES256",
-        );
+        const jwk = await importJWKFromPEM<JWK_EC_Public>(ec.pem.spki, "spki", "ES256");
         expect(jwk.kty).toBe("EC");
         expect(jwk.alg).toBe("ES256");
 
@@ -854,16 +737,10 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should merge jwkExtras", async () => {
-        const jwk = await importJWKFromPEM(
-          rsa.pem.spki,
-          "spki",
-          "RS256",
-          undefined,
-          {
-            kid: "test-kid",
-            use: "enc",
-          },
-        );
+        const jwk = await importJWKFromPEM(rsa.pem.spki, "spki", "RS256", undefined, {
+          kid: "test-kid",
+          use: "enc",
+        });
         expect(jwk.kid).toBe("test-kid");
         expect(jwk.use).toBe("enc"); // Overrides any 'use' from the key itself if exportKey doesn't prioritize input jwkExtras
         expect(jwk.alg).toBe("RS256"); // Should still be set from the 'alg' param
@@ -882,9 +759,7 @@ describe.concurrent("JWK Utilities", () => {
         const pem = await exportJWKToPEM(rsa.jwk.private, "pkcs8");
 
         // TODO: beautify this garbage
-        expect(`${pem}\n`.replace(/\\n/g, "")).toMatch(
-          rsa.pem.pkcs8.replace(/\\n/g, ""),
-        );
+        expect(`${pem}\n`.replace(/\\n/g, "")).toMatch(rsa.pem.pkcs8.replace(/\\n/g, ""));
       });
 
       it("should export public RSA JWK to SPKI PEM", async () => {
@@ -927,11 +802,7 @@ describe.concurrent("JWK Utilities", () => {
 
       it("should use algForCryptoKeyImport if JWK has no alg", async () => {
         const rsaNoAlg = { ...rsa.jwk.public, alg: undefined };
-        const pem = await exportJWKToPEM(
-          rsaNoAlg,
-          "spki",
-          "RS256" as JWKPEMAlgorithm,
-        );
+        const pem = await exportJWKToPEM(rsaNoAlg, "spki", "RS256" as JWKPEMAlgorithm);
 
         const joseKey = await jose.importJWK(rsa.jwk.public);
         const josePem = await jose.exportSPKI(joseKey as CryptoKey);

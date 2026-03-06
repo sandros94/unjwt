@@ -1,4 +1,4 @@
-# .gitignore v1.4.1
+# .gitignore v1.6.0
 # https://gist.github.com/Sandros94/7f3dc1539c8f5905c495aa1bb417589c
 
 # Dependencies
@@ -6,11 +6,13 @@ node_modules
 
 # Temp directories
 .temp
-.tmp
+*.tmp*
 .cache
+.eslintcache
 
-# Generated dirs
+# Build output
 dist
+tsconfig.tsbuildinfo
 
 # Nuxt
 .nitro
@@ -38,18 +40,20 @@ reports
 coverage
 *.lcov
 .nyc_output
+tsconfig.vitest-temp.json
 
 # Logs
 logs
-*.log
+*.log*
 
 # VSCode
 .history
 .vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/mcp.json
 !.vscode/settings.json
 !.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
 !.vscode/*.code-snippets
 
 # Intellij idea
@@ -62,9 +66,19 @@ logs
 .LSOverride
 .AppleDB
 .AppleDesktop
+.Spotlight-V100
+.Trashes
 Network Trash Folder
 Temporary Items
 .apdisk
 
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Various
+.profile
+
 # Project specific
-.eslintcache

@@ -132,20 +132,14 @@ export async function sign(
     // Handle string payload
     payloadBytes = textEncoder.encode(payload);
   } else if (typeof payload === "object" && payload !== null) {
-    payloadBytes = textEncoder.encode(
-      JSON.stringify(computedPayload || payload),
-    );
+    payloadBytes = textEncoder.encode(JSON.stringify(computedPayload || payload));
   } else {
-    throw new TypeError(
-      "Payload must be a string, Uint8Array, or a JSON-serializable object.",
-    );
+    throw new TypeError("Payload must be a string, Uint8Array, or a JSON-serializable object.");
   }
 
   // 5. Encode Payload (conditionally based on b64 header)
   const useB64 = protectedHeader.b64 !== false;
-  const payloadEncoded = useB64
-    ? base64UrlEncode(payloadBytes)
-    : textDecoder.decode(payloadBytes);
+  const payloadEncoded = useB64 ? base64UrlEncode(payloadBytes) : textDecoder.decode(payloadBytes);
 
   // 6. Construct Signing Input
   const signingInputString = `${protectedHeaderEncoded}.${payloadEncoded}`;
@@ -168,9 +162,7 @@ export async function sign(
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
-export async function verify<
-  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
->(
+export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jws: string,
   key:
     | CryptoKey
@@ -192,9 +184,7 @@ export async function verify(
     | JWSKeyLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
-export async function verify<
-  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
->(
+export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jws: string,
   key:
     | CryptoKey
@@ -216,23 +206,15 @@ export async function verify<
   let protectedHeader: JWSProtectedHeader;
   try {
     const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = sanitizeObject<JWSProtectedHeader>(
-      JSON.parse(protectedHeaderString),
-    );
+    protectedHeader = sanitizeObject<JWSProtectedHeader>(JSON.parse(protectedHeaderString));
   } catch (error_) {
     throw new Error(
       `Invalid JWS: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,
     );
   }
 
-  if (
-    !protectedHeader ||
-    typeof protectedHeader !== "object" ||
-    !protectedHeader.alg
-  ) {
-    throw new Error(
-      'Invalid JWS: Protected header must be an object with an "alg" property.',
-    );
+  if (!protectedHeader || typeof protectedHeader !== "object" || !protectedHeader.alg) {
+    throw new Error('Invalid JWS: Protected header must be an object with an "alg" property.');
   }
 
   const alg = protectedHeader.alg;
@@ -260,18 +242,11 @@ export async function verify<
   }
 
   // 5. Obtain and Import Key
-  const keyInput:
-    | CryptoKey
-    | JWK_Symmetric
-    | JWK_Public
-    | JWKSet
-    | Uint8Array<ArrayBuffer> =
+  const keyInput: CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array<ArrayBuffer> =
     typeof key === "function" ? await key(protectedHeader, jws) : key;
-  const resolvedKey:
-    | CryptoKey
-    | JWK_Symmetric
-    | JWK_Public
-    | Uint8Array<ArrayBuffer> = isJWKSet(keyInput)
+  const resolvedKey: CryptoKey | JWK_Symmetric | JWK_Public | Uint8Array<ArrayBuffer> = isJWKSet(
+    keyInput,
+  )
     ? getJWKFromSet(keyInput, protectedHeader)
     : keyInput;
 
@@ -282,12 +257,7 @@ export async function verify<
   const signingInputBytes = textEncoder.encode(signingInputString);
 
   // 7. Verify Signature
-  const isValid = await joseVerify(
-    alg,
-    verificationKey,
-    signatureBytes,
-    signingInputBytes,
-  );
+  const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
 
   if (!isValid) {
     throw new Error("JWS signature verification failed.");
@@ -325,8 +295,7 @@ export async function verify<
     payload &&
     typeof payload === "object" &&
     options.validateJWT !== false &&
-    (options.validateJWT === true ||
-      protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    (options.validateJWT === true || protectedHeader.typ?.toLowerCase().includes("jwt")) &&
     !options.forceUint8Array &&
     !(payload instanceof Uint8Array)
   ) {
@@ -349,19 +318,12 @@ function validateKeyLength(
     const algLength = Number.parseInt(alg.slice(2)) / 8; // in bytes
 
     if (key.length < algLength) {
-      throw new TypeError(
-        `${alg} requires key length to be ${algLength} bytes or larger`,
-      );
+      throw new TypeError(`${alg} requires key length to be ${algLength} bytes or larger`);
     }
-  } else if (
-    (alg.startsWith("RS") || alg.startsWith("PS")) &&
-    key instanceof CryptoKey
-  ) {
+  } else if ((alg.startsWith("RS") || alg.startsWith("PS")) && key instanceof CryptoKey) {
     const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new TypeError(
-        `${alg} requires key modulusLength to be 2048 bits or larger`,
-      );
+      throw new TypeError(`${alg} requires key modulusLength to be 2048 bits or larger`);
     }
   }
 }

@@ -29,9 +29,7 @@ describe.concurrent("JWE Utilities", () => {
     iat: 1_516_239_022,
   };
   const plaintextString = "This is a plaintext string.";
-  const plaintextBytes = textEncoder.encode(
-    "This is a plaintext as Uint8Array.",
-  );
+  const plaintextBytes = textEncoder.encode("This is a plaintext as Uint8Array.");
 
   interface TestKeySet {
     key?: CryptoKey | CryptoKeyPair | string; // string for password
@@ -223,10 +221,7 @@ describe.concurrent("JWE Utilities", () => {
 
         // jose doesn't support PBES2-HS256+A128KW alg header
         if (alg !== "PBES2-HS256+A128KW") {
-          const { plaintext: decryptedByJose } = await jose.compactDecrypt(
-            jwe,
-            decryptionKey,
-          );
+          const { plaintext: decryptedByJose } = await jose.compactDecrypt(jwe, decryptionKey);
           expect(decryptedByJose).toEqual(plaintextBuffer);
         }
 
@@ -234,15 +229,9 @@ describe.concurrent("JWE Utilities", () => {
           .setProtectedHeader({ alg, enc, cty: "application/json" })
           .encrypt(encryptionKey);
 
-        const { payload: decrypted } = await decrypt(
-          jweFromJose,
-          decryptionKey,
-        );
+        const { payload: decrypted } = await decrypt(jweFromJose, decryptionKey);
 
-        if (
-          typeof plaintext === "object" &&
-          !(plaintext instanceof Uint8Array)
-        ) {
+        if (typeof plaintext === "object" && !(plaintext instanceof Uint8Array)) {
           expect(decrypted).toEqual(plaintext);
         } else if (typeof plaintext === "string") {
           expect(decrypted).toEqual(plaintext);
@@ -282,10 +271,7 @@ describe.concurrent("JWE Utilities", () => {
       expect(payload).toBe(t);
 
       const joseKey = await jose.importJWK(jwk);
-      const { plaintext: josePlaintext } = await jose.compactDecrypt(
-        jwe,
-        joseKey,
-      );
+      const { plaintext: josePlaintext } = await jose.compactDecrypt(jwe, joseKey);
       expect(textDecoder.decode(josePlaintext)).toBe(t);
     });
 
@@ -315,9 +301,7 @@ describe.concurrent("JWE Utilities", () => {
 
     it("should throw if alg is missing", async () => {
       const key = keys["A128KW"]!.key as CryptoKey;
-      await expect(
-        encrypt(plaintextString, key, { enc: "A128GCM" } as any),
-      ).rejects.toThrow(
+      await expect(encrypt(plaintextString, key, { enc: "A128GCM" } as any)).rejects.toThrow(
         'JWE "alg" (Key Management Algorithm) must be provided in options',
       );
     });
@@ -380,9 +364,9 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should throw if key management algorithm not allowed", async () => {
-      await expect(
-        decrypt(jwe, key, { algorithms: ["A256KW"] }),
-      ).rejects.toThrow(`Key management algorithm not allowed: ${alg}`);
+      await expect(decrypt(jwe, key, { algorithms: ["A256KW"] })).rejects.toThrow(
+        `Key management algorithm not allowed: ${alg}`,
+      );
 
       await expect(
         jose.compactDecrypt(jwe, joseKey, {
@@ -392,17 +376,15 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should throw if content encryption algorithm not allowed", async () => {
-      await expect(
-        decrypt(jwe, key, { encryptionAlgorithms: ["A256GCM"] }),
-      ).rejects.toThrow(`Content encryption algorithm not allowed: ${enc}`);
+      await expect(decrypt(jwe, key, { encryptionAlgorithms: ["A256GCM"] })).rejects.toThrow(
+        `Content encryption algorithm not allowed: ${enc}`,
+      );
 
       await expect(
         jose.compactDecrypt(jwe, joseKey, {
           contentEncryptionAlgorithms: ["A256GCM"],
         }),
-      ).rejects.toThrow(
-        '"enc" (Encryption Algorithm) Header Parameter value not allowed',
-      );
+      ).rejects.toThrow('"enc" (Encryption Algorithm) Header Parameter value not allowed');
     });
 
     it("should throw for decryption failure (e.g., wrong key)", async () => {
@@ -421,9 +403,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       // Decrypts fine if "exp" is understood (e.g. by being in options.critical)
-      await expect(
-        decrypt(jweCrit, key, { critical: ["exp"] }),
-      ).resolves.toBeDefined();
+      await expect(decrypt(jweCrit, key, { critical: ["exp"] })).resolves.toBeDefined();
       await expect(
         jose.compactDecrypt(jweCrit, joseKey, { crit: { exp: true } }),
       ).resolves.toBeDefined();
@@ -437,9 +417,7 @@ describe.concurrent("JWE Utilities", () => {
       await expect(decrypt(jweUnknownCrit, key)).rejects.toThrow(
         "Unprocessed critical header parameters: unknownParam",
       );
-      await expect(
-        jose.compactDecrypt(jweUnknownCrit, joseKey),
-      ).rejects.toThrow(
+      await expect(jose.compactDecrypt(jweUnknownCrit, joseKey)).rejects.toThrow(
         'Extension Header Parameter "unknownParam" is not recognized',
       );
     });
@@ -466,11 +444,7 @@ describe.concurrent("JWE Utilities", () => {
       expect(typeof resJsonCty.payload).toBe("object");
 
       // 3. No typ/cty, should be string
-      const jweBytesPlain = await encrypt(
-        textEncoder.encode(plaintextString),
-        key,
-        { alg, enc },
-      );
+      const jweBytesPlain = await encrypt(textEncoder.encode(plaintextString), key, { alg, enc });
       const resString = await decrypt<string>(jweBytesPlain, key);
       expect(resString.payload).toBeTypeOf("string");
       expect(resString.payload).toEqual(plaintextString);
@@ -501,13 +475,9 @@ describe.concurrent("JWE Utilities", () => {
           currentDate: new Date(0), // epoch
         });
 
-        const { payload, protectedHeader } = await decrypt<JWTClaims>(
-          jwe,
-          key,
-          {
-            currentDate: new Date(30_000), // 30 seconds in
-          },
-        );
+        const { payload, protectedHeader } = await decrypt<JWTClaims>(jwe, key, {
+          currentDate: new Date(30_000), // 30 seconds in
+        });
         expect(protectedHeader.typ).toBe("JWT");
         expect(protectedHeader.cty).toBe("application/json");
         expect(payload.sub).toBe("abc");
@@ -556,9 +526,7 @@ describe.concurrent("JWE Utilities", () => {
           protectedHeader: { crit: ["exp"], exp: 1_234_567_890 },
         });
 
-        await expect(
-          decrypt(jweCrit, key, { requiredHeaders: ["exp"] }),
-        ).resolves.toBeDefined();
+        await expect(decrypt(jweCrit, key, { requiredHeaders: ["exp"] })).resolves.toBeDefined();
       });
 
       it("it does have an expired claim but validation is skipped", async () => {
@@ -609,9 +577,7 @@ describe.concurrent("JWE Utilities", () => {
 
     beforeAll(async () => {
       recipientKeyPair = keys[ecdhAlg]!.key as CryptoKeyPair;
-      recipientPublicKeyJwk = (await exportKey(
-        recipientKeyPair.publicKey,
-      )) as JWK_EC_Public;
+      recipientPublicKeyJwk = (await exportKey(recipientKeyPair.publicKey)) as JWK_EC_Public;
     });
 
     it("should encrypt and decrypt with ECDH-ES and include epk", async () => {
@@ -646,18 +612,13 @@ describe.concurrent("JWE Utilities", () => {
       expect(encryptedKeyBytes).toBeInstanceOf(Uint8Array);
       expect(encryptedKeyBytes.length).toBeGreaterThan(0);
 
-      const expectedCek = await unwrapKey(
-        ecdhAlg,
-        encryptedKeyBytes,
-        recipientKeyPair.privateKey,
-        {
-          epk: protectedHeader.epk!,
-          apu: protectedHeader.apu,
-          apv: protectedHeader.apv,
-          enc,
-          returnAs: false,
-        },
-      );
+      const expectedCek = await unwrapKey(ecdhAlg, encryptedKeyBytes, recipientKeyPair.privateKey, {
+        epk: protectedHeader.epk!,
+        apu: protectedHeader.apu,
+        apv: protectedHeader.apv,
+        enc,
+        returnAs: false,
+      });
       expect(expectedCek).toBeInstanceOf(Uint8Array);
 
       const {
@@ -680,9 +641,7 @@ describe.concurrent("JWE Utilities", () => {
         namedCurve: "P-256",
         keyUsage: ["deriveBits"],
       })) as CryptoKeyPair;
-      const providedEphemeralJwk = (await exportKey(
-        providedEphemeral.publicKey,
-      )) as JWK_EC_Public;
+      const providedEphemeralJwk = (await exportKey(providedEphemeral.publicKey)) as JWK_EC_Public;
       const apu = randomBytes(16);
       const apv = randomBytes(16);
 

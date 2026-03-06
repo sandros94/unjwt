@@ -24,14 +24,9 @@ import {
   isPublicJWK,
   computeExpiresInSeconds,
 } from "../../../core/utils";
-import type {
-  SessionClaims,
-  SessionData,
-  SessionUpdate,
-  SessionManager,
-} from "./types";
+import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
-const kGetSessionPromise = Symbol("h3_jws_getSession");
+const kGetSessionPromise: unique symbol = Symbol("h3_jws_getSession");
 
 export interface SessionJWS<
   T extends Record<string, any> = SessionClaims,
@@ -81,11 +76,7 @@ export interface SessionHooksJWS<
     header: JWSProtectedHeader;
     event: H3Event;
     config: SessionConfigJWS<T, MaxAge>;
-  }) =>
-    | JWKSet
-    | JWK_Symmetric
-    | JWK_Public
-    | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
+  }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
 }
 
 export interface SessionConfigJWS<
@@ -202,10 +193,7 @@ export async function getJWSSession<
     event.context.sessions = Object.create(null);
   }
 
-  const existingSession = event.context.sessions[sessionName] as SessionJWS<
-    T,
-    MaxAge
-  >;
+  const existingSession = event.context.sessions[sessionName] as SessionJWS<T, MaxAge>;
   if (existingSession) {
     const session = existingSession[kGetSessionPromise]
       ? await existingSession[kGetSessionPromise]
@@ -216,11 +204,7 @@ export async function getJWSSession<
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    if (
-      session.expiresAt !== undefined &&
-      session.expiresAt < Date.now() &&
-      isEvent(event)
-    ) {
+    if (session.expiresAt !== undefined && session.expiresAt < Date.now() && isEvent(event)) {
       await config.hooks?.onExpire?.({
         event,
         error: new Error(
@@ -249,9 +233,9 @@ export async function getJWSSession<
     createdAt,
     expiresAt: (config.maxAge === undefined
       ? undefined
-      : createdAt +
-        computeExpiresInSeconds(config.maxAge) *
-          1000) as MaxAge extends ExpiresIn ? number : T["exp"],
+      : createdAt + computeExpiresInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
+      ? number
+      : T["exp"],
     data: Object.create(null),
   };
   event.context.sessions[sessionName] = session;
@@ -304,10 +288,7 @@ export async function getJWSSession<
 function getJWSSessionToken<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(
-  event: H3Event | CompatEvent,
-  config: SessionConfigJWS<T, MaxAge>,
-): string | undefined {
+>(event: H3Event | CompatEvent, config: SessionConfigJWS<T, MaxAge>): string | undefined {
   const sessionName = config.name || DEFAULT_NAME;
   let token: string | undefined;
 
@@ -318,9 +299,7 @@ function getJWSSessionToken<
         : `x-${sessionName.toLowerCase()}-session`;
     const headerValue = _getReqHeader(event, headerName);
     if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ")
-        ? headerValue.slice(7).trim()
-        : headerValue;
+      token = headerValue.startsWith("Bearer ") ? headerValue.slice(7).trim() : headerValue;
     }
   }
 
@@ -430,9 +409,7 @@ export async function updateJWSSession<
       expires:
         config.maxAge === undefined
           ? undefined
-          : new Date(
-              session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
-            ),
+          : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
     });
   }
 
@@ -447,10 +424,7 @@ export async function updateJWSSession<
 export async function signJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(
-  event: H3Event | CompatEvent,
-  config: SessionConfigJWS<T, MaxAge>,
-): Promise<string> {
+>(event: H3Event | CompatEvent, config: SessionConfigJWS<T, MaxAge>): Promise<string> {
   const key = getSignKey(config.key);
 
   const sessionName = config.name || DEFAULT_NAME;
@@ -460,9 +434,7 @@ export async function signJWSSession<
     (await getJWSSession<T, MaxAge>(event, config));
 
   const iat = Math.floor(session.createdAt / 1000);
-  const exp = session.expiresAt
-    ? Math.floor(session.expiresAt / 1000)
-    : undefined;
+  const exp = session.expiresAt ? Math.floor(session.expiresAt / 1000) : undefined;
 
   const payload: Record<string, any> = {
     ...session.data,
@@ -532,11 +504,7 @@ export async function verifyJWSSession<
   const { payload } = await verify<T & { iat: number }>(token, jwk, {
     ...config.jws?.verifyOptions,
     requiredClaims: [
-      ...new Set([
-        ...(config.jws?.verifyOptions?.requiredClaims || []),
-        "jti",
-        "iat",
-      ]),
+      ...new Set([...(config.jws?.verifyOptions?.requiredClaims || []), "jti", "iat"]),
     ],
     typ: typ || "JWT",
     algorithms: alg ? [alg] : undefined,
@@ -552,12 +520,8 @@ export async function verifyJWSSession<
   return {
     id: jti,
     createdAt: iat * 1000, // Convert back to ms
-    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn
-      ? number
-      : T["exp"],
-    data: (data && typeof data === "object"
-      ? data
-      : Object.create(null)) as any,
+    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn ? number : T["exp"],
+    data: (data && typeof data === "object" ? data : Object.create(null)) as any,
   };
 }
 
@@ -571,9 +535,7 @@ export async function clearJWSSession<
   const sessionName = config.name || DEFAULT_NAME;
 
   // If session exists in context store for hook and delete it
-  let session = event.context.sessions?.[sessionName] as
-    | SessionJWS<T, MaxAge>
-    | undefined;
+  let session = event.context.sessions?.[sessionName] as SessionJWS<T, MaxAge> | undefined;
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];
   }
@@ -596,9 +558,7 @@ export async function clearJWSSession<
   });
 }
 
-function getSignKey(
-  key: SessionConfigJWS["key"] | undefined,
-): JWK_Symmetric | JWK_Private {
+function getSignKey(key: SessionConfigJWS["key"] | undefined): JWK_Symmetric | JWK_Private {
   if (!key) {
     throw new Error("Session: JWS key is required.");
   }
@@ -611,10 +571,9 @@ function getSignKey(
   }
 
   if (!_key) {
-    throw new Error(
-      "Session: Invalid JWS key. It must be a symmetric JWK or a private JWK.",
-      { cause: key },
-    );
+    throw new Error("Session: Invalid JWS key. It must be a symmetric JWK or a private JWK.", {
+      cause: key,
+    });
   }
 
   return _key;
@@ -640,10 +599,9 @@ function getVerifyKey(
   }
 
   if (!_key) {
-    throw new Error(
-      "Session: Invalid JWS key. It must be a symmetric JWK or a public JWK/set.",
-      { cause: key },
-    );
+    throw new Error("Session: Invalid JWS key. It must be a symmetric JWK or a public JWK/set.", {
+      cause: key,
+    });
   }
 
   return _key;

@@ -8,15 +8,9 @@
 
 const MAX_INT32 = 2 ** 32;
 
-function writeUInt32BE(
-  buf: Uint8Array<ArrayBuffer>,
-  value: number,
-  offset?: number,
-) {
+function writeUInt32BE(buf: Uint8Array<ArrayBuffer>, value: number, offset?: number) {
   if (value < 0 || value >= MAX_INT32) {
-    throw new RangeError(
-      `value must be >= 0 and <= ${MAX_INT32 - 1}. Received ${value}`,
-    );
+    throw new RangeError(`value must be >= 0 and <= ${MAX_INT32 - 1}. Received ${value}`);
   }
   buf.set([value >>> 24, value >>> 16, value >>> 8, value & 0xff], offset);
 }

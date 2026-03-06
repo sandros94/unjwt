@@ -4,12 +4,12 @@ import type { StrictOmit } from "../../../core/utils/types";
 export type { JWTClaims } from "../../../core/types";
 
 export interface SessionClaims
-  extends
-    Required<Pick<JWTClaims, "jti" | "iat">>,
-    StrictOmit<JWTClaims, "jti" | "iat"> {}
+  extends Required<Pick<JWTClaims, "jti" | "iat">>, StrictOmit<JWTClaims, "jti" | "iat"> {}
 
-export type SessionData<T extends Record<string, any> = SessionClaims> =
-  StrictOmit<T, "jti" | "iat" | "exp">;
+export type SessionData<T extends Record<string, any> = SessionClaims> = StrictOmit<
+  T,
+  "jti" | "iat" | "exp"
+>;
 
 export type SessionUpdate<T extends Record<string, any> = SessionClaims> =
   | Partial<SessionData<T>>

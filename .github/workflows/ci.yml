@@ -10,60 +10,36 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    if: ${{ !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore(release):')) }}
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      lint_passed: ${{ steps.lint.outcome == 'success' }}
+
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: "package.json"
-          cache: "pnpm"
-
-      - run: pnpm install
-
-      # ---- LINT (may fail, tracked via outcome) ----
-      - id: lint
-        name: Run lint
-        run: pnpm lint
-        continue-on-error: true
-
-      # ---- TEST & BUILD only if lint succeeded ----
-      - name: Test
-        if: steps.lint.outcome == 'success'
-        run: pnpm test
-
-      - name: Build
-        if: steps.lint.outcome == 'success'
-        run: pnpm build
-
-  # AUTOFIX — only runs when lint failed
-  autofix:
-    needs: ci
-    if: needs.ci.outputs.lint_passed == 'false'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install pnpm
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version-file: "package.json"
+          node-version: 22
           cache: "pnpm"
 
-      - run: pnpm install
-      - run: pnpm lint:fix
+      - name: Install dependencies
+        run: pnpm install
 
-      - uses: autofix-ci/action@551dded8c6cc8a1054039c8bc0b8b48c51dfc6ef
-        with:
-          commit-message: "chore: apply automated updates"
+      - name: Prepare development build
+        run: pnpm dev:prepare
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck code
+        run: pnpm typecheck
+
+      - name: Test code
+        run: pnpm test
+
+      - name: Build packages
+        run: pnpm build

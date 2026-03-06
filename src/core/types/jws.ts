@@ -1,26 +1,10 @@
-import type {
-  JoseHeaderParameters,
-  JWTClaims,
-  JWTClaimValidationOptions,
-} from "./jwt";
-import type {
-  JWK,
-  JWKSet,
-  JWK_HMAC,
-  JWK_RSA_SIGN,
-  JWK_RSA_PSS,
-  JWK_ECDSA,
-} from "./jwk";
+import type { JoseHeaderParameters, JWTClaims, JWTClaimValidationOptions } from "./jwt";
+import type { JWK, JWKSet, JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA } from "./jwk";
 import type { ExpiresIn } from ".";
 
 type JWS_SIGN_EXTRA = "Ed25519" | "EdDSA";
 /** JWS Signing Algorithm Identifier. */
-export type JWSAlgorithm =
-  | JWK_HMAC
-  | JWK_RSA_SIGN
-  | JWK_RSA_PSS
-  | JWK_ECDSA
-  | JWS_SIGN_EXTRA;
+export type JWSAlgorithm = JWK_HMAC | JWK_RSA_SIGN | JWK_RSA_PSS | JWK_ECDSA | JWS_SIGN_EXTRA;
 
 /** Recognized JWS Header Parameters, any other Header Members may also be present. */
 export interface JWSHeaderParameters extends JoseHeaderParameters {

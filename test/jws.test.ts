@@ -2,19 +2,8 @@ import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify } from "../src/core/jws";
 import { generateKey, exportKey } from "../src/core/jwk";
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  textEncoder,
-  textDecoder,
-} from "../src/core/utils";
-import type {
-  JWSProtectedHeader,
-  JWTClaims,
-  JWK,
-  JWK_Private,
-  JWKSet,
-} from "../src/core/types";
+import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src/core/utils";
+import type { JWSProtectedHeader, JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -166,10 +155,7 @@ describe.concurrent("JWS Utilities", () => {
       expect(header.kid).toBe("test-key-1");
       expect(header.typ).toBe("custom"); // Overrides default
 
-      const { protectedHeader: joseHeader } = await jose.compactVerify(
-        jws,
-        key,
-      );
+      const { protectedHeader: joseHeader } = await jose.compactVerify(jws, key);
       expect(joseHeader.kid).toBe("test-key-1");
       expect(joseHeader.typ).toBe("custom");
     });
@@ -208,9 +194,7 @@ describe.concurrent("JWS Utilities", () => {
       );
       const [_headerEncoded, payloadEncoded] = jws.split(".");
       const payload = JSON.parse(base64UrlDecode(payloadEncoded));
-      expect(payload.exp).toEqual(
-        Math.round(creationDate.getTime() / 1000) + 60,
-      ); // expired 1 minute ago
+      expect(payload.exp).toEqual(Math.round(creationDate.getTime() / 1000) + 60); // expired 1 minute ago
 
       await expect(
         jose.jwtVerify(jws, key, {
@@ -267,16 +251,12 @@ describe.concurrent("JWS Utilities", () => {
         sign(payloadObj, invalidRSKey.privateKey, {
           alg: "RS256",
         }),
-      ).rejects.toThrow(
-        "RS256 requires key modulusLength to be 2048 bits or larger",
-      );
+      ).rejects.toThrow("RS256 requires key modulusLength to be 2048 bits or larger");
     });
 
     it("should throw for invalid payload type", async () => {
       const key = await generateKey("HS256");
-      await expect(sign(12_345 as any, key, { alg: "HS256" })).rejects.toThrow(
-        TypeError,
-      );
+      await expect(sign(12_345 as any, key, { alg: "HS256" })).rejects.toThrow(TypeError);
     });
   });
 
@@ -329,10 +309,7 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (Object payload)", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<JWTClaims>(
-        jws,
-        hs256Key,
-      );
+      const { payload, protectedHeader } = await verify<JWTClaims>(jws, hs256Key);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("HS256");
       expect(protectedHeader.typ).toBe("JWT");
@@ -343,9 +320,7 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (Uint8Array payload)", async () => {
       const jws = await sign(payloadBytes, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<
-        Uint8Array<ArrayBuffer>
-      >(jws, hs256Key, {
+      const { payload, protectedHeader } = await verify<Uint8Array<ArrayBuffer>>(jws, hs256Key, {
         forceUint8Array: true,
       });
       expect(payload).toBeInstanceOf(Uint8Array);
@@ -372,17 +347,11 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, rs256KeyPair.privateKey, {
         alg: "RS256",
       });
-      const { payload, protectedHeader } = await verify<JWTClaims>(
-        jws,
-        rs256KeyPair.publicKey,
-      );
+      const { payload, protectedHeader } = await verify<JWTClaims>(jws, rs256KeyPair.publicKey);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("RS256");
 
-      const { payload: josePayload } = await jose.compactVerify(
-        jws,
-        rs256KeyPair.publicKey,
-      );
+      const { payload: josePayload } = await jose.compactVerify(jws, rs256KeyPair.publicKey);
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
@@ -390,17 +359,11 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, es256KeyPair.privateKey, {
         alg: "ES256",
       });
-      const { payload, protectedHeader } = await verify<JWTClaims>(
-        jws,
-        es256KeyPair.publicKey,
-      );
+      const { payload, protectedHeader } = await verify<JWTClaims>(jws, es256KeyPair.publicKey);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("ES256");
 
-      const { payload: josePayload } = await jose.compactVerify(
-        jws,
-        es256KeyPair.publicKey,
-      );
+      const { payload: josePayload } = await jose.compactVerify(jws, es256KeyPair.publicKey);
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
@@ -408,17 +371,11 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, ps256KeyPair.privateKey, {
         alg: "PS256",
       });
-      const { payload, protectedHeader } = await verify<JWTClaims>(
-        jws,
-        ps256KeyPair.publicKey,
-      );
+      const { payload, protectedHeader } = await verify<JWTClaims>(jws, ps256KeyPair.publicKey);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("PS256");
 
-      const { payload: josePayload } = await jose.compactVerify(
-        jws,
-        ps256KeyPair.publicKey,
-      );
+      const { payload: josePayload } = await jose.compactVerify(jws, ps256KeyPair.publicKey);
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
@@ -445,9 +402,7 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { b64: false },
       });
-      const { payload, protectedHeader } = await verify<
-        Uint8Array<ArrayBuffer>
-      >(jws, hs256Key, {
+      const { payload, protectedHeader } = await verify<Uint8Array<ArrayBuffer>>(jws, hs256Key, {
         forceUint8Array: true,
       });
       expect(protectedHeader.b64).toBe(false);
@@ -477,10 +432,7 @@ describe.concurrent("JWS Utilities", () => {
       expect(protectedHeader.kid).toBe("key1");
       expect(payload).toEqual(payloadObj);
 
-      const { payload: josePayload } = await jose.compactVerify(
-        jws,
-        joseJwkSet,
-      );
+      const { payload: josePayload } = await jose.compactVerify(jws, joseJwkSet);
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
@@ -623,13 +575,9 @@ describe.concurrent("JWS Utilities", () => {
           alg: "HS256",
           protectedHeader: { typ: "JWT" },
         });
-        await expect(
-          verify(jws, hs256Key, { typ: "JWT" }),
-        ).resolves.toBeDefined();
+        await expect(verify(jws, hs256Key, { typ: "JWT" })).resolves.toBeDefined();
 
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { typ: "JWT" }),
-        ).resolves.toBeDefined();
+        await expect(jose.jwtVerify(jws, hs256Key, { typ: "JWT" })).resolves.toBeDefined();
       });
 
       it("should validate 'typ' header parameter (failure)", async () => {
@@ -641,9 +589,9 @@ describe.concurrent("JWS Utilities", () => {
           'Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "JWT", got "application/custom".',
         );
 
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { typ: "JWT" }),
-        ).rejects.toThrow('unexpected "typ" JWT header value');
+        await expect(jose.jwtVerify(jws, hs256Key, { typ: "JWT" })).rejects.toThrow(
+          'unexpected "typ" JWT header value',
+        );
       });
 
       it("should succeed if options.typ is undefined, regardless of header.typ", async () => {
@@ -652,19 +600,13 @@ describe.concurrent("JWS Utilities", () => {
           protectedHeader: { typ: "JWT" },
         });
         await expect(verify(jwsWithTyp, hs256Key, {})).resolves.toBeDefined();
-        await expect(
-          jose.jwtVerify(jwsWithTyp, hs256Key, {}),
-        ).resolves.toBeDefined();
+        await expect(jose.jwtVerify(jwsWithTyp, hs256Key, {})).resolves.toBeDefined();
 
         const jwsWithoutTyp = await sign(basicJwtPayload, hs256Key, {
           alg: "HS256",
         }); // typ will be JWT by default for object payload
-        await expect(
-          verify(jwsWithoutTyp, hs256Key, {}),
-        ).resolves.toBeDefined();
-        await expect(
-          jose.jwtVerify(jwsWithoutTyp, hs256Key, {}),
-        ).resolves.toBeDefined();
+        await expect(verify(jwsWithoutTyp, hs256Key, {})).resolves.toBeDefined();
+        await expect(jose.jwtVerify(jwsWithoutTyp, hs256Key, {})).resolves.toBeDefined();
       });
 
       it("should validate requiredClaims (success)", async () => {
@@ -697,9 +639,7 @@ describe.concurrent("JWS Utilities", () => {
 
       it("should validate issuer (success - string)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
-        await expect(
-          verify(jws, hs256Key, { issuer: "test-issuer" }),
-        ).resolves.toBeDefined();
+        await expect(verify(jws, hs256Key, { issuer: "test-issuer" })).resolves.toBeDefined();
 
         await expect(
           jose.jwtVerify(jws, hs256Key, { issuer: "test-issuer" }),
@@ -721,51 +661,47 @@ describe.concurrent("JWS Utilities", () => {
 
       it("should validate issuer (failure - mismatch)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
-        await expect(
-          verify(jws, hs256Key, { issuer: "wrong-issuer" }),
-        ).rejects.toThrow(
+        await expect(verify(jws, hs256Key, { issuer: "wrong-issuer" })).rejects.toThrow(
           'Invalid JWT "iss" (Issuer) Claim: Expected wrong-issuer, got test-issuer',
         );
 
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { issuer: "wrong-issuer" }),
-        ).rejects.toThrow('unexpected "iss" claim value');
+        await expect(jose.jwtVerify(jws, hs256Key, { issuer: "wrong-issuer" })).rejects.toThrow(
+          'unexpected "iss" claim value',
+        );
       });
 
       it("should validate issuer (failure - claim missing)", async () => {
         const payloadWithoutIss = { ...basicJwtPayload };
         delete payloadWithoutIss.iss;
         const jws = await sign(payloadWithoutIss, hs256Key, { alg: "HS256" });
-        await expect(
-          verify(jws, hs256Key, { issuer: "test-issuer" }),
-        ).rejects.toThrow("Missing required JWT Claims: iss");
+        await expect(verify(jws, hs256Key, { issuer: "test-issuer" })).rejects.toThrow(
+          "Missing required JWT Claims: iss",
+        );
 
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { issuer: "test-issuer" }),
-        ).rejects.toThrow('missing required "iss" claim');
+        await expect(jose.jwtVerify(jws, hs256Key, { issuer: "test-issuer" })).rejects.toThrow(
+          'missing required "iss" claim',
+        );
       });
 
       it("should validate subject (success)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
-        await expect(
-          verify(jws, hs256Key, { subject: "test-subject" }),
-        ).resolves.toBeDefined();
+        await expect(verify(jws, hs256Key, { subject: "test-subject" })).resolves.toBeDefined();
       });
 
       it("should validate subject (failure - mismatch)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { subject: "wrong-subject" }),
-        ).rejects.toThrow('unexpected "sub" claim value');
+        await expect(jose.jwtVerify(jws, hs256Key, { subject: "wrong-subject" })).rejects.toThrow(
+          'unexpected "sub" claim value',
+        );
       });
 
       it("should validate subject (failure - claim missing)", async () => {
         const payloadWithoutSub = { ...basicJwtPayload };
         delete payloadWithoutSub.sub;
         const jws = await sign(payloadWithoutSub, hs256Key, { alg: "HS256" });
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { subject: "test-subject" }),
-        ).rejects.toThrow('missing required "sub" claim');
+        await expect(jose.jwtVerify(jws, hs256Key, { subject: "test-subject" })).rejects.toThrow(
+          'missing required "sub" claim',
+        );
       });
 
       it("should validate audience (success - string option, string claim)", async () => {
@@ -794,9 +730,7 @@ describe.concurrent("JWS Utilities", () => {
         const jws = await sign(payloadWithAudArray, hs256Key, {
           alg: "HS256",
         });
-        await expect(
-          verify(jws, hs256Key, { audience: "test-audience" }),
-        ).resolves.toBeDefined();
+        await expect(verify(jws, hs256Key, { audience: "test-audience" })).resolves.toBeDefined();
       });
 
       it("should validate audience (success - array option, array claim)", async () => {
@@ -816,9 +750,7 @@ describe.concurrent("JWS Utilities", () => {
 
       it("should validate audience (failure - mismatch)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
-        await expect(
-          verify(jws, hs256Key, { audience: "wrong-audience" }),
-        ).rejects.toThrow(
+        await expect(verify(jws, hs256Key, { audience: "wrong-audience" })).rejects.toThrow(
           'Invalid JWT "aud" (Audience) Claim: Expected wrong-audience, got test-audience',
         );
       });
@@ -827,9 +759,9 @@ describe.concurrent("JWS Utilities", () => {
         const payloadWithoutAud = { ...basicJwtPayload };
         delete payloadWithoutAud.aud;
         const jws = await sign(payloadWithoutAud, hs256Key, { alg: "HS256" });
-        await expect(
-          verify(jws, hs256Key, { audience: "test-audience" }),
-        ).rejects.toThrow("Missing required JWT Claims: aud");
+        await expect(verify(jws, hs256Key, { audience: "test-audience" })).rejects.toThrow(
+          "Missing required JWT Claims: aud",
+        );
       });
 
       it("should validate nbf (success)", async () => {
@@ -914,9 +846,7 @@ describe.concurrent("JWS Utilities", () => {
         const payload = { ...basicJwtPayload, iat };
         const jws = await sign(payload, hs256Key, { alg: "HS256" });
 
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { maxTokenAge: 120 }),
-        ).rejects.toThrow(
+        await expect(jose.jwtVerify(jws, hs256Key, { maxTokenAge: 120 })).rejects.toThrow(
           '"iat" claim timestamp check failed (too far in the past)',
         );
       });
@@ -925,9 +855,7 @@ describe.concurrent("JWS Utilities", () => {
         const futureIat = Math.floor(Date.now() / 1000) + 3600;
         const payload = { ...basicJwtPayload, iat: futureIat };
         const jws = await sign(payload, hs256Key, { alg: "HS256" });
-        await expect(
-          jose.jwtVerify(jws, hs256Key, { maxTokenAge: 120 }),
-        ).rejects.toThrow(
+        await expect(jose.jwtVerify(jws, hs256Key, { maxTokenAge: 120 })).rejects.toThrow(
           '"iat" claim timestamp check failed (it should be in the past)',
         );
       });
@@ -936,9 +864,9 @@ describe.concurrent("JWS Utilities", () => {
         const payloadWithoutIat = { ...basicJwtPayload };
         delete payloadWithoutIat.iat;
         const jws = await sign(payloadWithoutIat, hs256Key, { alg: "HS256" });
-        await expect(
-          verify(jws, hs256Key, { maxTokenAge: 60 }),
-        ).rejects.toThrow("Missing required JWT Claims: iat");
+        await expect(verify(jws, hs256Key, { maxTokenAge: 60 })).rejects.toThrow(
+          "Missing required JWT Claims: iat",
+        );
       });
 
       it("should validate maxTokenAge with clockTolerance (success for age)", async () => {
@@ -964,14 +892,12 @@ describe.concurrent("JWS Utilities", () => {
         const payload = { ...basicJwtPayload, nbf };
         const jws = await sign(payload, hs256Key, { alg: "HS256" });
         const futureDate = new Date(Date.now() + 120 * 1000); // 120 seconds in future
-        await expect(
-          verify(jws, hs256Key, { currentDate: futureDate }),
-        ).resolves.toBeDefined(); // Should be valid at futureDate
+        await expect(verify(jws, hs256Key, { currentDate: futureDate })).resolves.toBeDefined(); // Should be valid at futureDate
 
         const pastDate = new Date(Date.now() + 50 * 1000); // 50 seconds in future
-        await expect(
-          verify(jws, hs256Key, { currentDate: pastDate }),
-        ).rejects.toThrow("Token is not yet valid");
+        await expect(verify(jws, hs256Key, { currentDate: pastDate })).rejects.toThrow(
+          "Token is not yet valid",
+        );
       });
 
       it("should use currentDate for exp validation", async () => {
@@ -979,14 +905,12 @@ describe.concurrent("JWS Utilities", () => {
         const payload = { ...basicJwtPayload, exp };
         const jws = await sign(payload, hs256Key, { alg: "HS256" });
         const pastDate = new Date(Date.now() + 50 * 1000); // 50 seconds in future
-        await expect(
-          verify(jws, hs256Key, { currentDate: pastDate }),
-        ).resolves.toBeDefined(); // Should not be expired at pastDate
+        await expect(verify(jws, hs256Key, { currentDate: pastDate })).resolves.toBeDefined(); // Should not be expired at pastDate
 
         const futureDate = new Date(Date.now() + 120 * 1000); // 120 seconds in future
-        await expect(
-          verify(jws, hs256Key, { currentDate: futureDate }),
-        ).rejects.toThrow("Token has expired");
+        await expect(verify(jws, hs256Key, { currentDate: futureDate })).rejects.toThrow(
+          "Token has expired",
+        );
       });
 
       it("should use currentDate for maxTokenAge validation", async () => {
@@ -1042,9 +966,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
       // We "understand" 'exp' because it's in the options.critical array
-      await expect(
-        verify(jws, hs256Key, { requiredHeaders: ["exp"] }),
-      ).resolves.toBeDefined();
+      await expect(verify(jws, hs256Key, { requiredHeaders: ["exp"] })).resolves.toBeDefined();
     });
 
     it("should throw if crit present but no critical options provided", async () => {
@@ -1072,16 +994,14 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should throw for invalid header JSON", async () => {
       const invalidHeader = base64UrlEncode("not json");
-      await expect(
-        verify(`${invalidHeader}.payload.sig`, hs256Key),
-      ).rejects.toThrow(/Protected header is not valid Base64URL or JSON/);
+      await expect(verify(`${invalidHeader}.payload.sig`, hs256Key)).rejects.toThrow(
+        /Protected header is not valid Base64URL or JSON/,
+      );
     });
 
     it("should throw for header missing alg", async () => {
       const headerWithoutAlg = base64UrlEncode(JSON.stringify({ typ: "JWT" }));
-      await expect(
-        verify(`${headerWithoutAlg}.payload.sig`, hs256Key),
-      ).rejects.toThrow(
+      await expect(verify(`${headerWithoutAlg}.payload.sig`, hs256Key)).rejects.toThrow(
         'Protected header must be an object with an "alg" property',
       );
     });
@@ -1089,9 +1009,9 @@ describe.concurrent("JWS Utilities", () => {
     it("should throw for invalid signature base64", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
       const parts = jws.split(".");
-      await expect(
-        verify(`${parts[0]}.${parts[1]}.sig?`, hs256Key),
-      ).rejects.toThrow("Signature is not valid Base64URL");
+      await expect(verify(`${parts[0]}.${parts[1]}.sig?`, hs256Key)).rejects.toThrow(
+        "Signature is not valid Base64URL",
+      );
     });
 
     it("should throw for signature mismatch", async () => {
@@ -1121,9 +1041,9 @@ describe.concurrent("JWS Utilities", () => {
     it("should throw if payload decoding fails (e.g., invalid base64)", async () => {
       const header = base64UrlEncode(JSON.stringify({ alg: "HS256" }));
       const sig = base64UrlEncode(new Uint8Array(32)); // Dummy sig
-      await expect(
-        verify(`${header}.invalid?payload.${sig}`, hs256Key),
-      ).rejects.toThrow("JWS signature verification failed.");
+      await expect(verify(`${header}.invalid?payload.${sig}`, hs256Key)).rejects.toThrow(
+        "JWS signature verification failed.",
+      );
     });
   });
 });

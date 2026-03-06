@@ -35,13 +35,12 @@ describe("RSA vs OKP verifying", async () => {
     generateKey("RS512"),
     generateKey("Ed25519"),
   ]);
-  const [rsa256Verify, rsa384Verify, rsa512Verify, okpVerify] =
-    await Promise.all([
-      sign({ sub: "test" }, rsa256Keys.privateKey, { alg: "RS256" }),
-      sign({ sub: "test" }, rsa384Keys.privateKey, { alg: "RS384" }),
-      sign({ sub: "test" }, rsa512Keys.privateKey, { alg: "RS512" }),
-      sign({ sub: "test" }, okpKeys.privateKey, { alg: "Ed25519" }),
-    ]);
+  const [rsa256Verify, rsa384Verify, rsa512Verify, okpVerify] = await Promise.all([
+    sign({ sub: "test" }, rsa256Keys.privateKey, { alg: "RS256" }),
+    sign({ sub: "test" }, rsa384Keys.privateKey, { alg: "RS384" }),
+    sign({ sub: "test" }, rsa512Keys.privateKey, { alg: "RS512" }),
+    sign({ sub: "test" }, okpKeys.privateKey, { alg: "Ed25519" }),
+  ]);
 
   bench("[verify] RSA256", async () => {
     await verify(rsa256Verify, rsa256Keys.publicKey);

@@ -61,27 +61,19 @@ function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
   };
 
   if (typeof kty !== "string") {
-    throw new TypeError(
-      'ECDH-ES ephemeral key JWK must include the "kty" parameter.',
-    );
+    throw new TypeError('ECDH-ES ephemeral key JWK must include the "kty" parameter.');
   }
 
   if (typeof crv !== "string") {
-    throw new TypeError(
-      'ECDH-ES ephemeral key JWK must include the "crv" parameter.',
-    );
+    throw new TypeError('ECDH-ES ephemeral key JWK must include the "crv" parameter.');
   }
 
   if (typeof x !== "string") {
-    throw new TypeError(
-      'ECDH-ES ephemeral key JWK must include the "x" coordinate.',
-    );
+    throw new TypeError('ECDH-ES ephemeral key JWK must include the "x" coordinate.');
   }
 
   if (kty === "EC" && typeof y !== "string") {
-    throw new TypeError(
-      'ECDH-ES EC ephemeral key JWK must include both "x" and "y" coordinates.',
-    );
+    throw new TypeError('ECDH-ES EC ephemeral key JWK must include both "x" and "y" coordinates.');
   }
 
   const publicJwk: Record<string, unknown> = {
@@ -100,36 +92,25 @@ function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
   return sanitizeObject(publicJwk) as unknown as JWK_EC_Public;
 }
 
-async function ensurePrivateKey(
-  alg: string,
-  value: CryptoKey | JWK_EC,
-): Promise<CryptoKey> {
+async function ensurePrivateKey(alg: string, value: CryptoKey | JWK_EC): Promise<CryptoKey> {
   const normalized = await normalizeKey(value, alg);
   if (!(normalized instanceof CryptoKey)) {
-    throw new TypeError(
-      "ECDH-ES ephemeral private key must be a CryptoKey or convertible JWK.",
-    );
+    throw new TypeError("ECDH-ES ephemeral private key must be a CryptoKey or convertible JWK.");
   }
   if (normalized.type !== "private") {
-    throw new TypeError(
-      'ECDH-ES ephemeral private key must have type "private".',
-    );
+    throw new TypeError('ECDH-ES ephemeral private key must have type "private".');
   }
   return normalized;
 }
 
-async function exportPublicJwkFrom(
-  alg: string,
-  value: CryptoKey | JWK_EC,
-): Promise<JWK_EC_Public> {
+async function exportPublicJwkFrom(alg: string, value: CryptoKey | JWK_EC): Promise<JWK_EC_Public> {
   if (isCryptoKey(value)) {
     try {
       return toPublicEpkJwk(await keyToJWK(value));
     } catch (error_) {
-      throw new TypeError(
-        "ECDH-ES ephemeral CryptoKey must be extractable to export as JWK.",
-        { cause: error_ instanceof Error ? error_ : undefined },
-      );
+      throw new TypeError("ECDH-ES ephemeral CryptoKey must be extractable to export as JWK.", {
+        cause: error_ instanceof Error ? error_ : undefined,
+      });
     }
   }
   if (isJWK(value) && isAsymmetricJWK(value) && value.kty === "EC") {
@@ -137,9 +118,7 @@ async function exportPublicJwkFrom(
   }
   const normalized = await normalizeKey(value, alg);
   if (!(normalized instanceof CryptoKey)) {
-    throw new TypeError(
-      "ECDH-ES ephemeral public key must be a CryptoKey or convertible JWK.",
-    );
+    throw new TypeError("ECDH-ES ephemeral public key must be a CryptoKey or convertible JWK.");
   }
   return exportPublicJwkFrom(alg, normalized);
 }
@@ -197,11 +176,9 @@ export async function encryptKey(
             "ECDH-ES custom ephemeral public key requires a matching private key.",
           );
         }
-        const generated = await crypto.subtle.generateKey(
-          key.algorithm as EcKeyAlgorithm,
-          true,
-          ["deriveBits"],
-        );
+        const generated = await crypto.subtle.generateKey(key.algorithm as EcKeyAlgorithm, true, [
+          "deriveBits",
+        ]);
         ephemeralPrivateKey = generated.privateKey;
         epkHeader = await exportPublicJwkFrom(alg, generated.publicKey);
       }
@@ -210,9 +187,7 @@ export async function encryptKey(
         key,
         ephemeralPrivateKey,
         alg === "ECDH-ES" ? enc : alg,
-        alg === "ECDH-ES"
-          ? bitLengthCEK(enc)
-          : Number.parseInt(alg.slice(-5, -2), 10),
+        alg === "ECDH-ES" ? bitLengthCEK(enc) : Number.parseInt(alg.slice(-5, -2), 10),
         apu,
         apv,
       );
@@ -268,9 +243,7 @@ export async function encryptKey(
       break;
     }
     default: {
-      throw new Error(
-        'Invalid or unsupported "alg" (JWE Algorithm) header value',
-      );
+      throw new Error('Invalid or unsupported "alg" (JWE Algorithm) header value');
     }
   }
 

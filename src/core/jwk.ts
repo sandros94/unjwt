@@ -67,21 +67,13 @@ export async function generateKey(
   alg: string,
   options: GenerateKeyOptions = {},
 ): Promise<
-  | CryptoKey
-  | CryptoKeyPair
-  | Uint8Array<ArrayBuffer>
-  | JWK
-  | { privateKey: JWK; publicKey: JWK }
+  CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | { privateKey: JWK; publicKey: JWK }
 > {
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
   const defaultExtractable = options.extractable !== false; // Default true
 
   // Handle AES-CBC separately as it requires raw key generation
-  if (
-    alg === "A128CBC-HS256" ||
-    alg === "A192CBC-HS384" ||
-    alg === "A256CBC-HS512"
-  ) {
+  if (alg === "A128CBC-HS256" || alg === "A192CBC-HS384" || alg === "A256CBC-HS512") {
     const keyLength = bitLengthCEK(alg);
     const keyBytes = randomBytes(keyLength >> 3);
 
@@ -95,11 +87,7 @@ export async function generateKey(
   // For other algorithms, use crypto.subtle.generateKey
   const { algorithm, keyUsages } = getGenerateKeyParams(alg, options);
 
-  const key = await crypto.subtle.generateKey(
-    algorithm,
-    defaultExtractable,
-    keyUsages,
-  );
+  const key = await crypto.subtle.generateKey(algorithm, defaultExtractable, keyUsages);
 
   if (exportToJWK) {
     const {
@@ -108,9 +96,7 @@ export async function generateKey(
       key_ops: _ko,
       ext: _e,
       ...additionalKeyParams
-    } = typeof options.toJWK === "object"
-      ? (options.toJWK as JWKParameters)
-      : {};
+    } = typeof options.toJWK === "object" ? (options.toJWK as JWKParameters) : {};
     if (key instanceof CryptoKey) {
       // Symmetric keys (HMAC, AES-KW, AES-GCM)
       return exportKey(key, {
@@ -155,10 +141,7 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
   return generateKey(alg, {
     ...opts,
     toJWK: {
-      kid:
-        typeof jwkParams?.kid === "string"
-          ? jwkParams.kid
-          : crypto.randomUUID(),
+      kid: typeof jwkParams?.kid === "string" ? jwkParams.kid : crypto.randomUUID(),
       ...jwkParams,
     },
   });
@@ -192,20 +175,12 @@ export async function deriveKeyFromPassword(
     throw new Error("PBES2 Salt Input (salt) must be 8 or more octets");
   }
   if (typeof iterations !== "number" || iterations < 1) {
-    throw new Error(
-      "PBES2 Iteration Count (iterations) must be a positive integer",
-    );
+    throw new Error("PBES2 Iteration Count (iterations) must be a positive integer");
   }
 
-  const passwordBytes =
-    typeof password === "string" ? textEncoder.encode(password) : password;
+  const passwordBytes = typeof password === "string" ? textEncoder.encode(password) : password;
 
-  const derivedBytes = await deriveKeyPBES2(
-    salt,
-    alg,
-    iterations,
-    passwordBytes,
-  );
+  const derivedBytes = await deriveKeyPBES2(salt, alg, iterations, passwordBytes);
 
   const wrappingAlg = alg.slice(-6); // "A128KW", "A192KW", "A256KW"
   const defaultUsages: KeyUsage[] = ["wrapKey", "unwrapKey"];
@@ -229,9 +204,7 @@ export async function deriveKeyFromPassword(
       key_ops: _ko,
       ext: _e,
       ...additionalKeyParams
-    } = typeof options.toJWK === "object"
-      ? (options.toJWK as JWKParameters)
-      : {};
+    } = typeof options.toJWK === "object" ? (options.toJWK as JWKParameters) : {};
 
     return { ...additionalKeyParams, ...jwk, alg: wrappingAlg, kty: "oct" };
   }
@@ -279,9 +252,7 @@ export async function deriveJWKFromPassword(
  * @returns A Promise resolving to the imported key as CryptoKey or Uint8Array.
  */
 export async function importKey(key: string): Promise<Uint8Array<ArrayBuffer>>;
-export async function importKey(
-  key: Uint8Array<ArrayBuffer>,
-): Promise<Uint8Array<ArrayBuffer>>;
+export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
 export async function importKey(key: JWK_oct): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(
@@ -309,9 +280,7 @@ export async function importKey(
       return base64UrlDecode(key.k as string, false);
     } else {
       if (!key.alg && !alg) {
-        throw new TypeError(
-          "Algorithm must be provided when importing non-oct JWK",
-        );
+        throw new TypeError("Algorithm must be provided when importing non-oct JWK");
       }
       return jwkTokey({
         ...key,
@@ -331,10 +300,7 @@ export async function importKey(
  * @param jwk Optional partial JWK to merge with the exported key, allowing overrides.
  * @returns A Promise resolving to the exported JWK.
  */
-export async function exportKey<T extends JWK>(
-  key: CryptoKey,
-  jwk?: Partial<JWK>,
-): Promise<T> {
+export async function exportKey<T extends JWK>(key: CryptoKey, jwk?: Partial<JWK>): Promise<T> {
   const exportedJwk = await keyToJWK<T>(key);
 
   // Merge the additional jwk properties and make sure the exported ones have priority
@@ -349,10 +315,7 @@ async function resolveWrappingKey(
   alg: KeyManagementAlgorithm,
   key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
-  if (
-    alg.startsWith("PBES2") &&
-    (typeof key === "string" || key instanceof Uint8Array)
-  ) {
+  if (alg.startsWith("PBES2") && (typeof key === "string" || key instanceof Uint8Array)) {
     return typeof key === "string" ? textEncoder.encode(key) : key;
   }
   if (typeof key === "string") {
@@ -393,9 +356,7 @@ export async function wrapKey(
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
       if (alg.startsWith("PBES2") && (!p2s || typeof p2c !== "number")) {
-        throw new Error(
-          "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
-        );
+        throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
       }
       return _wrap(alg, importedWrappingKey, cekBytes, p2c, p2s);
     }
@@ -425,12 +386,9 @@ export async function wrapKey(
         ["encrypt", "decrypt"],
       );
       const encryptedKey = new Uint8Array(
-        await crypto.subtle.wrapKey(
-          "raw",
-          keyToWrapImported,
-          importedWrappingKey as CryptoKey,
-          { name: "RSA-OAEP" },
-        ),
+        await crypto.subtle.wrapKey("raw", keyToWrapImported, importedWrappingKey as CryptoKey, {
+          name: "RSA-OAEP",
+        }),
       );
       return { encryptedKey };
     }
@@ -483,19 +441,11 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
       let p2sBytes: Uint8Array<ArrayBuffer> | undefined;
       if (alg.startsWith("PBES2")) {
         if (!p2s || typeof p2c !== "number") {
-          throw new Error(
-            "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
-          );
+          throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
         }
         p2sBytes = typeof p2s === "string" ? base64UrlDecode(p2s, false) : p2s;
       }
-      unwrappedCekBytes = await _unwrap(
-        alg,
-        importedUnwrappingKey,
-        wrappedKey,
-        p2c,
-        p2sBytes,
-      );
+      unwrappedCekBytes = await _unwrap(alg, importedUnwrappingKey, wrappedKey, p2c, p2sBytes);
       break;
     }
 
@@ -503,18 +453,12 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     case "A192GCMKW":
     case "A256GCMKW": {
       if (!options.iv || !options.tag) {
-        throw new Error(
-          "AES-GCMKW requires 'iv' and 'tag' options for unwrapping",
-        );
+        throw new Error("AES-GCMKW requires 'iv' and 'tag' options for unwrapping");
       }
       const ivBytes =
-        typeof options.iv === "string"
-          ? base64UrlDecode(options.iv, false)
-          : options.iv;
+        typeof options.iv === "string" ? base64UrlDecode(options.iv, false) : options.iv;
       const tagBytes =
-        typeof options.tag === "string"
-          ? base64UrlDecode(options.tag, false)
-          : options.tag;
+        typeof options.tag === "string" ? base64UrlDecode(options.tag, false) : options.tag;
       unwrappedCekBytes = await aesGcmKwDecrypt(
         alg,
         importedUnwrappingKey,
@@ -530,16 +474,10 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     case "RSA-OAEP-384":
     case "RSA-OAEP-512": {
       if (!(importedUnwrappingKey instanceof CryptoKey)) {
-        throw new TypeError(
-          "RSA-OAEP requires the unwrapping key to be provided as a CryptoKey",
-        );
+        throw new TypeError("RSA-OAEP requires the unwrapping key to be provided as a CryptoKey");
       }
 
-      unwrappedCekBytes = await decryptRSAES(
-        alg,
-        importedUnwrappingKey,
-        wrappedKey,
-      );
+      unwrappedCekBytes = await decryptRSAES(alg, importedUnwrappingKey, wrappedKey);
 
       if (!returnAs) {
         break;
@@ -573,15 +511,11 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
         throw new Error("ECDH-ES requires 'epk' (Ephemeral Public Key) option");
       }
       if (!(importedUnwrappingKey instanceof CryptoKey)) {
-        throw new TypeError(
-          "ECDH-ES requires the unwrapping key to be a CryptoKey",
-        );
+        throw new TypeError("ECDH-ES requires the unwrapping key to be a CryptoKey");
       }
 
       if (!isEcdhKeyAllowed(importedUnwrappingKey)) {
-        throw new Error(
-          "ECDH with the provided key is not allowed or not supported",
-        );
+        throw new Error("ECDH with the provided key is not allowed or not supported");
       }
 
       const epkCandidate =
@@ -611,9 +545,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
       }
 
       const keyLength =
-        alg === "ECDH-ES"
-          ? bitLengthCEK(infoAlg)
-          : Number.parseInt(alg.slice(-5, -2), 10);
+        alg === "ECDH-ES" ? bitLengthCEK(infoAlg) : Number.parseInt(alg.slice(-5, -2), 10);
 
       const sharedSecret = await deriveECDHESKey(
         epkCandidate,
@@ -629,9 +561,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
       } else {
         const kwAlg = alg.slice(-6);
         if (!(wrappedKey instanceof Uint8Array) || wrappedKey.length === 0) {
-          throw new Error(
-            "ECDH-ES key agreement with key wrapping requires an encrypted key",
-          );
+          throw new Error("ECDH-ES key agreement with key wrapping requires an encrypted key");
         }
         unwrappedCekBytes = await _unwrap(kwAlg, sharedSecret, wrappedKey);
       }
@@ -736,10 +666,7 @@ export async function exportJWKToPEM(
   }
 
   const effectiveAlg = jwk.alg || algForCryptoKeyImport;
-  if (
-    !effectiveAlg &&
-    (jwk.kty === "RSA" || jwk.kty === "EC" || jwk.kty === "OKP")
-  ) {
+  if (!effectiveAlg && (jwk.kty === "RSA" || jwk.kty === "EC" || jwk.kty === "OKP")) {
     throw new TypeError(
       "Algorithm (alg) must be provided in the JWK or as a parameter for converting this JWK type to a CryptoKey.",
     );
@@ -753,9 +680,7 @@ export async function exportJWKToPEM(
   const cryptoKeyCandidate = await importKey(jwkForImport, effectiveAlg);
 
   if (!isCryptoKey(cryptoKeyCandidate)) {
-    throw new Error(
-      "Failed to convert JWK to a CryptoKey instance suitable for PEM export.",
-    );
+    throw new Error("Failed to convert JWK to a CryptoKey instance suitable for PEM export.");
   }
   const cryptoKey = cryptoKeyCandidate;
 
@@ -799,9 +724,7 @@ export async function exportJWKToPEM(
  */
 export function getJWKFromSet(
   jwkSet: JWKSet,
-  kidOrProtectedHeader:
-    | string
-    | (JoseHeaderParameters & { alg?: string; kty?: string }),
+  kidOrProtectedHeader: string | (JoseHeaderParameters & { alg?: string; kty?: string }),
 ): JWK {
   if (!jwkSet || !isJWKSet(jwkSet)) {
     throw new TypeError("Invalid JWK Set provided");
@@ -827,9 +750,7 @@ export function getJWKFromSet(
     }
 
     const selectedKey = jwkSet.keys.find((k: JWK) => {
-      return (
-        k.kid === kid && (!alg || k.alg === alg) && (!kty || k.kty === kty)
-      );
+      return k.kid === kid && (!alg || k.alg === alg) && (!kty || k.kty === kty);
     });
 
     if (!selectedKey) {
@@ -859,11 +780,7 @@ function getGenerateKeyParams(
   algorithm: AlgorithmIdentifier | RsaHashedKeyGenParams | EcKeyGenParams;
   keyUsages: KeyUsage[];
 } {
-  let algorithm:
-    | AlgorithmIdentifier
-    | AesKeyAlgorithm
-    | RsaHashedKeyGenParams
-    | EcKeyGenParams;
+  let algorithm: AlgorithmIdentifier | AesKeyAlgorithm | RsaHashedKeyGenParams | EcKeyGenParams;
   let keyUsages: KeyUsage[];
 
   const defaultKeyUsage = options?.keyUsage;
@@ -888,8 +805,7 @@ function getGenerateKeyParams(
       algorithm = {
         name: "RSASSA-PKCS1-v1_5",
         modulusLength: options?.modulusLength ?? 2048,
-        publicExponent:
-          options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
         hash: `SHA-${alg.slice(2)}`,
       };
       keyUsages = defaultKeyUsage ?? ["sign", "verify"];
@@ -903,8 +819,7 @@ function getGenerateKeyParams(
       algorithm = {
         name: "RSA-PSS",
         modulusLength: options?.modulusLength ?? 2048,
-        publicExponent:
-          options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
         hash: `SHA-${alg.slice(2)}`,
       };
       keyUsages = defaultKeyUsage ?? ["sign", "verify"];
@@ -919,16 +834,10 @@ function getGenerateKeyParams(
       algorithm = {
         name: "RSA-OAEP",
         modulusLength: options?.modulusLength ?? 2048,
-        publicExponent:
-          options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
         hash: `SHA-${Number.parseInt(alg.slice(9), 10) || 1}`,
       };
-      keyUsages = defaultKeyUsage ?? [
-        "encrypt",
-        "decrypt",
-        "wrapKey",
-        "unwrapKey",
-      ];
+      keyUsages = defaultKeyUsage ?? ["encrypt", "decrypt", "wrapKey", "unwrapKey"];
       break;
     }
 
@@ -956,10 +865,7 @@ function getGenerateKeyParams(
 
       // If it's explicitly KW, default to wrapping usages, otherwise encrypt/decrypt
       keyUsages =
-        defaultKeyUsage ??
-        (alg.endsWith("KW")
-          ? ["wrapKey", "unwrapKey"]
-          : ["encrypt", "decrypt"]);
+        defaultKeyUsage ?? (alg.endsWith("KW") ? ["wrapKey", "unwrapKey"] : ["encrypt", "decrypt"]);
       break;
     }
 
@@ -1022,9 +928,7 @@ function getGenerateKeyParams(
     }
 
     default: {
-      throw new Error(
-        `Unsupported or invalid algorithm for key generation: ${alg}`,
-      );
+      throw new Error(`Unsupported or invalid algorithm for key generation: ${alg}`);
     }
   }
 

@@ -13,16 +13,14 @@ export async function encryptIV(
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   plaintext: Uint8Array<ArrayBuffer>,
   iv?: Uint8Array<ArrayBuffer>,
-) {
+): Promise<{
+  encryptedKey: Uint8Array<ArrayBuffer>;
+  iv: string;
+  tag: string;
+}> {
   const jweAlgorithm = alg.slice(0, 7);
 
-  const wrapped = await encrypt(
-    jweAlgorithm,
-    plaintext,
-    key,
-    iv,
-    new Uint8Array(0),
-  );
+  const wrapped = await encrypt(jweAlgorithm, plaintext, key, iv, new Uint8Array(0));
 
   return {
     encryptedKey: wrapped.ciphertext,
@@ -37,7 +35,7 @@ export async function decryptIV(
   ciphertext: Uint8Array<ArrayBuffer>,
   iv: Uint8Array<ArrayBuffer>,
   tag: Uint8Array<ArrayBuffer>,
-) {
+): Promise<Uint8Array<ArrayBuffer>> {
   const jweAlgorithm = alg.slice(0, 7);
   return decrypt(jweAlgorithm, key, ciphertext, iv, tag, new Uint8Array(0));
 }

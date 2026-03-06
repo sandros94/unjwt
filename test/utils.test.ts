@@ -26,9 +26,7 @@ describe.concurrent("Utility Functions", () => {
     });
 
     it("should decode Uint8Array correctly", () => {
-      const uint8Array = new Uint8Array([
-        104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100,
-      ]);
+      const uint8Array = new Uint8Array([104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]);
       const decoded = textDecoder.decode(uint8Array);
 
       expect(decoded).toBe("hello world");

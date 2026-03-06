@@ -14,7 +14,18 @@ export async function wrap(
   cek: Uint8Array<ArrayBuffer>,
   p2c?: number,
   p2s?: Uint8Array<ArrayBuffer>,
-) {
+): Promise<
+  | {
+      encryptedKey: Uint8Array<ArrayBuffer>;
+      p2c: number;
+      p2s: string;
+    }
+  | {
+      encryptedKey: Uint8Array<ArrayBuffer>;
+      p2c?: undefined;
+      p2s?: undefined;
+    }
+> {
   if (p2c && p2s) {
     const derived = await deriveKey(p2s, alg, p2c, key);
 
@@ -34,7 +45,7 @@ export async function unwrap(
   encryptedKey: Uint8Array<ArrayBuffer>,
   p2c?: number,
   p2s?: Uint8Array<ArrayBuffer>,
-) {
+): Promise<Uint8Array<ArrayBuffer>> {
   if (p2c && p2s) {
     const derived = await deriveKey(p2s, alg, p2c, key);
 
@@ -53,11 +64,7 @@ function getCryptoKey(
     importAlg?: "AES-KW" | "PBKDF2";
   } = {},
 ) {
-  const {
-    importAlg = "PBKDF2",
-    extractable = false,
-    usage = "deriveBits",
-  } = options;
+  const { importAlg = "PBKDF2", extractable = false, usage = "deriveBits" } = options;
 
   if (key instanceof Uint8Array) {
     return crypto.subtle.importKey("raw", key, importAlg, extractable, [usage]);
@@ -77,16 +84,10 @@ export async function deriveKey(
     throw new Error("PBES2 Salt Input must be 8 or more octets");
   }
   if (p2c === undefined || p2c < 1) {
-    throw new Error(
-      "PBES2 Iteration Count Parameter must be a positive integer",
-    );
+    throw new Error("PBES2 Iteration Count Parameter must be a positive integer");
   }
 
-  const salt = concatUint8Arrays(
-    textEncoder.encode(alg),
-    new Uint8Array([0]),
-    p2s,
-  );
+  const salt = concatUint8Arrays(textEncoder.encode(alg), new Uint8Array([0]), p2s);
   const keylen = Number.parseInt(alg.slice(13, 16), 10);
   const subtleAlg = {
     hash: `SHA-${alg.slice(8, 11)}`,
@@ -97,9 +98,7 @@ export async function deriveKey(
 
   const cryptoKey = await getCryptoKey(key, alg);
 
-  return new Uint8Array(
-    await crypto.subtle.deriveBits(subtleAlg, cryptoKey, keylen),
-  );
+  return new Uint8Array(await crypto.subtle.deriveBits(subtleAlg, cryptoKey, keylen));
 }
 
 /**
@@ -107,10 +106,7 @@ export async function deriveKey(
  */
 
 function checkKeySize(key: CryptoKey, alg: string) {
-  if (
-    (key.algorithm as AesKeyAlgorithm).length !==
-    Number.parseInt(alg.slice(1, 4), 10)
-  ) {
+  if ((key.algorithm as AesKeyAlgorithm).length !== Number.parseInt(alg.slice(1, 4), 10)) {
     throw new TypeError(`Invalid key size for alg: ${alg}`);
   }
 }
@@ -137,9 +133,7 @@ async function _wrap(
     ["sign"],
   );
 
-  return new Uint8Array(
-    await crypto.subtle.wrapKey("raw", cryptoKeyCek, cryptoKey, "AES-KW"),
-  );
+  return new Uint8Array(await crypto.subtle.wrapKey("raw", cryptoKeyCek, cryptoKey, "AES-KW"));
 }
 
 async function _unwrap(

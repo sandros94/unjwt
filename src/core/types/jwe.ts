@@ -1,8 +1,4 @@
-import type {
-  JoseHeaderParameters,
-  JWTClaims,
-  JWTClaimValidationOptions,
-} from "./jwt";
+import type { JoseHeaderParameters, JWTClaims, JWTClaimValidationOptions } from "./jwt";
 import type {
   JWK,
   JWK_EC_Public,

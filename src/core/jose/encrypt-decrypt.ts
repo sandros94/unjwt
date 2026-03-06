@@ -11,20 +11,10 @@ import { uint64be } from "./buffer_utils";
 import { checkIvLength, checkCEKLength, generateIV } from "./cek-iv";
 import { checkEncCryptoKey } from "./crypto_key";
 
-async function importCBCKeys(
-  enc: string,
-  cek: Uint8Array<ArrayBuffer>,
-  usage: KeyUsage,
-) {
+async function importCBCKeys(enc: string, cek: Uint8Array<ArrayBuffer>, usage: KeyUsage) {
   const keySize = Number.parseInt(enc.slice(1, 4), 10);
   const [encKey, macKey] = await Promise.all([
-    crypto.subtle.importKey(
-      "raw",
-      cek.subarray(keySize >> 3),
-      "AES-CBC",
-      false,
-      [usage],
-    ),
+    crypto.subtle.importKey("raw", cek.subarray(keySize >> 3), "AES-CBC", false, [usage]),
     crypto.subtle.importKey(
       "raw",
       cek.subarray(0, keySize >> 3),
@@ -84,9 +74,7 @@ async function gcmEncrypt(
 ) {
   let encKey: CryptoKey;
   if (cek instanceof Uint8Array) {
-    encKey = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, [
-      "encrypt",
-    ]);
+    encKey = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]);
   } else {
     checkEncCryptoKey(cek, enc, "encrypt");
     encKey = cek;
@@ -162,11 +150,9 @@ export async function encrypt(
 let _timingSafeKey: Promise<CryptoKey> | undefined;
 function getTimingSafeKey(): Promise<CryptoKey> {
   if (!_timingSafeKey) {
-    _timingSafeKey = crypto.subtle.generateKey(
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    ) as Promise<CryptoKey>;
+    _timingSafeKey = crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, [
+      "sign",
+    ]) as Promise<CryptoKey>;
   }
   return _timingSafeKey;
 }
@@ -250,9 +236,7 @@ async function gcmDecrypt(
 ) {
   let encKey: CryptoKey;
   if (cek instanceof Uint8Array) {
-    encKey = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, [
-      "decrypt",
-    ]);
+    encKey = await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["decrypt"]);
   } else {
     checkEncCryptoKey(cek, enc, "decrypt");
     encKey = cek;
@@ -301,15 +285,13 @@ export async function decrypt(
     case "A128CBC-HS256":
     case "A192CBC-HS384":
     case "A256CBC-HS512": {
-      if (cek instanceof Uint8Array)
-        checkCEKLength(cek, Number.parseInt(enc.slice(-3), 10));
+      if (cek instanceof Uint8Array) checkCEKLength(cek, Number.parseInt(enc.slice(-3), 10));
       return cbcDecrypt(enc, cek, ciphertext, iv, tag, aad);
     }
     case "A128GCM":
     case "A192GCM":
     case "A256GCM": {
-      if (cek instanceof Uint8Array)
-        checkCEKLength(cek, Number.parseInt(enc.slice(1, 4), 10));
+      if (cek instanceof Uint8Array) checkCEKLength(cek, Number.parseInt(enc.slice(1, 4), 10));
       return gcmDecrypt(enc, cek, ciphertext, iv, tag, aad);
     }
     default: {

@@ -25,14 +25,9 @@ import {
   isPublicJWK,
   computeExpiresInSeconds,
 } from "../../../core/utils";
-import type {
-  SessionClaims,
-  SessionData,
-  SessionUpdate,
-  SessionManager,
-} from "./types";
+import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
-const kGetSessionPromise = Symbol("h3_jwe_getSession");
+const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
 
 export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
@@ -207,10 +202,7 @@ export async function getJWESession<
     event.context.sessions = Object.create(null);
   }
 
-  const existingSession = event.context.sessions![sessionName] as SessionJWE<
-    T,
-    MaxAge
-  >;
+  const existingSession = event.context.sessions![sessionName] as SessionJWE<T, MaxAge>;
   if (existingSession) {
     const session = existingSession[kGetSessionPromise]
       ? await existingSession[kGetSessionPromise]
@@ -221,11 +213,7 @@ export async function getJWESession<
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    if (
-      session.expiresAt !== undefined &&
-      session.expiresAt < Date.now() &&
-      isEvent(event)
-    ) {
+    if (session.expiresAt !== undefined && session.expiresAt < Date.now() && isEvent(event)) {
       await config.hooks?.onExpire?.({
         event,
         error: new Error(
@@ -254,9 +242,9 @@ export async function getJWESession<
     createdAt,
     expiresAt: (config.maxAge === undefined
       ? undefined
-      : createdAt +
-        computeExpiresInSeconds(config.maxAge) *
-          1000) as MaxAge extends ExpiresIn ? number : T["exp"],
+      : createdAt + computeExpiresInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
+      ? number
+      : T["exp"],
     data: Object.create(null),
   };
   event.context.sessions![sessionName] = session;
@@ -310,10 +298,7 @@ export async function getJWESession<
 export function getJWESessionToken<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(
-  event: H3Event | CompatEvent,
-  config: SessionConfigJWE<T, MaxAge>,
-): string | undefined {
+>(event: H3Event | CompatEvent, config: SessionConfigJWE<T, MaxAge>): string | undefined {
   const sessionName = config.name || DEFAULT_NAME;
   let token: string | undefined;
 
@@ -324,9 +309,7 @@ export function getJWESessionToken<
         : `x-${sessionName.toLowerCase()}-session`;
     const headerValue = _getReqHeader(event, headerName);
     if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ")
-        ? headerValue.slice(7).trim()
-        : headerValue;
+      token = headerValue.startsWith("Bearer ") ? headerValue.slice(7).trim() : headerValue;
     }
   }
 
@@ -459,10 +442,7 @@ export async function updateJWESession<
 export async function sealJWESession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(
-  event: H3Event | CompatEvent,
-  config: SessionConfigJWE<T, MaxAge>,
-): Promise<string> {
+>(event: H3Event | CompatEvent, config: SessionConfigJWE<T, MaxAge>): Promise<string> {
   const key = getEncryptKey(config.key || config.secret);
 
   const sessionName = config.name || DEFAULT_NAME;
@@ -472,9 +452,7 @@ export async function sealJWESession<
     (await getJWESession<T, MaxAge>(event, config));
 
   const iat = Math.floor(session.createdAt / 1000);
-  const exp = session.expiresAt
-    ? Math.floor(session.expiresAt / 1000)
-    : undefined;
+  const exp = session.expiresAt ? Math.floor(session.expiresAt / 1000) : undefined;
 
   const payload: Record<string, any> = {
     ...session.data,
@@ -538,16 +516,10 @@ export async function unsealJWESession<
   ) {
     typ = config.jwe.encryptOptions.protectedHeader.typ;
   }
-  const { payload } = await decrypt<
-    T & { jti: string; iat: number; exp?: number }
-  >(sealed, key, {
+  const { payload } = await decrypt<T & { jti: string; iat: number; exp?: number }>(sealed, key, {
     ...config.jwe?.decryptOptions,
     requiredClaims: [
-      ...new Set([
-        ...(config.jwe?.decryptOptions?.requiredClaims || []),
-        "jti",
-        "iat",
-      ]),
+      ...new Set([...(config.jwe?.decryptOptions?.requiredClaims || []), "jti", "iat"]),
     ],
     typ: typ || "JWT",
     maxTokenAge: config.maxAge,
@@ -570,12 +542,8 @@ export async function unsealJWESession<
   return {
     id: jti,
     createdAt: iat * 1000, // Convert back to ms
-    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn
-      ? number
-      : T["exp"],
-    data: (data && typeof data === "object"
-      ? data
-      : Object.create(null)) as any,
+    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn ? number : T["exp"],
+    data: (data && typeof data === "object" ? data : Object.create(null)) as any,
   };
 }
 
@@ -589,9 +557,7 @@ export async function clearJWESession<
   const sessionName = config.name || DEFAULT_NAME;
 
   // If session exists in context store for hook and delete it
-  let session = event.context.sessions?.[sessionName] as
-    | SessionJWE<T, MaxAge>
-    | undefined;
+  let session = event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];
   }
@@ -631,17 +597,14 @@ function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK {
   }
 
   if (!_key) {
-    throw new Error(
-      "Session: Invalid JWE key. It must be a password string or valid JWK.",
-      { cause: key },
-    );
+    throw new Error("Session: Invalid JWE key. It must be a password string or valid JWK.", {
+      cause: key,
+    });
   }
 
   return _key;
 }
-function getDecryptKey(
-  key: SessionConfigJWE["key"] | undefined,
-): string | JWK_oct | JWK_Private {
+function getDecryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK_oct | JWK_Private {
   if (!key) {
     throw new Error("Session: JWE key is required.");
   }

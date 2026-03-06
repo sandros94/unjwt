@@ -1,13 +1,6 @@
 import supertest from "supertest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  type App,
-  createApp,
-  createRouter,
-  toNodeListener,
-  eventHandler,
-  readBody,
-} from "h3v1";
+import { type App, createApp, createRouter, toNodeListener, eventHandler, readBody } from "h3v1";
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
@@ -46,9 +39,7 @@ describe("adapter h3 v1", () => {
       router.use(
         "/init",
         eventHandler(async (event) => {
-          const session = await useJWESession(event, sessionConfig).then((s) =>
-            s.update({}),
-          );
+          const session = await useJWESession(event, sessionConfig).then((s) => s.update({}));
 
           return { session };
         }),
@@ -126,10 +117,7 @@ describe("adapter h3 v1", () => {
     });
 
     it("set session data", async () => {
-      const result = await request
-        .post("/")
-        .set("Cookie", cookie)
-        .send({ foo: "bar" });
+      const result = await request.post("/").set("Cookie", cookie).send({ foo: "bar" });
       cookie = result.headers["set-cookie"]![0]!;
       expect(result.body).toMatchObject({
         session: { id: "2", data: { foo: "bar" } },
@@ -200,9 +188,7 @@ describe("adapter h3 v1", () => {
       router.use(
         "/init",
         eventHandler(async (event) => {
-          const session = await useJWSSession(event, sessionConfig).then((s) =>
-            s.update({}),
-          );
+          const session = await useJWSSession(event, sessionConfig).then((s) => s.update({}));
 
           return { session };
         }),
@@ -280,10 +266,7 @@ describe("adapter h3 v1", () => {
     });
 
     it("set session data", async () => {
-      const result = await request
-        .post("/")
-        .set("Cookie", cookie)
-        .send({ foo: "bar" });
+      const result = await request.post("/").set("Cookie", cookie).send({ foo: "bar" });
       cookie = result.headers["set-cookie"]![0]!;
       expect(result.body).toMatchObject({
         session: { id: "2", data: { foo: "bar" } },
@@ -337,14 +320,9 @@ describe("adapter h3 v1", () => {
 
   // #region Hooks
   describe("hooks", () => {
-    const getCookieValue = (
-      cookies: string | string[] | undefined,
-      name: string,
-    ) => {
+    const getCookieValue = (cookies: string | string[] | undefined, name: string) => {
       const list = Array.isArray(cookies) ? cookies : cookies ? [cookies] : [];
-      return list
-        .find((cookie) => cookie.startsWith(`${name}=`))
-        ?.split(";")[0];
+      return list.find((cookie) => cookie.startsWith(`${name}=`))?.split(";")[0];
     };
 
     describe("jwe session hooks", () => {
@@ -420,10 +398,7 @@ describe("adapter h3 v1", () => {
         vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
 
         const first = await request.get("/");
-        cookie = getCookieValue(
-          first.headers["set-cookie"],
-          sessionConfig.name!,
-        )!;
+        cookie = getCookieValue(first.headers["set-cookie"], sessionConfig.name!)!;
         const firstToken = cookie;
 
         expect(hooks.onRead).toHaveBeenCalledTimes(1);
@@ -435,10 +410,7 @@ describe("adapter h3 v1", () => {
         vi.setSystemTime(nearExpiry);
         expect(Date.now()).toBe(nearExpiry.getTime());
         const second = await request.get("/").set("Cookie", cookie);
-        const nextCookie = getCookieValue(
-          second.headers["set-cookie"],
-          sessionConfig.name!,
-        )!;
+        const nextCookie = getCookieValue(second.headers["set-cookie"], sessionConfig.name!)!;
 
         expect(nextCookie).toBeTruthy();
         expect(nextCookie).not.toEqual(firstToken);
@@ -453,27 +425,16 @@ describe("adapter h3 v1", () => {
 
       it("triggers onUpdate and onClear hooks", async () => {
         const first = await request.get("/");
-        cookie = getCookieValue(
-          first.headers["set-cookie"],
-          sessionConfig.name!,
-        )!;
+        cookie = getCookieValue(first.headers["set-cookie"], sessionConfig.name!)!;
 
-        const updateResponse = await request
-          .post("/")
-          .set("Cookie", cookie)
-          .send({ foo: "bar" });
+        const updateResponse = await request.post("/").set("Cookie", cookie).send({ foo: "bar" });
         cookie =
-          getCookieValue(
-            updateResponse.headers["set-cookie"],
-            sessionConfig.name!,
-          ) ?? cookie;
+          getCookieValue(updateResponse.headers["set-cookie"], sessionConfig.name!) ?? cookie;
 
         expect(hooks.onUpdate).toHaveBeenCalledTimes(2); // one for initial update, one for this
         expect(updateResponse.body.session.data).toMatchObject({ foo: "bar" });
 
-        const clearResponse = await request
-          .post("/clear")
-          .set("Cookie", cookie);
+        const clearResponse = await request.post("/clear").set("Cookie", cookie);
         expect(clearResponse.body).toMatchObject({ cleared: true });
         expect(hooks.onClear).toHaveBeenCalledTimes(1);
       });
@@ -530,9 +491,7 @@ describe("adapter h3 v1", () => {
         );
         const request = supertest(toNodeListener(app));
 
-        const result = await request
-          .get("/")
-          .set("Cookie", `${config.name}=${token}`);
+        const result = await request.get("/").set("Cookie", `${config.name}=${token}`);
 
         expect(lookupSpy).toHaveBeenCalled();
         expect(result.body.session.data).toMatchObject({ foo: "bar" });
@@ -632,10 +591,7 @@ describe("adapter h3 v1", () => {
               useJWESession(event, refreshConfig),
               useJWSSession(event, accessConfig),
             ]);
-            await Promise.all([
-              refreshSession.update({}),
-              accessSession.update({}),
-            ]);
+            await Promise.all([refreshSession.update({}), accessSession.update({})]);
 
             return {
               access: {
@@ -695,14 +651,8 @@ describe("adapter h3 v1", () => {
         vi.setSystemTime(new Date("2024-02-01T00:00:00.000Z"));
 
         const first = await request.post("/login");
-        accessCookie = getCookieValue(
-          first.headers["set-cookie"],
-          accessConfig.name!,
-        )!;
-        refreshCookie = getCookieValue(
-          first.headers["set-cookie"],
-          refreshConfig.name!,
-        )!;
+        accessCookie = getCookieValue(first.headers["set-cookie"], accessConfig.name!)!;
+        refreshCookie = getCookieValue(first.headers["set-cookie"], refreshConfig.name!)!;
 
         expect(accessCookie).toBeTruthy();
         expect(refreshCookie).toBeTruthy();
@@ -710,23 +660,16 @@ describe("adapter h3 v1", () => {
         expect(refreshHooks.onRead).toHaveBeenCalledTimes(1);
 
         vi.setSystemTime(new Date("2024-02-01T00:00:20.000Z"));
-        const second = await request
-          .get("/tokens")
-          .set("Cookie", [accessCookie, refreshCookie]);
+        const second = await request.get("/tokens").set("Cookie", [accessCookie, refreshCookie]);
 
         const newCookies = second.headers["set-cookie"] ?? [];
-        const refreshedAccessCookie = getCookieValue(
-          newCookies,
-          accessConfig.name!,
-        );
+        const refreshedAccessCookie = getCookieValue(newCookies, accessConfig.name!);
 
         expect(accessHooks.onExpire).toHaveBeenCalledTimes(1);
         expect(refreshChecks).toEqual([second.body.refresh.id]);
-        expect(
-          accessErrors.some((error) =>
-            String(error).includes("Token has expired"),
-          ),
-        ).toBe(true);
+        expect(accessErrors.some((error) => String(error).includes("Token has expired"))).toBe(
+          true,
+        );
         expect(refreshedAccessCookie).toBeTruthy();
         expect(refreshedAccessCookie).not.toEqual(accessCookie);
         expect(second.body.access.id).not.toEqual(first.body.access.id);
@@ -736,15 +679,11 @@ describe("adapter h3 v1", () => {
       });
 
       it("triggers onUpdate, onError and onClear hooks", async () => {
-        const updateResponse = await request
-          .post("/tokens")
-          .send({ scope: "read" });
+        const updateResponse = await request.post("/tokens").send({ scope: "read" });
 
         const updateCookies = updateResponse.headers["set-cookie"] ?? [];
-        accessCookie =
-          getCookieValue(updateCookies, accessConfig.name!) ?? accessCookie;
-        refreshCookie =
-          getCookieValue(updateCookies, refreshConfig.name!) ?? refreshCookie;
+        accessCookie = getCookieValue(updateCookies, accessConfig.name!) ?? accessCookie;
+        refreshCookie = getCookieValue(updateCookies, refreshConfig.name!) ?? refreshCookie;
 
         expect(accessHooks.onUpdate).toHaveBeenCalledTimes(1);
         expect(updateResponse.body.access.data).toMatchObject({
@@ -756,15 +695,12 @@ describe("adapter h3 v1", () => {
           .set("Cookie", [`${accessConfig.name}=invalid`, refreshCookie]);
 
         const errorCookies = errorResponse.headers["set-cookie"] ?? [];
-        accessCookie =
-          getCookieValue(errorCookies, accessConfig.name!) ?? accessCookie;
+        accessCookie = getCookieValue(errorCookies, accessConfig.name!) ?? accessCookie;
 
         expect(accessHooks.onError).toHaveBeenCalledTimes(1);
-        expect(
-          accessErrors.some((error) =>
-            String(error).includes("Invalid session token"),
-          ),
-        ).toBe(true);
+        expect(accessErrors.some((error) => String(error).includes("Invalid session token"))).toBe(
+          true,
+        );
 
         const clearResponse = await request
           .post("/tokens/clear")
@@ -775,16 +711,10 @@ describe("adapter h3 v1", () => {
 
       it("has correct custom `typ` headers", async () => {
         const first = await request.post("/login");
-        const accessHeader = getCookieValue(
-          first.headers["set-cookie"],
-          accessConfig.name!,
-        )!
+        const accessHeader = getCookieValue(first.headers["set-cookie"], accessConfig.name!)!
           .split("=")[1]!
           .split(".")[0]!;
-        const refreshHeader = getCookieValue(
-          first.headers["set-cookie"],
-          refreshConfig.name!,
-        )!
+        const refreshHeader = getCookieValue(first.headers["set-cookie"], refreshConfig.name!)!
           .split("=")[1]!
           .split(".")[0]!;
 
@@ -804,10 +734,7 @@ describe("adapter h3 v1", () => {
         ]);
 
         const lookupSpy = vi.fn((args) => {
-          if (
-            args.header.kid === "test-key-1" &&
-            args.header.kid === key.publicKey.kid
-          ) {
+          if (args.header.kid === "test-key-1" && args.header.kid === key.publicKey.kid) {
             return key.publicKey;
           }
           throw new Error("Key not found");
@@ -837,9 +764,7 @@ describe("adapter h3 v1", () => {
         );
         const request = supertest(toNodeListener(app));
 
-        const result = await request
-          .get("/")
-          .set("Cookie", `${config.name}=${token}`);
+        const result = await request.get("/").set("Cookie", `${config.name}=${token}`);
 
         expect(lookupSpy).toHaveBeenCalled();
         expect(result.body.session.data).toMatchObject({ foo: "bar" });

@@ -85,10 +85,7 @@ These session adapters are **high-level utilities** that handle the complete ses
 ```typescript
 // SessionData - Your application's session data
 // Automatically excludes reserved JWT claims (jti, iat, exp)
-type SessionData<T extends JWTClaims = JWTClaims> = Omit<
-  T,
-  "jti" | "iat" | "exp"
->;
+type SessionData<T extends JWTClaims = JWTClaims> = Omit<T, "jti" | "iat" | "exp">;
 
 // SessionUpdate - How to update session data
 type SessionUpdate<T extends JWTClaims = JWTClaims> =
@@ -150,10 +147,7 @@ interface SessionHooks<T extends JWTClaims = JWTClaims> {
     event: H3Event;
     config: SessionConfig<T>;
   }) => void | Promise<void>;
-  onClear?: (args: {
-    event: H3Event;
-    config: Partial<SessionConfig<T>>;
-  }) => void | Promise<void>;
+  onClear?: (args: { event: H3Event; config: Partial<SessionConfig<T>> }) => void | Promise<void>;
   onExpire?: (args: {
     event: H3Event;
     error: Error;
@@ -659,11 +653,7 @@ export default defineEventHandler(async (event) => {
 #### `updateJWSSession()` - Update and Re-sign
 
 ```typescript
-import {
-  getJWSSession,
-  updateJWSSession,
-  generateJWK,
-} from "unjwt/adapters/h3";
+import { getJWSSession, updateJWSSession, generateJWK } from "unjwt/adapters/h3";
 
 export default defineEventHandler(async (event) => {
   const { privateKey, publicKey } = await generateJWK("ES256");
@@ -726,11 +716,7 @@ export default defineEventHandler(async (event) => {
 
   if (tokenFromHeader) {
     try {
-      const sessionData = await verifyJWSSession(
-        event,
-        config,
-        String(tokenFromHeader),
-      );
+      const sessionData = await verifyJWSSession(event, config, String(tokenFromHeader));
 
       return { valid: true, session: sessionData };
     } catch (error) {
@@ -765,11 +751,7 @@ export default defineEventHandler(async (event) => {
 Store tokens in Redis instead of cookies:
 
 ```typescript
-import {
-  getJWESession,
-  sealJWESession,
-  unsealJWESession,
-} from "unjwt/adapters/h3";
+import { getJWESession, sealJWESession, unsealJWESession } from "unjwt/adapters/h3";
 import { redis } from "./redis-client";
 
 export default defineEventHandler(async (event) => {

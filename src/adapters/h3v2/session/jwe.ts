@@ -28,14 +28,9 @@ import {
   isPublicJWK,
   computeExpiresInSeconds,
 } from "../../../core/utils";
-import type {
-  SessionClaims,
-  SessionData,
-  SessionUpdate,
-  SessionManager,
-} from "./types";
+import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
-const kGetSessionPromise = Symbol("h3_jwe_getSession");
+const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
 
 export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
@@ -131,10 +126,7 @@ const DEFAULT_COOKIE: SessionConfigJWE["cookie"] = {
 export async function useJWESession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(
-  event: HTTPEvent,
-  config: SessionConfigJWE<T, MaxAge>,
-): Promise<SessionManager<T, MaxAge>> {
+>(event: HTTPEvent, config: SessionConfigJWE<T, MaxAge>): Promise<SessionManager<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
   await getJWESession<T, MaxAge>(event, config);
 
@@ -146,8 +138,9 @@ export async function useJWESession<
       return getSessionFromContext(event, sessionName)?.createdAt ?? Date.now();
     },
     get expiresAt() {
-      return getSessionFromContext(event, sessionName)
-        ?.expiresAt as MaxAge extends ExpiresIn ? number : T["exp"];
+      return getSessionFromContext(event, sessionName)?.expiresAt as MaxAge extends ExpiresIn
+        ? number
+        : T["exp"];
     },
     get data() {
       return (getSessionFromContext(event, sessionName)?.data || {}) as T;
@@ -174,10 +167,7 @@ export async function useJWESession<
 export async function getJWESession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(
-  event: HTTPEvent,
-  config: SessionConfigJWE<T, MaxAge>,
-): Promise<SessionJWE<T, MaxAge>> {
+>(event: HTTPEvent, config: SessionConfigJWE<T, MaxAge>): Promise<SessionJWE<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
 
   const context = getEventContext<H3EventContext>(event);
@@ -187,9 +177,7 @@ export async function getJWESession<
     context.sessions = new NullProtoObj();
   }
   // Return existing session if available and valid
-  const existingSession = context.sessions![sessionName] as
-    | SessionJWE<T, MaxAge>
-    | undefined;
+  const existingSession = context.sessions![sessionName] as SessionJWE<T, MaxAge> | undefined;
   if (existingSession) {
     const session = existingSession[kGetSessionPromise]
       ? await existingSession[kGetSessionPromise]
@@ -212,9 +200,7 @@ export async function getJWESession<
         ),
         config,
       });
-      return clearJWESession(event, config).then(() =>
-        getJWESession(event, config),
-      );
+      return clearJWESession(event, config).then(() => getJWESession(event, config));
     }
 
     await config.hooks?.onRead?.({
@@ -233,9 +219,9 @@ export async function getJWESession<
     createdAt,
     expiresAt: (config.maxAge === undefined
       ? undefined
-      : createdAt +
-        computeExpiresInSeconds(config.maxAge) *
-          1000) as MaxAge extends ExpiresIn ? number : T["exp"],
+      : createdAt + computeExpiresInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
+      ? number
+      : T["exp"],
     data: new NullProtoObj(),
   };
   // @ts-expect-error upstream types expect an empty id string
@@ -249,10 +235,7 @@ export async function getJWESession<
       .catch(async (error_) => {
         if (error_ instanceof Error) {
           const message = error_.message;
-          if (
-            message.includes("Token has expired") ||
-            message.includes("Token is too old")
-          ) {
+          if (message.includes("Token has expired") || message.includes("Token is too old")) {
             await config.hooks?.onExpire?.({
               event,
               error: error_,
@@ -304,9 +287,7 @@ export function getJWESessionToken<
         : `x-${sessionName.toLowerCase()}-session`;
     const headerValue = event.req.headers.get(headerName);
     if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ")
-        ? headerValue.slice(7).trim()
-        : headerValue;
+      token = headerValue.startsWith("Bearer ") ? headerValue.slice(7).trim() : headerValue;
     }
   }
 
@@ -381,9 +362,7 @@ export async function updateJWESession<
       expires:
         config.maxAge === undefined
           ? undefined
-          : new Date(
-              session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
-            ),
+          : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
       ...config.cookie,
     });
   }
@@ -408,9 +387,7 @@ export async function sealJWESession<
     (await getJWESession<T, MaxAge>(event, config));
 
   const iat = Math.floor(session.createdAt / 1000);
-  const exp = session.expiresAt
-    ? Math.floor(session.expiresAt / 1000)
-    : undefined;
+  const exp = session.expiresAt ? Math.floor(session.expiresAt / 1000) : undefined;
 
   const payload: Record<string, any> = {
     ...session.data,
@@ -476,11 +453,7 @@ export async function unsealJWESession<
   const { payload } = await decrypt<T & { iat: number }>(sealed, key, {
     ...config.jwe?.decryptOptions,
     requiredClaims: [
-      ...new Set([
-        ...(config.jwe?.decryptOptions?.requiredClaims || []),
-        "jti",
-        "iat",
-      ]),
+      ...new Set([...(config.jwe?.decryptOptions?.requiredClaims || []), "jti", "iat"]),
     ],
     typ: typ || "JWT",
     maxTokenAge: config.maxAge,
@@ -502,12 +475,8 @@ export async function unsealJWESession<
   return {
     id: jti,
     createdAt: iat * 1000,
-    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn
-      ? number
-      : T["exp"],
-    data: (data && typeof data === "object"
-      ? data
-      : new NullProtoObj()) as SessionData<T>,
+    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn ? number : T["exp"],
+    data: (data && typeof data === "object" ? data : new NullProtoObj()) as SessionData<T>,
   };
 }
 
@@ -517,17 +486,12 @@ export async function unsealJWESession<
 export async function clearJWESession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(
-  event: HTTPEvent,
-  config: Partial<SessionConfigJWE<T, MaxAge>>,
-): Promise<void> {
+>(event: HTTPEvent, config: Partial<SessionConfigJWE<T, MaxAge>>): Promise<void> {
   const context = getEventContext<H3EventContext>(event);
   const sessionName = config.name || DEFAULT_NAME;
 
   // If session exists in context store for hook and delete it
-  let session = context.sessions?.[sessionName] as
-    | SessionJWE<T, MaxAge>
-    | undefined;
+  let session = context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];
   }
@@ -581,17 +545,14 @@ function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK {
   }
 
   if (!_key) {
-    throw new Error(
-      "Session: Invalid JWE key. It must be a password string or valid JWK.",
-      { cause: key },
-    );
+    throw new Error("Session: Invalid JWE key. It must be a password string or valid JWK.", {
+      cause: key,
+    });
   }
 
   return _key;
 }
-function getDecryptKey(
-  key: SessionConfigJWE["key"] | undefined,
-): string | JWK_oct | JWK_Private {
+function getDecryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK_oct | JWK_Private {
   if (!key) {
     throw new Error("Session: JWE key is required.");
   }

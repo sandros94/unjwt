@@ -7,9 +7,7 @@
  */
 
 function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(
-    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
-  );
+  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
 }
 
 function isAlgorithm<T extends KeyAlgorithm>(
@@ -48,45 +46,34 @@ function checkUsage(key: CryptoKey, usage?: KeyUsage) {
   }
 }
 
-export function checkSigCryptoKey(
-  key: CryptoKey,
-  alg: string,
-  usage: KeyUsage,
-) {
+export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage) {
   switch (alg) {
     case "HS256":
     case "HS384":
     case "HS512": {
-      if (!isAlgorithm<HmacKeyAlgorithm>(key.algorithm, "HMAC"))
-        throw unusable("HMAC");
+      if (!isAlgorithm<HmacKeyAlgorithm>(key.algorithm, "HMAC")) throw unusable("HMAC");
       const expected = Number.parseInt(alg.slice(2), 10);
       const actual = getHashLength(key.algorithm.hash);
-      if (actual !== expected)
-        throw unusable(`SHA-${expected}`, "algorithm.hash");
+      if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
       break;
     }
     case "RS256":
     case "RS384":
     case "RS512": {
-      if (
-        !isAlgorithm<RsaHashedKeyAlgorithm>(key.algorithm, "RSASSA-PKCS1-v1_5")
-      )
+      if (!isAlgorithm<RsaHashedKeyAlgorithm>(key.algorithm, "RSASSA-PKCS1-v1_5"))
         throw unusable("RSASSA-PKCS1-v1_5");
       const expected = Number.parseInt(alg.slice(2), 10);
       const actual = getHashLength(key.algorithm.hash);
-      if (actual !== expected)
-        throw unusable(`SHA-${expected}`, "algorithm.hash");
+      if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
       break;
     }
     case "PS256":
     case "PS384":
     case "PS512": {
-      if (!isAlgorithm<RsaHashedKeyAlgorithm>(key.algorithm, "RSA-PSS"))
-        throw unusable("RSA-PSS");
+      if (!isAlgorithm<RsaHashedKeyAlgorithm>(key.algorithm, "RSA-PSS")) throw unusable("RSA-PSS");
       const expected = Number.parseInt(alg.slice(2), 10);
       const actual = getHashLength(key.algorithm.hash);
-      if (actual !== expected)
-        throw unusable(`SHA-${expected}`, "algorithm.hash");
+      if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
       break;
     }
     case "Ed25519": // Fall through
@@ -97,8 +84,7 @@ export function checkSigCryptoKey(
     case "ES256":
     case "ES384":
     case "ES512": {
-      if (!isAlgorithm<EcKeyAlgorithm>(key.algorithm, "ECDSA"))
-        throw unusable("ECDSA");
+      if (!isAlgorithm<EcKeyAlgorithm>(key.algorithm, "ECDSA")) throw unusable("ECDSA");
       const expected = getNamedCurve(alg);
       const actual = key.algorithm.namedCurve;
       if (actual !== expected) throw unusable(expected, "algorithm.namedCurve");
@@ -112,17 +98,12 @@ export function checkSigCryptoKey(
   checkUsage(key, usage);
 }
 
-export function checkEncCryptoKey(
-  key: CryptoKey,
-  alg: string,
-  usage?: KeyUsage,
-) {
+export function checkEncCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage) {
   switch (alg) {
     case "A128GCM":
     case "A192GCM":
     case "A256GCM": {
-      if (!isAlgorithm<AesKeyAlgorithm>(key.algorithm, "AES-GCM"))
-        throw unusable("AES-GCM");
+      if (!isAlgorithm<AesKeyAlgorithm>(key.algorithm, "AES-GCM")) throw unusable("AES-GCM");
       const expected = Number.parseInt(alg.slice(1, 4), 10);
       const actual = key.algorithm.length;
       if (actual !== expected) throw unusable(expected, "algorithm.length");
@@ -131,8 +112,7 @@ export function checkEncCryptoKey(
     case "A128KW":
     case "A192KW":
     case "A256KW": {
-      if (!isAlgorithm<AesKeyAlgorithm>(key.algorithm, "AES-KW"))
-        throw unusable("AES-KW");
+      if (!isAlgorithm<AesKeyAlgorithm>(key.algorithm, "AES-KW")) throw unusable("AES-KW");
       const expected = Number.parseInt(alg.slice(1, 4), 10);
       const actual = key.algorithm.length;
       if (actual !== expected) throw unusable(expected, "algorithm.length");
@@ -164,8 +144,7 @@ export function checkEncCryptoKey(
         throw unusable("RSA-OAEP");
       const expected = Number.parseInt(alg.slice(9), 10) || 1;
       const actual = getHashLength(key.algorithm.hash);
-      if (actual !== expected)
-        throw unusable(`SHA-${expected}`, "algorithm.hash");
+      if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
       break;
     }
     default: {

@@ -16,37 +16,29 @@ export * from "./jwt";
 export * from "./sanitize";
 export type * from "./types";
 
-export const textEncoder = /* @__PURE__ */ new TextEncoder();
-export const textDecoder = /* @__PURE__ */ new TextDecoder();
+export const textEncoder: TextEncoder = /* @__PURE__ */ new TextEncoder();
+export const textDecoder: TextDecoder = /* @__PURE__ */ new TextDecoder();
 
-// @ts-expect-error check if toBase64 is available
-const _hasToBase64 = typeof Uint8Array.prototype.toBase64 === "function";
-// @ts-expect-error check if fromBase64 is available
-const _hasFromBase64 = typeof Uint8Array.fromBase64 === "function";
+const _hasToBase64 = typeof (Uint8Array.prototype as any).toBase64 === "function";
+const _hasFromBase64 = typeof (Uint8Array as any).fromBase64 === "function";
 
 /* Base64 encoding function */
 export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
-  const encodedData =
-    data instanceof Uint8Array ? data : textEncoder.encode(data);
+  const encodedData = data instanceof Uint8Array ? data : textEncoder.encode(data);
 
   if (_hasToBase64) {
-    // @ts-expect-error
-    return encodedData.toBase64();
+    return (encodedData as any).toBase64();
   }
 
   return btoa(String.fromCodePoint(...encodedData));
 }
 
 /* Base64 URL encoding function */
-export function base64UrlEncode(
-  data: Uint8Array<ArrayBuffer> | string,
-): string {
-  const encodedData =
-    data instanceof Uint8Array ? data : textEncoder.encode(data);
+export function base64UrlEncode(data: Uint8Array<ArrayBuffer> | string): string {
+  const encodedData = data instanceof Uint8Array ? data : textEncoder.encode(data);
 
   if (_hasToBase64) {
-    // @ts-expect-error
-    return encodedData.toBase64({ alphabet: "base64url", omitPadding: true });
+    return (encodedData as any).toBase64({ alphabet: "base64url", omitPadding: true });
   }
 
   return btoa(String.fromCodePoint(...encodedData))
@@ -72,8 +64,7 @@ export function base64Decode(
   }
 
   const data: Uint8Array<ArrayBuffer> = _hasFromBase64
-    ? // @ts-expect-error
-      Uint8Array.fromBase64(str)
+    ? (Uint8Array as any).fromBase64(str)
     : Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
 
   return decodeToString ? textDecoder.decode(data) : data;
@@ -98,8 +89,7 @@ export function base64UrlDecode(
   let data: Uint8Array<ArrayBuffer>;
 
   if (_hasFromBase64) {
-    // @ts-expect-error
-    data = Uint8Array.fromBase64(str, { alphabet: "base64url" });
+    data = (Uint8Array as any).fromBase64(str, { alphabet: "base64url" });
   } else {
     str = str.replace(/-/g, "+").replace(/_/g, "/");
     while (str.length % 4) str += "=";
@@ -141,21 +131,13 @@ export function maybeArray<T>(item: T | T[]): T[] {
 /* Type guard for JWK */
 export function isJWK(key: any): key is JWK {
   return (
-    typeof key === "object" &&
-    key !== null &&
-    "kty" in key &&
-    typeof (key as JWK).kty === "string"
+    typeof key === "object" && key !== null && "kty" in key && typeof (key as JWK).kty === "string"
   );
 }
 
 /* Type guard for JWK Set */
 export function isJWKSet(key: any): key is JWKSet {
-  return (
-    key &&
-    typeof key === "object" &&
-    "keys" in key &&
-    Array.isArray((key as JWKSet).keys)
-  );
+  return key && typeof key === "object" && "keys" in key && Array.isArray((key as JWKSet).keys);
 }
 
 export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
@@ -171,16 +153,11 @@ export function isCryptoKey(key: unknown): key is CryptoKey {
 }
 
 export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
-  key &&
-  typeof key === "object" &&
-  isCryptoKey(key.publicKey) &&
-  isCryptoKey(key.privateKey);
+  key && typeof key === "object" && isCryptoKey(key.publicKey) && isCryptoKey(key.privateKey);
 
 /** Returns true if the JWK is a symmetric (oct) key. */
 export function isSymmetricJWK(key: unknown): key is Extract<JWK, JWK_oct> {
-  return (
-    isJWK(key) && key.kty === "oct" && typeof (key as JWK_oct).k === "string"
-  );
+  return isJWK(key) && key.kty === "oct" && typeof (key as JWK_oct).k === "string";
 }
 
 /** Returns true if the JWK is an asymmetric (RSA, EC, OKP) key. */
@@ -223,10 +200,7 @@ export function isPublicJWK(key: unknown): key is JWK_Public {
   }
   if (key.kty === "OKP") {
     const okp = key as Partial<JWK_OKP_Public & JWK_OKP_Private>;
-    return (
-      typeof okp.x === "string" &&
-      typeof (okp as Partial<JWK_OKP_Private>).d !== "string"
-    );
+    return typeof okp.x === "string" && typeof (okp as Partial<JWK_OKP_Private>).d !== "string";
   }
   if (key.kty === "RSA") {
     const rsa = key as Partial<JWK_RSA_Public & JWK_RSA_Private>;

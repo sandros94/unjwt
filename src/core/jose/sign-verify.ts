@@ -11,7 +11,7 @@ export async function sign(
   alg: string,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   data: Uint8Array<ArrayBuffer>,
-) {
+): Promise<Uint8Array<ArrayBuffer>> {
   const cryptoKey = await getSignVerifyKey(alg, key, "sign");
   checkKeyLength(alg, cryptoKey);
   const signature = await crypto.subtle.sign(
@@ -27,7 +27,7 @@ export async function verify(
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   signature: Uint8Array<ArrayBuffer>,
   data: Uint8Array<ArrayBuffer>,
-) {
+): Promise<boolean> {
   const cryptoKey = await getSignVerifyKey(alg, key, "verify");
   checkKeyLength(alg, cryptoKey);
   const algorithm = subtleAlgorithm(alg, cryptoKey.algorithm);
@@ -38,13 +38,11 @@ export async function verify(
   }
 }
 
-export function checkKeyLength(alg: string, key: CryptoKey) {
+export function checkKeyLength(alg: string, key: CryptoKey): void {
   if (alg.startsWith("RS") || alg.startsWith("PS")) {
     const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new TypeError(
-        `${alg} requires key modulusLength to be 2048 bits or larger`,
-      );
+      throw new TypeError(`${alg} requires key modulusLength to be 2048 bits or larger`);
     }
   }
 }
@@ -53,12 +51,10 @@ export async function getSignVerifyKey(
   alg: string,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   usage: KeyUsage,
-) {
+): Promise<CryptoKey> {
   if (key instanceof Uint8Array) {
     if (!alg.startsWith("HS")) {
-      throw new TypeError(
-        "Key must be of type CryptoKey or JSON Web Key for non-HMAC algorithms",
-      );
+      throw new TypeError("Key must be of type CryptoKey or JSON Web Key for non-HMAC algorithms");
     }
     return crypto.subtle.importKey(
       "raw",
@@ -76,7 +72,31 @@ export async function getSignVerifyKey(
 export function subtleAlgorithm(
   alg: string,
   algorithm: KeyAlgorithm | EcKeyAlgorithm,
-) {
+):
+  | {
+      hash: string;
+      name: string;
+      saltLength?: undefined;
+      namedCurve?: undefined;
+    }
+  | {
+      hash: string;
+      name: string;
+      saltLength: number;
+      namedCurve?: undefined;
+    }
+  | {
+      hash: string;
+      name: string;
+      namedCurve: string;
+      saltLength?: undefined;
+    }
+  | {
+      name: string;
+      hash?: undefined;
+      saltLength?: undefined;
+      namedCurve?: undefined;
+    } {
   const hash = `SHA-${alg.slice(-3)}`;
   switch (alg) {
     case "HS256":
@@ -112,9 +132,7 @@ export function subtleAlgorithm(
       return { name: "Ed25519" };
     }
     default: {
-      throw new Error(
-        `alg ${alg} is not supported either by JOSE or your javascript runtime`,
-      );
+      throw new Error(`alg ${alg} is not supported either by JOSE or your javascript runtime`);
     }
   }
 }

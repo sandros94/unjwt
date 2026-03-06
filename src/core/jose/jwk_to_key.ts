@@ -6,12 +6,7 @@
  * @license MIT https://github.com/panva/jose/blob/69b7960c67e05be55fa2ec31c74b987696c20c60/LICENSE.md
  */
 
-import type {
-  JWK,
-  JWK_RSA_Private,
-  JWK_EC_Private,
-  JWK_OKP_Private,
-} from "../types";
+import type { JWK, JWK_RSA_Private, JWK_EC_Private, JWK_OKP_Private } from "../types";
 import { sanitizeObject } from "../utils";
 
 function subtleMapping(jwk: JWK): {
@@ -55,9 +50,7 @@ function subtleMapping(jwk: JWK): {
           break;
         }
         default: {
-          throw new Error(
-            'Invalid or unsupported JWK "alg" (Algorithm) Parameter value',
-          );
+          throw new Error('Invalid or unsupported JWK "alg" (Algorithm) Parameter value');
         }
       }
       break;
@@ -91,9 +84,7 @@ function subtleMapping(jwk: JWK): {
           break;
         }
         default: {
-          throw new Error(
-            'Invalid or unsupported JWK "alg" (Algorithm) Parameter value',
-          );
+          throw new Error('Invalid or unsupported JWK "alg" (Algorithm) Parameter value');
         }
       }
       break;
@@ -115,17 +106,13 @@ function subtleMapping(jwk: JWK): {
           break;
         }
         default: {
-          throw new Error(
-            'Invalid or unsupported JWK "alg" (Algorithm) Parameter value',
-          );
+          throw new Error('Invalid or unsupported JWK "alg" (Algorithm) Parameter value');
         }
       }
       break;
     }
     default: {
-      throw new Error(
-        'Invalid or unsupported JWK "kty" (Key Type) Parameter value',
-      );
+      throw new Error('Invalid or unsupported JWK "kty" (Key Type) Parameter value');
     }
   }
 
@@ -134,9 +121,7 @@ function subtleMapping(jwk: JWK): {
 
 export async function jwkTokey(jwk: JWK): Promise<CryptoKey> {
   if (!jwk.alg) {
-    throw new TypeError(
-      '"alg" argument is required when "jwk.alg" is not present',
-    );
+    throw new TypeError('"alg" argument is required when "jwk.alg" is not present');
   }
 
   const { algorithm, keyUsages } = subtleMapping(jwk);

@@ -1,80 +1,35 @@
-import { defineBuildConfig } from "unbuild";
-import { readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { defineBuildConfig } from "obuild/config";
+import { replacePlugin } from "rolldown/plugins";
 
 export default defineBuildConfig({
   entries: [
-    "./src/index",
     {
-      input: "./src/core/jwe",
-      outDir: "./dist/jwe",
-      name: "jwe",
+      type: "bundle",
+      input: ["./src/index", "./src/jws", "./src/jwe", "./src/jwk", "./src/utils"],
+      rolldown: {
+        platform: "neutral",
+      },
     },
     {
-      input: "./src/core/jwk",
-      outDir: "./dist/jwk",
-      name: "jwk",
-    },
-    {
-      input: "./src/core/jws",
-      outDir: "./dist/jws",
-      name: "jws",
-    },
-    {
-      input: "./src/core/utils",
-      outDir: "./dist/utils",
-      name: "utils",
-    },
-    {
-      input: "./src/adapters/h3v1",
-      outDir: "./dist/adapters/h3",
-      name: "adapters/h3",
-    },
-    {
-      input: "./src/adapters/h3v1",
-      outDir: "./dist/adapters/h3v1",
-      name: "adapters/h3v1",
-    },
-    {
-      input: "./src/adapters/h3v2",
-      outDir: "./dist/adapters/h3v2",
-      name: "adapters/h3v2",
+      type: "bundle",
+      input: ["./src/adapters/h3", "./src/adapters/h3v1", "./src/adapters/h3v2"],
+      rolldown: {
+        platform: "neutral",
+        external: ["h3v1", "h3v2", "cookie-esv1", "cookie-esv2"],
+        plugins: [
+          replacePlugin(
+            {
+              'h3v1"': 'h3"',
+              'h3v2"': 'h3"',
+              'cookie-esv1': 'cookie-es',
+              'cookie-esv2': 'cookie-es',
+            },
+            {
+              delimiters: ["", ""],
+            }
+          ),
+        ],
+      },
     },
   ],
-  replace: {
-    h3v1: "h3",
-    h3v2: "h3",
-    "cookie-esv1": "cookie-es",
-    "cookie-esv2": "cookie-es",
-  },
-  externals: ["h3v1", "h3v2", "cookie-esv1", "cookie-esv2"],
-  declaration: true,
-  hooks: {
-    async "build:done"() {
-      await removeDtsFiles("dist");
-    },
-  },
 });
-
-async function removeDtsFiles(directory: string) {
-  try {
-    const items = await readdir(directory, { recursive: true });
-    for (const item of items) {
-      const itemPath = join(directory, item);
-
-      if (item.endsWith(".d.ts")) {
-        await rm(itemPath);
-      }
-    }
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error.code === "ENOENT" || error.code === "ENOTDIR")
-    ) {
-      return;
-    }
-    console.error(`Error processing ${directory}: ${error}`);
-  }
-}

@@ -19,12 +19,7 @@ import type {
 } from "./types/jwe";
 
 import { importKey, unwrapKey } from "./jwk";
-import {
-  encrypt as joseEncrypt,
-  decrypt as joseDecrypt,
-  generateIV,
-  encryptKey,
-} from "./jose";
+import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./jose";
 import {
   base64UrlEncode,
   base64UrlDecode,
@@ -122,10 +117,7 @@ export async function encrypt(
     );
   }
   if (!enc) {
-    enc =
-      isJWK(key) && "enc" in key
-        ? (key.enc as ContentEncryptionAlgorithm)
-        : "A128GCM";
+    enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A128GCM";
   }
 
   // Prepare parameters for encryptKey
@@ -147,13 +139,7 @@ export async function encrypt(
     cek: finalCek, // This is the CEK (CryptoKey | Uint8Array) to be used for content encryption
     encryptedKey: jweEncryptedKey, // This is the JWE Encrypted Key (Uint8Array | undefined)
     parameters: keyManagementHeaderParams, // JWE header params from key encryption (e.g., epk, p2s, iv, tag)
-  } = await encryptKey(
-    alg,
-    enc,
-    wrappingKeyMaterial,
-    providedCek,
-    jweKeyManagementParams,
-  );
+  } = await encryptKey(alg, enc, wrappingKeyMaterial, providedCek, jweKeyManagementParams);
 
   const baseProtectedHeader = { ...additionalProtectedHeader };
   delete baseProtectedHeader.alg;
@@ -189,28 +175,18 @@ export async function encrypt(
     ciphertext: contentCiphertext,
     tag: contentAuthTag,
     iv: actualContentIV,
-  } = await joseEncrypt(
-    enc,
-    plaintextBytes,
-    finalCek,
-    contentIVBytes,
-    aadBytes,
-  );
+  } = await joseEncrypt(enc, plaintextBytes, finalCek, contentIVBytes, aadBytes);
 
   if (!actualContentIV) {
     throw new Error("Content encryption IV was not generated or returned.");
   }
   if (!contentAuthTag) {
-    throw new Error(
-      "Content encryption auth tag was not generated or returned.",
-    );
+    throw new Error("Content encryption auth tag was not generated or returned.");
   }
 
   // For 'dir' or 'ECDH-ES' (direct key agreement), jweEncryptedKey will be undefined.
   // The JWE Encrypted Key part should be an empty string in these cases.
-  const encryptedKeyEncoded = jweEncryptedKey
-    ? base64UrlEncode(jweEncryptedKey)
-    : "";
+  const encryptedKeyEncoded = jweEncryptedKey ? base64UrlEncode(jweEncryptedKey) : "";
 
   const jweParts: string[] = [
     protectedHeaderEncoded,
@@ -232,9 +208,7 @@ export async function encrypt(
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-export async function decrypt<
-  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
->(
+export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jwe: string,
   key:
     | CryptoKey
@@ -258,9 +232,7 @@ export async function decrypt(
     forceUint8Array: true;
   },
 ): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decrypt<
-  T extends JWTClaims | Uint8Array<ArrayBuffer> | string,
->(
+export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
   jwe: string,
   key:
     | CryptoKey
@@ -273,9 +245,7 @@ export async function decrypt<
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");
   if (parts.length !== 5) {
-    throw new Error(
-      "Invalid JWE: Must contain five sections (RFC7516, section-3).",
-    );
+    throw new Error("Invalid JWE: Must contain five sections (RFC7516, section-3).");
   }
   const [
     protectedHeaderEncoded,
@@ -288,9 +258,7 @@ export async function decrypt<
   let protectedHeader: JWEHeaderParameters;
   try {
     const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = sanitizeObject<JWEHeaderParameters>(
-      JSON.parse(protectedHeaderJson),
-    );
+    protectedHeader = sanitizeObject<JWEHeaderParameters>(JSON.parse(protectedHeaderJson));
   } catch (error_) {
     throw new Error(
       `Invalid JWE: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,
@@ -314,15 +282,11 @@ export async function decrypt<
   if (options?.algorithms && !options.algorithms.includes(alg)) {
     throw new Error(`Key management algorithm not allowed: ${alg}`);
   }
-  if (
-    options?.encryptionAlgorithms &&
-    !options.encryptionAlgorithms.includes(enc)
-  ) {
+  if (options?.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
     throw new Error(`Content encryption algorithm not allowed: ${enc}`);
   }
 
-  const resolvedKeyMaterial =
-    typeof key === "function" ? await key(protectedHeader, jwe) : key;
+  const resolvedKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
   const unwrappingKey = await importKey(resolvedKeyMaterial, alg);
 
   const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
@@ -345,12 +309,7 @@ export async function decrypt<
     returnAs: false, // Returning CEK as Uint8Array<ArrayBuffer>
   } as const satisfies UnwrapKeyOptions;
 
-  const cekBytes = await unwrapKey(
-    alg,
-    encryptedKeyBytes,
-    unwrappingKey,
-    unwrapKeyOpts,
-  );
+  const cekBytes = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
@@ -378,8 +337,7 @@ export async function decrypt<
     payload &&
     typeof payload === "object" &&
     options.validateJWT !== false &&
-    (options.validateJWT === true ||
-      protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    (options.validateJWT === true || protectedHeader.typ?.toLowerCase().includes("jwt")) &&
     !options.forceUint8Array &&
     !(payload instanceof Uint8Array)
   ) {
@@ -399,9 +357,7 @@ export async function decrypt<
   return result;
 }
 
-function parseEphemeralKey(
-  ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ephemeralKey"],
-) {
+function parseEphemeralKey(ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ephemeralKey"]) {
   let epk: CryptoKey | JWK_EC_Public;
   let epkPrivateKey: CryptoKey | JWK_EC_Private;
   if (isCryptoKeyPair(ephemeralKey)) {
@@ -423,24 +379,18 @@ function parseEphemeralKey(
     epkPrivateKey = candidate.privateKey;
   } else if (isCryptoKey(ephemeralKey)) {
     if (ephemeralKey.type !== "private") {
-      throw new TypeError(
-        "ECDH-ES custom ephemeral CryptoKey must include private key material.",
-      );
+      throw new TypeError("ECDH-ES custom ephemeral CryptoKey must include private key material.");
     }
     epk = ephemeralKey;
     epkPrivateKey = ephemeralKey;
   } else if (isJWK(ephemeralKey)) {
     if (!("d" in ephemeralKey) || typeof ephemeralKey.d !== "string") {
-      throw new TypeError(
-        'ECDH-ES custom ephemeral JWK must include private parameter "d".',
-      );
+      throw new TypeError('ECDH-ES custom ephemeral JWK must include private parameter "d".');
     }
     epk = ephemeralKey;
     epkPrivateKey = ephemeralKey;
   } else {
-    throw new TypeError(
-      "Unsupported ECDH-ES ephemeral key material provided in options.",
-    );
+    throw new TypeError("Unsupported ECDH-ES ephemeral key material provided in options.");
   }
 
   return {

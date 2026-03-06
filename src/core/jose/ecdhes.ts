@@ -30,7 +30,7 @@ export async function deriveECDHESKey(
   keyLength: number,
   apu: Uint8Array<ArrayBuffer> = new Uint8Array(0),
   apv: Uint8Array<ArrayBuffer> = new Uint8Array(0),
-) {
+): Promise<Uint8Array<ArrayBuffer>> {
   checkEncCryptoKey(publicKey, "ECDH");
   checkEncCryptoKey(privateKey, "ECDH", "deriveBits");
 
@@ -45,10 +45,7 @@ export async function deriveECDHESKey(
     publicKey.algorithm.name === "X25519"
       ? 256
       : Math.ceil(
-          Number.parseInt(
-            (publicKey.algorithm as EcKeyAlgorithm).namedCurve.slice(-3),
-            10,
-          ) / 8,
+          Number.parseInt((publicKey.algorithm as EcKeyAlgorithm).namedCurve.slice(-3), 10) / 8,
         ) << 3;
 
   const sharedSecret = new Uint8Array(
@@ -65,7 +62,7 @@ export async function deriveECDHESKey(
   return concatKdf(sharedSecret, keyLength, value);
 }
 
-export function allowed(key: CryptoKey) {
+export function allowed(key: CryptoKey): boolean {
   switch ((key.algorithm as EcKeyAlgorithm).namedCurve) {
     case "P-256":
     case "P-384":

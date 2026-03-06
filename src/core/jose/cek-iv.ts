@@ -26,7 +26,7 @@ const CEK_BIT_LENGTHS: Record<string, number> = {
   "A256CBC-HS512": 512,
 };
 
-export function bitLengthIV(alg: string) {
+export function bitLengthIV(alg: string): number {
   const length = IV_BIT_LENGTHS[alg];
   if (length === undefined) {
     throw new Error(`Unsupported JWE Algorithm: ${alg}`);
@@ -37,13 +37,13 @@ export function generateIV(alg: string): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(bitLengthIV(alg) >> 3));
 }
 
-export function checkIvLength(enc: string, iv: Uint8Array<ArrayBuffer>) {
+export function checkIvLength(enc: string, iv: Uint8Array<ArrayBuffer>): void {
   if (iv.length << 3 !== bitLengthIV(enc)) {
     throw new Error("Invalid Initialization Vector length");
   }
 }
 
-export function bitLengthCEK(alg: string) {
+export function bitLengthCEK(alg: string): number {
   const length = CEK_BIT_LENGTHS[alg];
   if (length === undefined) {
     throw new Error(`Unsupported JWE Algorithm: ${alg}`);
@@ -55,7 +55,7 @@ export function generateCEK(alg: string): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(bitLengthCEK(alg) >> 3));
 }
 
-export function checkCEKLength(cek: Uint8Array<ArrayBuffer>, expected: number) {
+export function checkCEKLength(cek: Uint8Array<ArrayBuffer>, expected: number): void {
   const actual = cek.byteLength << 3;
   if (actual !== expected) {
     throw new Error(

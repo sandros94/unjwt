@@ -51,11 +51,7 @@ export const toPKCS8 = (key: unknown): Promise<string> => {
   return genericExport("private", "pkcs8", key);
 };
 
-const findOid = (
-  keyData: Uint8Array<ArrayBuffer>,
-  oid: number[],
-  from = 0,
-): boolean => {
+const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: number[], from = 0): boolean => {
   if (from === 0) {
     oid.unshift(oid.length);
     oid.unshift(0x06);
@@ -64,15 +60,10 @@ const findOid = (
   if (i === -1) return false;
   const sub = keyData.subarray(i, i + oid.length);
   if (sub.length !== oid.length) return false;
-  return (
-    sub.every((value, index) => value === oid[index]) ||
-    findOid(keyData, oid, i + 1)
-  );
+  return sub.every((value, index) => value === oid[index]) || findOid(keyData, oid, i + 1);
 };
 
-const getNamedCurve = (
-  keyData: Uint8Array<ArrayBuffer>,
-): string | undefined => {
+const getNamedCurve = (keyData: Uint8Array<ArrayBuffer>): string | undefined => {
   switch (true) {
     case findOid(keyData, [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]): {
       return "P-256";
@@ -150,9 +141,7 @@ const genericImport = async (
     case "ECDH-ES+A192KW":
     case "ECDH-ES+A256KW": {
       const namedCurve = getNamedCurve(keyData);
-      algorithm = namedCurve?.startsWith("P-")
-        ? { name: "ECDH", namedCurve }
-        : { name: "X25519" };
+      algorithm = namedCurve?.startsWith("P-") ? { name: "ECDH", namedCurve } : { name: "X25519" };
       keyUsages = isPublic ? [] : ["deriveBits"];
       break;
     }
@@ -183,23 +172,11 @@ type PEMImportFunction = (
 ) => Promise<CryptoKey>;
 
 export const fromPKCS8: PEMImportFunction = (pem, alg, options?) => {
-  return genericImport(
-    /(?:-----(?:BEGIN|END) PRIVATE KEY-----|\s)/g,
-    "pkcs8",
-    pem,
-    alg,
-    options,
-  );
+  return genericImport(/(?:-----(?:BEGIN|END) PRIVATE KEY-----|\s)/g, "pkcs8", pem, alg, options);
 };
 
 export const fromSPKI: PEMImportFunction = (pem, alg, options?) => {
-  return genericImport(
-    /(?:-----(?:BEGIN|END) PUBLIC KEY-----|\s)/g,
-    "spki",
-    pem,
-    alg,
-    options,
-  );
+  return genericImport(/(?:-----(?:BEGIN|END) PUBLIC KEY-----|\s)/g, "spki", pem, alg, options);
 };
 
 function getElement(seq: Uint8Array<ArrayBuffer>) {
@@ -238,10 +215,7 @@ function parseElement(bytes: Uint8Array<ArrayBuffer>) {
   } else if (length === 0x80) {
     length = 0;
 
-    while (
-      bytes[position + length] !== 0 ||
-      bytes[position + length + 1] !== 0
-    ) {
+    while (bytes[position + length] !== 0 || bytes[position + length + 1] !== 0) {
       if (length > bytes.byteLength) {
         throw new TypeError("invalid indefinite form length");
       }
@@ -273,20 +247,15 @@ function parseElement(bytes: Uint8Array<ArrayBuffer>) {
 }
 
 function spkiFromX509(buf: Uint8Array<ArrayBuffer>) {
-  const tbsCertificate = getElement(
-    getElement(parseElement(buf).contents)[0]!.contents,
-  );
-  return base64Encode(
-    tbsCertificate[tbsCertificate[0]!.raw[0] === 0xa0 ? 6 : 5]!.raw,
-  );
+  const tbsCertificate = getElement(getElement(parseElement(buf).contents)[0]!.contents);
+  return base64Encode(tbsCertificate[tbsCertificate[0]!.raw[0] === 0xa0 ? 6 : 5]!.raw);
 }
 
 let createPublicKey: any;
 function getSPKI(x509: string): string {
   try {
     // @ts-ignore
-    createPublicKey ??=
-      globalThis.process?.getBuiltinModule?.("node:crypto")?.createPublicKey;
+    createPublicKey ??= globalThis.process?.getBuiltinModule?.("node:crypto")?.createPublicKey;
   } catch {
     createPublicKey = 0;
   }

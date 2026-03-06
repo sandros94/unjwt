@@ -8,10 +8,7 @@ export type CompositeKey = {
   macKey: CryptoKey;
 };
 
-export type GenerateKeyAlgorithm = Exclude<
-  JWKAlgorithm,
-  "none" | "dir" | JWK_PBES2
->;
+export type GenerateKeyAlgorithm = Exclude<JWKAlgorithm, "none" | "dir" | JWK_PBES2>;
 
 /** Options for the generateKey function. */
 export interface GenerateKeyOptions {
@@ -26,33 +23,28 @@ export interface GenerateKeyOptions {
   /** Named curve for EC or OKP keys. Defaults to "P-256" for EC and "Ed25519" for OKP. */
   namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448";
   /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
-  toJWK?:
-    | undefined
-    | boolean
-    | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
+  toJWK?: undefined | boolean | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
 }
 
 // Conditional return type when toJWK is true
-type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> =
-  TAlg extends JWK_Asymmetric_Algorithm
-    ? TAlg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
-      ? { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
-      : TAlg extends JWK_ECDSA | JWK_ECDH_ES
-        ? { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
-        : TAlg extends JWK_OKP_SIGN
-          ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
-          : never
-    : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-      ? JWK_oct // TODO: shouldn't this be `{ encryptionKey: JWK_oct; macKey: JWK_oct }`?
-      : never;
+type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_Asymmetric_Algorithm
+  ? TAlg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
+    ? { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
+    : TAlg extends JWK_ECDSA | JWK_ECDH_ES
+      ? { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
+      : TAlg extends JWK_OKP_SIGN
+        ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
+        : never
+  : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
+    ? JWK_oct // TODO: shouldn't this be `{ encryptionKey: JWK_oct; macKey: JWK_oct }`?
+    : never;
 
 // Conditional return type when toJWK is false or undefined
-type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> =
-  TAlg extends JWK_AES_CBC_HMAC
-    ? Uint8Array<ArrayBuffer>
-    : TAlg extends JWK_Asymmetric_Algorithm
-      ? CryptoKeyPair
-      : CryptoKey;
+type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_AES_CBC_HMAC
+  ? Uint8Array<ArrayBuffer>
+  : TAlg extends JWK_Asymmetric_Algorithm
+    ? CryptoKeyPair
+    : CryptoKey;
 
 export type GenerateKeyReturn<
   TAlg extends GenerateKeyAlgorithm,
@@ -65,8 +57,7 @@ export type GenerateKeyReturn<
 
 export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK">;
 
-export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> =
-  GenerateKeyReturnJWK<TAlg>;
+export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GenerateKeyReturnJWK<TAlg>;
 
 /** Options for the deriveKeyFromPassword function. */
 export interface DeriveKeyOptions {
@@ -79,19 +70,15 @@ export interface DeriveKeyOptions {
   /** Mark the derived key as extractable. Defaults to false. */
   extractable?: boolean;
   /** Export the derived key as JWK. If true, the key will be returned in JWK_oct format. */
-  toJWK?:
-    | undefined
-    | boolean
-    | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
+  toJWK?: undefined | boolean | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
 }
 
 // Conditional return type for deriveKeyFromPassword
-export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> =
-  TOptions["toJWK"] extends true
+export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> = TOptions["toJWK"] extends true
+  ? JWK_oct
+  : TOptions["toJWK"] extends object
     ? JWK_oct
-    : TOptions["toJWK"] extends object
-      ? JWK_oct
-      : CryptoKey;
+    : CryptoKey;
 
 export type KeyManagementAlgorithm =
   | JWK_RSA_ENC
@@ -318,34 +305,16 @@ export type JWK_HMAC = "HS256" | "HS384" | "HS512";
 export type JWK_RSA_SIGN = "RS256" | "RS384" | "RS512";
 export type JWK_RSA_PSS = "PS256" | "PS384" | "PS512";
 export type JWK_ECDSA = "ES256" | "ES384" | "ES512";
-export type JWK_RSA_ENC =
-  | "RSA-OAEP"
-  | "RSA-OAEP-256"
-  | "RSA-OAEP-384"
-  | "RSA-OAEP-512";
+export type JWK_RSA_ENC = "RSA-OAEP" | "RSA-OAEP-256" | "RSA-OAEP-384" | "RSA-OAEP-512";
 export type JWK_AES_KW = "A128KW" | "A192KW" | "A256KW";
-export type JWK_AES_CBC_HMAC =
-  | "A128CBC-HS256"
-  | "A192CBC-HS384"
-  | "A256CBC-HS512";
+export type JWK_AES_CBC_HMAC = "A128CBC-HS256" | "A192CBC-HS384" | "A256CBC-HS512";
 export type JWK_AES_GCM = "A128GCM" | "A192GCM" | "A256GCM";
 export type JWK_AES_GCM_KW = "A128GCMKW" | "A192GCMKW" | "A256GCMKW";
-export type JWK_PBES2 =
-  | "PBES2-HS256+A128KW"
-  | "PBES2-HS384+A192KW"
-  | "PBES2-HS512+A256KW";
-export type JWK_ECDH_ES =
-  | "ECDH-ES"
-  | "ECDH-ES+A128KW"
-  | "ECDH-ES+A192KW"
-  | "ECDH-ES+A256KW";
+export type JWK_PBES2 = "PBES2-HS256+A128KW" | "PBES2-HS384+A192KW" | "PBES2-HS512+A256KW";
+export type JWK_ECDH_ES = "ECDH-ES" | "ECDH-ES+A128KW" | "ECDH-ES+A192KW" | "ECDH-ES+A256KW";
 export type JWK_OKP_SIGN = "Ed25519" | "EdDSA";
 
-export type JWK_Symmetric_Algorithm =
-  | JWK_HMAC
-  | JWK_AES_KW
-  | JWK_AES_GCM
-  | JWK_AES_GCM_KW;
+export type JWK_Symmetric_Algorithm = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM | JWK_AES_GCM_KW;
 export type JWK_Asymmetric_Algorithm =
   | JWK_RSA_SIGN
   | JWK_RSA_PSS

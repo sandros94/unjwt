@@ -22,9 +22,7 @@ export async function keyToJWK<T extends JWK>(
     throw new TypeError("Key must be one of type: CryptoKey or Uint8Array");
   }
   if (!key.extractable) {
-    throw new TypeError(
-      "non-extractable CryptoKey cannot be exported as a JWK",
-    );
+    throw new TypeError("non-extractable CryptoKey cannot be exported as a JWK");
   }
   const jwk = await crypto.subtle.exportKey("jwk", key);
 

@@ -29,9 +29,7 @@ describe("adapter h3 v2", () => {
       app = new H3({ debug: true });
 
       app.all("/init", async (event) => {
-        const session = await useJWESession(event, sessionConfig).then((s) =>
-          s.update({}),
-        );
+        const session = await useJWESession(event, sessionConfig).then((s) => s.update({}));
 
         return { session };
       });
@@ -150,9 +148,7 @@ describe("adapter h3 v2", () => {
     });
 
     it("stores large data in chunks", async () => {
-      const token = Array.from({ length: 5000 /* ~4k + one more */ })
-        .fill("x")
-        .join("");
+      const token = Array.from({ length: 5000 /* ~4k + one more */ }).fill("x").join("");
       const res = await app.request("/", {
         method: "POST",
         headers: { Cookie: cookie },
@@ -162,11 +158,7 @@ describe("adapter h3 v2", () => {
       const cookies = res.headers.getSetCookie();
       const cookieNames = cookies.map((c) => c.split("=")[0]);
       expect(cookieNames.length).toBe(3 /* head + 2 */);
-      expect(cookieNames).toMatchObject([
-        "h3-jwe-test",
-        "h3-jwe-test.1",
-        "h3-jwe-test.2",
-      ]);
+      expect(cookieNames).toMatchObject(["h3-jwe-test", "h3-jwe-test.1", "h3-jwe-test.2"]);
 
       const body = await res.json();
       expect(body.session.data.token).toBe(token);
@@ -238,9 +230,7 @@ describe("adapter h3 v2", () => {
       app = new H3({ debug: true });
 
       app.all("/init", async (event) => {
-        const session = await useJWSSession(event, sessionConfig).then((s) =>
-          s.update({}),
-        );
+        const session = await useJWSSession(event, sessionConfig).then((s) => s.update({}));
 
         return { session };
       });
@@ -359,9 +349,7 @@ describe("adapter h3 v2", () => {
     });
 
     it("stores large data in chunks", async () => {
-      const token = Array.from({ length: 5000 /* ~4k + one more */ })
-        .fill("x")
-        .join("");
+      const token = Array.from({ length: 5000 /* ~4k + one more */ }).fill("x").join("");
       const res = await app.request("/", {
         method: "POST",
         headers: { Cookie: cookie },
@@ -371,11 +359,7 @@ describe("adapter h3 v2", () => {
       const cookies = res.headers.getSetCookie();
       const cookieNames = cookies.map((c) => c.split("=")[0]);
       expect(cookieNames.length).toBe(3 /* head + 2 */);
-      expect(cookieNames).toMatchObject([
-        "h3-jws-test",
-        "h3-jws-test.1",
-        "h3-jws-test.2",
-      ]);
+      expect(cookieNames).toMatchObject(["h3-jws-test", "h3-jws-test.1", "h3-jws-test.2"]);
 
       const body = await res.json();
       expect(body.session.data.token).toBe(token);
