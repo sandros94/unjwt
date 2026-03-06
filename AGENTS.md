@@ -6,13 +6,12 @@
 
 ## Commands
 
-- **Build:** `pnpm build` (uses unbuild)
-- **Test all:** `pnpm test` (lint + type-check + vitest)
-- **Test only (no lint):** `pnpm vitest run --slowTestThreshold=1000`
+- **Build:** `pnpm build` (uses obuild/rolldown)
+- **Test:** `pnpm test` (vitest)
 - **Single test file:** `pnpm vitest run test/jws.test.ts`
-- **Type check:** `pnpm test:types`
-- **Lint:** `pnpm lint`
-- **Lint fix:** `pnpm lint:fix`
+- **Type check:** `pnpm typecheck` (uses tsgo)
+- **Lint:** `pnpm lint` (oxlint + oxfmt --check)
+- **Format:** `pnpm format` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
 - **Dev playground:** `pnpm dev` (runs `playground/main.ts` with bun)
 
@@ -57,7 +56,7 @@ src/
 - **ESM-only**, `"type": "module"` in package.json
 - **Node 22** required (uses `Uint8Array.prototype.toBase64`/`fromBase64` when available)
 - **pnpm** as package manager (v10)
-- **Strict TypeScript** with `verbatimModuleSyntax`, `noUncheckedIndexedAccess`, `noImplicitAny`
-- Uses `eslint-config-unjs`; Prettier for formatting
+- **Strict TypeScript** with `verbatimModuleSyntax`, `noUncheckedIndexedAccess`, `noImplicitAny`; type-checked via `tsgo` (native TypeScript compiler)
+- Linting via **oxlint** (OXC); formatting via **oxfmt** (OXC)
 - Type-only exports use `export type *` pattern
 - `sanitizeObject()` is applied to parsed headers/JWK data to strip prototype pollution vectors
