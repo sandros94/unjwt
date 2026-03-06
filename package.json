@@ -53,6 +53,7 @@
   "scripts": {
     "build": "obuild",
     "dev": "bun --watch ./playground/main.ts",
+    "dev:prepare": "obuild --stub",
     "lint": "oxlint . && oxfmt --check .",
     "format": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",
