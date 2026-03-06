@@ -26,6 +26,12 @@ Zero runtime dependencies for core. Optional peer deps for adapters (`h3`, `cook
 npx nypm install unjwt
 ```
 
+If you would like to install the agent skill you can run:
+
+```sh
+npx skills add sandros94/unjwt
+```
+
 ## Usage
 
 ### JWS — Sign & Verify
