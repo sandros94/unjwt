@@ -31,6 +31,7 @@ import {
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
+const kSessionToken: unique symbol = Symbol("h3_jwe_sessionToken");
 
 export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
@@ -44,6 +45,7 @@ export interface SessionJWE<
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWE<T, MaxAge>>;
+  [kSessionToken]?: string;
 }
 
 export interface SessionHooksJWE<
@@ -146,7 +148,10 @@ export async function useJWESession<
       return (getSessionFromContext(event, sessionName)?.data || {}) as T;
     },
     get token() {
-      return getJWESessionToken<T, MaxAge>(event, config);
+      return (
+        getSessionFromContext<T, MaxAge>(event, sessionName)?.[kSessionToken] ??
+        getJWESessionToken<T, MaxAge>(event, config)
+      );
     },
     update: async (update: SessionUpdate<T>) => {
       await updateJWESession<T, MaxAge>(event, config, update);
@@ -229,8 +234,9 @@ export async function getJWESession<
 
   const token = getJWESessionToken<T, MaxAge>(event, config);
 
-  // If we have a token, try to unseal and load into session context
+  // If we have a token, cache it and try to unseal and load into session context
   if (token) {
+    session[kSessionToken] = token;
     const promise = unsealJWESession(event, config, token)
       .catch(async (error_) => {
         if (error_ instanceof Error) {
@@ -357,6 +363,7 @@ export async function updateJWESession<
   // Seal and store in cookie
   if (config.cookie !== false && hasWritableResponse(event)) {
     const sealed = await sealJWESession(event, config);
+    session[kSessionToken] = sealed;
     setChunkedCookie(event, sessionName, sealed, {
       ...DEFAULT_COOKIE,
       expires:

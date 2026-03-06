@@ -83,6 +83,7 @@ describe("adapter h3 v2", () => {
       const result = await app.request("/init");
       expect(result.headers.getSetCookie()).toHaveLength(1);
       cookie = result.headers.getSetCookie()[0]!;
+      expect(cookie).toContain(`${sessionConfig.name}=`);
       expect(await result.json()).toMatchObject({
         session: { id: "1", data: {}, token: expect.any(String) },
       });
@@ -284,6 +285,7 @@ describe("adapter h3 v2", () => {
       const result = await app.request("/init");
       expect(result.headers.getSetCookie()).toHaveLength(1);
       cookie = result.headers.getSetCookie()[0]!;
+      expect(cookie).toContain(`${sessionConfig.name}=`);
       expect(await result.json()).toMatchObject({
         session: { id: "1", data: {}, token: expect.any(String) },
       });
