@@ -21,12 +21,12 @@ export default defineBuildConfig({
             {
               'h3v1"': 'h3"',
               'h3v2"': 'h3"',
-              'cookie-esv1': 'cookie-es',
-              'cookie-esv2': 'cookie-es',
+              "cookie-esv1": "cookie-es",
+              "cookie-esv2": "cookie-es",
             },
             {
               delimiters: ["", ""],
-            }
+            },
           ),
         ],
       },
