@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.5.39
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.38...v0.5.39)
+
+### 🔥 Performance
+
+- Optimize JWE/JWS to match or beat jose ([67c2f7d](https://github.com/sandros94/unjwt/commit/67c2f7d))
+
+### 🩹 Fixes
+
+- **h3v2:** Do not rely on upstream `event.res` ([8afdb1b](https://github.com/sandros94/unjwt/commit/8afdb1b))
+
+### 💅 Refactors
+
+- Improve performance, security, and bundle size across core modules ([9dbcb91](https://github.com/sandros94/unjwt/commit/9dbcb91))
+
+### 📦 Build
+
+- **h3v2:** Set `rou3` as external ([8f14b19](https://github.com/sandros94/unjwt/commit/8f14b19))
+
+### 🏡 Chore
+
+- Update deps ([eb292f1](https://github.com/sandros94/unjwt/commit/eb292f1))
+- Apply automated updates ([7879fa6](https://github.com/sandros94/unjwt/commit/7879fa6))
+- Add `AGENTS.md` ([1075536](https://github.com/sandros94/unjwt/commit/1075536))
+- Switch to obuild, oxc and tsgo ([3c57f53](https://github.com/sandros94/unjwt/commit/3c57f53))
+- Apply automated updates ([811bb19](https://github.com/sandros94/unjwt/commit/811bb19))
+- Add `dev:prepare` script ([1602746](https://github.com/sandros94/unjwt/commit/1602746))
+- Update scripts ([82e5d2b](https://github.com/sandros94/unjwt/commit/82e5d2b))
+- Update AGENTS.md ([cdf76fe](https://github.com/sandros94/unjwt/commit/cdf76fe))
+- Create agent skills ([635d738](https://github.com/sandros94/unjwt/commit/635d738))
+- Update `AGENTS.md` ([c48c71a](https://github.com/sandros94/unjwt/commit/c48c71a))
+
+### ✅ Tests
+
+- Improve coverage ([16d2891](https://github.com/sandros94/unjwt/commit/16d2891))
+
+### 🤖 CI
+
+- Skip autofix on releases ([75e2266](https://github.com/sandros94/unjwt/commit/75e2266))
+- Update actions ([7380ba8](https://github.com/sandros94/unjwt/commit/7380ba8))
+- Use node present in `package.json` ([a726359](https://github.com/sandros94/unjwt/commit/a726359))
+- Unify jobs and run autofix only when required ([466813e](https://github.com/sandros94/unjwt/commit/466813e))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.38
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.37...v0.5.38)
