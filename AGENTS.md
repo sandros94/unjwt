@@ -60,3 +60,4 @@ src/
 - Linting via **oxlint** (OXC); formatting via **oxfmt** (OXC)
 - Type-only exports use `export type *` pattern
 - `sanitizeObject()` is applied to parsed headers/JWK data to strip prototype pollution vectors
+- **`skills/unjwt/`** contains reference docs for the public API — keep these files updated when making architectural changes or modifying public-facing signatures/types
