@@ -342,7 +342,7 @@ describe.concurrent("JWE Utilities", () => {
       const parts = jwe.split(".");
       parts[0] = "not-base64!";
       await expect(decrypt(parts.join("."), key)).rejects.toThrow(
-        "Protected header is not valid Base64URL or JSON",
+        "Protected header could not be decoded",
       );
     });
 
@@ -350,7 +350,7 @@ describe.concurrent("JWE Utilities", () => {
       const parts = jwe.split(".");
       parts[0] = base64UrlEncode("not json");
       await expect(decrypt(parts.join("."), key)).rejects.toThrow(
-        "Protected header is not valid Base64URL or JSON",
+        "Protected header could not be decoded",
       );
     });
 

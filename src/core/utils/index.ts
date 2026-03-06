@@ -19,28 +19,47 @@ export type * from "./types";
 export const textEncoder: TextEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder: TextDecoder = /* @__PURE__ */ new TextDecoder();
 
-const _hasToBase64 = typeof (Uint8Array.prototype as any).toBase64 === "function";
-const _hasFromBase64 = typeof (Uint8Array as any).fromBase64 === "function";
+// Prefer Node.js Buffer (fastest), then Uint8Array.toBase64/fromBase64, then atob/btoa fallback
+const _Buffer = /* @__PURE__ */ (() => {
+  try {
+    return globalThis.Buffer;
+  } catch {
+    return undefined;
+  }
+})();
+const _hasBuffer = typeof _Buffer?.from === "function";
+const _hasToBase64 = !_hasBuffer && typeof (Uint8Array.prototype as any).toBase64 === "function";
+const _hasFromBase64 = !_hasBuffer && typeof (Uint8Array as any).fromBase64 === "function";
+const _b64UrlEncOpts = /* @__PURE__ */ Object.freeze({ alphabet: "base64url", omitPadding: true });
+const _b64UrlDecOpts = /* @__PURE__ */ Object.freeze({ alphabet: "base64url" });
+
+function _toBuffer(data: Uint8Array<ArrayBuffer> | string): InstanceType<typeof Buffer> {
+  return data instanceof Uint8Array
+    ? _Buffer!.from(data.buffer, data.byteOffset, data.byteLength)
+    : _Buffer!.from(data);
+}
 
 /* Base64 encoding function */
 export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
+  if (_hasBuffer) {
+    return _toBuffer(data).toString("base64");
+  }
   const encodedData = data instanceof Uint8Array ? data : textEncoder.encode(data);
-
   if (_hasToBase64) {
     return (encodedData as any).toBase64();
   }
-
   return btoa(String.fromCodePoint(...encodedData));
 }
 
 /* Base64 URL encoding function */
 export function base64UrlEncode(data: Uint8Array<ArrayBuffer> | string): string {
-  const encodedData = data instanceof Uint8Array ? data : textEncoder.encode(data);
-
-  if (_hasToBase64) {
-    return (encodedData as any).toBase64({ alphabet: "base64url", omitPadding: true });
+  if (_hasBuffer) {
+    return _toBuffer(data).toString("base64url");
   }
-
+  const encodedData = data instanceof Uint8Array ? data : textEncoder.encode(data);
+  if (_hasToBase64) {
+    return (encodedData as any).toBase64(_b64UrlEncOpts);
+  }
   return btoa(String.fromCodePoint(...encodedData))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -61,6 +80,13 @@ export function base64Decode(
 
   if (!str) {
     return decodeToString ? "" : new Uint8Array(0);
+  }
+
+  if (_hasBuffer) {
+    const buf = _Buffer!.from(str, "base64");
+    return decodeToString
+      ? buf.toString("utf8")
+      : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
   }
 
   const data: Uint8Array<ArrayBuffer> = _hasFromBase64
@@ -86,10 +112,17 @@ export function base64UrlDecode(
     return decodeToString ? "" : new Uint8Array(0);
   }
 
+  if (_hasBuffer) {
+    const buf = _Buffer!.from(str, "base64url");
+    return decodeToString
+      ? buf.toString("utf8")
+      : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  }
+
   let data: Uint8Array<ArrayBuffer>;
 
   if (_hasFromBase64) {
-    data = (Uint8Array as any).fromBase64(str, { alphabet: "base64url" });
+    data = (Uint8Array as any).fromBase64(str, _b64UrlDecOpts);
   } else {
     str = str.replace(/-/g, "+").replace(/_/g, "/");
     while (str.length % 4) str += "=";

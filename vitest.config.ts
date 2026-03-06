@@ -5,7 +5,8 @@ export default defineConfig({
     coverage: {
       exclude: [
         "dist/**",
-        "src/jose/**",
+        "test/**",
+        "src/core/jose/**",
         "build.config.ts",
         "eslint.config.mjs",
         "vitest.config.ts",

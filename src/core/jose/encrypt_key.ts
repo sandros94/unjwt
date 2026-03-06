@@ -263,11 +263,10 @@ export async function normalizeKey(
   }
 
   if (isJWK(key)) {
-    const safeJwk = sanitizeObject(key as Record<string, any>) as JWK;
-    if ("k" in safeJwk && safeJwk.k) {
-      return base64UrlDecode(safeJwk.k as string, false);
+    if ("k" in key && key.k) {
+      return base64UrlDecode(key.k as string, false);
     }
-    return jwkTokey({ ...safeJwk, alg });
+    return jwkTokey(key.alg ? key : { ...key, alg });
   }
 
   throw new Error("unreachable");

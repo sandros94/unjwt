@@ -93,8 +93,8 @@ async function gcmEncrypt(
     ),
   );
 
-  const tag = encrypted.slice(-16);
-  const ciphertext = encrypted.slice(0, -16);
+  const tag = encrypted.subarray(-16);
+  const ciphertext = encrypted.subarray(0, -16);
 
   return { ciphertext, tag, iv };
 }

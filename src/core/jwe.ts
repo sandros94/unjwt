@@ -93,8 +93,8 @@ export async function encrypt(
     cek: providedCek,
     contentEncryptionIV: providedContentIV,
     keyManagementIV,
-    p2s = randomBytes(16),
-    p2c = 2048,
+    p2s,
+    p2c,
     ecdh,
   } = options;
   let { alg, enc } = options;
@@ -124,7 +124,9 @@ export async function encrypt(
   const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
   if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
   if (p2s) jweKeyManagementParams.p2s = p2s;
+  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2s = randomBytes(16);
   if (p2c) jweKeyManagementParams.p2c = p2c;
+  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2c = 2048;
   if (ecdh?.partyUInfo) jweKeyManagementParams.apu = ecdh.partyUInfo;
   if (ecdh?.partyVInfo) jweKeyManagementParams.apv = ecdh.partyVInfo;
   if (ecdh?.ephemeralKey) {
@@ -141,17 +143,13 @@ export async function encrypt(
     parameters: keyManagementHeaderParams, // JWE header params from key encryption (e.g., epk, p2s, iv, tag)
   } = await encryptKey(alg, enc, wrappingKeyMaterial, providedCek, jweKeyManagementParams);
 
-  const baseProtectedHeader = { ...additionalProtectedHeader };
-  delete baseProtectedHeader.alg;
-  delete baseProtectedHeader.enc;
-
-  const jweProtectedHeader = sanitizeObject<JWEHeaderParameters>({
-    ...baseProtectedHeader,
+  const jweProtectedHeader: JWEHeaderParameters = {
+    ...additionalProtectedHeader,
     ...keyManagementHeaderParams,
-    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}), // Include kid if available
     alg,
     enc,
-  });
+  };
+  if (isJWK(key) && key.kid) jweProtectedHeader.kid = key.kid;
 
   const protectedHeader = applyTypCtyDefaults(jweProtectedHeader, payload);
 
@@ -259,10 +257,8 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   try {
     const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
     protectedHeader = sanitizeObject<JWEHeaderParameters>(JSON.parse(protectedHeaderJson));
-  } catch (error_) {
-    throw new Error(
-      `Invalid JWE: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,
-    );
+  } catch {
+    throw new Error("Invalid JWE: Protected header could not be decoded.");
   }
 
   if (
@@ -294,28 +290,29 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   const contentAuthTagBytes = base64UrlDecode(authTagEncoded, false);
   const ciphertextBytes = base64UrlDecode(ciphertextEncoded, false);
 
-  const unwrapKeyOpts = {
-    iv: protectedHeader.iv,
-    tag: protectedHeader.tag,
-    p2s: protectedHeader.p2s,
-    p2c: protectedHeader.p2c,
-    epk: protectedHeader.epk,
-    apu: protectedHeader.apu,
-    apv: protectedHeader.apv,
+  const unwrapKeyOpts: UnwrapKeyOptions & { returnAs: boolean } = {
     enc,
-    unwrappedKeyAlgorithm: options?.unwrappedKeyAlgorithm,
-    keyUsage: options?.keyUsage,
-    extractable: options?.extractable,
-    returnAs: false, // Returning CEK as Uint8Array<ArrayBuffer>
-  } as const satisfies UnwrapKeyOptions;
+    returnAs: enc.includes("GCM"),
+    keyUsage: options?.keyUsage || ["decrypt"],
+  };
+  if (protectedHeader.iv) unwrapKeyOpts.iv = protectedHeader.iv;
+  if (protectedHeader.tag) unwrapKeyOpts.tag = protectedHeader.tag;
+  if (protectedHeader.p2s) unwrapKeyOpts.p2s = protectedHeader.p2s;
+  if (protectedHeader.p2c) unwrapKeyOpts.p2c = protectedHeader.p2c;
+  if (protectedHeader.epk) unwrapKeyOpts.epk = protectedHeader.epk;
+  if (protectedHeader.apu) unwrapKeyOpts.apu = protectedHeader.apu;
+  if (protectedHeader.apv) unwrapKeyOpts.apv = protectedHeader.apv;
+  if (options?.unwrappedKeyAlgorithm)
+    unwrapKeyOpts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
+  if (options?.extractable) unwrapKeyOpts.extractable = options.extractable;
 
-  const cekBytes = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
+  const cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
   const plaintextBytes = await joseDecrypt(
     enc,
-    cekBytes,
+    cek,
     ciphertextBytes,
     contentIVBytes,
     contentAuthTagBytes,
@@ -328,10 +325,12 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     options?.forceUint8Array,
   ) as T;
 
-  validateCriticalHeadersJWE(protectedHeader, [
-    ...(options?.critical || []),
-    ...(options?.requiredHeaders || []),
-  ]);
+  if (protectedHeader.crit || options?.critical?.length || options?.requiredHeaders?.length) {
+    validateCriticalHeadersJWE(protectedHeader, [
+      ...(options?.critical || []),
+      ...(options?.requiredHeaders || []),
+    ]);
+  }
 
   if (
     payload &&
@@ -350,7 +349,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   };
 
   if (options.returnCek) {
-    result.cek = cekBytes;
+    result.cek = isCryptoKey(cek) ? new Uint8Array(await crypto.subtle.exportKey("raw", cek)) : cek;
     result.aad = aadBytes;
   }
 

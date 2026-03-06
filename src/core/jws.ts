@@ -207,10 +207,8 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   try {
     const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
     protectedHeader = sanitizeObject<JWSProtectedHeader>(JSON.parse(protectedHeaderString));
-  } catch (error_) {
-    throw new Error(
-      `Invalid JWS: Protected header is not valid Base64URL or JSON (${error_ instanceof Error ? error_.message : error_})`,
-    );
+  } catch {
+    throw new Error("Invalid JWS: Protected header could not be decoded.");
   }
 
   if (!protectedHeader || typeof protectedHeader !== "object" || !protectedHeader.alg) {
@@ -235,10 +233,8 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   let signatureBytes: Uint8Array<ArrayBuffer>;
   try {
     signatureBytes = base64UrlDecode(signatureEncoded, false);
-  } catch (error_) {
-    throw new Error(
-      `Invalid JWS: Signature is not valid Base64URL (${error_ instanceof Error ? error_.message : error_})`,
-    );
+  } catch {
+    throw new Error("Invalid JWS: Signature could not be decoded.");
   }
 
   // 5. Obtain and Import Key

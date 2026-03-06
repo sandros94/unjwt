@@ -240,6 +240,10 @@ export async function deriveJWKFromPassword(
 }
 
 /**
+ * Cache for imported JWKs to avoid redundant CryptoKey creation.
+ */
+let _jwkCache: WeakMap<object, Record<string, CryptoKey>> | undefined;
+/**
  * Imports a key from various formats (CryptoKey, JWK, Uint8Array).
  *
  * - If `key` is a CryptoKey, it's returned directly.
@@ -282,10 +286,19 @@ export async function importKey(
       if (!key.alg && !alg) {
         throw new TypeError("Algorithm must be provided when importing non-oct JWK");
       }
-      return jwkTokey({
-        ...key,
-        alg: key.alg || alg,
-      });
+      const effectiveAlg = (key.alg || alg)!;
+      _jwkCache ||= new WeakMap();
+      const cached = _jwkCache.get(key);
+      if (cached?.[effectiveAlg]) {
+        return cached[effectiveAlg];
+      }
+      const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg });
+      if (!cached) {
+        _jwkCache.set(key, { [effectiveAlg]: cryptoKey });
+      } else {
+        cached[effectiveAlg] = cryptoKey;
+      }
+      return cryptoKey;
     }
   }
 
@@ -425,7 +438,9 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
   const { returnAs = true } = options; // Default to returning CryptoKey
   const defaultExtractable = options.extractable !== false; // Default true
 
-  const importedUnwrappingKey = await resolveWrappingKey(alg, unwrappingKey);
+  const importedUnwrappingKey = isCryptoKey(unwrappingKey)
+    ? unwrappingKey
+    : await resolveWrappingKey(alg, unwrappingKey);
 
   let unwrappedCekBytes: Uint8Array<ArrayBuffer>;
 

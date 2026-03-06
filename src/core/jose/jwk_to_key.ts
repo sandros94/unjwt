@@ -7,7 +7,6 @@
  */
 
 import type { JWK, JWK_RSA_Private, JWK_EC_Private, JWK_OKP_Private } from "../types";
-import { sanitizeObject } from "../utils";
 
 function subtleMapping(jwk: JWK): {
   algorithm: RsaHashedImportParams | EcKeyAlgorithm | Algorithm;
@@ -126,13 +125,9 @@ export async function jwkTokey(jwk: JWK): Promise<CryptoKey> {
 
   const { algorithm, keyUsages } = subtleMapping(jwk);
 
-  const keyData: JWK = { ...sanitizeObject(jwk as any) } as JWK;
-  delete keyData.alg;
-  delete keyData.use;
-
   return crypto.subtle.importKey(
     "jwk",
-    keyData,
+    jwk,
     algorithm,
     jwk.ext ?? ((jwk as JWK_RSA_Private).d ? false : true),
     (jwk.key_ops as KeyUsage[]) ?? keyUsages,
