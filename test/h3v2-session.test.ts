@@ -521,4 +521,174 @@ describe("adapter h3 v2", () => {
       });
     });
   });
+
+  describe("key variants", () => {
+    it("JWE session works with symmetric JWK key (oct)", async () => {
+      const symKey = await generateJWK("A128KW");
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-symjwk",
+        key: symKey,
+      };
+
+      const app = new H3({ debug: true });
+      let cookie = "";
+
+      app.all("/init", async (event) => {
+        const session = await useJWESession(event, config);
+        await session.update({ hello: "world" });
+        return { session };
+      });
+
+      app.get("/", async (event) => {
+        const session = await useJWESession(event, config);
+        return { session };
+      });
+
+      const initResult = await app.request("/init");
+      cookie = initResult.headers.getSetCookie()[0]!;
+      expect(cookie).toContain("h3-jwe-symjwk=");
+
+      const readResult = await app.request("/", {
+        headers: { Cookie: cookie },
+      });
+      expect(await readResult.json()).toMatchObject({
+        session: { data: { hello: "world" } },
+      });
+    });
+
+    it("JWE session works with asymmetric key pair (privateKey/publicKey)", async () => {
+      const keys = await generateJWK("RSA-OAEP-256");
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-keypair",
+        key: { privateKey: keys.privateKey, publicKey: keys.publicKey },
+      };
+
+      const app = new H3({ debug: true });
+      let cookie = "";
+
+      app.all("/init", async (event) => {
+        const session = await useJWESession(event, config);
+        await session.update({ secret: "data" });
+        return { session };
+      });
+
+      app.get("/", async (event) => {
+        const session = await useJWESession(event, config);
+        return { session };
+      });
+
+      const initResult = await app.request("/init");
+      cookie = initResult.headers.getSetCookie()[0]!;
+      expect(cookie).toContain("h3-jwe-keypair=");
+
+      const readResult = await app.request("/", {
+        headers: { Cookie: cookie },
+      });
+      expect(await readResult.json()).toMatchObject({
+        session: { data: { secret: "data" } },
+      });
+    });
+
+    it("JWS session works with symmetric JWK key", async () => {
+      const symKey = await generateJWK("HS256");
+      const config: SessionConfigJWS = {
+        name: "h3-jws-symjwk",
+        key: symKey, // isSymmetricJWK branch in getVerifyKey
+      };
+
+      const app = new H3({ debug: true });
+      let cookie = "";
+
+      app.all("/init", async (event) => {
+        const session = await useJWSSession(event, config);
+        await session.update({ foo: "bar" });
+        return { session };
+      });
+
+      app.get("/", async (event) => {
+        const session = await useJWSSession(event, config);
+        return { session };
+      });
+
+      const initResult = await app.request("/init");
+      cookie = initResult.headers.getSetCookie()[0]!;
+
+      const readResult = await app.request("/", {
+        headers: { Cookie: cookie },
+      });
+      expect(await readResult.json()).toMatchObject({
+        session: { data: { foo: "bar" } },
+      });
+    });
+
+    it("JWS session works with array of public JWKs", async () => {
+      const keys = await generateJWK("RS256", { kid: "array-key" });
+      const config: SessionConfigJWS = {
+        name: "h3-jws-array",
+        key: {
+          privateKey: keys.privateKey,
+          publicKey: [keys.publicKey], // array branch in getVerifyKey
+        },
+      };
+
+      const app = new H3({ debug: true });
+      let cookie = "";
+
+      app.all("/init", async (event) => {
+        const session = await useJWSSession(event, config);
+        await session.update({ foo: "bar" });
+        return { session };
+      });
+
+      app.get("/", async (event) => {
+        const session = await useJWSSession(event, config);
+        return { session };
+      });
+
+      const initResult = await app.request("/init");
+      cookie = initResult.headers.getSetCookie()[0]!;
+
+      const readResult = await app.request("/", {
+        headers: { Cookie: cookie },
+      });
+      expect(await readResult.json()).toMatchObject({
+        session: { data: { foo: "bar" } },
+      });
+    });
+
+    it("JWS session works with JWKSet as publicKey", async () => {
+      const keys = await generateJWK("RS256", { kid: "jwkset-key" });
+      const config: SessionConfigJWS = {
+        name: "h3-jws-jwkset",
+        key: {
+          privateKey: keys.privateKey,
+          publicKey: { keys: [keys.publicKey] }, // JWKSet branch in getVerifyKey
+        },
+      };
+
+      const app = new H3({ debug: true });
+      let cookie = "";
+
+      app.all("/init", async (event) => {
+        const session = await useJWSSession(event, config);
+        await session.update({ baz: "qux" });
+        return { session };
+      });
+
+      app.get("/", async (event) => {
+        const session = await useJWSSession(event, config);
+        return { session };
+      });
+
+      const initResult = await app.request("/init");
+      cookie = initResult.headers.getSetCookie()[0]!;
+
+      const readResult = await app.request("/", {
+        headers: { Cookie: cookie },
+      });
+      expect(await readResult.json()).toMatchObject({
+        session: { data: { baz: "qux" } },
+      });
+    });
+  });
 });

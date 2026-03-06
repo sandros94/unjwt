@@ -463,7 +463,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       const keyLookup = async (header: JWSProtectedHeader) => {
-        await new Promise((resolve) => setTimeout(resolve, 10)); // Simulate async
+        await Promise.resolve(); // Ensure async resolution
         if (header.kid === "key2" && header.alg === "HS256") {
           return hs256Key;
         }
@@ -484,7 +484,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       const keyLookup = async () => {
-        await new Promise((resolve) => setTimeout(resolve, 10)); // Simulate async
+        await Promise.resolve(); // Ensure async resolution
         return jwkSet;
       };
 
@@ -952,6 +952,10 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should throw if algorithm not allowed", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
+
+      await expect(verify(jws, hs256Key, { algorithms: ["ES256", "RS256"] })).rejects.toThrow(
+        "Algorithm not allowed: HS256",
+      );
 
       await expect(
         jose.compactVerify(jws, hs256Key, {

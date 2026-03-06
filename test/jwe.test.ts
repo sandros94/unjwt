@@ -299,11 +299,31 @@ describe.concurrent("JWE Utilities", () => {
       expect(decodedIv).toEqual(customIv);
     });
 
+    it("should decrypt with explicit unwrappedKeyAlgorithm option", async () => {
+      const alg: KeyManagementAlgorithm = "A128KW";
+      const enc: ContentEncryptionAlgorithm = "A128GCM";
+      const key = keys[alg]!.key as CryptoKey;
+
+      const jwe = await encrypt(plaintextObj, key, { alg, enc });
+      const { payload } = await decrypt(jwe, key, {
+        unwrappedKeyAlgorithm: { name: "AES-GCM" },
+      });
+      expect(payload).toEqual(plaintextObj);
+    });
+
     it("should throw if alg is missing", async () => {
       const key = keys["A128KW"]!.key as CryptoKey;
       await expect(encrypt(plaintextString, key, { enc: "A128GCM" } as any)).rejects.toThrow(
         'JWE "alg" (Key Management Algorithm) must be provided in options',
       );
+    });
+
+    it("should throw for invalid payload type (null)", async () => {
+      const key = keys["A128KW"]!.key as CryptoKey;
+      await expect(
+        // @ts-expect-error intentionally invalid payload
+        encrypt(null, key, { alg: "A128KW", enc: "A128GCM" }),
+      ).rejects.toThrow(/Plaintext must be/i);
     });
   });
 
@@ -706,6 +726,100 @@ describe.concurrent("JWE Utilities", () => {
           },
         }),
       ).rejects.toThrow(/private key material/i);
+    });
+
+    it("should accept a JWK (with d) as ephemeral key", async () => {
+      const ephemeralJwk = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+        toJWK: true,
+      })) as { privateKey: Record<string, any>; publicKey: Record<string, any> };
+
+      // A JWK_EC_Private has "d" - should be accepted as the ephemeral key.
+      // Encrypt covers the JWK branch in parseEphemeralKey; decrypt is not tested
+      // here because the epk embedded in the header retains "d" in this code path.
+      const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
+        alg: ecdhAlg,
+        enc,
+        ecdh: { ephemeralKey: ephemeralJwk.privateKey as any },
+      });
+
+      expect(typeof jwe).toBe("string");
+      expect(jwe.split(".")).toHaveLength(5);
+    });
+
+    it("should accept a plain object {publicKey, privateKey} of JWKs as ephemeral key", async () => {
+      const ephemeralJwk = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+        toJWK: true,
+      })) as { privateKey: Record<string, any>; publicKey: Record<string, any> };
+
+      const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
+        alg: ecdhAlg,
+        enc,
+        ecdh: {
+          ephemeralKey: {
+            publicKey: ephemeralJwk.publicKey as any,
+            privateKey: ephemeralJwk.privateKey as any,
+          },
+        },
+      });
+
+      const { payload } = await decrypt(jwe, recipientKeyPair.privateKey);
+      expect(payload).toEqual(plaintextObj);
+    });
+
+    it("should throw when plain object ephemeral key is missing privateKey", async () => {
+      await expect(
+        encrypt(plaintextObj, recipientKeyPair.publicKey, {
+          alg: ecdhAlg,
+          enc,
+          ecdh: {
+            ephemeralKey: { publicKey: recipientKeyPair.publicKey, privateKey: null } as any,
+          },
+        }),
+      ).rejects.toThrow(/publicKey and privateKey/i);
+    });
+
+    it("should accept a private CryptoKey directly as ephemeral key", async () => {
+      const ephemeralPair = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+
+      // Passing just the private CryptoKey (not a pair) covers the CryptoKey branch
+      const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
+        alg: ecdhAlg,
+        enc,
+        ecdh: { ephemeralKey: ephemeralPair.privateKey as any },
+      });
+
+      expect(typeof jwe).toBe("string");
+      expect(jwe.split(".")).toHaveLength(5);
+    });
+
+    it("should throw when JWK ephemeral key has no private parameter d", async () => {
+      const ephemeralPair = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+        toJWK: true,
+      })) as { privateKey: Record<string, any>; publicKey: Record<string, any> };
+
+      await expect(
+        encrypt(plaintextObj, recipientKeyPair.publicKey, {
+          alg: ecdhAlg,
+          enc,
+          ecdh: { ephemeralKey: ephemeralPair.publicKey as any }, // public JWK — no "d"
+        }),
+      ).rejects.toThrow(/private parameter "d"/i);
+    });
+
+    it("should throw for unsupported ephemeral key type", async () => {
+      await expect(
+        encrypt(plaintextObj, recipientKeyPair.publicKey, {
+          alg: ecdhAlg,
+          enc,
+          // @ts-expect-error intentionally invalid type
+          ecdh: { ephemeralKey: 42 },
+        }),
+      ).rejects.toThrow(/Unsupported ECDH-ES ephemeral key material/i);
     });
   });
 });

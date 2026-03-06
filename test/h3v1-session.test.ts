@@ -771,4 +771,159 @@ describe("adapter h3 v1", () => {
       });
     });
   });
+
+  describe("key variants", () => {
+    it("JWE session works with symmetric JWK key (oct)", async () => {
+      const symKey = await generateJWK("A128KW");
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-symjwk",
+        key: symKey,
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/init",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          await session.update({ hello: "world" });
+          return { session };
+        }),
+      );
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          return { session };
+        }),
+      );
+
+      const initResult = await localRequest.get("/init");
+      const cookie = initResult.headers["set-cookie"]![0]!;
+      expect(cookie).toContain("h3-jwe-symjwk=");
+
+      const readResult = await localRequest.get("/").set("Cookie", cookie);
+      expect(readResult.body).toMatchObject({
+        session: { data: { hello: "world" } },
+      });
+    });
+
+    it("JWE session works with asymmetric key pair (privateKey/publicKey)", async () => {
+      const keys = await generateJWK("RSA-OAEP-256");
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-keypair",
+        key: { privateKey: keys.privateKey, publicKey: keys.publicKey },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/init",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          await session.update({ secret: "data" });
+          return { session };
+        }),
+      );
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          return { session };
+        }),
+      );
+
+      const initResult = await localRequest.get("/init");
+      const cookie = initResult.headers["set-cookie"]![0]!;
+      expect(cookie).toContain("h3-jwe-keypair=");
+
+      const readResult = await localRequest.get("/").set("Cookie", cookie);
+      expect(readResult.body).toMatchObject({
+        session: { data: { secret: "data" } },
+      });
+    });
+
+    it("JWS session works with symmetric JWK key", async () => {
+      const symKey = await generateJWK("HS256");
+      const config: SessionConfigJWS = {
+        name: "h3-jws-symjwk",
+        key: symKey, // isSymmetricJWK branch in getVerifyKey
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/init",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          await session.update({ foo: "bar" });
+          return { session };
+        }),
+      );
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          return { session };
+        }),
+      );
+
+      const initResult = await localRequest.get("/init");
+      const cookie = initResult.headers["set-cookie"]![0]!;
+
+      const readResult = await localRequest.get("/").set("Cookie", cookie);
+      expect(readResult.body).toMatchObject({
+        session: { data: { foo: "bar" } },
+      });
+    });
+
+    it("JWS session works with array of public JWKs", async () => {
+      const keys = await generateJWK("RS256", { kid: "array-key" });
+      const config: SessionConfigJWS = {
+        name: "h3-jws-array",
+        key: {
+          privateKey: keys.privateKey,
+          publicKey: [keys.publicKey], // array branch in getVerifyKey
+        },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/init",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          await session.update({ foo: "bar" });
+          return { session };
+        }),
+      );
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          return { session };
+        }),
+      );
+
+      const initResult = await localRequest.get("/init");
+      const cookie = initResult.headers["set-cookie"]![0]!;
+
+      const readResult = await localRequest.get("/").set("Cookie", cookie);
+      expect(readResult.body).toMatchObject({
+        session: { data: { foo: "bar" } },
+      });
+    });
+  });
 });

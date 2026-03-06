@@ -11,6 +11,7 @@ import {
   unwrapKey,
   importJWKFromPEM,
   exportJWKToPEM,
+  getJWKFromSet,
 } from "../src/core/jwk";
 import {
   isCryptoKey,
@@ -178,6 +179,36 @@ describe.concurrent("JWK Utilities", () => {
       expect(key.extractable).toBe(true); // Default is true
     });
 
+    it("should generate asymmetric CryptoKeyPair (EdDSA, Ed448)", async () => {
+      const keyPair = await generateKey("EdDSA", { namedCurve: "Ed448" });
+      expect(isCryptoKeyPair(keyPair)).toBe(true);
+      expect(keyPair.publicKey.algorithm.name).toBe("Ed448");
+      expect(keyPair.privateKey.algorithm.name).toBe("Ed448");
+    });
+
+    it("should generate ECDH-ES CryptoKeyPair with X25519 curve", async () => {
+      const keyPair = await generateKey("ECDH-ES", { namedCurve: "X25519" });
+      expect(isCryptoKeyPair(keyPair)).toBe(true);
+      expect(keyPair.publicKey.algorithm.name).toBe("X25519");
+      expect(keyPair.privateKey.algorithm.name).toBe("X25519");
+    });
+
+    it("should throw for unsupported EdDSA namedCurve", async () => {
+      await expect(
+        // @ts-expect-error Intentionally passing an unsupported namedCurve
+        generateKey("EdDSA", { namedCurve: "Ed999" }),
+      ).rejects.toThrow("Unsupported namedCurve provided. Supported values are: Ed25519 and Ed448");
+    });
+
+    it("should throw for unsupported ECDH-ES namedCurve", async () => {
+      await expect(
+        // @ts-expect-error Intentionally passing an unsupported namedCurve
+        generateKey("ECDH-ES", { namedCurve: "P-999" }),
+      ).rejects.toThrow(
+        "Unsupported namedCurve provided. Supported values are: P-256, P-384, P-521 and X25519",
+      );
+    });
+
     it("should throw for unsupported algorithm", async () => {
       // @ts-expect-error Intentionally passing an unsupported algorithm
       await expect(generateKey("UnsupportedAlg")).rejects.toThrow();
@@ -294,6 +325,15 @@ describe.concurrent("JWK Utilities", () => {
       const originalBytes = randomBytes(32);
       const importedBytes = await importKey(originalBytes);
       expect(importedBytes).toBe(originalBytes);
+    });
+
+    it("should return cached CryptoKey for same asymmetric JWK object reference", async () => {
+      const { privateKey } = await generateKey("ES256");
+      const jwk = await exportKey(privateKey);
+      // Import same object twice — second call hits the WeakMap cache
+      const key1 = await importKey(jwk, "ES256");
+      const key2 = await importKey(jwk, "ES256");
+      expect(key1).toBe(key2);
     });
 
     it("should import symmetric JWK (oct) to Uint8Array", async () => {
@@ -477,6 +517,36 @@ describe.concurrent("JWK Utilities", () => {
         },
       );
 
+      it("should infer AES-GCM CryptoKey from CEK length when enc and unwrappedKeyAlgorithm are absent", async () => {
+        const alg: RSAAlg = "RSA-OAEP";
+        const pair = rsaKeyPairs[alg]!;
+        const cekBytes = randomBytes(32); // 256 bits → infers AES-GCM-256
+        const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
+
+        const unwrappedKey = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+          returnAs: true,
+          // no enc, no unwrappedKeyAlgorithm — hits inferAesImportAlgorithm bitLength branch
+        });
+
+        expect(isCryptoKey(unwrappedKey)).toBe(true);
+        expect(unwrappedKey.algorithm.name).toBe("AES-GCM");
+        expect((unwrappedKey.algorithm as AesKeyAlgorithm).length).toBe(256);
+      });
+
+      it("should throw when enc is absent and CEK length is non-standard", async () => {
+        const alg: RSAAlg = "RSA-OAEP";
+        const pair = rsaKeyPairs[alg]!;
+        const cekBytes = randomBytes(20); // 160 bits — not 128/192/256 → inferAesImportAlgorithm returns undefined
+        const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
+
+        await expect(
+          unwrapKey(alg, encryptedKey, pair.privateKey, {
+            returnAs: true,
+            // no enc, no unwrappedKeyAlgorithm — inferAesImportAlgorithm returns undefined
+          }),
+        ).rejects.toThrow(/Unable to infer algorithm for RSA-OAEP unwrapped key/i);
+      });
+
       it("should handle composite CBC CEK via RSA-OAEP-256", async () => {
         const alg: RSAAlg = "RSA-OAEP-256";
         const pair = rsaKeyPairs[alg]!;
@@ -590,12 +660,116 @@ describe.concurrent("JWK Utilities", () => {
       await expect(wrapKey("RSA-OAEP", cek, randomBytes(32))).rejects.toThrow(); // RSA needs CryptoKey
     });
 
+    it("should throw wrapKey for unsupported algorithm", async () => {
+      await expect(
+        // @ts-expect-error intentionally invalid algorithm
+        wrapKey("UNSUPPORTED-WRAP-ALG", cek, randomBytes(16)),
+      ).rejects.toThrow("Unsupported key wrapping algorithm");
+    });
+
+    it("should throw wrapKey for ECDH-ES (not yet implemented)", async () => {
+      const senderKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+      await expect(wrapKey("ECDH-ES" as any, cek, senderKeys.publicKey)).rejects.toThrow(
+        "not yet implemented in wrapKey",
+      );
+    });
+
+    it("should throw unwrapKey RSA-OAEP when unwrapping key is not a CryptoKey", async () => {
+      await expect(
+        unwrapKey("RSA-OAEP", new Uint8Array(32), randomBytes(32) as any, {
+          returnAs: false,
+        }),
+      ).rejects.toThrow("RSA-OAEP requires the unwrapping key to be provided as a CryptoKey");
+    });
+
     it("should throw unwrapKey for invalid key type", async () => {
       const wrappingKey = await generateKey("A128KW");
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
       await expect(unwrapKey("A128KW", encryptedKey, "not-a-key-object")).rejects.toThrow(
         TypeError,
       );
+    });
+
+    it("should throw unwrapKey for unsupported algorithm", async () => {
+      await expect(
+        // @ts-expect-error intentionally invalid algorithm
+        unwrapKey("UNSUPPORTED-ALG", new Uint8Array(0), new Uint8Array(0)),
+      ).rejects.toThrow("Unsupported key unwrapping algorithm");
+    });
+
+    it("should throw for ECDH-ES unwrapKey without epk option", async () => {
+      const recipientKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+
+      await expect(
+        unwrapKey("ECDH-ES", new Uint8Array(0), recipientKeys.privateKey, {
+          enc: "A128GCM",
+          // no epk — triggers "ECDH-ES requires 'epk'"
+        }),
+      ).rejects.toThrow("ECDH-ES requires 'epk'");
+    });
+
+    it("should throw when ECDH-ES unwrapping key is not a CryptoKey", async () => {
+      const senderKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+
+      await expect(
+        unwrapKey("ECDH-ES", new Uint8Array(0), randomBytes(32) as any, {
+          epk: senderKeys.publicKey,
+          enc: "A128GCM",
+        }),
+      ).rejects.toThrow("ECDH-ES requires the unwrapping key to be a CryptoKey");
+    });
+
+    it("should throw when ECDH-ES unwrapping key is not an ECDH/X25519 key", async () => {
+      const senderKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+      const aesKey = (await generateKey("A128GCM")) as CryptoKey;
+
+      await expect(
+        unwrapKey("ECDH-ES", new Uint8Array(0), aesKey as any, {
+          epk: senderKeys.publicKey,
+          enc: "A128GCM",
+        }),
+      ).rejects.toThrow(/ECDH with the provided key is not allowed/i);
+    });
+
+    it("should throw for ECDH-ES unwrapKey without enc option", async () => {
+      const recipientKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+      const senderKeys = (await generateKey("ECDH-ES", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+
+      await expect(
+        unwrapKey("ECDH-ES", new Uint8Array(0), recipientKeys.privateKey, {
+          epk: senderKeys.publicKey,
+          // no enc — triggers "ECDH-ES requires content encryption algorithm"
+        }),
+      ).rejects.toThrow("ECDH-ES requires content encryption algorithm");
+    });
+
+    it("should throw for ECDH-ES+KW unwrapKey with empty wrapped key", async () => {
+      const recipientKeys = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+      const senderKeys = (await generateKey("ECDH-ES+A128KW", {
+        namedCurve: "P-256",
+      })) as CryptoKeyPair;
+
+      await expect(
+        unwrapKey("ECDH-ES+A128KW", new Uint8Array(0), recipientKeys.privateKey, {
+          epk: senderKeys.publicKey,
+          enc: "A128GCM",
+          // empty wrappedKey — triggers "requires an encrypted key"
+        }),
+      ).rejects.toThrow("ECDH-ES key agreement with key wrapping requires an encrypted key");
     });
 
     it("should unwrap ECDH-ES shared secret", async () => {
@@ -682,6 +856,56 @@ describe.concurrent("JWK Utilities", () => {
 
       expect(unwrapped).toBeInstanceOf(Uint8Array);
       expect(unwrapped).toEqual(cekBytes);
+    });
+  });
+
+  describe("getJWKFromSet", () => {
+    const jwkSet = {
+      keys: [
+        { kty: "oct", kid: "key-1", alg: "HS256", k: "abc" },
+        { kty: "oct", kid: "key-2", alg: "HS384", k: "def" },
+      ],
+    };
+
+    it("should throw for invalid JWK Set", () => {
+      // @ts-expect-error intentionally invalid JWK set
+      expect(() => getJWKFromSet(null, "key-1")).toThrow(TypeError);
+      // @ts-expect-error intentionally invalid JWK set
+      expect(() => getJWKFromSet({ notKeys: [] }, "key-1")).toThrow(TypeError);
+    });
+
+    it("should find a key by string kid", () => {
+      const key = getJWKFromSet(jwkSet, "key-1");
+      expect(key.kid).toBe("key-1");
+    });
+
+    it("should throw when string kid is not found", () => {
+      expect(() => getJWKFromSet(jwkSet, "missing-kid")).toThrow(
+        'No key found in JWK Set with kid "missing-kid"',
+      );
+    });
+
+    it("should throw when object header kid is not found (includes alg in message)", () => {
+      expect(() => getJWKFromSet(jwkSet, { kid: "missing-kid", alg: "HS256" })).toThrow(
+        /No key found in JWK Set with kid "missing-kid" and alg "HS256"/,
+      );
+    });
+
+    it("should throw when object header kid is not found (includes kty in message)", () => {
+      expect(() => getJWKFromSet(jwkSet, { kid: "missing-kid", kty: "EC" })).toThrow(
+        /No key found in JWK Set with kid "missing-kid".*and kty "EC"/,
+      );
+    });
+
+    it("should throw when object header has no kid", () => {
+      expect(() => getJWKFromSet(jwkSet, { alg: "HS256" })).toThrow(
+        "JWS Protected Header is missing 'kid'",
+      );
+    });
+
+    it("should throw for invalid input type", () => {
+      // @ts-expect-error intentionally invalid
+      expect(() => getJWKFromSet(jwkSet, 42)).toThrow(TypeError);
     });
   });
 
