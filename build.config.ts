@@ -15,7 +15,7 @@ export default defineBuildConfig({
       input: ["./src/adapters/h3", "./src/adapters/h3v1", "./src/adapters/h3v2"],
       rolldown: {
         platform: "neutral",
-        external: ["h3v1", "h3v2", "cookie-esv1", "cookie-esv2"],
+        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv2", "rou3"],
         plugins: [
           replacePlugin(
             {
