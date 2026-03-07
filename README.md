@@ -1,12 +1,8 @@
 # unjwt
 
-<!-- automd:badges bundlephobia style="flat" color="FFDC3B" -->
-
-[![npm version](https://img.shields.io/npm/v/unjwt?color=FFDC3B)](https://npmjs.com/package/unjwt)
-[![npm downloads](https://img.shields.io/npm/dm/unjwt?color=FFDC3B)](https://npm.chart.dev/unjwt)
-[![bundle size](https://img.shields.io/bundlephobia/minzip/unjwt?color=FFDC3B)](https://bundlephobia.com/package/unjwt)
-
-<!-- /automd -->
+[![npm version](https://npmx.dev/api/registry/badge/version/unjwt?name=true)](https://npmx.dev/package/unjwt)
+[![npm downloads](https://npmx.dev/api/registry/badge/downloads/unjwt)](https://npmx.dev/package/unjwt)
+[![bundle size](https://npmx.dev/api/registry/badge/size/unjwt)](https://npmx.dev/package/unjwt)
 
 A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519)) utilities using the Web Crypto API. Supports:
 
