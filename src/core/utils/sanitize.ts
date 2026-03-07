@@ -14,11 +14,13 @@ export function sanitizeObject<T extends Record<string, unknown> | undefined>(ob
   // Fast-path for non-objects and undefined
   if (!obj || typeof obj !== "object") return obj;
 
-  sanitizeKeys(obj as any);
+  const seen = new WeakSet<object>();
+  seen.add(obj);
+  sanitizeKeys(obj as any, seen);
   return obj;
 }
 
-function sanitizeKeys(current: any, seen?: WeakSet<object>) {
+function sanitizeKeys(current: any, seen: WeakSet<object>) {
   // Remove dangerous own-properties
   if (Object.prototype.hasOwnProperty.call(current, "__proto__")) delete current["__proto__"];
   if (Object.prototype.hasOwnProperty.call(current, "prototype")) delete current["prototype"];
@@ -27,7 +29,6 @@ function sanitizeKeys(current: any, seen?: WeakSet<object>) {
   const items = Array.isArray(current) ? current : Object.values(current);
   for (const v of items) {
     if (v && typeof v === "object") {
-      seen ??= new WeakSet();
       if (!seen.has(v)) {
         seen.add(v);
         sanitizeKeys(v, seen);
