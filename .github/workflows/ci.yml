@@ -43,3 +43,6 @@ jobs:
 
       - name: Build packages
         run: pnpm build
+
+      - name: Publish to pkg.pr.new
+        run: pnpx pkg-pr-new publish
