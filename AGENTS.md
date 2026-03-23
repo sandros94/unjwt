@@ -11,7 +11,7 @@
 - **Single test file:** `pnpm vitest run test/jws.test.ts`
 - **Type check:** `pnpm typecheck` (uses tsgo)
 - **Lint:** `pnpm lint` (oxlint + oxfmt --check)
-- **Format:** `pnpm format` (automd + oxlint --fix + oxfmt)
+- **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
 - **Dev playground:** `pnpm dev` (runs `playground/main.ts` with bun)
 
