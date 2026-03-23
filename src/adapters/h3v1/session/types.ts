@@ -1,8 +1,6 @@
 import type { JWTClaims, ExpiresIn } from "../../../core/types";
 import type { StrictOmit } from "../../../core/utils/types";
 
-export type { JWTClaims } from "../../../core/types";
-
 export interface SessionClaims
   extends Required<Pick<JWTClaims, "jti" | "iat">>, StrictOmit<JWTClaims, "jti" | "iat"> {}
 
