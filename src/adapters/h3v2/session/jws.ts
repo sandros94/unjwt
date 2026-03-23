@@ -59,12 +59,12 @@ export interface SessionHooksJWS<
   onUpdate?: (args: {
     session: SessionJWS<T, MaxAge>;
     oldSession: SessionJWS<T, MaxAge>;
-    event: HTTPEvent;
+    event: H3Event;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
     session: SessionJWS<T, MaxAge> | undefined;
-    event: HTTPEvent;
+    event: H3Event;
     config: Partial<SessionConfigJWS<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
@@ -170,11 +170,7 @@ export async function getJWSSession<
       ? await existingSession[kGetSessionPromise]
       : existingSession;
 
-    if (
-      session.expiresAt !== undefined &&
-      session.expiresAt < Date.now() &&
-      hasWritableResponse(event)
-    ) {
+    if (session.expiresAt !== undefined && session.expiresAt < Date.now()) {
       await config.hooks?.onExpire?.({
         event,
         error: new Error(
@@ -306,17 +302,10 @@ export async function updateJWSSession<
   if (typeof update === "function") {
     update = update(session.data);
   }
+
+  const oldSession = { ...session, data: { ...session.data } };
   if (update) {
-    const oldSession = { ...session, data: { ...session.data } };
-
     Object.assign(session.data, update);
-
-    await config.hooks?.onUpdate?.({
-      session,
-      oldSession,
-      event,
-      config,
-    });
   }
 
   const now = config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
@@ -333,6 +322,7 @@ export async function updateJWSSession<
   if (config.cookie !== false && hasWritableResponse(event)) {
     const token = await signJWSSession(event, config);
     session[kSessionToken] = token;
+
     setChunkedCookie(event, sessionName, token, {
       ...DEFAULT_COOKIE,
       expires:
@@ -340,6 +330,12 @@ export async function updateJWSSession<
           ? undefined
           : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
       ...config.cookie,
+    });
+    await config.hooks?.onUpdate?.({
+      session,
+      oldSession,
+      event,
+      config,
     });
   }
 

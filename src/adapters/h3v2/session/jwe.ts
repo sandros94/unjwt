@@ -60,12 +60,12 @@ export interface SessionHooksJWE<
   onUpdate?: (args: {
     session: SessionJWE<T, MaxAge>;
     oldSession: SessionJWE<T, MaxAge>;
-    event: HTTPEvent;
+    event: H3Event;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
     session: SessionJWE<T, MaxAge> | undefined;
-    event: HTTPEvent;
+    event: H3Event;
     config: Partial<SessionConfigJWE<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
@@ -193,11 +193,7 @@ export async function getJWESession<
      * unless we have a read-only event in which case we just return it as it was valid at the time of reading
      * the cookie/header (like in a websocket upgrade)
      */
-    if (
-      session.expiresAt !== undefined &&
-      session.expiresAt < Date.now() &&
-      hasWritableResponse(event)
-    ) {
+    if (session.expiresAt !== undefined && session.expiresAt < Date.now()) {
       await config.hooks?.onExpire?.({
         event,
         error: new Error(
@@ -336,17 +332,10 @@ export async function updateJWESession<
   if (typeof update === "function") {
     update = update(session.data);
   }
+
+  const oldSession = { ...session, data: { ...session.data } };
   if (update) {
-    const oldSession = { ...session, data: { ...session.data } };
-
     Object.assign(session.data, update);
-
-    await config.hooks?.onUpdate?.({
-      oldSession,
-      session,
-      event,
-      config,
-    });
   }
 
   const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
@@ -364,6 +353,7 @@ export async function updateJWESession<
   if (config.cookie !== false && hasWritableResponse(event)) {
     const sealed = await sealJWESession(event, config);
     session[kSessionToken] = sealed;
+
     setChunkedCookie(event, sessionName, sealed, {
       ...DEFAULT_COOKIE,
       expires:
@@ -371,6 +361,12 @@ export async function updateJWESession<
           ? undefined
           : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
       ...config.cookie,
+    });
+    await config.hooks?.onUpdate?.({
+      oldSession,
+      session,
+      event,
+      config,
     });
   }
 
