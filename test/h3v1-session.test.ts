@@ -823,9 +823,9 @@ describe("adapter h3 v1", () => {
   });
 
   describe("hook args", () => {
-    it("JWE onUpdate receives new token, oldToken, and correct jti AFTER signing", async () => {
+    it("JWE onUpdate: session.token is the new JWT, oldSession.token is the previous one", async () => {
       const updates: Array<{
-        token: string;
+        token: string | undefined;
         oldToken: string | undefined;
         id: string | undefined;
       }> = [];
@@ -836,8 +836,8 @@ describe("adapter h3 v1", () => {
         key: "hook-secret",
         generateId: () => String(++idCtr),
         hooks: {
-          onUpdate: vi.fn(({ token, oldToken, session }) => {
-            updates.push({ token, oldToken, id: session.id });
+          onUpdate: vi.fn(({ session, oldSession }) => {
+            updates.push({ token: session.token, oldToken: oldSession.token, id: session.id });
           }),
         },
       };
@@ -864,10 +864,10 @@ describe("adapter h3 v1", () => {
       // First update: no previous token
       expect(updates[0]!.oldToken).toBeUndefined();
       expect(updates[0]!.token).toBeTypeOf("string");
-      expect(updates[0]!.token.length).toBeGreaterThan(0);
+      expect(updates[0]!.token!.length).toBeGreaterThan(0);
       expect(updates[0]!.id).toBe("1");
 
-      // Second update: oldToken is the token produced by the first update
+      // Second update: oldSession.token is the token produced by the first update
       expect(updates[1]!.oldToken).toBe(updates[0]!.token);
       expect(updates[1]!.token).toBeTypeOf("string");
       expect(updates[1]!.token).not.toBe(updates[0]!.token);
@@ -936,12 +936,9 @@ describe("adapter h3 v1", () => {
       await localRequest.get("/clear");
 
       expect(onClear).toHaveBeenCalledOnce();
-      const args = onClear.mock.calls[0]![0];
-      // token in onClear should be undefined here (no incoming cookie/header)
-      expect(args).toHaveProperty("token");
     });
 
-    it("JWE onRead and onExpire receive the token string", async () => {
+    it("JWE onRead and onExpire: session.token reflects the current JWT", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2025-01-01T00:00:00.000Z"));
 
@@ -955,11 +952,11 @@ describe("adapter h3 v1", () => {
         maxAge: 1, // 1 second
         generateId: () => String(++idCtr),
         hooks: {
-          onRead: vi.fn(({ token }) => {
-            readTokens.push(token);
+          onRead: vi.fn(({ session }) => {
+            readTokens.push(session.token);
           }),
-          onExpire: vi.fn(({ token }) => {
-            expireTokens.push(token);
+          onExpire: vi.fn(({ session }) => {
+            expireTokens.push(session.token);
           }),
         },
       };
@@ -991,6 +988,7 @@ describe("adapter h3 v1", () => {
       const lastReadToken = readTokens[readTokens.length - 1];
       expect(lastReadToken).toBeTypeOf("string");
       expect(lastReadToken!.length).toBeGreaterThan(0);
+      expect(readRes.body.token).toBe(lastReadToken);
 
       // Advance past expiry
       vi.setSystemTime(new Date("2025-01-01T00:00:05.000Z"));
@@ -1001,9 +999,9 @@ describe("adapter h3 v1", () => {
       vi.useRealTimers();
     });
 
-    it("JWS onUpdate receives new token, oldToken, and correct jti AFTER signing", async () => {
+    it("JWS onUpdate: session.token is the new JWT, oldSession.token is the previous one", async () => {
       const updates: Array<{
-        token: string;
+        token: string | undefined;
         oldToken: string | undefined;
         id: string | undefined;
       }> = [];
@@ -1015,8 +1013,8 @@ describe("adapter h3 v1", () => {
         key: keys,
         generateId: () => String(++idCtr),
         hooks: {
-          onUpdate: vi.fn(({ token, oldToken, session }) => {
-            updates.push({ token, oldToken, id: session.id });
+          onUpdate: vi.fn(({ session, oldSession }) => {
+            updates.push({ token: session.token, oldToken: oldSession.token, id: session.id });
           }),
         },
       };
@@ -1056,8 +1054,8 @@ describe("adapter h3 v1", () => {
         key: keys,
         cookie: false,
         hooks: {
-          onClear: vi.fn(({ token }) => {
-            clearedToken = token;
+          onClear: vi.fn(({ session }) => {
+            clearedToken = session?.token;
           }),
         },
       };

@@ -30,7 +30,6 @@ import {
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jws_getSession");
-const kSessionToken: unique symbol = Symbol("h3_jws_sessionToken");
 
 export interface SessionJWS<
   T extends Record<string, any> = SessionClaims,
@@ -44,7 +43,7 @@ export interface SessionJWS<
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWS<T, MaxAge>>;
-  [kSessionToken]?: string;
+  token?: string;
 }
 
 export interface SessionHooksJWS<
@@ -53,40 +52,32 @@ export interface SessionHooksJWS<
 > {
   onRead?: (args: {
     session: SessionJWS<T, MaxAge>;
-    /** Raw JWT string that was read from the request (undefined for brand-new sessions). */
-    token: string | undefined;
     event: HTTPEvent;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onUpdate?: (args: {
-    session: SessionJWS<T, MaxAge>;
+    /** Session after it has been updated.. */
+    session: SessionJWS<T, MaxAge> & { token: string };
+    /** Snapshot of the session before was updated. */
     oldSession: SessionJWS<T, MaxAge>;
-    /** Newly signed JWT string — store this in your DB / return it in the response body. */
-    token: string;
-    /** Previous JWT string that was just replaced (undefined on first issuance). */
-    oldToken: string | undefined;
     event: H3Event;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
     session: SessionJWS<T, MaxAge> | undefined;
-    /** JWT string that was active when the session was cleared (for revocation). */
-    token: string | undefined;
     event: H3Event;
     config: Partial<SessionConfigJWS<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
-    /** The session that expired (id may be undefined if the token failed cryptographic verification). */
-    session: SessionJWS<T, MaxAge>;
-    /** Raw expired JWT string (useful for logging or DB cleanup). */
-    token: string | undefined;
+    /** The session that expired. */
+    session: SessionJWS<T, MaxAge> & { token: string };
     event: HTTPEvent;
     error: Error;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onError?: (args: {
-    /** Raw JWT string that triggered the error (for security logging). */
-    token: string | undefined;
+    /** Raw JWT string that failed decryption. */
+    token: string;
     event: HTTPEvent;
     error: any;
     config: SessionConfigJWS<T, MaxAge>;
@@ -150,7 +141,7 @@ export async function useJWSSession<
     },
     get token() {
       return (
-        getSessionFromContext<T, MaxAge>(event, sessionName)?.[kSessionToken] ??
+        getSessionFromContext<T, MaxAge>(event, sessionName)?.token ??
         getJWSSessionToken<T, MaxAge>(event, config)
       );
     },
@@ -186,8 +177,7 @@ export async function getJWSSession<
 
     if (session.expiresAt !== undefined && session.expiresAt < Date.now()) {
       await config.hooks?.onExpire?.({
-        session,
-        token: session[kSessionToken],
+        session: session as SessionJWS<T, MaxAge> & { token: string },
         event,
         error: new Error(
           `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
@@ -200,7 +190,6 @@ export async function getJWSSession<
     await config.hooks?.onRead?.({
       event,
       session,
-      token: session[kSessionToken],
       config,
     });
     return session;
@@ -225,7 +214,7 @@ export async function getJWSSession<
   const token = getJWSSessionToken<T, MaxAge>(event, config);
 
   if (token) {
-    session[kSessionToken] = token;
+    session.token = token;
     const promise = verifyJWSSession(event, config, token)
       .catch(async (error_) => {
         if (
@@ -234,8 +223,7 @@ export async function getJWSSession<
             error_.message.includes("Token is too old"))
         ) {
           await config.hooks?.onExpire?.({
-            session,
-            token: session[kSessionToken],
+            session: session as SessionJWS<T, MaxAge> & { token: string },
             event,
             error: error_,
             config,
@@ -243,7 +231,7 @@ export async function getJWSSession<
           return undefined;
         }
         await config.hooks?.onError?.({
-          token: session[kSessionToken],
+          token,
           event,
           error: error_,
           config,
@@ -264,7 +252,6 @@ export async function getJWSSession<
   await config.hooks?.onRead?.({
     event,
     session,
-    token: session[kSessionToken],
     config,
   });
   return session;
@@ -324,10 +311,7 @@ export async function updateJWSSession<
     update = update(session.data);
   }
 
-  // Snapshot before any mutations so onUpdate always sees the full before/after picture.
-  // oldToken is captured here — before we overwrite kSessionToken with the new signed value.
   const oldSession = { ...session, data: { ...session.data } };
-  const oldToken = session[kSessionToken];
 
   if (update) {
     Object.assign(session.data, update);
@@ -345,7 +329,7 @@ export async function updateJWSSession<
   });
 
   const token = await signJWSSession(event, config);
-  session[kSessionToken] = token;
+  session.token = token;
 
   if (hasWritableResponse(event)) {
     if (config.cookie !== false) {
@@ -362,10 +346,8 @@ export async function updateJWSSession<
     // Fire after signing so the hook receives the definitive new token, jti, and timestamps.
     // Also fires when update is undefined (pure token refresh with no payload change).
     await config.hooks?.onUpdate?.({
-      session,
+      session: session as SessionJWS<T, MaxAge> & { token: string },
       oldSession,
-      token,
-      oldToken,
       event,
       config,
     });
@@ -501,7 +483,6 @@ export async function clearJWSSession<
 
     await config.hooks?.onClear?.({
       session,
-      token: session?.[kSessionToken],
       event,
       config,
     });

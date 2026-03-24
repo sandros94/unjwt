@@ -28,7 +28,6 @@ import {
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
-const kSessionToken: unique symbol = Symbol("h3_jwe_sessionToken");
 
 export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
@@ -42,7 +41,7 @@ export interface SessionJWE<
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWE<T, MaxAge>>;
-  [kSessionToken]?: string;
+  token?: string;
 }
 
 export interface SessionHooksJWE<
@@ -51,40 +50,32 @@ export interface SessionHooksJWE<
 > {
   onRead?: (args: {
     session: SessionJWE<T, MaxAge>;
-    /** Raw JWT string that was read from the request (undefined for brand-new sessions). */
-    token: string | undefined;
     event: H3Event;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onUpdate?: (args: {
-    session: SessionJWE<T, MaxAge>;
+    /** Session after it has been updated.. */
+    session: SessionJWE<T, MaxAge> & { token: string };
+    /** Snapshot of the session before was updated. */
     oldSession: SessionJWE<T, MaxAge>;
-    /** Newly encrypted JWT string — store this in your DB / return it in the response body. */
-    token: string;
-    /** Previous JWT string that was just replaced (undefined on first issuance). */
-    oldToken: string | undefined;
     event: H3Event;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
     session: SessionJWE<T, MaxAge> | undefined;
-    /** JWT string that was active when the session was cleared (for revocation). */
-    token: string | undefined;
     event: H3Event;
     config: Partial<SessionConfigJWE<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
-    /** The session that expired (id may be undefined if the token failed cryptographic verification). */
-    session: SessionJWE<T, MaxAge>;
-    /** Raw expired JWT string (useful for logging or DB cleanup). */
-    token: string | undefined;
+    /** The session that expired. */
+    session: SessionJWE<T, MaxAge> & { token: string };
     event: H3Event;
     error: Error;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onError?: (args: {
-    /** Raw JWT string that triggered the error (for security logging). */
-    token: string | undefined;
+    /** Raw JWT string that failed decryption. */
+    token: string;
     event: H3Event;
     error: any;
     config: SessionConfigJWE<T, MaxAge>;
@@ -180,7 +171,7 @@ export async function useJWESession<
     },
     get token() {
       return (
-        (event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge>)?.[kSessionToken] ??
+        (event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge>)?.token ??
         getJWESessionToken<T, MaxAge>(event, config)
       );
     },
@@ -234,8 +225,7 @@ export async function getJWESession<
      */
     if (session.expiresAt !== undefined && session.expiresAt < Date.now() && isEvent(event)) {
       await config.hooks?.onExpire?.({
-        session,
-        token: session[kSessionToken],
+        session: session as SessionJWE<T, MaxAge> & { token: string },
         event,
         error: new Error(
           `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
@@ -250,7 +240,6 @@ export async function getJWESession<
     await config.hooks?.onRead?.({
       event: event as H3Event,
       session,
-      token: session[kSessionToken],
       config,
     });
     return session;
@@ -275,7 +264,7 @@ export async function getJWESession<
   const token = getJWESessionToken<T, MaxAge>(event, config);
 
   if (token) {
-    session[kSessionToken] = token;
+    session.token = token;
     const promise = unsealJWESession(event, config, token)
       .catch(async (error_) => {
         // Silently ignore invalid/expired tokens -> new session will be created
@@ -286,8 +275,7 @@ export async function getJWESession<
             error_.message.includes("Token is too old"))
         ) {
           await config.hooks?.onExpire?.({
-            session,
-            token: session[kSessionToken],
+            session: session as SessionJWE<T, MaxAge> & { token: string },
             event: event as H3Event,
             error: error_,
             config,
@@ -295,7 +283,7 @@ export async function getJWESession<
           return undefined;
         }
         await config.hooks?.onError?.({
-          token: session[kSessionToken],
+          token,
           event: event as H3Event,
           error: error_,
           config,
@@ -316,7 +304,6 @@ export async function getJWESession<
   await config.hooks?.onRead?.({
     event: event as H3Event,
     session,
-    token: session[kSessionToken],
     config,
   });
   return session;
@@ -415,10 +402,7 @@ export async function updateJWESession<
     update = update(session.data);
   }
 
-  // Snapshot before any mutations so onUpdate always sees the full before/after picture.
-  // oldToken is captured here — before we overwrite kSessionToken with the new sealed value.
   const oldSession = { ...session, data: { ...session.data } };
-  const oldToken = session[kSessionToken];
 
   if (update) {
     Object.assign(session.data, update);
@@ -436,7 +420,7 @@ export async function updateJWESession<
   });
 
   const sealed = await sealJWESession<T, MaxAge>(event, config);
-  session[kSessionToken] = sealed;
+  session.token = sealed;
   if (config.cookie !== false) {
     setCookie(event, sessionName, sealed, {
       ...DEFAULT_COOKIE,
@@ -454,10 +438,8 @@ export async function updateJWESession<
   // Fire after sealing so the hook receives the definitive new token, jti, and timestamps.
   // Also fires when update is undefined (pure token refresh with no payload change).
   await config.hooks?.onUpdate?.({
-    session,
+    session: session as SessionJWE<T, MaxAge> & { token: string },
     oldSession,
-    token: sealed,
-    oldToken,
     event,
     config,
   });
@@ -613,7 +595,6 @@ export async function clearJWESession<
 
   await config.hooks?.onClear?.({
     session,
-    token: session?.[kSessionToken],
     event,
     config,
   });
