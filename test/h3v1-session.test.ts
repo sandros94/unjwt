@@ -1084,8 +1084,87 @@ describe("adapter h3 v1", () => {
       await localRequest.get("/init");
       await localRequest.get("/clear");
 
-      // onClear must have fired (not silently skipped due to cookie:false)
       expect(clearedToken).not.toBe("NOT_SET");
+    });
+
+    it("onError fires on write-path (sign failure) with token:undefined, and session is rolled back", async () => {
+      const onError = vi.fn();
+      const onUpdate = vi.fn();
+
+      const badKey = { kty: "EC" } as any;
+      const config: SessionConfigJWS = {
+        name: "h3-jws-hook-sign-error",
+        key: badKey,
+        hooks: { onError, onUpdate },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      let threwInHandler = false;
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          try {
+            await session.update({ foo: "bar" });
+          } catch {
+            threwInHandler = true;
+          }
+          return { id: session.id ?? null, token: session.token ?? null };
+        }),
+      );
+
+      const res = await localRequest.get("/");
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onUpdate).not.toHaveBeenCalled();
+
+      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+
+      expect(threwInHandler).toBe(true);
+      expect(res.body.id).toBeNull();
+      expect(res.body.token).toBeNull();
+    });
+
+    it("onError fires on write-path (seal failure) with token:undefined, and session is rolled back", async () => {
+      const onError = vi.fn();
+      const onUpdate = vi.fn();
+
+      const badKey = { kty: "EC" } as any;
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-hook-seal-error",
+        key: badKey,
+        hooks: { onError, onUpdate },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      let threwInHandler = false;
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          try {
+            await session.update({ foo: "bar" });
+          } catch {
+            threwInHandler = true;
+          }
+          return { id: session.id ?? null, token: session.token ?? null };
+        }),
+      );
+
+      const res = await localRequest.get("/");
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(threwInHandler).toBe(true);
+      expect(res.body.id).toBeNull();
+      expect(res.body.token).toBeNull();
     });
   });
 

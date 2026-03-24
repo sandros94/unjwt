@@ -74,8 +74,10 @@ export interface SessionHooksJWE<
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onError?: (args: {
-    /** Raw JWT string that failed decryption. */
-    token: string;
+    /**
+     * The session involved in the error.
+     */
+    session: SessionJWE<T, MaxAge>;
     event: H3Event;
     error: any;
     config: SessionConfigJWE<T, MaxAge>;
@@ -283,7 +285,7 @@ export async function getJWESession<
           return undefined;
         }
         await config.hooks?.onError?.({
-          token,
+          session,
           event: event as H3Event,
           error: error_,
           config,
@@ -419,7 +421,19 @@ export async function updateJWESession<
         : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
   });
 
-  const sealed = await sealJWESession<T, MaxAge>(event, config);
+  let sealed: string;
+  try {
+    sealed = await sealJWESession<T, MaxAge>(event, config);
+  } catch (error_) {
+    Object.assign(session, {
+      id: oldSession.id,
+      createdAt: oldSession.createdAt,
+      expiresAt: oldSession.expiresAt,
+    });
+    session.token = oldSession.token;
+    await config.hooks?.onError?.({ session, event, error: error_, config });
+    throw error_;
+  }
   session.token = sealed;
   if (config.cookie !== false) {
     setCookie(event, sessionName, sealed, {

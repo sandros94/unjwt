@@ -824,6 +824,72 @@ describe("adapter h3 v2", () => {
 
       expect(clearedToken).not.toBe("NOT_SET");
     });
+
+    it("onError fires on write-path (sign failure) with token:undefined, and session is rolled back", async () => {
+      const onError = vi.fn();
+      const onUpdate = vi.fn();
+
+      const badKey = { kty: "EC" } as any;
+      const config: SessionConfigJWS = {
+        name: "h3-jws-hook-sign-error",
+        key: badKey,
+        hooks: { onError, onUpdate },
+      };
+
+      const localApp = new H3({ debug: true });
+      let threwInHandler = false;
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, config);
+        try {
+          await session.update({ foo: "bar" });
+        } catch {
+          threwInHandler = true;
+        }
+        return { id: session.id ?? null, token: session.token ?? null };
+      });
+
+      const body = await (await localApp.request("/")).json();
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(threwInHandler).toBe(true);
+      expect(body.id).toBeNull();
+      expect(body.token).toBeNull();
+    });
+
+    it("onError fires on write-path (seal failure) with token:undefined, and session is rolled back", async () => {
+      const onError = vi.fn();
+      const onUpdate = vi.fn();
+
+      const badKey = { kty: "EC" } as any;
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-hook-seal-error",
+        key: badKey,
+        hooks: { onError, onUpdate },
+      };
+
+      const localApp = new H3({ debug: true });
+      let threwInHandler = false;
+      localApp.all("/", async (event) => {
+        const session = await useJWESession(event, config);
+        try {
+          await session.update({ foo: "bar" });
+        } catch {
+          threwInHandler = true;
+        }
+        return { id: session.id ?? null, token: session.token ?? null };
+      });
+
+      const body = await (await localApp.request("/")).json();
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(threwInHandler).toBe(true);
+      expect(body.id).toBeNull();
+      expect(body.token).toBeNull();
+    });
   });
 
   describe("key variants", () => {

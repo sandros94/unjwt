@@ -76,8 +76,10 @@ export interface SessionHooksJWS<
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onError?: (args: {
-    /** Raw JWT string that failed decryption. */
-    token: string;
+    /**
+     * The session involved in the error.
+     */
+    session: SessionJWS<T, MaxAge>;
     event: HTTPEvent;
     error: any;
     config: SessionConfigJWS<T, MaxAge>;
@@ -231,7 +233,7 @@ export async function getJWSSession<
           return undefined;
         }
         await config.hooks?.onError?.({
-          token,
+          session,
           event,
           error: error_,
           config,
@@ -328,7 +330,19 @@ export async function updateJWSSession<
         : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
   });
 
-  const token = await signJWSSession(event, config);
+  let token: string;
+  try {
+    token = await signJWSSession(event, config);
+  } catch (error_) {
+    Object.assign(session, {
+      id: oldSession.id,
+      createdAt: oldSession.createdAt,
+      expiresAt: oldSession.expiresAt,
+    });
+    session.token = oldSession.token;
+    await config.hooks?.onError?.({ session, event, error: error_, config });
+    throw error_;
+  }
   session.token = token;
 
   if (hasWritableResponse(event)) {
