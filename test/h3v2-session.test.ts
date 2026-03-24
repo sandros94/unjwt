@@ -614,8 +614,11 @@ describe("adapter h3 v2", () => {
 
   describe("hook args", () => {
     it("JWE onUpdate receives new token, oldToken, and correct jti AFTER sealing", async () => {
-      const updates: Array<{ token: string; oldToken: string | undefined; id: string | undefined }> =
-        [];
+      const updates: Array<{
+        token: string;
+        oldToken: string | undefined;
+        id: string | undefined;
+      }> = [];
       let idCtr = 0;
 
       const config: SessionConfigJWE = {
@@ -711,8 +714,12 @@ describe("adapter h3 v2", () => {
         maxAge: 1, // 1 second
         generateId: () => String(++idCtr),
         hooks: {
-          onRead: vi.fn(({ token }) => { readTokens.push(token); }),
-          onExpire: vi.fn(({ token }) => { expireTokens.push(token); }),
+          onRead: vi.fn(({ token }) => {
+            readTokens.push(token);
+          }),
+          onExpire: vi.fn(({ token }) => {
+            expireTokens.push(token);
+          }),
         },
       };
 
@@ -748,8 +755,11 @@ describe("adapter h3 v2", () => {
     });
 
     it("JWS onUpdate receives new token, oldToken, and correct jti AFTER signing", async () => {
-      const updates: Array<{ token: string; oldToken: string | undefined; id: string | undefined }> =
-        [];
+      const updates: Array<{
+        token: string;
+        oldToken: string | undefined;
+        id: string | undefined;
+      }> = [];
       let idCtr = 0;
       const keys = await generateJWK("HS256");
 
@@ -793,7 +803,9 @@ describe("adapter h3 v2", () => {
         key: keys,
         cookie: false,
         hooks: {
-          onClear: vi.fn(({ token }) => { clearedToken = token; }),
+          onClear: vi.fn(({ token }) => {
+            clearedToken = token;
+          }),
         },
       };
 
