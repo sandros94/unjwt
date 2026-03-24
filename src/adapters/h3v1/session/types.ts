@@ -26,7 +26,7 @@ export interface SessionManager<
       : number | undefined;
   readonly data: SessionData<T>;
   readonly token: string | undefined;
-  update: (update: SessionUpdate<T>) => Promise<
+  update: (update?: SessionUpdate<T>) => Promise<
     SessionManager<T, ConfigMaxAge> & {
       readonly id: string;
     }
