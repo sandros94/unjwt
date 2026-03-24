@@ -349,19 +349,23 @@ export async function updateJWESession<
         : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
   });
 
-  // Seal and store in cookie
-  if (config.cookie !== false && hasWritableResponse(event)) {
-    const sealed = await sealJWESession(event, config);
-    session[kSessionToken] = sealed;
+  // Always seal into a token and cache it so session.token is accurate
+  // even when cookies are disabled or the response is not writable.
+  const sealed = await sealJWESession(event, config);
+  session[kSessionToken] = sealed;
 
-    setChunkedCookie(event, sessionName, sealed, {
-      ...DEFAULT_COOKIE,
-      expires:
-        config.maxAge === undefined
-          ? undefined
-          : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
-      ...config.cookie,
-    });
+  if (hasWritableResponse(event)) {
+    if (config.cookie !== false) {
+      setChunkedCookie(event, sessionName, sealed, {
+        ...DEFAULT_COOKIE,
+        expires:
+          config.maxAge === undefined
+            ? undefined
+            : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
+        ...config.cookie,
+      });
+    }
+
     await config.hooks?.onUpdate?.({
       oldSession,
       session,

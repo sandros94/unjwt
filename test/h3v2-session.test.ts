@@ -214,6 +214,59 @@ describe("adapter h3 v2", () => {
       expect(body.createdAtAfter).toBeDefined();
       expect(body.createdAtAfter).not.toBe(body.createdAtBefore);
     });
+
+    it("token is the updated token even with cookie: false", async () => {
+      const noCookieConfig: SessionConfigJWE = {
+        ...sessionConfig,
+        name: "h3-jwe-test-no-cookie",
+        cookie: false,
+      };
+
+      app.get("/no-cookie-jwe", async (event) => {
+        const session = await useJWESession(event, noCookieConfig);
+        await session.update({ foo: "bar" });
+        return { token: session.token, id: session.id, data: session.data };
+      });
+
+      const result = await app.request("/no-cookie-jwe");
+      expect(result.headers.getSetCookie()).toHaveLength(0);
+      const body = await result.json();
+      expect(body.id).toBeDefined();
+      expect(body.data).toMatchObject({ foo: "bar" });
+      expect(body.token).toBeDefined();
+      expect(typeof body.token).toBe("string");
+      expect((body.token as string).length).toBeGreaterThan(0);
+    });
+
+    it("token is the updated token even without a writable response", async () => {
+      // Simulate a read-only / upgrade-type event that has no `.res`
+      // (e.g. WebSocket upgrade, server-sent events in h3v2)
+      const noCookieConfig: SessionConfigJWE = {
+        ...sessionConfig,
+        name: "h3-jwe-test-no-res",
+        // cookie is enabled in config but hasWritableResponse() will be false
+      };
+
+      const mockEvent = {
+        req: { headers: new Headers() },
+        context: {},
+      };
+
+      // Drive the session directly via lower-level helpers to avoid h3 router overhead
+      const { getJWESession, updateJWESession } = await import("../src/adapters/h3v2");
+      await getJWESession(mockEvent as any, noCookieConfig);
+      const session = await updateJWESession(mockEvent as any, noCookieConfig, { foo: "bar" });
+
+      expect(session.id).toBeDefined();
+      // @ts-expect-error kSessionToken is a private symbol – access via the internal field
+      expect(
+        session[
+          Object.getOwnPropertySymbols(session).find(
+            (s) => s.description === "h3_jwe_sessionToken",
+          )!
+        ],
+      ).toBeTypeOf("string");
+    });
   });
 
   describe("jws session", async () => {
@@ -415,6 +468,58 @@ describe("adapter h3 v2", () => {
       expect(body.createdAtBefore).toBeDefined();
       expect(body.createdAtAfter).toBeDefined();
       expect(body.createdAtAfter).not.toBe(body.createdAtBefore);
+    });
+
+    it("token is the updated token even with cookie: false", async () => {
+      const noCookieConfig: SessionConfigJWS = {
+        ...sessionConfig,
+        name: "h3-jws-test-no-cookie",
+        cookie: false,
+      };
+
+      app.get("/no-cookie-jws", async (event) => {
+        const session = await useJWSSession(event, noCookieConfig);
+        await session.update({ foo: "bar" });
+        return { token: session.token, id: session.id, data: session.data };
+      });
+
+      const result = await app.request("/no-cookie-jws");
+      expect(result.headers.getSetCookie()).toHaveLength(0);
+      const body = await result.json();
+      expect(body.id).toBeDefined();
+      expect(body.data).toMatchObject({ foo: "bar" });
+      expect(body.token).toBeDefined();
+      expect(typeof body.token).toBe("string");
+      expect((body.token as string).length).toBeGreaterThan(0);
+    });
+
+    it("token is the updated token even without a writable response", async () => {
+      // Simulate a read-only / upgrade-type event that has no `.res`
+      // (e.g. WebSocket upgrade in h3v2)
+      const noCookieConfig: SessionConfigJWS = {
+        ...sessionConfig,
+        name: "h3-jws-test-no-res",
+        // cookie is enabled in config but hasWritableResponse() will be false
+      };
+
+      const mockEvent = {
+        req: { headers: new Headers() },
+        context: {},
+      };
+
+      const { getJWSSession, updateJWSSession } = await import("../src/adapters/h3v2");
+      await getJWSSession(mockEvent as any, noCookieConfig);
+      const session = await updateJWSSession(mockEvent as any, noCookieConfig, { foo: "bar" });
+
+      expect(session.id).toBeDefined();
+      // @ts-expect-error kSessionToken is a private symbol – access via the internal field
+      expect(
+        session[
+          Object.getOwnPropertySymbols(session).find(
+            (s) => s.description === "h3_jws_sessionToken",
+          )!
+        ],
+      ).toBeTypeOf("string");
     });
   });
 

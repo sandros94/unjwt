@@ -319,18 +319,21 @@ export async function updateJWSSession<
         : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
   });
 
-  if (config.cookie !== false && hasWritableResponse(event)) {
-    const token = await signJWSSession(event, config);
-    session[kSessionToken] = token;
+  const token = await signJWSSession(event, config);
+  session[kSessionToken] = token;
 
-    setChunkedCookie(event, sessionName, token, {
-      ...DEFAULT_COOKIE,
-      expires:
-        config.maxAge === undefined
-          ? undefined
-          : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
-      ...config.cookie,
-    });
+  if (hasWritableResponse(event)) {
+    if (config.cookie !== false) {
+      setChunkedCookie(event, sessionName, token, {
+        ...DEFAULT_COOKIE,
+        expires:
+          config.maxAge === undefined
+            ? undefined
+            : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
+        ...config.cookie,
+      });
+    }
+
     await config.hooks?.onUpdate?.({
       session,
       oldSession,

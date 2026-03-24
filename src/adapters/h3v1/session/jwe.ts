@@ -28,6 +28,7 @@ import {
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
+const kSessionToken: unique symbol = Symbol("h3_jwe_sessionToken");
 
 export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
@@ -41,6 +42,7 @@ export interface SessionJWE<
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWE<T, MaxAge>>;
+  [kSessionToken]?: string;
 }
 
 export interface SessionHooksJWE<
@@ -163,7 +165,10 @@ export async function useJWESession<
       return (event.context.sessions?.[sessionName]?.data || {}) as T;
     },
     get token() {
-      return getJWESessionToken<T, MaxAge>(event, config);
+      return (
+        (event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge>)?.[kSessionToken] ??
+        getJWESessionToken<T, MaxAge>(event, config)
+      );
     },
     update: async (update?: SessionUpdate<T>) => {
       if (!isEvent(event)) {
@@ -253,6 +258,7 @@ export async function getJWESession<
   const token = getJWESessionToken<T, MaxAge>(event, config);
 
   if (token) {
+    session[kSessionToken] = token;
     const promise = unsealJWESession(event, config, token)
       .catch(async (error_) => {
         // Silently ignore invalid/expired tokens -> new session will be created
@@ -411,8 +417,9 @@ export async function updateJWESession<
         : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
   });
 
+  const sealed = await sealJWESession<T, MaxAge>(event, config);
+  session[kSessionToken] = sealed;
   if (config.cookie !== false) {
-    const sealed = await sealJWESession<T, MaxAge>(event, config);
     setCookie(event, sessionName, sealed, {
       ...DEFAULT_COOKIE,
       ...config.cookie,

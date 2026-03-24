@@ -27,6 +27,7 @@ import {
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jws_getSession");
+const kSessionToken: unique symbol = Symbol("h3_jws_sessionToken");
 
 export interface SessionJWS<
   T extends Record<string, any> = SessionClaims,
@@ -40,6 +41,7 @@ export interface SessionJWS<
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   [kGetSessionPromise]?: Promise<SessionJWS<T, MaxAge>>;
+  [kSessionToken]?: string;
 }
 
 export interface SessionHooksJWS<
@@ -155,7 +157,10 @@ export async function useJWSSession<
       return (event.context.sessions?.[sessionName]?.data || {}) as T;
     },
     get token() {
-      return getJWSSessionToken<T, MaxAge>(event, config);
+      return (
+        (event.context.sessions?.[sessionName] as SessionJWS<T, MaxAge>)?.[kSessionToken] ??
+        getJWSSessionToken<T, MaxAge>(event, config)
+      );
     },
     update: async (update?: SessionUpdate<T>) => {
       if (!isEvent(event)) {
@@ -243,6 +248,7 @@ export async function getJWSSession<
   const token = getJWSSessionToken<T, MaxAge>(event, config);
 
   if (token) {
+    session[kSessionToken] = token;
     const promise = verifyJWSSession<T, MaxAge>(event, config, token)
       .catch(async (error_) => {
         // Silently ignore invalid/expired tokens -> new session will be created
@@ -401,8 +407,9 @@ export async function updateJWSSession<
         : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
   });
 
+  const token = await signJWSSession<T, MaxAge>(event, config);
+  session[kSessionToken] = token;
   if (config.cookie !== false) {
-    const token = await signJWSSession<T, MaxAge>(event, config);
     setCookie(event, sessionName, token, {
       ...DEFAULT_COOKIE,
       ...config.cookie,

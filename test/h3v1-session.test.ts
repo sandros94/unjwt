@@ -167,6 +167,31 @@ describe("adapter h3 v1", () => {
       expect(result.body.createdAtAfter).toBeDefined();
       expect(result.body.createdAtAfter).not.toBe(result.body.createdAtBefore);
     });
+
+    it("token is the updated token even with cookie: false", async () => {
+      const noCookieConfig: SessionConfigJWE = {
+        ...sessionConfig,
+        name: "h3-jwe-test-no-cookie",
+        cookie: false,
+      };
+
+      router.use(
+        "/no-cookie-jwe",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, noCookieConfig);
+          await session.update({ foo: "bar" });
+          return { token: session.token, id: session.id, data: session.data };
+        }),
+      );
+
+      const result = await request.get("/no-cookie-jwe");
+      expect(result.headers["set-cookie"]).toBeUndefined();
+      expect(result.body.id).toBeDefined();
+      expect(result.body.data).toMatchObject({ foo: "bar" });
+      expect(result.body.token).toBeDefined();
+      expect(typeof result.body.token).toBe("string");
+      expect((result.body.token as string).length).toBeGreaterThan(0);
+    });
   });
 
   // #region JWS
@@ -315,6 +340,31 @@ describe("adapter h3 v1", () => {
       expect(result.body.createdAtBefore).toBeDefined();
       expect(result.body.createdAtAfter).toBeDefined();
       expect(result.body.createdAtAfter).not.toBe(result.body.createdAtBefore);
+    });
+
+    it("token is the updated token even with cookie: false", async () => {
+      const noCookieConfig: SessionConfigJWS = {
+        ...sessionConfig,
+        name: "h3-jws-test-no-cookie",
+        cookie: false,
+      };
+
+      router.use(
+        "/no-cookie-jws",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, noCookieConfig);
+          await session.update({ foo: "bar" });
+          return { token: session.token, id: session.id, data: session.data };
+        }),
+      );
+
+      const result = await request.get("/no-cookie-jws");
+      expect(result.headers["set-cookie"]).toBeUndefined();
+      expect(result.body.id).toBeDefined();
+      expect(result.body.data).toMatchObject({ foo: "bar" });
+      expect(result.body.token).toBeDefined();
+      expect(typeof result.body.token).toBe("string");
+      expect((result.body.token as string).length).toBeGreaterThan(0);
     });
   });
 
