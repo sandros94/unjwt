@@ -290,6 +290,20 @@ export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_OKP_Private;
 export type JWK = JWK_oct | JWK_RSA | JWK_EC | JWK_OKP;
 
 /**
+ * A pair of public and private JSON Web Keys.
+ */
+export type JWK_Pair = {
+  publicKey: JWK_RSA_Public;
+  privateKey: JWK_RSA_Private;
+} | {
+  publicKey: JWK_EC_Public;
+  privateKey: JWK_EC_Private;
+} | {
+  publicKey: JWK_OKP_Public;
+  privateKey: JWK_OKP_Private;
+}
+
+/**
  * JSON Web Key Set ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK Set}). "RSA", "EC" and "oct" key types are supported.
  */
 export interface JWKSet {
