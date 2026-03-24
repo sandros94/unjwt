@@ -174,12 +174,12 @@ export async function useJWESession<
         readonly id: string;
       };
     },
-    clear: () => {
+    clear: async () => {
       if (!isEvent(event)) {
         throw new Error("[h3] Cannot clear read-only session.");
       }
-      clearJWESession<T, MaxAge>(event as H3Event, config);
-      return Promise.resolve(sessionManager);
+      await clearJWESession<T, MaxAge>(event as H3Event, config);
+      return sessionManager;
     },
   };
 
