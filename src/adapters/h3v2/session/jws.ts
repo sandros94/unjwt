@@ -42,8 +42,8 @@ export interface SessionJWS<
   // Mapped from payload.exp (in ms)
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
+  token: string | undefined;
   [kGetSessionPromise]?: Promise<SessionJWS<T, MaxAge>>;
-  token?: string;
 }
 
 export interface SessionHooksJWS<
@@ -209,6 +209,7 @@ export async function getJWSSession<
       ? number
       : T["exp"],
     data: new NullProtoObj(),
+    token: undefined,
   };
   // @ts-expect-error upstream types expect an empty id string
   context.sessions![sessionName] = session;

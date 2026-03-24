@@ -40,8 +40,8 @@ export interface SessionJWE<
   // Mapped from payload.exp (in ms)
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
+  token: string | undefined;
   [kGetSessionPromise]?: Promise<SessionJWE<T, MaxAge>>;
-  token?: string;
 }
 
 export interface SessionHooksJWE<
@@ -259,6 +259,7 @@ export async function getJWESession<
       ? number
       : T["exp"],
     data: Object.create(null),
+    token: undefined,
   };
   event.context.sessions![sessionName] = session;
 
