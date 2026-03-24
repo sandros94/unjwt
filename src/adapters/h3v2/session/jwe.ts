@@ -153,7 +153,7 @@ export async function useJWESession<
         getJWESessionToken<T, MaxAge>(event, config)
       );
     },
-    update: async (update: SessionUpdate<T>) => {
+    update: async (update?: SessionUpdate<T>) => {
       await updateJWESession<T, MaxAge>(event, config, update);
       return sessionManager;
     },

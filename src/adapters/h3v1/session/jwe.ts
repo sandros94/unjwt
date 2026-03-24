@@ -165,7 +165,7 @@ export async function useJWESession<
     get token() {
       return getJWESessionToken<T, MaxAge>(event, config);
     },
-    update: async (update: SessionUpdate<T>) => {
+    update: async (update?: SessionUpdate<T>) => {
       if (!isEvent(event)) {
         throw new Error("[h3] Cannot update read-only session.");
       }

@@ -140,7 +140,7 @@ export async function useJWSSession<
         getJWSSessionToken<T, MaxAge>(event, config)
       );
     },
-    update: async (update: SessionUpdate<T>) => {
+    update: async (update?: SessionUpdate<T>) => {
       await updateJWSSession<T, MaxAge>(event, config, update);
       return sessionManager;
     },
