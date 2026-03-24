@@ -56,13 +56,15 @@ src/
 - **No dynamic imports in tests.** Do not use `await import(...)` inside `it()`/`describe()` blocks. All module imports must be static top-level `import` statements. Dynamic imports defeat tree-shaking, make the module graph opaque to the type checker (inferred `any` types instead of the real ones), hide missing-import errors until runtime, and slow down vitest's transform phase. The only legitimate reasons to use a dynamic import in a test are (a) testing actual code-splitting / lazy-loading behaviour or (b) resetting module state between tests with `vi.resetModules()` — neither applies here. If an identifier is needed in a newly written test and it is not yet in the static imports, add it there instead.
 - **No tests for `src/core/jose/`** — that directory is an internal fork of panva/jose and is excluded from coverage (at the time of writing).
 
-## Conventions
+## Code Conventions
 
-- **ESM-only**, `"type": "module"` in package.json
-- **Node 22** required (uses `Uint8Array.prototype.toBase64`/`fromBase64` when available)
-- **pnpm** as package manager (v10)
-- **Strict TypeScript** with `verbatimModuleSyntax`, `noUncheckedIndexedAccess`, `noImplicitAny`; type-checked via `tsgo` (native TypeScript compiler)
-- Linting via **oxlint** (OXC); formatting via **oxfmt** (OXC)
-- Type-only exports use `export type *` pattern
-- `sanitizeObject()` is applied to parsed headers/JWK data to strip prototype pollution vectors
+- Use **ESM** and modern JavaScript, with a type-first approach.
+- Before adding new code, study surrounding patterns, naming conventions, and architectural decisions.
+- Keep runtime code minimal and fast.
+- Prefer **Web APIs** over Node.js APIs where possible.
+- Place non-exported/internal helpers at the end of the file.
+- Do not add comments explaining what the line does unless prompted.
+- Split logic across files; avoid long single-file modules (>200 LoC). Use `_*` prefix for internal files.
+- For multi-arg functions, use an options object as the second parameter.
+- Avoid barrel files (`index.ts` re-exports); import directly from specific modules.
 - **`skills/unjwt/`** contains reference docs for the public API — keep these files updated when making architectural changes or modifying public-facing signatures/types
