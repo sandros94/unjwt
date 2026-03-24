@@ -67,9 +67,7 @@ export async function generateKey<
 export async function generateKey(
   alg: string,
   options: GenerateKeyOptions = {},
-): Promise<
-  CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | JWK_Pair
-> {
+): Promise<CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | JWK_Pair> {
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
   const defaultExtractable = options.extractable !== false; // Default true
 
