@@ -46,7 +46,7 @@ function checkUsage(key: CryptoKey, usage?: KeyUsage) {
   }
 }
 
-export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage) {
+export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage): void {
   switch (alg) {
     case "HS256":
     case "HS384":
@@ -98,7 +98,7 @@ export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage) 
   checkUsage(key, usage);
 }
 
-export function checkEncCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage) {
+export function checkEncCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
   switch (alg) {
     case "A128GCM":
     case "A192GCM":

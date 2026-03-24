@@ -15,7 +15,7 @@ function writeUInt32BE(buf: Uint8Array<ArrayBuffer>, value: number, offset?: num
   buf.set([value >>> 24, value >>> 16, value >>> 8, value & 0xff], offset);
 }
 
-export function uint64be(value: number) {
+export function uint64be(value: number): Uint8Array<ArrayBuffer> {
   const high = Math.floor(value / MAX_INT32);
   const low = value % MAX_INT32;
   const buf = new Uint8Array(8);
@@ -24,7 +24,7 @@ export function uint64be(value: number) {
   return buf;
 }
 
-export function uint32be(value: number) {
+export function uint32be(value: number): Uint8Array<ArrayBuffer> {
   const buf = new Uint8Array(4);
   writeUInt32BE(buf, value);
   return buf;
