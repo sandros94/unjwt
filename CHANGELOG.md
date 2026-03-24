@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.5.40
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.39...v0.5.40)
+
+### 🚀 Enhancements
+
+- Add JWK_Pair type for public and private JSON Web Keys combinations ([2bb33fa](https://github.com/sandros94/unjwt/commit/2bb33fa))
+
+### 🩹 Fixes
+
+- **core:** Remove redundant key deletion strategies during sanitization ([f33e8cd](https://github.com/sandros94/unjwt/commit/f33e8cd))
+- Adapters exports ([f69bbf6](https://github.com/sandros94/unjwt/commit/f69bbf6))
+- **h3v2:** Correct event type and move `onUpdate` hook ([99f53da](https://github.com/sandros94/unjwt/commit/99f53da))
+- GenerateKey return type ([b9689f4](https://github.com/sandros94/unjwt/commit/b9689f4))
+- **h3:** Make `update` parameter optional in `use*Session` functions ([86bcb50](https://github.com/sandros94/unjwt/commit/86bcb50))
+- Respect async `clear` method in `use*Session` functions ([8c58661](https://github.com/sandros94/unjwt/commit/8c58661))
+- **h3:** Make `update` parameter optional in `use*Session` functions ([a6f8c8d](https://github.com/sandros94/unjwt/commit/a6f8c8d))
+
+### 📖 Documentation
+
+- Add agent skill install snippet ([3f1af9e](https://github.com/sandros94/unjwt/commit/3f1af9e))
+
+### 🏡 Chore
+
+- Update readme badges ([46fb20b](https://github.com/sandros94/unjwt/commit/46fb20b))
+- Update deps ([6b0359f](https://github.com/sandros94/unjwt/commit/6b0359f))
+- Apply automated updates ([6e2738b](https://github.com/sandros94/unjwt/commit/6e2738b))
+
+### 🤖 CI
+
+- Add pkg.pr.new ([0ce74ee](https://github.com/sandros94/unjwt/commit/0ce74ee))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.39
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.38...v0.5.39)
