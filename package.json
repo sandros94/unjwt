@@ -72,8 +72,8 @@
     "changelogen": "^0.6.2",
     "cookie-esv1": "npm:cookie-es@^1.2.2",
     "cookie-esv2": "npm:cookie-es@^2.0.0",
-    "h3v1": "npm:h3@^1.15.4",
-    "h3v2": "npm:h3@^2.0.1-rc.14",
+    "h3v1": "npm:h3@^1.15.10",
+    "h3v2": "npm:h3@^2.0.1-rc.19",
     "jose": "^6.2.0",
     "obuild": "^0.4.32",
     "oxfmt": "^0.41.0",
@@ -85,7 +85,7 @@
   },
   "peerDependencies": {
     "cookie-es": "^1.2.2 || ^2.0.0",
-    "h3": "^1.15.4 || >=2.0.1-rc.5 || ^2.0.1",
+    "h3": "^1.15.4 || >=2.0.1-rc.18 || ^2.0.1",
     "rou3": "^0.7.10"
   },
   "peerDependenciesMeta": {
