@@ -1,6 +1,7 @@
 import type {
   JWK,
   JWKSet,
+  JWK_Pair,
   JWK_oct,
   JWK_PBES2,
   JWKPEMAlgorithm,
@@ -67,7 +68,7 @@ export async function generateKey(
   alg: string,
   options: GenerateKeyOptions = {},
 ): Promise<
-  CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | { privateKey: JWK; publicKey: JWK }
+  CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | JWK_Pair
 > {
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
   const defaultExtractable = options.extractable !== false; // Default true
@@ -112,7 +113,7 @@ export async function generateKey(
           alg,
         }),
       ]);
-      return { privateKey, publicKey };
+      return { privateKey, publicKey } as JWK_Pair;
     }
   }
 
