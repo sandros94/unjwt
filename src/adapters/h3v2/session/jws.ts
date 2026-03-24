@@ -53,26 +53,40 @@ export interface SessionHooksJWS<
 > {
   onRead?: (args: {
     session: SessionJWS<T, MaxAge>;
+    /** Raw JWT string that was read from the request (undefined for brand-new sessions). */
+    token: string | undefined;
     event: HTTPEvent;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onUpdate?: (args: {
     session: SessionJWS<T, MaxAge>;
     oldSession: SessionJWS<T, MaxAge>;
+    /** Newly signed JWT string — store this in your DB / return it in the response body. */
+    token: string;
+    /** Previous JWT string that was just replaced (undefined on first issuance). */
+    oldToken: string | undefined;
     event: H3Event;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
     session: SessionJWS<T, MaxAge> | undefined;
+    /** JWT string that was active when the session was cleared (for revocation). */
+    token: string | undefined;
     event: H3Event;
     config: Partial<SessionConfigJWS<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
+    /** The session that expired (id may be undefined if the token failed cryptographic verification). */
+    session: SessionJWS<T, MaxAge>;
+    /** Raw expired JWT string (useful for logging or DB cleanup). */
+    token: string | undefined;
     event: HTTPEvent;
     error: Error;
     config: SessionConfigJWS<T, MaxAge>;
   }) => void | Promise<void>;
   onError?: (args: {
+    /** Raw JWT string that triggered the error (for security logging). */
+    token: string | undefined;
     event: HTTPEvent;
     error: any;
     config: SessionConfigJWS<T, MaxAge>;
@@ -172,6 +186,8 @@ export async function getJWSSession<
 
     if (session.expiresAt !== undefined && session.expiresAt < Date.now()) {
       await config.hooks?.onExpire?.({
+        session,
+        token: session[kSessionToken],
         event,
         error: new Error(
           `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
@@ -184,6 +200,7 @@ export async function getJWSSession<
     await config.hooks?.onRead?.({
       event,
       session,
+      token: session[kSessionToken],
       config,
     });
     return session;
@@ -217,6 +234,8 @@ export async function getJWSSession<
             error_.message.includes("Token is too old"))
         ) {
           await config.hooks?.onExpire?.({
+            session,
+            token: session[kSessionToken],
             event,
             error: error_,
             config,
@@ -224,6 +243,7 @@ export async function getJWSSession<
           return undefined;
         }
         await config.hooks?.onError?.({
+          token: session[kSessionToken],
           event,
           error: error_,
           config,
@@ -244,6 +264,7 @@ export async function getJWSSession<
   await config.hooks?.onRead?.({
     event,
     session,
+    token: session[kSessionToken],
     config,
   });
   return session;
@@ -303,7 +324,11 @@ export async function updateJWSSession<
     update = update(session.data);
   }
 
+  // Snapshot before any mutations so onUpdate always sees the full before/after picture.
+  // oldToken is captured here — before we overwrite kSessionToken with the new signed value.
   const oldSession = { ...session, data: { ...session.data } };
+  const oldToken = session[kSessionToken];
+
   if (update) {
     Object.assign(session.data, update);
   }
@@ -334,9 +359,13 @@ export async function updateJWSSession<
       });
     }
 
+    // Fire after signing so the hook receives the definitive new token, jti, and timestamps.
+    // Also fires when update is undefined (pure token refresh with no payload change).
     await config.hooks?.onUpdate?.({
       session,
       oldSession,
+      token,
+      oldToken,
       event,
       config,
     });
@@ -460,16 +489,19 @@ export async function clearJWSSession<
     delete context.sessions![sessionName];
   }
 
-  if (config.cookie !== false && hasWritableResponse(event)) {
-    setChunkedCookie(event, sessionName, "", {
-      ...DEFAULT_COOKIE,
-      ...config.cookie,
-      expires: new Date(0),
-      maxAge: undefined,
-    });
+  if (hasWritableResponse(event)) {
+    if (config.cookie !== false) {
+      setChunkedCookie(event, sessionName, "", {
+        ...DEFAULT_COOKIE,
+        ...config.cookie,
+        expires: new Date(0),
+        maxAge: undefined,
+      });
+    }
 
     await config.hooks?.onClear?.({
       session,
+      token: session?.[kSessionToken],
       event,
       config,
     });

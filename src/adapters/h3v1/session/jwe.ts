@@ -51,26 +51,40 @@ export interface SessionHooksJWE<
 > {
   onRead?: (args: {
     session: SessionJWE<T, MaxAge>;
+    /** Raw JWT string that was read from the request (undefined for brand-new sessions). */
+    token: string | undefined;
     event: H3Event;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onUpdate?: (args: {
     session: SessionJWE<T, MaxAge>;
     oldSession: SessionJWE<T, MaxAge>;
+    /** Newly encrypted JWT string — store this in your DB / return it in the response body. */
+    token: string;
+    /** Previous JWT string that was just replaced (undefined on first issuance). */
+    oldToken: string | undefined;
     event: H3Event;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onClear?: (args: {
     session: SessionJWE<T, MaxAge> | undefined;
+    /** JWT string that was active when the session was cleared (for revocation). */
+    token: string | undefined;
     event: H3Event;
     config: Partial<SessionConfigJWE<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
+    /** The session that expired (id may be undefined if the token failed cryptographic verification). */
+    session: SessionJWE<T, MaxAge>;
+    /** Raw expired JWT string (useful for logging or DB cleanup). */
+    token: string | undefined;
     event: H3Event;
     error: Error;
     config: SessionConfigJWE<T, MaxAge>;
   }) => void | Promise<void>;
   onError?: (args: {
+    /** Raw JWT string that triggered the error (for security logging). */
+    token: string | undefined;
     event: H3Event;
     error: any;
     config: SessionConfigJWE<T, MaxAge>;
@@ -220,6 +234,8 @@ export async function getJWESession<
      */
     if (session.expiresAt !== undefined && session.expiresAt < Date.now() && isEvent(event)) {
       await config.hooks?.onExpire?.({
+        session,
+        token: session[kSessionToken],
         event,
         error: new Error(
           `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
@@ -234,6 +250,7 @@ export async function getJWESession<
     await config.hooks?.onRead?.({
       event: event as H3Event,
       session,
+      token: session[kSessionToken],
       config,
     });
     return session;
@@ -269,6 +286,8 @@ export async function getJWESession<
             error_.message.includes("Token is too old"))
         ) {
           await config.hooks?.onExpire?.({
+            session,
+            token: session[kSessionToken],
             event: event as H3Event,
             error: error_,
             config,
@@ -276,6 +295,7 @@ export async function getJWESession<
           return undefined;
         }
         await config.hooks?.onError?.({
+          token: session[kSessionToken],
           event: event as H3Event,
           error: error_,
           config,
@@ -296,6 +316,7 @@ export async function getJWESession<
   await config.hooks?.onRead?.({
     event: event as H3Event,
     session,
+    token: session[kSessionToken],
     config,
   });
   return session;
@@ -393,17 +414,14 @@ export async function updateJWESession<
   if (typeof update === "function") {
     update = update(session.data);
   }
+
+  // Snapshot before any mutations so onUpdate always sees the full before/after picture.
+  // oldToken is captured here — before we overwrite kSessionToken with the new sealed value.
+  const oldSession = { ...session, data: { ...session.data } };
+  const oldToken = session[kSessionToken];
+
   if (update) {
-    const oldSession = { ...session, data: { ...session.data } };
-
     Object.assign(session.data, update);
-
-    await config.hooks?.onUpdate?.({
-      session,
-      oldSession,
-      event,
-      config,
-    });
   }
 
   const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
@@ -432,6 +450,17 @@ export async function updateJWESession<
             ),
     });
   }
+
+  // Fire after sealing so the hook receives the definitive new token, jti, and timestamps.
+  // Also fires when update is undefined (pure token refresh with no payload change).
+  await config.hooks?.onUpdate?.({
+    session,
+    oldSession,
+    token: sealed,
+    oldToken,
+    event,
+    config,
+  });
 
   return session;
 }
@@ -573,15 +602,18 @@ export async function clearJWESession<
     delete event.context.sessions![sessionName];
   }
 
-  setCookie(event, sessionName, "", {
-    ...DEFAULT_COOKIE,
-    ...config.cookie,
-    expires: new Date(0),
-    maxAge: undefined,
-  });
+  if (config.cookie !== false) {
+    setCookie(event, sessionName, "", {
+      ...DEFAULT_COOKIE,
+      ...config.cookie,
+      expires: new Date(0),
+      maxAge: undefined,
+    });
+  }
 
   await config.hooks?.onClear?.({
     session,
+    token: session?.[kSessionToken],
     event,
     config,
   });

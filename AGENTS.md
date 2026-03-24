@@ -51,6 +51,11 @@ src/
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
 - **Session adapters** store JWT tokens in chunked cookies (via h3's `getChunkedCookie`/`setChunkedCookie`). Sessions are lazy — `id` is `undefined` until `session.update()` is called.
 
+## Testing conventions
+
+- **No dynamic imports in tests.** Do not use `await import(...)` inside `it()`/`describe()` blocks. All module imports must be static top-level `import` statements. Dynamic imports defeat tree-shaking, make the module graph opaque to the type checker (inferred `any` types instead of the real ones), hide missing-import errors until runtime, and slow down vitest's transform phase. The only legitimate reasons to use a dynamic import in a test are (a) testing actual code-splitting / lazy-loading behaviour or (b) resetting module state between tests with `vi.resetModules()` — neither applies here. If an identifier is needed in a newly written test and it is not yet in the static imports, add it there instead.
+- **No tests for `src/core/jose/`** — that directory is an internal fork of panva/jose and is excluded from coverage (at the time of writing).
+
 ## Conventions
 
 - **ESM-only**, `"type": "module"` in package.json

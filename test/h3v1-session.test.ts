@@ -822,6 +822,263 @@ describe("adapter h3 v1", () => {
     });
   });
 
+  describe("hook args", () => {
+    it("JWE onUpdate receives new token, oldToken, and correct jti AFTER signing", async () => {
+      const updates: Array<{ token: string; oldToken: string | undefined; id: string | undefined }> =
+        [];
+      let idCtr = 0;
+
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-hook-args",
+        key: "hook-secret",
+        generateId: () => String(++idCtr),
+        hooks: {
+          onUpdate: vi.fn(({ token, oldToken, session }) => {
+            updates.push({ token, oldToken, id: session.id });
+          }),
+        },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          await session.update({ step: 1 });
+          await session.update({ step: 2 });
+          return { token: session.token };
+        }),
+      );
+
+      const res = await localRequest.get("/");
+
+      // Two updates → two onUpdate calls
+      expect(updates).toHaveLength(2);
+
+      // First update: no previous token
+      expect(updates[0]!.oldToken).toBeUndefined();
+      expect(updates[0]!.token).toBeTypeOf("string");
+      expect(updates[0]!.token.length).toBeGreaterThan(0);
+      expect(updates[0]!.id).toBe("1");
+
+      // Second update: oldToken is the token produced by the first update
+      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
+      expect(updates[1]!.token).toBeTypeOf("string");
+      expect(updates[1]!.token).not.toBe(updates[0]!.token);
+      expect(updates[1]!.id).toBe("2");
+
+      // session.token on the manager equals the last issued token
+      expect(res.body.token).toBe(updates[1]!.token);
+    });
+
+    it("JWE onUpdate fires even when update() is called with no data (token refresh)", async () => {
+      const onUpdate = vi.fn();
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-hook-no-data",
+        key: "hook-secret-2",
+        hooks: { onUpdate },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          await session.update(); // no data — pure token refresh
+          return {};
+        }),
+      );
+
+      await localRequest.get("/");
+      expect(onUpdate).toHaveBeenCalledOnce();
+    });
+
+    it("JWE onClear fires even with cookie:false", async () => {
+      const onClear = vi.fn();
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-hook-clear-nocookie",
+        key: "hook-secret-3",
+        cookie: false,
+        hooks: { onClear },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/init",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          await session.update({});
+          return { token: session.token };
+        }),
+      );
+      localRouter.use(
+        "/clear",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          await session.clear();
+          return {};
+        }),
+      );
+
+      await localRequest.get("/init");
+      await localRequest.get("/clear");
+
+      expect(onClear).toHaveBeenCalledOnce();
+      const args = onClear.mock.calls[0]![0];
+      // token in onClear should be undefined here (no incoming cookie/header)
+      expect(args).toHaveProperty("token");
+    });
+
+    it("JWE onRead and onExpire receive the token string", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2025-01-01T00:00:00.000Z"));
+
+      const readTokens: (string | undefined)[] = [];
+      const expireTokens: (string | undefined)[] = [];
+      let idCtr = 0;
+
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-hook-token-args",
+        key: "hook-secret-4",
+        maxAge: 1, // 1 second
+        generateId: () => String(++idCtr),
+        hooks: {
+          onRead: vi.fn(({ token }) => { readTokens.push(token); }),
+          onExpire: vi.fn(({ token }) => { expireTokens.push(token); }),
+        },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWESession(event, config);
+          if (event.method === "POST") await session.update({});
+          return { token: session.token };
+        }),
+      );
+
+      // First request — creates session, onRead fires with undefined (no incoming token)
+      await localRequest.post("/");
+      expect(readTokens[0]).toBeUndefined();
+
+      // Store the cookie for the next request
+      const initRes = await localRequest.post("/");
+      const cookie = initRes.headers["set-cookie"]?.[0];
+      expect(cookie).toBeDefined();
+
+      // Second read — onRead fires with the raw cookie token
+      const readRes = await localRequest.get("/").set("Cookie", cookie!);
+      const lastReadToken = readTokens[readTokens.length - 1];
+      expect(lastReadToken).toBeTypeOf("string");
+      expect(lastReadToken!.length).toBeGreaterThan(0);
+
+      // Advance past expiry
+      vi.setSystemTime(new Date("2025-01-01T00:00:05.000Z"));
+      await localRequest.get("/").set("Cookie", cookie!);
+      expect(expireTokens.length).toBeGreaterThan(0);
+      expect(expireTokens[0]).toBeTypeOf("string");
+
+      vi.useRealTimers();
+    });
+
+    it("JWS onUpdate receives new token, oldToken, and correct jti AFTER signing", async () => {
+      const updates: Array<{ token: string; oldToken: string | undefined; id: string | undefined }> =
+        [];
+      let idCtr = 0;
+      const keys = await generateJWK("HS256");
+
+      const config: SessionConfigJWS = {
+        name: "h3-jws-hook-args",
+        key: keys,
+        generateId: () => String(++idCtr),
+        hooks: {
+          onUpdate: vi.fn(({ token, oldToken, session }) => {
+            updates.push({ token, oldToken, id: session.id });
+          }),
+        },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          await session.update({ step: 1 });
+          await session.update({ step: 2 });
+          return { token: session.token };
+        }),
+      );
+
+      const res = await localRequest.get("/");
+
+      expect(updates).toHaveLength(2);
+      expect(updates[0]!.oldToken).toBeUndefined();
+      expect(updates[0]!.token).toBeTypeOf("string");
+      expect(updates[0]!.id).toBe("1");
+      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
+      expect(updates[1]!.token).not.toBe(updates[0]!.token);
+      expect(updates[1]!.id).toBe("2");
+      expect(res.body.token).toBe(updates[1]!.token);
+    });
+
+    it("JWS onClear receives the token and fires even with cookie:false", async () => {
+      let clearedToken: string | undefined = "NOT_SET";
+      const keys = await generateJWK("HS256");
+
+      const config: SessionConfigJWS = {
+        name: "h3-jws-hook-clear-nocookie",
+        key: keys,
+        cookie: false,
+        hooks: {
+          onClear: vi.fn(({ token }) => { clearedToken = token; }),
+        },
+      };
+
+      const localRouter = createRouter({ preemptive: true });
+      const localApp = createApp({ debug: true }).use(localRouter);
+      const localRequest = supertest(toNodeListener(localApp));
+
+      localRouter.use(
+        "/init",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          await session.update({});
+          return { token: session.token };
+        }),
+      );
+      localRouter.use(
+        "/clear",
+        eventHandler(async (event) => {
+          const session = await useJWSSession(event, config);
+          await session.clear();
+          return {};
+        }),
+      );
+
+      await localRequest.get("/init");
+      await localRequest.get("/clear");
+
+      // onClear must have fired (not silently skipped due to cookie:false)
+      expect(clearedToken).not.toBe("NOT_SET");
+    });
+  });
+
   describe("key variants", () => {
     it("JWE session works with symmetric JWK key (oct)", async () => {
       const symKey = await generateJWK("A128KW");
