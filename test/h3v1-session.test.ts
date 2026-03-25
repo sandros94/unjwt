@@ -451,7 +451,7 @@ describe("adapter h3 v1", () => {
         cookie = getCookieValue(first.headers["set-cookie"], sessionConfig.name!)!;
         const firstToken = cookie;
 
-        expect(hooks.onRead).toHaveBeenCalledTimes(1);
+        expect(hooks.onRead).toHaveBeenCalledTimes(0);
         expect(first.body.session.id).toBe("1");
         const firstExpiresAt = first.body.session.expiresAt;
         expect(firstExpiresAt).toBeDefined();
@@ -464,7 +464,7 @@ describe("adapter h3 v1", () => {
 
         expect(nextCookie).toBeTruthy();
         expect(nextCookie).not.toEqual(firstToken);
-        expect(hooks.onRead).toHaveBeenCalledTimes(1);
+        expect(hooks.onRead).toHaveBeenCalledTimes(0);
         expect(hooks.onExpire).toHaveBeenCalledTimes(1);
         expect(second.body.session.id).toBe("2");
         const secondExpiresAt = second.body.session.expiresAt;
@@ -707,8 +707,8 @@ describe("adapter h3 v1", () => {
 
         expect(accessCookie).toBeTruthy();
         expect(refreshCookie).toBeTruthy();
-        expect(accessHooks.onRead).toHaveBeenCalledTimes(1);
-        expect(refreshHooks.onRead).toHaveBeenCalledTimes(1);
+        expect(accessHooks.onRead).toHaveBeenCalledTimes(0);
+        expect(refreshHooks.onRead).toHaveBeenCalledTimes(0);
 
         vi.setSystemTime(new Date("2024-02-01T00:00:20.000Z"));
         const second = await request.get("/tokens").set("Cookie", [accessCookie, refreshCookie]);
@@ -724,7 +724,7 @@ describe("adapter h3 v1", () => {
         expect(refreshedAccessCookie).toBeTruthy();
         expect(refreshedAccessCookie).not.toEqual(accessCookie);
         expect(second.body.access.id).not.toEqual(first.body.access.id);
-        expect(refreshHooks.onRead).toHaveBeenCalledTimes(3);
+        expect(refreshHooks.onRead).toHaveBeenCalledTimes(2);
 
         vi.useRealTimers();
       });
@@ -903,8 +903,11 @@ describe("adapter h3 v1", () => {
       expect(onUpdate).toHaveBeenCalledOnce();
     });
 
-    it("JWE onClear fires even with cookie:false", async () => {
-      const onClear = vi.fn();
+    it("JWE onClear fires even with cookie:false and receives oldSession", async () => {
+      let clearedToken: string | undefined;
+      const onClear = vi.fn(({ oldSession }: { oldSession?: { token?: string } }) => {
+        clearedToken = oldSession?.token;
+      });
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-clear-nocookie",
         key: "hook-secret-3",
@@ -915,6 +918,7 @@ describe("adapter h3 v1", () => {
       const localRouter = createRouter({ preemptive: true });
       const localApp = createApp({ debug: true }).use(localRouter);
       const localRequest = supertest(toNodeListener(localApp));
+      const sessionHeader = `x-${config.name!.toLowerCase()}-session`;
 
       localRouter.use(
         "/init",
@@ -933,10 +937,13 @@ describe("adapter h3 v1", () => {
         }),
       );
 
-      await localRequest.get("/init");
-      await localRequest.get("/clear");
+      const initResult = await localRequest.get("/init");
+      const token = initResult.body.token as string;
+      await localRequest.get("/clear").set(sessionHeader, token);
 
       expect(onClear).toHaveBeenCalledOnce();
+      expect(clearedToken).toBeTypeOf("string");
+      expect(clearedToken!.length).toBeGreaterThan(0);
     });
 
     it("JWE onRead and onExpire: session.token reflects the current JWT", async () => {
@@ -1047,7 +1054,7 @@ describe("adapter h3 v1", () => {
     });
 
     it("JWS onClear receives the token and fires even with cookie:false", async () => {
-      let clearedToken: string | undefined = "NOT_SET";
+      let clearedToken: string | undefined;
       const keys = await generateJWK("HS256");
 
       const config: SessionConfigJWS = {
@@ -1055,8 +1062,8 @@ describe("adapter h3 v1", () => {
         key: keys,
         cookie: false,
         hooks: {
-          onClear: vi.fn(({ session }) => {
-            clearedToken = session?.token;
+          onClear: vi.fn(({ oldSession }) => {
+            clearedToken = oldSession?.token;
           }),
         },
       };
@@ -1064,6 +1071,7 @@ describe("adapter h3 v1", () => {
       const localRouter = createRouter({ preemptive: true });
       const localApp = createApp({ debug: true }).use(localRouter);
       const localRequest = supertest(toNodeListener(localApp));
+      const sessionHeader = `x-${config.name!.toLowerCase()}-session`;
 
       localRouter.use(
         "/init",
@@ -1082,10 +1090,12 @@ describe("adapter h3 v1", () => {
         }),
       );
 
-      await localRequest.get("/init");
-      await localRequest.get("/clear");
+      const initResult = await localRequest.get("/init");
+      const token = initResult.body.token as string;
+      await localRequest.get("/clear").set(sessionHeader, token);
 
-      expect(clearedToken).not.toBe("NOT_SET");
+      expect(clearedToken).toBeTypeOf("string");
+      expect(clearedToken!.length).toBeGreaterThan(0);
     });
 
     it("onError fires on write-path (sign failure) with token:undefined, and session is rolled back", async () => {

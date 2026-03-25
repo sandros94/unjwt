@@ -238,10 +238,10 @@ describe("adapter h3 v2", () => {
       expect((body.token as string).length).toBeGreaterThan(0);
     });
 
-    it("token is the updated token even without a writable response", async () => {
+    it("update throws on a non-writable event when cookies are enabled", async () => {
       // Simulate a read-only / upgrade-type event that has no `.res`
       // (e.g. WebSocket upgrade in h3v2 — hasWritableResponse() returns false).
-      // Cookie is enabled in config but will not be written; token must still be set.
+      // Cookie is enabled in config, so attempting to update should throw.
       const roConfig: SessionConfigJWE = {
         ...sessionConfig,
         name: "h3-jwe-test-no-res",
@@ -253,11 +253,7 @@ describe("adapter h3 v2", () => {
       };
 
       const session = await useJWESession(mockEvent as any, roConfig);
-      await session.update({ foo: "bar" });
-
-      expect(session.id).toBeDefined();
-      expect(session.token).toBeTypeOf("string");
-      expect(session.token!.length).toBeGreaterThan(0);
+      await expect(session.update({ foo: "bar" })).rejects.toThrow("[unjwt/h3]");
     });
   });
 
@@ -485,10 +481,10 @@ describe("adapter h3 v2", () => {
       expect((body.token as string).length).toBeGreaterThan(0);
     });
 
-    it("token is the updated token even without a writable response", async () => {
+    it("update throws on a non-writable event when cookies are enabled", async () => {
       // Simulate a read-only / upgrade-type event that has no `.res`
       // (e.g. WebSocket upgrade in h3v2 — hasWritableResponse() returns false).
-      // Cookie is enabled in config but will not be written; token must still be set.
+      // Cookie is enabled in config, so attempting to update should throw.
       const roConfig: SessionConfigJWS = {
         ...sessionConfig,
         name: "h3-jws-test-no-res",
@@ -500,11 +496,7 @@ describe("adapter h3 v2", () => {
       };
 
       const session = await useJWSSession(mockEvent as any, roConfig);
-      await session.update({ foo: "bar" });
-
-      expect(session.id).toBeDefined();
-      expect(session.token).toBeTypeOf("string");
-      expect(session.token!.length).toBeGreaterThan(0);
+      await expect(session.update({ foo: "bar" })).rejects.toThrow("[unjwt/h3]");
     });
   });
 
@@ -671,14 +663,18 @@ describe("adapter h3 v2", () => {
       expect(onUpdate).toHaveBeenCalledOnce();
     });
 
-    it("JWE onClear fires even with cookie:false", async () => {
-      const onClear = vi.fn();
+    it("JWE onClear fires even with cookie:false and receives oldSession", async () => {
+      let clearedToken: string | undefined;
+      const onClear = vi.fn(({ oldSession }: { oldSession?: { token?: string } }) => {
+        clearedToken = oldSession?.token;
+      });
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-clear-nocookie",
         key: "hook-secret-3",
         cookie: false,
         hooks: { onClear },
       };
+      const sessionHeader = `x-${config.name!.toLowerCase()}-session`;
 
       const localApp = new H3({ debug: true });
       localApp.all("/init", async (event) => {
@@ -692,10 +688,13 @@ describe("adapter h3 v2", () => {
         return {};
       });
 
-      await localApp.request("/init");
-      await localApp.request("/clear");
+      const initRes = await localApp.request("/init");
+      const { token } = (await initRes.json()) as { token: string };
+      await localApp.request("/clear", { headers: { [sessionHeader]: token } });
 
       expect(onClear).toHaveBeenCalledOnce();
+      expect(clearedToken).toBeTypeOf("string");
+      expect(clearedToken!.length).toBeGreaterThan(0);
     });
 
     it("JWE onRead and onExpire: session.token reflects the current JWT", async () => {
@@ -793,7 +792,7 @@ describe("adapter h3 v2", () => {
     });
 
     it("JWS onClear receives the token and fires even with cookie:false", async () => {
-      let clearedToken: string | undefined = "NOT_SET";
+      let clearedToken: string | undefined;
       const keys = await generateJWK("HS256");
 
       const config: SessionConfigJWS = {
@@ -801,11 +800,12 @@ describe("adapter h3 v2", () => {
         key: keys,
         cookie: false,
         hooks: {
-          onClear: vi.fn(({ session }) => {
-            clearedToken = session?.token;
+          onClear: vi.fn(({ oldSession }) => {
+            clearedToken = oldSession?.token;
           }),
         },
       };
+      const sessionHeader = `x-${config.name!.toLowerCase()}-session`;
 
       const localApp = new H3({ debug: true });
       localApp.all("/init", async (event) => {
@@ -819,10 +819,12 @@ describe("adapter h3 v2", () => {
         return {};
       });
 
-      await localApp.request("/init");
-      await localApp.request("/clear");
+      const initRes = await localApp.request("/init");
+      const { token } = (await initRes.json()) as { token: string };
+      await localApp.request("/clear", { headers: { [sessionHeader]: token } });
 
-      expect(clearedToken).not.toBe("NOT_SET");
+      expect(clearedToken).toBeTypeOf("string");
+      expect(clearedToken!.length).toBeGreaterThan(0);
     });
 
     it("onError fires on write-path (sign failure) with token:undefined, and session is rolled back", async () => {

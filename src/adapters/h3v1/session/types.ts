@@ -29,7 +29,14 @@ export interface SessionManager<
   update: (update?: SessionUpdate<T>) => Promise<
     SessionManager<T, ConfigMaxAge> & {
       readonly id: string;
+      readonly token: string;
     }
   >;
-  clear: () => Promise<SessionManager<T, ConfigMaxAge>>;
+  clear: () => Promise<
+    SessionManager<T, ConfigMaxAge> & {
+      readonly id: undefined;
+      readonly createdAt: number;
+      readonly expiresAt: undefined;
+    }
+  >;
 }

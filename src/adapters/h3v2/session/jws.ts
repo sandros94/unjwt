@@ -49,24 +49,25 @@ export interface SessionJWS<
 export interface SessionHooksJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
 > {
   onRead?: (args: {
-    session: SessionJWS<T, MaxAge>;
-    event: HTTPEvent;
-    config: SessionConfigJWS<T, MaxAge>;
+    session: SessionJWS<T, MaxAge> & { id: string; token: string };
+    event: TEvent;
+    config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
   onUpdate?: (args: {
     /** Session after it has been updated.. */
-    session: SessionJWS<T, MaxAge> & { token: string };
+    session: SessionJWS<T, MaxAge> & { id: string; token: string };
     /** Snapshot of the session before was updated. */
     oldSession: SessionJWS<T, MaxAge>;
-    event: H3Event;
-    config: SessionConfigJWS<T, MaxAge>;
+    event: TEvent;
+    config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
   onClear?: (args: {
-    session: SessionJWS<T, MaxAge> | undefined;
-    event: H3Event;
-    config: Partial<SessionConfigJWS<T, MaxAge>>;
+    oldSession: SessionJWS<T, MaxAge> | undefined;
+    event: TEvent;
+    config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
   onExpire?: (args: {
     session: {
@@ -75,29 +76,30 @@ export interface SessionHooksJWS<
       expiresAt: number | undefined;
       token: string;
     };
-    event: HTTPEvent;
+    event: TEvent;
     error: Error;
-    config: SessionConfigJWS<T, MaxAge>;
+    config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
   onError?: (args: {
     /**
      * The session involved in the error.
      */
     session: SessionJWS<T, MaxAge>;
-    event: HTTPEvent;
+    event: TEvent;
     error: any;
-    config: SessionConfigJWS<T, MaxAge>;
+    config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
   onVerifyKeyLookup?: (args: {
     header: JWSProtectedHeader;
-    event: HTTPEvent;
-    config: SessionConfigJWS<T, MaxAge>;
+    event: TEvent;
+    config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
 }
 
 export interface SessionConfigJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
 > {
   key:
     | JWK_Symmetric
@@ -114,7 +116,7 @@ export interface SessionConfigJWS<
     signOptions?: Omit<JWSSignOptions, "expiresIn">;
     verifyOptions?: JWTClaimValidationOptions;
   };
-  hooks?: SessionHooksJWS<T, MaxAge>;
+  hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 
 const DEFAULT_NAME = "h3-jws";
@@ -127,9 +129,10 @@ const DEFAULT_COOKIE: SessionConfigJWS["cookie"] = {
 export async function useJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(event: HTTPEvent, config: SessionConfigJWS<T, MaxAge>): Promise<SessionManager<T, MaxAge>> {
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<SessionManager<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
-  await getJWSSession<T, MaxAge>(event, config);
+  await getJWSSession(event, config);
 
   const sessionManager: SessionManager<T, MaxAge> = {
     get id() {
@@ -148,16 +151,16 @@ export async function useJWSSession<
     get token() {
       return (
         getSessionFromContext<T, MaxAge>(event, sessionName)?.token ??
-        getJWSSessionToken<T, MaxAge>(event, config)
+        getJWSSessionToken(event, config)
       );
     },
     update: async (update?: SessionUpdate<T>) => {
-      await updateJWSSession<T, MaxAge>(event, config, update);
-      return sessionManager;
+      await updateJWSSession(event, config, update);
+      return sessionManager as Awaited<ReturnType<SessionManager<T, MaxAge>["update"]>>;
     },
     clear: async () => {
-      await clearJWSSession<T, MaxAge>(event, config);
-      return sessionManager;
+      await clearJWSSession(event, config);
+      return sessionManager as Awaited<ReturnType<SessionManager<T, MaxAge>["clear"]>>;
     },
   };
 
@@ -167,7 +170,8 @@ export async function useJWSSession<
 export async function getJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(event: HTTPEvent, config: SessionConfigJWS<T, MaxAge>): Promise<SessionJWS<T, MaxAge>> {
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<SessionJWS<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
   const context = getEventContext<H3EventContext>(event);
 
@@ -198,13 +202,19 @@ export async function getJWSSession<
         config,
       });
       delete context.sessions![sessionName];
-      if (config.cookie !== false && hasWritableResponse(event)) {
-        setChunkedCookie(event, sessionName, "", {
-          ...DEFAULT_COOKIE,
-          ...config.cookie,
-          expires: new Date(0),
-          maxAge: undefined,
-        });
+      if (config.cookie !== false) {
+        if (hasWritableResponse(event)) {
+          setChunkedCookie(event, sessionName, "", {
+            ...DEFAULT_COOKIE,
+            ...config.cookie,
+            expires: new Date(0),
+            maxAge: undefined,
+          });
+        } else {
+          console.warn(
+            "[unjwt/h3] Session expired but cookie cannot be cleared on a read-only event.",
+          );
+        }
       }
       const freshNow = config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
       const freshCreatedAt = freshNow - (freshNow % 1000);
@@ -225,11 +235,13 @@ export async function getJWSSession<
       return freshSession;
     }
 
-    await config.hooks?.onRead?.({
-      event,
-      session,
-      config,
-    });
+    if (session.id !== undefined && session.token !== undefined) {
+      await config.hooks?.onRead?.({
+        session: session as SessionJWS<T, MaxAge> & { id: string; token: string },
+        event,
+        config,
+      });
+    }
     return session;
   }
 
@@ -250,7 +262,7 @@ export async function getJWSSession<
   // @ts-expect-error upstream types expect an empty id string
   context.sessions![sessionName] = session;
 
-  const token = getJWSSessionToken<T, MaxAge>(event, config);
+  const token = getJWSSessionToken(event, config);
 
   let exclusiveHookFired = false;
   if (token) {
@@ -291,10 +303,10 @@ export async function getJWSSession<
     await promise;
   }
 
-  if (!exclusiveHookFired) {
+  if (!exclusiveHookFired && session.id !== undefined && session.token !== undefined) {
     await config.hooks?.onRead?.({
+      session: session as SessionJWS<T, MaxAge> & { id: string; token: string },
       event,
-      session,
       config,
     });
   }
@@ -304,7 +316,8 @@ export async function getJWSSession<
 export function getJWSSessionToken<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(event: HTTPEvent, config: SessionConfigJWS<T, MaxAge>): string | undefined {
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): string | undefined {
   const sessionName = config.name || DEFAULT_NAME;
 
   let token: string | undefined;
@@ -339,17 +352,23 @@ export function getJWSSessionToken<
 export async function updateJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
 >(
-  event: HTTPEvent,
-  config: SessionConfigJWS<T, MaxAge>,
+  event: TEvent,
+  config: SessionConfigJWS<T, MaxAge, TEvent>,
   update?: SessionUpdate<T>,
 ): Promise<SessionJWS<T, MaxAge>> {
+  const canWriteCookie = hasWritableResponse(event);
+  if (config.cookie !== false && !canWriteCookie) {
+    throw new Error("[unjwt/h3] Cannot update session on read-only event.");
+  }
+
   const sessionName = config.name || DEFAULT_NAME;
   const context = getEventContext<H3EventContext>(event);
 
-  const session: SessionJWS<T, MaxAge> =
-    (context.sessions?.[sessionName] as SessionJWS<T, MaxAge>) ||
-    (await getJWSSession<T, MaxAge>(event, config));
+  const session: SessionJWS<T, MaxAge> & { id: string; token: string } =
+    (context.sessions?.[sessionName] as SessionJWS<T, MaxAge> & { id: string; token: string }) ||
+    (await getJWSSession(event, config));
 
   if (typeof update === "function") {
     update = update(session.data);
@@ -387,27 +406,25 @@ export async function updateJWSSession<
   }
   session.token = token;
 
-  if (hasWritableResponse(event)) {
-    if (config.cookie !== false) {
-      setChunkedCookie(event, sessionName, token, {
-        ...DEFAULT_COOKIE,
-        expires:
-          config.maxAge === undefined
-            ? undefined
-            : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
-        ...config.cookie,
-      });
-    }
-
-    // Fire after signing so the hook receives the definitive new token, jti, and timestamps.
-    // Also fires when update is undefined (pure token refresh with no payload change).
-    await config.hooks?.onUpdate?.({
-      session: session as SessionJWS<T, MaxAge> & { token: string },
-      oldSession,
-      event,
-      config,
+  if (config.cookie !== false && canWriteCookie) {
+    setChunkedCookie(event, sessionName, token, {
+      ...DEFAULT_COOKIE,
+      expires:
+        config.maxAge === undefined
+          ? undefined
+          : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
+      ...config.cookie,
     });
   }
+
+  // Fire after signing so the hook receives the definitive new token, jti, and timestamps.
+  // Also fires when update is undefined (pure token refresh with no payload change).
+  await config.hooks?.onUpdate?.({
+    session,
+    oldSession,
+    event,
+    config,
+  });
 
   return session;
 }
@@ -415,14 +432,15 @@ export async function updateJWSSession<
 export async function signJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(event: HTTPEvent, config: SessionConfigJWS<T, MaxAge>): Promise<string> {
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<string> {
   const key = getSignKey(config.key);
   const sessionName = config.name || DEFAULT_NAME;
   const context = getEventContext<H3EventContext>(event);
 
   const session: SessionJWS<T, MaxAge> =
     (context.sessions?.[sessionName] as SessionJWS<T, MaxAge>) ||
-    (await getJWSSession<T, MaxAge>(event, config));
+    (await getJWSSession(event, config));
 
   const iat = Math.floor(session.createdAt / 1000);
   const exp = session.expiresAt ? Math.floor(session.expiresAt / 1000) : undefined;
@@ -462,9 +480,10 @@ export async function signJWSSession<
 export async function verifyJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
 >(
-  event: HTTPEvent,
-  config: SessionConfigJWS<T, MaxAge>,
+  event: TEvent,
+  config: SessionConfigJWS<T, MaxAge, TEvent>,
   token: string,
 ): Promise<Partial<SessionJWS<T, MaxAge>>> {
   const alg = config.jws?.signOptions?.alg;
@@ -514,7 +533,13 @@ export async function verifyJWSSession<
 export async function clearJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(event: HTTPEvent, config: Partial<SessionConfigJWS<T, MaxAge>>): Promise<void> {
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<void> {
+  const canWriteCookie = hasWritableResponse(event);
+  if (config.cookie !== false && !canWriteCookie) {
+    throw new Error("[unjwt/h3] Cannot clear session on read-only event.");
+  }
+
   const context = getEventContext<H3EventContext>(event);
   const sessionName = config.name || DEFAULT_NAME;
 
@@ -523,27 +548,26 @@ export async function clearJWSSession<
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];
   }
+  const oldSession = session ? { ...session, data: { ...session.data } } : undefined;
 
   if (context.sessions?.[sessionName]) {
     delete context.sessions![sessionName];
   }
 
-  if (hasWritableResponse(event)) {
-    if (config.cookie !== false) {
-      setChunkedCookie(event, sessionName, "", {
-        ...DEFAULT_COOKIE,
-        ...config.cookie,
-        expires: new Date(0),
-        maxAge: undefined,
-      });
-    }
-
-    await config.hooks?.onClear?.({
-      session,
-      event,
-      config,
+  if (config.cookie !== false && canWriteCookie) {
+    setChunkedCookie(event, sessionName, "", {
+      ...DEFAULT_COOKIE,
+      ...config.cookie,
+      expires: new Date(0),
+      maxAge: undefined,
     });
   }
+
+  await config.hooks?.onClear?.({
+    oldSession,
+    event,
+    config,
+  });
 }
 
 function getSessionFromContext<
