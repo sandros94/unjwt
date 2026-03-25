@@ -56,6 +56,10 @@ src/
 - **No dynamic imports in tests.** Do not use `await import(...)` inside `it()`/`describe()` blocks. All module imports must be static top-level `import` statements. Dynamic imports defeat tree-shaking, make the module graph opaque to the type checker (inferred `any` types instead of the real ones), hide missing-import errors until runtime, and slow down vitest's transform phase. The only legitimate reasons to use a dynamic import in a test are (a) testing actual code-splitting / lazy-loading behaviour or (b) resetting module state between tests with `vi.resetModules()` — neither applies here. If an identifier is needed in a newly written test and it is not yet in the static imports, add it there instead.
 - **No tests for `src/core/jose/`** — that directory is an internal fork of panva/jose and is excluded from coverage (at the time of writing).
 
+## Known issues & long-term vision
+
+- **`.agents/vision/adapters-hooks.md`** — full analysis and fix tracker for the h3 adapter `SessionHooks` interfaces. **Read this before touching any hook callsite or interface in `src/adapters/`.**
+
 ## Code Conventions
 
 - Use **ESM** and modern JavaScript, with a type-first approach.
