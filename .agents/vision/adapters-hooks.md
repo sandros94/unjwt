@@ -14,7 +14,7 @@ Each item carries a status: **open** (untouched) · **planned** (design agreed) 
 
 ## Design directions (agreed, not yet implemented)
 
-### D-1 — Type-generic event parameter · `planned`
+### D-1 — Type-generic event parameter · `done`
 
 All hook `event` fields currently hardcode concrete event types. For a type-first library the
 event type should be inferred through a generic parameter that flows from the function signature
@@ -59,7 +59,7 @@ explicitly rather than relying on an implicit default.
 
 ---
 
-### D-2 — `hasWritableResponse` must only gate cookie operations, not hook calls · `planned`
+### D-2 — `hasWritableResponse` must only gate cookie operations, not hook calls · `done`
 
 The current h3v2 `updateJWSSession` and `clearJWSSession` gate both cookie-setting and the hook
 call behind `hasWritableResponse(event)`:
@@ -94,7 +94,7 @@ type without being forced into the `H3Event`-narrowed scope.
 
 ---
 
-### D-3 — Structured error codes in core utilities · `planned`
+### D-3 — Structured error codes in core utilities · `done`
 
 Issues O-5 and O-6 both stem from the adapter having to parse error messages to distinguish
 expiry errors from other errors, and from the decoded-but-rejected JWT claims being discarded
@@ -136,7 +136,7 @@ adapter files.
 
 ## Open issues
 
-### O-1 — `onUpdate` silently skipped for non-writable h3v2 events · `open`
+### O-1 — `onUpdate` silently skipped for non-writable h3v2 events · `done`
 
 **Fix:** D-1 + D-2. No further design needed.
 
@@ -187,7 +187,7 @@ flat key-value objects.
 
 ---
 
-### O-4 — `onRead` fires after `onExpire`/`onError`; and `onExpire` fires twice on the cached-expiry path · `open`
+### O-4 — `onRead` fires after `onExpire`/`onError`; and `onExpire` fires twice on the cached-expiry path · `done`
 
 `onRead`, `onExpire`, and `onError` must be **mutually exclusive**. `onRead` means "a session was
 successfully established for this request". If the incoming token triggered `onExpire` or `onError`,
@@ -311,7 +311,7 @@ fixed, the flag still covers two cases in the promise catch: the verify-failure 
 
 ---
 
-### O-5 — `onExpire` path 2: `session.id` is `undefined` despite claims being decodable · `open`
+### O-5 — `onExpire` path 2: `session.id` is `undefined` despite claims being decodable · `done`
 
 **Fix:** D-3 (structured error with `cause: { jti, iat, exp }`).
 
@@ -330,7 +330,7 @@ the error. The D-3 fix makes `session.id` available in the hook for this lookup.
 
 ---
 
-### O-6 — Expiry routing by error message string matching is fragile · `open`
+### O-6 — Expiry routing by error message string matching is fragile · `done`
 
 **Fix:** D-3 (structured error codes).
 
@@ -348,7 +348,7 @@ error_.message.includes("Token has expired") ||
 
 ---
 
-### O-7 — `onClear` silently skipped for non-writable h3v2 events on explicit clear · `open`
+### O-7 — `onClear` silently skipped for non-writable h3v2 events on explicit clear · `done`
 
 **Fix:** D-1 + D-2. Same root cause as O-1.
 
@@ -366,7 +366,7 @@ fire for natural expiry (only `onExpire` does). O-7 is therefore scoped exclusiv
 
 ---
 
-### O-8 — `onClear` receives `Partial<SessionConfig>` while all other hooks receive full config · `planned`
+### O-8 — `onClear` receives `Partial<SessionConfig>` while all other hooks receive full config · `done`
 
 `clearJWSSession`/`clearJWESession` accept `Partial<SessionConfig>`, so `onClear` also receives a
 partial config. Every other hook receives the full config. The fix is simply to pass the full
@@ -379,7 +379,7 @@ this is the correct constraint for a safe API.
 
 ---
 
-### I-A — h3v1 CompatEvent cast is a type-system lie propagated through all hook calls · `open`
+### I-A — h3v1 CompatEvent cast is a type-system lie propagated through all hook calls · `done`
 
 **Fix:** D-1.
 
@@ -392,7 +392,7 @@ once D-1 is implemented and the cast is replaced by the inferred `TEvent`.
 
 ---
 
-### I-C — h3v1 `isEvent` guard suppresses `onExpire` entirely for CompatEvents · `open`
+### I-C — h3v1 `isEvent` guard suppresses `onExpire` entirely for CompatEvents · `done`
 
 **Fix:** D-1 (remove the guard after the event generic lands).
 
