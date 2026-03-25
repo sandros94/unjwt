@@ -325,10 +325,7 @@ export function validateCriticalHeadersJWE(
       );
     }
     if (!understoodParams.has(critParam)) {
-      throw new JWTError(
-        `Unprocessed critical header parameters: ${critParam}`,
-        "ERR_JWE_INVALID",
-      );
+      throw new JWTError(`Unprocessed critical header parameters: ${critParam}`, "ERR_JWE_INVALID");
     }
   }
 }

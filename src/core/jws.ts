@@ -200,7 +200,10 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   // 1. Parse JWS
   const parts = jws.split(".");
   if (parts.length !== 3) {
-    throw new JWTError("Invalid JWS: Must contain three parts separated by dots.", "ERR_JWS_INVALID");
+    throw new JWTError(
+      "Invalid JWS: Must contain three parts separated by dots.",
+      "ERR_JWS_INVALID",
+    );
   }
   const [protectedHeaderEncoded, payloadEncoded, signatureEncoded] = parts;
 
@@ -321,12 +324,18 @@ function validateKeyLength(
     const algLength = Number.parseInt(alg.slice(2)) / 8; // in bytes
 
     if (key.length < algLength) {
-      throw new JWTError(`${alg} requires key length to be ${algLength} bytes or larger`, "ERR_JWK_INVALID");
+      throw new JWTError(
+        `${alg} requires key length to be ${algLength} bytes or larger`,
+        "ERR_JWK_INVALID",
+      );
     }
   } else if ((alg.startsWith("RS") || alg.startsWith("PS")) && key instanceof CryptoKey) {
     const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new JWTError(`${alg} requires key modulusLength to be 2048 bits or larger`, "ERR_JWK_INVALID");
+      throw new JWTError(
+        `${alg} requires key modulusLength to be 2048 bits or larger`,
+        "ERR_JWK_INVALID",
+      );
     }
   }
 }

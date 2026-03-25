@@ -181,7 +181,10 @@ export async function encrypt(
     throw new JWTError("Content encryption IV was not generated or returned.", "ERR_JWE_INVALID");
   }
   if (!contentAuthTag) {
-    throw new JWTError("Content encryption auth tag was not generated or returned.", "ERR_JWE_INVALID");
+    throw new JWTError(
+      "Content encryption auth tag was not generated or returned.",
+      "ERR_JWE_INVALID",
+    );
   }
 
   // For 'dir' or 'ECDH-ES' (direct key agreement), jweEncryptedKey will be undefined.
@@ -245,7 +248,10 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");
   if (parts.length !== 5) {
-    throw new JWTError("Invalid JWE: Must contain five sections (RFC7516, section-3).", "ERR_JWE_INVALID");
+    throw new JWTError(
+      "Invalid JWE: Must contain five sections (RFC7516, section-3).",
+      "ERR_JWE_INVALID",
+    );
   }
   const [
     protectedHeaderEncoded,
@@ -282,7 +288,10 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     throw new JWTError(`Key management algorithm not allowed: ${alg}`, "ERR_JWE_ALG_NOT_ALLOWED");
   }
   if (options?.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
-    throw new JWTError(`Content encryption algorithm not allowed: ${enc}`, "ERR_JWE_ALG_NOT_ALLOWED");
+    throw new JWTError(
+      `Content encryption algorithm not allowed: ${enc}`,
+      "ERR_JWE_ALG_NOT_ALLOWED",
+    );
   }
 
   const resolvedKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
@@ -315,7 +324,14 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   let plaintextBytes: Uint8Array<ArrayBuffer>;
   try {
     cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
-    plaintextBytes = await joseDecrypt(enc, cek, ciphertextBytes, contentIVBytes, contentAuthTagBytes, aadBytes);
+    plaintextBytes = await joseDecrypt(
+      enc,
+      cek,
+      ciphertextBytes,
+      contentIVBytes,
+      contentAuthTagBytes,
+      aadBytes,
+    );
   } catch (error_) {
     if (error_ instanceof JWTError) throw error_;
     throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error_);
