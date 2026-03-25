@@ -1,6 +1,6 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
-import { sign, verify } from "../src/core/jws";
+import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
 import { generateKey, exportKey } from "../src/core/jwk";
 import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src/core/utils";
 import type { JWSProtectedHeader, JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
@@ -211,6 +211,51 @@ describe.concurrent("JWS Utilities", () => {
           payload.exp * 1000,
         ).toISOString()})`,
       );
+    });
+
+    it("should throw JWTError with ERR_JWT_EXPIRED code and cause for expired `exp`", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const date = new Date();
+      const creationDate = new Date(date.getTime() - 60 * 2 * 1000);
+      const jws = await sign({ sub: "test-subject", jti: "test-jti-exp" }, key, {
+        currentDate: creationDate,
+        expiresIn: 60,
+      });
+      const [, payloadEncoded] = jws.split(".");
+      const { exp, iat } = JSON.parse(base64UrlDecode(payloadEncoded));
+
+      const error = await verify(jws, key, { currentDate: date }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+      if (isJWTError(error, "ERR_JWT_EXPIRED")) {
+        expect(error.cause).toStrictEqual({ jti: "test-jti-exp", iat, exp });
+      }
+    });
+
+    it("should throw JWTError with ERR_JWT_EXPIRED code and cause for exceeded maxTokenAge", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const date = new Date();
+      // token issued 2 minutes ago; maxTokenAge of 60s will reject it
+      const creationDate = new Date(date.getTime() - 60 * 2 * 1000);
+      // expiresIn must be provided so that computeJwtTimeClaims populates iat
+      const jws = await sign({ sub: "test-subject", jti: "test-jti-age" }, key, {
+        currentDate: creationDate,
+        expiresIn: 3600,
+      });
+      const [, payloadEncoded] = jws.split(".");
+      const { iat } = JSON.parse(base64UrlDecode(payloadEncoded));
+
+      const error = await verify(jws, key, {
+        currentDate: date,
+        maxTokenAge: 60,
+      }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+      if (isJWTError(error, "ERR_JWT_EXPIRED")) {
+        expect(error.cause).toMatchObject({ jti: "test-jti-age", iat });
+      }
     });
 
     it("should not include computed `exp`", async () => {
@@ -1046,6 +1091,73 @@ describe.concurrent("JWS Utilities", () => {
       await expect(verify(`${header}.invalid?payload.${sig}`, hs256Key)).rejects.toThrow(
         "JWS signature verification failed.",
       );
+    });
+  });
+
+  describe("JWTError error codes", () => {
+    let hs256Key: CryptoKey;
+    beforeAll(async () => {
+      hs256Key = await generateKey("HS256");
+    });
+
+    it("ERR_JWS_INVALID — malformed compact serialization", async () => {
+      const error = await verify("only.two", hs256Key).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    });
+
+    it("ERR_JWS_ALG_NOT_ALLOWED — algorithm rejected by policy", async () => {
+      const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
+      const error = await verify(jws, hs256Key, { algorithms: ["RS256"] }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+    });
+
+    it("ERR_JWS_SIGNATURE_INVALID — tampered payload", async () => {
+      const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
+      const otherKey = await generateKey("HS256");
+      const error = await verify(jws, otherKey).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+    });
+
+    it("ERR_JWK_INVALID — Uint8Array key too short for algorithm", async () => {
+      const error = await sign(payloadObj, textEncoder.encode("short"), { alg: "HS256" }).catch(
+        (e) => e,
+      );
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    });
+
+    it("ERR_JWK_KEY_NOT_FOUND — no matching key in JWK Set", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const jws = await sign(payloadObj, { ...key, kid: "key-1" });
+      const jwkSet = { keys: [{ ...key, kid: "other-key" }] };
+      const error = await verify(jws, jwkSet).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+    });
+
+    it("ERR_JWT_NBF — token not yet valid", async () => {
+      const nbf = Math.round(Date.now() / 1000) + 3600;
+      const jws = await sign({ nbf }, hs256Key, { alg: "HS256" });
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWT_NBF")).toBe(true);
+    });
+
+    it("ERR_JWT_CLAIM_MISSING — required claim absent", async () => {
+      const jws = await sign({ sub: "test" }, hs256Key, { alg: "HS256" });
+      const error = await verify(jws, hs256Key, { requiredClaims: ["jti"] }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWT_CLAIM_MISSING")).toBe(true);
+    });
+
+    it("ERR_JWT_CLAIM_INVALID — issuer mismatch", async () => {
+      const jws = await sign({ iss: "https://a.example" }, hs256Key, { alg: "HS256" });
+      const error = await verify(jws, hs256Key, { issuer: "https://b.example" }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWT_CLAIM_INVALID")).toBe(true);
     });
   });
 });

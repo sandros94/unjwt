@@ -29,6 +29,7 @@ import {
   textEncoder,
   randomBytes,
 } from "./utils";
+import { JWTError } from "./error";
 import {
   jwkTokey,
   keyToJWK,
@@ -52,6 +53,8 @@ import {
 
 export type * from "./types/jwk";
 export type * from "./types/jwt";
+export { JWTError, isJWTError } from "./error";
+export type { JWTErrorCode, JWTErrorCauseMap } from "./error";
 
 /**
  * Generates a cryptographic key for the specified algorithm.
@@ -302,7 +305,7 @@ export async function importKey(
   }
 
   // This should be unreachable
-  throw new Error("Invalid key type provided to importKey");
+  throw new JWTError("Invalid key type provided to importKey", "ERR_JWK_INVALID");
 }
 
 /**
@@ -749,7 +752,7 @@ export function getJWKFromSet(
     const kid = kidOrProtectedHeader;
     const selectedKey = jwkSet.keys.find((k: JWK) => k.kid === kid);
     if (!selectedKey) {
-      throw new Error(`No key found in JWK Set with kid "${kid}".`);
+      throw new JWTError(`No key found in JWK Set with kid "${kid}".`, "ERR_JWK_KEY_NOT_FOUND");
     }
     return selectedKey;
   } else if (typeof kidOrProtectedHeader === "object") {
@@ -758,8 +761,9 @@ export function getJWKFromSet(
     const { kid, alg, kty } = kidOrProtectedHeader;
 
     if (!kid) {
-      throw new Error(
+      throw new JWTError(
         "JWS Protected Header is missing 'kid' (Key ID) and a JWK Set was provided. Cannot select key from JWK Set automatically.",
+        "ERR_JWK_KEY_NOT_FOUND",
       );
     }
 
@@ -776,7 +780,7 @@ export function getJWKFromSet(
         errorMessage += ` and kty "${kty}"`;
       }
       errorMessage += ".";
-      throw new Error(errorMessage);
+      throw new JWTError(errorMessage, "ERR_JWK_KEY_NOT_FOUND");
     }
 
     return selectedKey;

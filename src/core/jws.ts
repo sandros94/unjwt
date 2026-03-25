@@ -14,6 +14,7 @@ import type {
 } from "./types";
 import { importKey, getJWKFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./jose";
+import { JWTError } from "./error";
 import {
   base64UrlEncode,
   base64UrlDecode,
@@ -32,6 +33,7 @@ import {
 export type * from "./types/jws";
 export type * from "./types/jwk";
 export type * from "./types/jwt";
+export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
 
 /**
  * Creates a JWS (JSON Web Signature) in Compact Serialization format.
@@ -198,7 +200,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   // 1. Parse JWS
   const parts = jws.split(".");
   if (parts.length !== 3) {
-    throw new Error("Invalid JWS: Must contain three parts separated by dots.");
+    throw new JWTError("Invalid JWS: Must contain three parts separated by dots.", "ERR_JWS_INVALID");
   }
   const [protectedHeaderEncoded, payloadEncoded, signatureEncoded] = parts;
 
@@ -208,24 +210,28 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
     const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
     protectedHeader = sanitizeObject<JWSProtectedHeader>(JSON.parse(protectedHeaderString));
   } catch {
-    throw new Error("Invalid JWS: Protected header could not be decoded.");
+    throw new JWTError("Invalid JWS: Protected header could not be decoded.", "ERR_JWS_INVALID");
   }
 
   if (!protectedHeader || typeof protectedHeader !== "object" || !protectedHeader.alg) {
-    throw new Error('Invalid JWS: Protected header must be an object with an "alg" property.');
+    throw new JWTError(
+      'Invalid JWS: Protected header must be an object with an "alg" property.',
+      "ERR_JWS_INVALID",
+    );
   }
 
   const alg = protectedHeader.alg;
 
   // 3. Check Algorithm Allowed (if options provided)
   if (options.algorithms && !options.algorithms.includes(alg)) {
-    throw new Error(`Algorithm not allowed: ${alg}`);
+    throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
   }
 
   // Validate `typ` Header Parameter
   if (options.typ && protectedHeader.typ !== options.typ) {
-    throw new Error(
+    throw new JWTError(
       `Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
+      "ERR_JWS_INVALID",
     );
   }
 
@@ -234,7 +240,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   try {
     signatureBytes = base64UrlDecode(signatureEncoded, false);
   } catch {
-    throw new Error("Invalid JWS: Signature could not be decoded.");
+    throw new JWTError("Invalid JWS: Signature could not be decoded.", "ERR_JWS_INVALID");
   }
 
   // 5. Obtain and Import Key
@@ -256,7 +262,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
 
   if (!isValid) {
-    throw new Error("JWS signature verification failed.");
+    throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
   }
 
   // 8. Decode Payload
@@ -275,8 +281,9 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
           : payloadEncoded
     ) as T;
   } catch (error_) {
-    throw new Error(
+    throw new JWTError(
       `Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : error_})`,
+      "ERR_JWS_INVALID",
     );
   }
 
@@ -314,12 +321,12 @@ function validateKeyLength(
     const algLength = Number.parseInt(alg.slice(2)) / 8; // in bytes
 
     if (key.length < algLength) {
-      throw new TypeError(`${alg} requires key length to be ${algLength} bytes or larger`);
+      throw new JWTError(`${alg} requires key length to be ${algLength} bytes or larger`, "ERR_JWK_INVALID");
     }
   } else if ((alg.startsWith("RS") || alg.startsWith("PS")) && key instanceof CryptoKey) {
     const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new TypeError(`${alg} requires key modulusLength to be 2048 bits or larger`);
+      throw new JWTError(`${alg} requires key modulusLength to be 2048 bits or larger`, "ERR_JWK_INVALID");
     }
   }
 }

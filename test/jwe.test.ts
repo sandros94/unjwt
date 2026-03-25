@@ -1,6 +1,6 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
-import { encrypt, decrypt } from "../src/core/jwe";
+import { encrypt, decrypt, JWTError, isJWTError } from "../src/core/jwe";
 import { generateKey, exportKey, unwrapKey } from "../src/core/jwk";
 import {
   randomBytes,
@@ -586,6 +586,26 @@ describe.concurrent("JWE Utilities", () => {
           `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: 1970-01-01T00:01:00.000Z)`,
         );
       });
+
+      it("should throw JWTError with ERR_JWT_EXPIRED code and cause for expired `exp`", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const jwe = await encrypt({ sub: "test-subject", jti: "test-jti-exp" }, key, {
+          alg,
+          enc,
+          expiresIn: 60,
+          currentDate: new Date(0),
+        });
+
+        const error = await decrypt<JWTClaims>(jwe, key, {
+          currentDate: new Date(61_000),
+        }).catch((e) => e);
+
+        expect(error).toBeInstanceOf(JWTError);
+        expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+        if (isJWTError(error, "ERR_JWT_EXPIRED")) {
+          expect(error.cause).toMatchObject({ jti: "test-jti-exp", exp: 60 });
+        }
+      });
     });
   });
 
@@ -820,6 +840,34 @@ describe.concurrent("JWE Utilities", () => {
           ecdh: { ephemeralKey: 42 },
         }),
       ).rejects.toThrow(/Unsupported ECDH-ES ephemeral key material/i);
+    });
+  });
+
+  describe("JWTError error codes", () => {
+    let aesKey: CryptoKey;
+    beforeAll(async () => {
+      aesKey = await generateKey("A256KW");
+    });
+
+    it("ERR_JWE_INVALID — malformed compact serialization", async () => {
+      const error = await decrypt("only.two.parts", aesKey).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    });
+
+    it("ERR_JWE_ALG_NOT_ALLOWED — key management algorithm rejected by policy", async () => {
+      const jwe = await encrypt(plaintextObj, aesKey, { alg: "A256KW", enc: "A256GCM" });
+      const error = await decrypt(jwe, aesKey, { algorithms: ["A128KW"] }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+    });
+
+    it("ERR_JWE_DECRYPTION_FAILED — wrong decryption key", async () => {
+      const jwe = await encrypt(plaintextObj, aesKey, { alg: "A256KW", enc: "A256GCM" });
+      const otherKey = await generateKey("A256KW");
+      const error = await decrypt(jwe, otherKey).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
     });
   });
 });

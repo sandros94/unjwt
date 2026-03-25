@@ -1,5 +1,6 @@
 import type { JWTClaims, JWTClaimValidationOptions, ExpiresIn } from "../types";
 import { base64UrlDecode, textDecoder, textEncoder, maybeArray, sanitizeObject } from "./index";
+import { JWTError } from "../error";
 
 /**
  * Apply default typ/cty semantics shared by JWS & JWE.
@@ -186,21 +187,26 @@ export function validateJwtClaims(
     if (!(claimName in jwtClaims)) missingClaims.add(claimName);
   }
   if (missingClaims.size > 0) {
-    throw new Error(`Missing required JWT Claims: ${[...missingClaims].join(", ")}`);
+    throw new JWTError(
+      `Missing required JWT Claims: ${[...missingClaims].join(", ")}`,
+      "ERR_JWT_CLAIM_MISSING",
+    );
   }
 
   if (options.issuer) {
     const expectedIssuers = maybeArray(options.issuer);
     if (!jwtClaims.iss || !expectedIssuers.includes(jwtClaims.iss)) {
-      throw new Error(
+      throw new JWTError(
         `Invalid JWT "iss" (Issuer) Claim: Expected ${expectedIssuers.join(" or ")}, got ${jwtClaims.iss}`,
+        "ERR_JWT_CLAIM_INVALID",
       );
     }
   }
 
   if (options.subject && jwtClaims.sub !== options.subject) {
-    throw new Error(
+    throw new JWTError(
       `Invalid JWT "sub" (Subject) Claim: Expected ${options.subject}, got ${jwtClaims.sub}`,
+      "ERR_JWT_CLAIM_INVALID",
     );
   }
 
@@ -208,40 +214,50 @@ export function validateJwtClaims(
     const expectedAudiences = maybeArray(options.audience);
     const claimAudience = maybeArray(jwtClaims.aud || []);
     if (!claimAudience.some((aud) => expectedAudiences.includes(aud))) {
-      throw new Error(
+      throw new JWTError(
         `Invalid JWT "aud" (Audience) Claim: Expected ${expectedAudiences.join(" or ")}, got ${claimAudience.join(", ")}`,
+        "ERR_JWT_CLAIM_INVALID",
       );
     }
   }
 
   if (typeof jwtClaims.nbf === "number" && jwtClaims.nbf > currentTime + clockTolerance) {
-    throw new Error(
+    throw new JWTError(
       `JWT "nbf" (Not Before) Claim validation failed: Token is not yet valid (nbf: ${new Date(jwtClaims.nbf * 1000).toISOString()})`,
+      "ERR_JWT_NBF",
     );
   }
 
   if (typeof jwtClaims.exp === "number" && jwtClaims.exp <= currentTime - clockTolerance) {
-    throw new Error(
+    throw new JWTError(
       `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(jwtClaims.exp * 1000).toISOString()})`,
+      "ERR_JWT_EXPIRED",
+      { jti: jwtClaims.jti, iat: jwtClaims.iat, exp: jwtClaims.exp },
     );
   }
 
   if (options.maxTokenAge) {
     if (typeof jwtClaims.iat !== "number") {
-      throw new TypeError('JWT "iat" (Issued At) Claim must be a number when maxTokenAge is set.');
+      throw new JWTError(
+        'JWT "iat" (Issued At) Claim must be a number when maxTokenAge is set.',
+        "ERR_JWT_CLAIM_INVALID",
+      );
     }
     // iat must not be in the future (beyond clock tolerance)
     if (jwtClaims.iat > currentTime + clockTolerance) {
-      throw new Error(
+      throw new JWTError(
         `JWT "iat" (Issued At) Claim validation failed: Token was issued in the future (iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
+        "ERR_JWT_CLAIM_INVALID",
       );
     }
     if (
       jwtClaims.iat <
       currentTime - computeMaxTokenAgeSeconds(options.maxTokenAge) - clockTolerance
     ) {
-      throw new Error(
+      throw new JWTError(
         `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}s, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
+        "ERR_JWT_EXPIRED",
+        { jti: jwtClaims.jti, iat: jwtClaims.iat, exp: jwtClaims.exp },
       );
     }
   }
@@ -267,7 +283,10 @@ export function validateCriticalHeadersJWS(
   }
 
   if (missingHeaderParams.size > 0) {
-    throw new Error(`Missing critical header parameters: ${[...missingHeaderParams].join(", ")}`);
+    throw new JWTError(
+      `Missing critical header parameters: ${[...missingHeaderParams].join(", ")}`,
+      "ERR_JWS_INVALID",
+    );
   }
 }
 
@@ -277,7 +296,10 @@ export function validateCriticalHeadersJWE(
   understoodFromOptions?: string[],
 ): void {
   if (protectedHeader.crit && !understoodFromOptions) {
-    throw new Error(`Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`);
+    throw new JWTError(
+      `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
+      "ERR_JWE_INVALID",
+    );
   }
   if (!protectedHeader.crit) return;
 
@@ -297,12 +319,16 @@ export function validateCriticalHeadersJWE(
   for (const critParam of protectedHeader.crit) {
     // Parameter must also be present in the protected header
     if (!Object.prototype.hasOwnProperty.call(protectedHeader, critParam)) {
-      throw new Error(
+      throw new JWTError(
         `Critical header parameter "${critParam}" listed in "crit" but not present in the protected header.`,
+        "ERR_JWE_INVALID",
       );
     }
     if (!understoodParams.has(critParam)) {
-      throw new Error(`Unprocessed critical header parameters: ${critParam}`);
+      throw new JWTError(
+        `Unprocessed critical header parameters: ${critParam}`,
+        "ERR_JWE_INVALID",
+      );
     }
   }
 }

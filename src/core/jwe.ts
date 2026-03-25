@@ -20,6 +20,7 @@ import type {
 
 import { importKey, unwrapKey } from "./jwk";
 import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./jose";
+import { JWTError } from "./error";
 import {
   base64UrlEncode,
   base64UrlDecode,
@@ -40,6 +41,7 @@ import {
 export type * from "./types/jwe";
 export type * from "./types/jwk";
 export type * from "./types/jwt";
+export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
 
 /**
  * Encrypts a payload to produce a JWE Compact Serialization string.
@@ -176,10 +178,10 @@ export async function encrypt(
   } = await joseEncrypt(enc, plaintextBytes, finalCek, contentIVBytes, aadBytes);
 
   if (!actualContentIV) {
-    throw new Error("Content encryption IV was not generated or returned.");
+    throw new JWTError("Content encryption IV was not generated or returned.", "ERR_JWE_INVALID");
   }
   if (!contentAuthTag) {
-    throw new Error("Content encryption auth tag was not generated or returned.");
+    throw new JWTError("Content encryption auth tag was not generated or returned.", "ERR_JWE_INVALID");
   }
 
   // For 'dir' or 'ECDH-ES' (direct key agreement), jweEncryptedKey will be undefined.
@@ -243,7 +245,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");
   if (parts.length !== 5) {
-    throw new Error("Invalid JWE: Must contain five sections (RFC7516, section-3).");
+    throw new JWTError("Invalid JWE: Must contain five sections (RFC7516, section-3).", "ERR_JWE_INVALID");
   }
   const [
     protectedHeaderEncoded,
@@ -258,7 +260,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
     protectedHeader = sanitizeObject<JWEHeaderParameters>(JSON.parse(protectedHeaderJson));
   } catch {
-    throw new Error("Invalid JWE: Protected header could not be decoded.");
+    throw new JWTError("Invalid JWE: Protected header could not be decoded.", "ERR_JWE_INVALID");
   }
 
   if (
@@ -267,8 +269,9 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     !protectedHeader.alg ||
     !protectedHeader.enc
   ) {
-    throw new Error(
+    throw new JWTError(
       'Invalid JWE: Protected header must be an object with "alg" and "enc" properties.',
+      "ERR_JWE_INVALID",
     );
   }
 
@@ -276,10 +279,10 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   const enc = protectedHeader.enc as ContentEncryptionAlgorithm;
 
   if (options?.algorithms && !options.algorithms.includes(alg)) {
-    throw new Error(`Key management algorithm not allowed: ${alg}`);
+    throw new JWTError(`Key management algorithm not allowed: ${alg}`, "ERR_JWE_ALG_NOT_ALLOWED");
   }
   if (options?.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
-    throw new Error(`Content encryption algorithm not allowed: ${enc}`);
+    throw new JWTError(`Content encryption algorithm not allowed: ${enc}`, "ERR_JWE_ALG_NOT_ALLOWED");
   }
 
   const resolvedKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
@@ -306,18 +309,17 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     unwrapKeyOpts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
   if (options?.extractable) unwrapKeyOpts.extractable = options.extractable;
 
-  const cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
-
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
-  const plaintextBytes = await joseDecrypt(
-    enc,
-    cek,
-    ciphertextBytes,
-    contentIVBytes,
-    contentAuthTagBytes,
-    aadBytes,
-  );
+  let cek: Uint8Array<ArrayBuffer> | CryptoKey;
+  let plaintextBytes: Uint8Array<ArrayBuffer>;
+  try {
+    cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
+    plaintextBytes = await joseDecrypt(enc, cek, ciphertextBytes, contentIVBytes, contentAuthTagBytes, aadBytes);
+  } catch (error_) {
+    if (error_ instanceof JWTError) throw error_;
+    throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error_);
+  }
 
   const payload = decodePayloadFromBytes<T>(
     plaintextBytes,
