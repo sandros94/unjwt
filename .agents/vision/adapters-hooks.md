@@ -51,6 +51,7 @@ need `.res`. This is the correct safe default — hooks that assume a writable e
 explicitly rather than relying on an implicit default.
 
 **Impact:**
+
 - Removes all `as H3Event` casts in h3v1 (issue I-A).
 - Allows `onUpdate` and `onClear` to accept the broad event type, removing the dependency on
   `hasWritableResponse` for hook calls (see D-2 / issues O-1, O-7).
@@ -82,7 +83,7 @@ await config.hooks?.onUpdate?.({...});   // always fires — hooks are notificat
 ```
 
 **Rationale:** for OAuth 2.1 endpoints that set `cookie: false` and return the token as a JSON
-body, the event *is* an `H3Event` (regular HTTP, writable), so `onUpdate` already fires correctly
+body, the event _is_ an `H3Event` (regular HTTP, writable), so `onUpdate` already fires correctly
 today. The real gap is WebSocket/SSE sessions where `hasWritableResponse` is false: the token is
 signed and cached in `session.token`, but `onUpdate`/`onClear` never fire — enterprise
 DB-tracking hooks miss those updates entirely. Cookies are the only thing that truly requires a
@@ -100,33 +101,32 @@ expiry errors from other errors, and from the decoded-but-rejected JWT claims be
 before the hook fires. The fix lives in the core `unjwt/jws` and `unjwt/jwe` modules:
 
 1. **Add an error code** (e.g. `ERR_JWT_EXPIRED`, `ERR_JWT_CLAIM_INVALID`, `ERR_JWS_SIGNATURE`)
-  to thrown errors — either via a custom `JWTError` class with a `code: string` property, or
-  by attaching the code directly: `Object.assign(new Error("..."), { code: "ERR_JWT_EXPIRED" })`.
+   to thrown errors — either via a custom `JWTError` class with a `code: string` property, or
+   by attaching the code directly: `Object.assign(new Error("..."), { code: "ERR_JWT_EXPIRED" })`.
 
 2. **Attach decoded claims to `cause`** for expiry errors: the JWT was cryptographically valid
-  (signature OK) but its `exp` is in the past, which means the full payload — including `jti`,
-  `iat`, `exp` — was decoded before the check failed. Exposing those in `error.cause` lets the
-  adapter (and hook implementors) access the expired token's `jti` without re-decoding
-  `session.token` manually.
+   (signature OK) but its `exp` is in the past, which means the full payload — including `jti`,
+   `iat`, `exp` — was decoded before the check failed. Exposing those in `error.cause` lets the
+   adapter (and hook implementors) access the expired token's `jti` without re-decoding
+   `session.token` manually.
 
-  ```ts
-  throw Object.assign(
-    new Error("Token has expired"),
-    {
-      code: "ERR_JWT_EXPIRED",
-      cause: { jti, iat, exp },   // claims decoded from the expired token
-    }
-  );
-  ```
+```ts
+throw Object.assign(new Error("Token has expired"), {
+  code: "ERR_JWT_EXPIRED",
+  cause: { jti, iat, exp }, // claims decoded from the expired token
+});
+```
 
 3. The **adapter routing** then becomes structural, not textual:
-  ```ts
-  // current — fragile
-  error_.message.includes("Token has expired") || error_.message.includes("Token is too old")
 
-  // target — stable
-  (error_ as any).code === "ERR_JWT_EXPIRED"
-  ```
+```ts
+// current — fragile
+error_.message.includes("Token has expired") ||
+  error_.message.includes("Token is too old")(
+    // target — stable
+    error_ as any,
+  ).code === "ERR_JWT_EXPIRED";
+```
 
 **Impact:** closes O-5 (session.id available via `error.cause.jti`) and O-6 (no more string
 matching). Requires coordinated changes to `src/core/jws.ts`, `src/core/jwe.ts`, and all four
@@ -137,6 +137,7 @@ adapter files.
 ## Open issues
 
 ### O-1 — `onUpdate` silently skipped for non-writable h3v2 events · `open`
+
 **Fix:** D-1 + D-2. No further design needed.
 
 **File:** `src/adapters/h3v2/session/jws.ts`, `src/adapters/h3v2/session/jwe.ts`
@@ -251,6 +252,7 @@ return freshSession;
 ```
 
 **Adapter differences:**
+
 - **h3v2:** uses `getEventContext(event)` → `context.sessions`, `setChunkedCookie`, `hasWritableResponse(event)`.
 - **h3v1:** uses `event.context.sessions` directly, `setCookie`; no `hasWritableResponse` (the
   existingSession expiry block is already behind `isEvent(event)`, so the event is always H3Event
@@ -263,6 +265,7 @@ only the cookie clearing is conditional. The `isEvent` guard should be removed a
 replaced with the adapter-appropriate writability check (see I-C).
 
 **Semantic contract after this fix:**
+
 - Expiry path: only `onExpire` fires.
 - Explicit clear path (`session.clear()`): only `onClear` fires.
 - The two hooks are mutually exclusive by design — enterprise revocation logic should live in one
@@ -309,6 +312,7 @@ fixed, the flag still covers two cases in the promise catch: the verify-failure 
 ---
 
 ### O-5 — `onExpire` path 2: `session.id` is `undefined` despite claims being decodable · `open`
+
 **Fix:** D-3 (structured error with `cause: { jti, iat, exp }`).
 
 When a token's `exp` has passed, the JWT was fully decoded (including `jti`) before the error was
@@ -327,14 +331,16 @@ the error. The D-3 fix makes `session.id` available in the hook for this lookup.
 ---
 
 ### O-6 — Expiry routing by error message string matching is fragile · `open`
+
 **Fix:** D-3 (structured error codes).
 
 ```ts
 // current — breaks silently if error wording changes
-error_.message.includes("Token has expired") || error_.message.includes("Token is too old")
-
-// target after D-3
-(error_ as any).code === "ERR_JWT_EXPIRED"
+error_.message.includes("Token has expired") ||
+  error_.message.includes("Token is too old")(
+    // target after D-3
+    error_ as any,
+  ).code === "ERR_JWT_EXPIRED";
 ```
 
 **File:** all four adapter files + `src/core/jws.ts`, `src/core/jwe.ts`.
@@ -343,6 +349,7 @@ error_.message.includes("Token has expired") || error_.message.includes("Token i
 ---
 
 ### O-7 — `onClear` silently skipped for non-writable h3v2 events on explicit clear · `open`
+
 **Fix:** D-1 + D-2. Same root cause as O-1.
 
 When `session.clear()` is called on a WebSocket/SSE event in h3v2, `clearJWSSession` hits the
@@ -373,6 +380,7 @@ this is the correct constraint for a safe API.
 ---
 
 ### I-A — h3v1 CompatEvent cast is a type-system lie propagated through all hook calls · `open`
+
 **Fix:** D-1.
 
 All h3v1 hook invocations cast `event as H3Event`. In code paths reachable by `CompatEvent`,
@@ -385,6 +393,7 @@ once D-1 is implemented and the cast is replaced by the inferred `TEvent`.
 ---
 
 ### I-C — h3v1 `isEvent` guard suppresses `onExpire` entirely for CompatEvents · `open`
+
 **Fix:** D-1 (remove the guard after the event generic lands).
 
 In h3v1 `getJWSSession`, the existingSession expiry check is:
@@ -401,6 +410,7 @@ mechanism for the caller to know the session is stale.
 The guard was originally motivated by "you can't write a clearing cookie on a read-only event",
 which is true — but that only applies to the cookie operation, not to the `onExpire` notification.
 After D-1 and D-2, the correct behavior for all event types is:
+
 - Fire `onExpire` unconditionally.
 - Skip the cookie clearing if the response is not writable.
 - Initialize and return a fresh empty session.
@@ -429,19 +439,19 @@ No code change required.
 
 ## Summary table
 
-| ID  | Hook             | Adapter  | Severity   | Status  | Blocked by / Linked to |
-| --- | ---------------- | -------- | ---------- | ------- | ---------------------- |
-| D-1 | all              | all      | —          | planned | —                      |
-| D-2 | onUpdate, onClear| h3v2     | —          | planned | D-1                    |
-| D-3 | onExpire, onError| all      | —          | planned | core: jws.ts, jwe.ts   |
-| O-1 | onUpdate         | h3v2     | high       | open    | D-1, D-2               |
-| O-2 | onError          | all      | medium     | deferred | runtime-agnostic clone strategy TBD |
-| O-3 | onUpdate         | all      | low-medium | deferred | runtime-agnostic clone strategy TBD |
-| O-4 | onRead/onExpire  | all      | high+medium| open    | —                      |
-| O-5 | onExpire         | all      | medium     | open    | D-3                    |
-| O-6 | onExpire / onError | all    | low-medium | open    | D-3                    |
-| O-7 | onClear          | h3v2     | high       | open    | D-1, D-2               |
-| O-8 | onClear          | all      | low        | planned | —                      |
-| I-A | all              | h3v1     | low        | open    | D-1                    |
-| I-B | onRead           | all      | low        | open (docs) | —               |
-| I-C | onExpire         | h3v1     | medium     | open    | D-1                    |
+| ID  | Hook               | Adapter | Severity    | Status      | Blocked by / Linked to              |
+| --- | ------------------ | ------- | ----------- | ----------- | ----------------------------------- |
+| D-1 | all                | all     | —           | planned     | —                                   |
+| D-2 | onUpdate, onClear  | h3v2    | —           | planned     | D-1                                 |
+| D-3 | onExpire, onError  | all     | —           | planned     | core: jws.ts, jwe.ts                |
+| O-1 | onUpdate           | h3v2    | high        | open        | D-1, D-2                            |
+| O-2 | onError            | all     | medium      | deferred    | runtime-agnostic clone strategy TBD |
+| O-3 | onUpdate           | all     | low-medium  | deferred    | runtime-agnostic clone strategy TBD |
+| O-4 | onRead/onExpire    | all     | high+medium | open        | —                                   |
+| O-5 | onExpire           | all     | medium      | open        | D-3                                 |
+| O-6 | onExpire / onError | all     | low-medium  | open        | D-3                                 |
+| O-7 | onClear            | h3v2    | high        | open        | D-1, D-2                            |
+| O-8 | onClear            | all     | low         | planned     | —                                   |
+| I-A | all                | h3v1    | low         | open        | D-1                                 |
+| I-B | onRead             | all     | low         | open (docs) | —                                   |
+| I-C | onExpire           | h3v1    | medium      | open        | D-1                                 |
