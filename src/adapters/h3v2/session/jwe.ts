@@ -21,7 +21,7 @@ import type {
   JWEHeaderParameters,
   JWTClaimValidationOptions,
 } from "../../../core/types";
-import { encrypt, decrypt } from "../../../core/jwe";
+import { encrypt, decrypt, JWTError, isJWTError } from "../../../core/jwe";
 import {
   isSymmetricJWK,
   isPrivateJWK,
@@ -70,8 +70,12 @@ export interface SessionHooksJWE<
     config: Partial<SessionConfigJWE<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
-    /** The session that expired. */
-    session: SessionJWE<T, MaxAge> & { token: string };
+    session: {
+      id: string | undefined;
+      createdAt: number | undefined;
+      expiresAt: number | undefined;
+      token: string;
+    };
     event: HTTPEvent;
     error: Error;
     config: SessionConfigJWE<T, MaxAge>;
@@ -202,14 +206,46 @@ export async function getJWESession<
      */
     if (session.expiresAt !== undefined && session.expiresAt < Date.now()) {
       await config.hooks?.onExpire?.({
-        session: session as SessionJWE<T, MaxAge> & { token: string },
+        session: {
+          id: session.id,
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+          token: session.token!,
+        },
         event,
-        error: new Error(
+        error: new JWTError(
           `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
+          "ERR_JWT_EXPIRED",
+          { jti: session.id, exp: session.expiresAt / 1000 },
         ),
         config,
       });
-      return clearJWESession(event, config).then(() => getJWESession(event, config));
+      delete context.sessions![sessionName];
+      if (config.cookie !== false && hasWritableResponse(event)) {
+        setChunkedCookie(event, sessionName, "", {
+          ...DEFAULT_COOKIE,
+          ...config.cookie,
+          expires: new Date(0),
+          maxAge: undefined,
+        });
+      }
+      const freshNow = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
+      const freshCreatedAt = freshNow - (freshNow % 1000);
+      const freshSession: SessionJWE<T, MaxAge> = {
+        id: undefined,
+        createdAt: freshCreatedAt,
+        expiresAt: (config.maxAge === undefined
+          ? undefined
+          : freshCreatedAt +
+            computeExpiresInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
+          ? number
+          : T["exp"],
+        data: new NullProtoObj(),
+        token: undefined,
+      };
+      // @ts-expect-error upstream types expect an empty id string
+      context.sessions![sessionName] = freshSession;
+      return freshSession;
     }
 
     await config.hooks?.onRead?.({
@@ -240,28 +276,32 @@ export async function getJWESession<
   const token = getJWESessionToken<T, MaxAge>(event, config);
 
   // If we have a token, cache it and try to unseal and load into session context
+  let exclusiveHookFired = false;
   if (token) {
     session.token = token;
     const promise = unsealJWESession(event, config, token)
       .catch(async (error_) => {
-        if (error_ instanceof Error) {
-          const message = error_.message;
-          if (message.includes("Token has expired") || message.includes("Token is too old")) {
-            await config.hooks?.onExpire?.({
-              session: session as SessionJWE<T, MaxAge> & { token: string },
-              event,
-              error: error_,
-              config,
-            });
-            return undefined;
-          }
+        exclusiveHookFired = true;
+        if (isJWTError(error_, "ERR_JWT_EXPIRED")) {
+          await config.hooks?.onExpire?.({
+            session: {
+              id: error_.cause.jti,
+              createdAt: error_.cause.iat ? error_.cause.iat * 1000 : undefined,
+              expiresAt: error_.cause.exp ? error_.cause.exp * 1000 : undefined,
+              token,
+            },
+            event,
+            error: error_,
+            config,
+          });
+        } else {
+          await config.hooks?.onError?.({
+            session,
+            event,
+            error: error_,
+            config,
+          });
         }
-        await config.hooks?.onError?.({
-          session,
-          event,
-          error: error_,
-          config,
-        });
         return undefined;
       })
       .then((unsealed) => {
@@ -275,11 +315,13 @@ export async function getJWESession<
     await promise;
   }
 
-  await config.hooks?.onRead?.({
-    event,
-    session,
-    config,
-  });
+  if (!exclusiveHookFired) {
+    await config.hooks?.onRead?.({
+      event,
+      session,
+      config,
+    });
+  }
   return session;
 }
 

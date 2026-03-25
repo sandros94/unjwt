@@ -464,7 +464,8 @@ describe("adapter h3 v1", () => {
 
         expect(nextCookie).toBeTruthy();
         expect(nextCookie).not.toEqual(firstToken);
-        expect(hooks.onRead).toHaveBeenCalledTimes(2);
+        expect(hooks.onRead).toHaveBeenCalledTimes(1);
+        expect(hooks.onExpire).toHaveBeenCalledTimes(1);
         expect(second.body.session.id).toBe("2");
         const secondExpiresAt = second.body.session.expiresAt;
         expect(secondExpiresAt).toBeDefined();

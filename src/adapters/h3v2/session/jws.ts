@@ -20,7 +20,7 @@ import type {
   JWSProtectedHeader,
   JWTClaimValidationOptions,
 } from "../../../core/types";
-import { sign, verify } from "../../../core/jws";
+import { sign, verify, JWTError, isJWTError } from "../../../core/jws";
 import {
   isSymmetricJWK,
   isPrivateJWK,
@@ -69,8 +69,12 @@ export interface SessionHooksJWS<
     config: Partial<SessionConfigJWS<T, MaxAge>>;
   }) => void | Promise<void>;
   onExpire?: (args: {
-    /** The session that expired. */
-    session: SessionJWS<T, MaxAge> & { token: string };
+    session: {
+      id: string | undefined;
+      createdAt: number | undefined;
+      expiresAt: number | undefined;
+      token: string;
+    };
     event: HTTPEvent;
     error: Error;
     config: SessionConfigJWS<T, MaxAge>;
@@ -179,14 +183,46 @@ export async function getJWSSession<
 
     if (session.expiresAt !== undefined && session.expiresAt < Date.now()) {
       await config.hooks?.onExpire?.({
-        session: session as SessionJWS<T, MaxAge> & { token: string },
+        session: {
+          id: session.id,
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+          token: session.token!,
+        },
         event,
-        error: new Error(
+        error: new JWTError(
           `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
+          "ERR_JWT_EXPIRED",
+          { jti: session.id, exp: session.expiresAt / 1000 },
         ),
         config,
       });
-      return clearJWSSession(event, config).then(() => getJWSSession<T, MaxAge>(event, config));
+      delete context.sessions![sessionName];
+      if (config.cookie !== false && hasWritableResponse(event)) {
+        setChunkedCookie(event, sessionName, "", {
+          ...DEFAULT_COOKIE,
+          ...config.cookie,
+          expires: new Date(0),
+          maxAge: undefined,
+        });
+      }
+      const freshNow = config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
+      const freshCreatedAt = freshNow - (freshNow % 1000);
+      const freshSession: SessionJWS<T, MaxAge> = {
+        id: undefined,
+        createdAt: freshCreatedAt,
+        expiresAt: (config.maxAge === undefined
+          ? undefined
+          : freshCreatedAt +
+            computeExpiresInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
+          ? number
+          : T["exp"],
+        data: new NullProtoObj(),
+        token: undefined,
+      };
+      // @ts-expect-error upstream types expect an empty id string
+      context.sessions![sessionName] = freshSession;
+      return freshSession;
     }
 
     await config.hooks?.onRead?.({
@@ -216,29 +252,32 @@ export async function getJWSSession<
 
   const token = getJWSSessionToken<T, MaxAge>(event, config);
 
+  let exclusiveHookFired = false;
   if (token) {
     session.token = token;
     const promise = verifyJWSSession(event, config, token)
       .catch(async (error_) => {
-        if (
-          error_ instanceof Error &&
-          (error_.message.includes("Token has expired") ||
-            error_.message.includes("Token is too old"))
-        ) {
+        exclusiveHookFired = true;
+        if (isJWTError(error_, "ERR_JWT_EXPIRED")) {
           await config.hooks?.onExpire?.({
-            session: session as SessionJWS<T, MaxAge> & { token: string },
+            session: {
+              id: error_.cause.jti,
+              createdAt: error_.cause.iat ? error_.cause.iat * 1000 : undefined,
+              expiresAt: error_.cause.exp ? error_.cause.exp * 1000 : undefined,
+              token,
+            },
             event,
             error: error_,
             config,
           });
-          return undefined;
+        } else {
+          await config.hooks?.onError?.({
+            session,
+            event,
+            error: error_,
+            config,
+          });
         }
-        await config.hooks?.onError?.({
-          session,
-          event,
-          error: error_,
-          config,
-        });
         return undefined;
       })
       .then((unsealed) => {
@@ -252,11 +291,13 @@ export async function getJWSSession<
     await promise;
   }
 
-  await config.hooks?.onRead?.({
-    event,
-    session,
-    config,
-  });
+  if (!exclusiveHookFired) {
+    await config.hooks?.onRead?.({
+      event,
+      session,
+      config,
+    });
+  }
   return session;
 }
 
@@ -455,6 +496,7 @@ export async function verifyJWSSession<
     forceUint8Array: false,
     validateJWT: true,
   }).catch((error_: unknown) => {
+    if (isJWTError(error_, "ERR_JWT_EXPIRED")) throw error_;
     const message = error_ instanceof Error ? error_.message : String(error_);
     throw new Error(`Invalid session token: ${message}`);
   });
