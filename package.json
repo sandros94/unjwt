@@ -21,33 +21,33 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
-    "./jwe": {
-      "types": "./dist/jwe.d.mts",
-      "default": "./dist/jwe.mjs"
-    },
     "./jwk": {
-      "types": "./dist/jwk.d.mts",
-      "default": "./dist/jwk.mjs"
+      "types": "./dist/core/jwk.d.mts",
+      "default": "./dist/core/jwk.mjs"
     },
     "./jws": {
-      "types": "./dist/jws.d.mts",
-      "default": "./dist/jws.mjs"
+      "types": "./dist/core/jws.d.mts",
+      "default": "./dist/core/jws.mjs"
+    },
+    "./jwe": {
+      "types": "./dist/core/jwe.d.mts",
+      "default": "./dist/core/jwe.mjs"
     },
     "./utils": {
-      "types": "./dist/utils.d.mts",
-      "default": "./dist/utils.mjs"
+      "types": "./dist/core/utils.d.mts",
+      "default": "./dist/core/utils.mjs"
     },
     "./adapters/h3": {
-      "types": "./dist/adapters/h3.d.mts",
-      "default": "./dist/adapters/h3.mjs"
+      "types": "./dist/adapters/h3v1/index.d.mts",
+      "default": "./dist/adapters/h3v1/index.mjs"
     },
     "./adapters/h3v1": {
-      "types": "./dist/adapters/h3v1.d.mts",
-      "default": "./dist/adapters/h3v1.mjs"
+      "types": "./dist/adapters/h3v1/index.d.mts",
+      "default": "./dist/adapters/h3v1/index.mjs"
     },
     "./adapters/h3v2": {
-      "types": "./dist/adapters/h3v2.d.mts",
-      "default": "./dist/adapters/h3v2.mjs"
+      "types": "./dist/adapters/h3v2/index.d.mts",
+      "default": "./dist/adapters/h3v2/index.mjs"
     }
   },
   "scripts": {

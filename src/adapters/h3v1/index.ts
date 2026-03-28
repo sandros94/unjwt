@@ -1,9 +1,4 @@
-export type {
-  SessionClaims,
-  SessionData,
-  SessionManager,
-  SessionUpdate,
-} from "./h3v2/session/types.ts";
+export type { SessionClaims, SessionData, SessionManager, SessionUpdate } from "./session/types.ts";
 export {
   type SessionConfigJWE,
   type SessionHooksJWE,
@@ -15,7 +10,7 @@ export {
   unsealJWESession,
   updateJWESession,
   useJWESession,
-} from "./h3v2/session/jwe.ts";
+} from "./session/jwe.ts";
 export {
   type SessionConfigJWS,
   type SessionHooksJWS,
@@ -26,12 +21,12 @@ export {
   updateJWSSession,
   useJWSSession,
   verifyJWSSession,
-} from "./h3v2/session/jws.ts";
+} from "./session/jws.ts";
 
-export type * from "../core/types/index.ts";
+export type * from "../../core/types/index.ts";
 export {
   generateJWK,
   importJWKFromPEM,
   exportJWKToPEM,
   deriveJWKFromPassword,
-} from "../core/jwk.ts";
+} from "../../core/jwk.ts";
