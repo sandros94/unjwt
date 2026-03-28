@@ -31,8 +31,6 @@ import {
 } from "./utils";
 
 export type * from "./types/jws";
-export type * from "./types/jwk";
-export type * from "./types/jwt";
 export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
 
 /**
