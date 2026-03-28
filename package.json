@@ -34,8 +34,8 @@
       "default": "./dist/core/jwe.mjs"
     },
     "./utils": {
-      "types": "./dist/core/utils.d.mts",
-      "default": "./dist/core/utils.mjs"
+      "types": "./dist/core/utils/index.d.mts",
+      "default": "./dist/core/utils/index.mjs"
     },
     "./adapters/h3": {
       "types": "./dist/adapters/h3v1/index.d.mts",
