@@ -24,9 +24,4 @@ export {
 } from "./session/jws.ts";
 
 export type * from "../../core/types/index.ts";
-export {
-  generateJWK,
-  importJWKFromPEM,
-  exportJWKToPEM,
-  deriveJWKFromPassword,
-} from "../../core/jwk.ts";
+export { generateJWK, importFromPEM, exportToPEM, deriveJWKFromPassword } from "../../core/jwk.ts";

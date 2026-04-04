@@ -58,7 +58,6 @@ import {
   decryptRSAES,
   toPKCS8,
   toSPKI,
-  type KeyImportOptions,
 } from "./_crypto";
 
 export type * from "./types/jwk";
@@ -766,37 +765,31 @@ export async function unwrapKey(
  * @param jwkExtras Additional properties to merge into the resulting JWK.
  * @returns A Promise resolving to the imported key as a JWK.
  */
-export async function importJWKFromPEM<T extends JWK>(
+export async function importFromPEM<T extends JWK>(
   pem: string,
   pemType: "pkcs8" | "spki" | "x509",
   alg: JWKPEMAlgorithm,
-  importOptions?: KeyImportOptions,
-  jwkExtras?: Partial<JWK>,
+  options?: {
+    /** Passed to `crypto.subtle.importKey`. Defaults to `false` for private keys, `true` otherwise. */
+    extractable?: boolean;
+    /** Additional JWK properties merged into the exported key (e.g. `kid`). */
+    jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
+  },
 ): Promise<T> {
-  let cryptoKey: CryptoKey;
-  const defaultExtractable = importOptions?.extractable !== false; // Default true
+  const extractable = options?.extractable !== false;
 
+  let cryptoKey: CryptoKey;
   switch (pemType) {
     case "pkcs8": {
-      cryptoKey = await fromPKCS8(pem, alg, {
-        ...importOptions,
-        extractable: defaultExtractable,
-      });
+      cryptoKey = await fromPKCS8(pem, alg, { extractable });
       break;
     }
     case "spki": {
-      cryptoKey = await fromSPKI(pem, alg, {
-        ...importOptions,
-        extractable: defaultExtractable,
-      });
+      cryptoKey = await fromSPKI(pem, alg, { extractable });
       break;
     }
     case "x509": {
-      // fromX509 internally calls fromSPKI, passing alg and options.
-      cryptoKey = await fromX509(pem, alg, {
-        ...importOptions,
-        extractable: defaultExtractable,
-      });
+      cryptoKey = await fromX509(pem, alg, { extractable });
       break;
     }
     default: {
@@ -804,9 +797,7 @@ export async function importJWKFromPEM<T extends JWK>(
     }
   }
 
-  // Ensure the 'alg' from input is included in the new JWK.
-  const finalJWKExtras = { alg, ...jwkExtras };
-  return exportKey(cryptoKey, finalJWKExtras);
+  return exportKey(cryptoKey, { alg, ...options?.jwkParams });
 }
 
 /**
@@ -818,7 +809,7 @@ export async function importJWKFromPEM<T extends JWK>(
  *                              required to correctly convert it to a CryptoKey first.
  * @returns A Promise resolving to the PEM-encoded key string.
  */
-export async function exportJWKToPEM(
+export async function exportToPEM(
   jwk: JWK,
   pemFormat: "pkcs8" | "spki",
   algForCryptoKeyImport?: JWKPEMAlgorithm,
