@@ -62,6 +62,11 @@ export async function encrypt(
   options?: JWEEncryptOptions,
 ): Promise<string>;
 export async function encrypt(
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  key: CryptoKey | JWK_Symmetric | Uint8Array<ArrayBuffer>,
+  options: JWEEncryptOptions & { alg: "dir"; enc: ContentEncryptionAlgorithm },
+): Promise<string>;
+export async function encrypt(
   payload: JWTClaims,
   key: CryptoKey,
   options: JWEEncryptOptions & {
@@ -122,7 +127,13 @@ export async function encrypt(
     );
   }
   if (!enc) {
-    enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A128GCM";
+    if (alg === "dir") {
+      // Allow enc to be carried on the JWK itself as a non-standard hint.
+      enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : undefined;
+      if (!enc) throw new TypeError('JWE "enc" must be provided when alg is "dir"');
+    } else {
+      enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A128GCM";
+    }
   }
 
   // Prepare parameters for encryptKey

@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError } from "../src/core/jwe";
-import { generateKey, exportKey, unwrapKey } from "../src/core/jwk";
+import { generateKey, generateJWK, exportKey, unwrapKey } from "../src/core/jwk";
 import {
   randomBytes,
   textEncoder,
@@ -324,6 +324,56 @@ describe.concurrent("JWE Utilities", () => {
         // @ts-expect-error intentionally invalid payload
         encrypt(null, key, { alg: "A128KW", enc: "A128GCM" }),
       ).rejects.toThrow(/Plaintext must be/i);
+    });
+  });
+
+  describe("dir (direct key agreement)", () => {
+    it("encrypt/decrypt roundtrip with AES-GCM content encryption", async () => {
+      const key = await generateKey("A256GCM");
+      const plaintext = "direct encryption test";
+
+      const jwe = await encrypt(plaintext, key, { alg: "dir", enc: "A256GCM" });
+      const parts = jwe.split(".");
+      expect(parts[1]).toBe(""); // encrypted key field is empty
+
+      const { payload } = await decrypt(jwe, key);
+      expect(payload).toBe(plaintext);
+    });
+
+    it("encrypt/decrypt roundtrip with AES-CBC content encryption", async () => {
+      const cek = randomBytes(32); // A128CBC-HS256 needs 256-bit key
+      const plaintext = "direct CBC test";
+
+      const jwe = await encrypt(plaintext, cek, { alg: "dir", enc: "A128CBC-HS256" });
+      const { payload } = await decrypt(jwe, cek);
+      expect(payload).toBe(plaintext);
+    });
+
+    it("encrypt/decrypt roundtrip with a JWK_oct key", async () => {
+      const jwk = await generateJWK("A256GCM");
+      const plaintext = "JWK dir test";
+
+      const jwe = await encrypt(plaintext, jwk, { alg: "dir", enc: "A256GCM" });
+      const { payload } = await decrypt(jwe, jwk);
+      expect(payload).toBe(plaintext);
+    });
+
+    it("enc is inferred from the JWK_oct enc field when not provided in options", async () => {
+      const jwk = { ...(await generateJWK("A256GCM")), enc: "A256GCM" as const };
+      const plaintext = "JWK dir enc inference";
+
+      // enc not specified in options — should be read from jwk.enc
+      const jwe = await encrypt(plaintext, jwk, { alg: "dir" });
+      const { payload } = await decrypt(jwe, jwk);
+      expect(payload).toBe(plaintext);
+    });
+
+    it("throws when enc is not provided for dir", async () => {
+      const key = await generateKey("A128GCM");
+      await expect(
+        // @ts-expect-error intentionally missing enc
+        encrypt("test", key, { alg: "dir" }),
+      ).rejects.toThrow('"enc" must be provided');
     });
   });
 

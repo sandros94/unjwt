@@ -397,7 +397,12 @@ export async function wrapKey(
   const importedWrappingKey = await resolveWrappingKey(alg, wrappingKey);
 
   switch (alg) {
-    // AES Key Wrap and PBES2 are handled by the same helper
+    case "dir": {
+      // Direct encryption: the provided key IS the CEK — nothing to wrap.
+      // The JWE Encrypted Key field is empty per RFC 7516 §4.5.
+      return { encryptedKey: new Uint8Array(0) };
+    }
+
     case "A128KW":
     case "A192KW":
     case "A256KW": {
@@ -548,7 +553,21 @@ export async function unwrapKey(
   let unwrappedCekBytes: Uint8Array<ArrayBuffer>;
 
   switch (alg) {
-    // AES Key Wrap and PBES2 are handled by the same helper
+    case "dir": {
+      // Direct encryption: the provided key IS the CEK — nothing to unwrap.
+      if (importedUnwrappingKey instanceof Uint8Array) {
+        unwrappedCekBytes = importedUnwrappingKey;
+      } else {
+        if (!returnRaw) {
+          return importedUnwrappingKey as CryptoKey;
+        }
+        unwrappedCekBytes = new Uint8Array(
+          await crypto.subtle.exportKey("raw", importedUnwrappingKey as CryptoKey),
+        );
+      }
+      break;
+    }
+
     case "A128KW":
     case "A192KW":
     case "A256KW": {

@@ -244,6 +244,12 @@ export interface JWKParameters {
   x5u?: string;
   /** JWK "kid" (Key ID) Parameter */
   kid?: string;
+  /**
+   * Non-standard JWK content encryption algorithm hint.
+   * When `alg` is `"dir"`, the library reads this field to infer the
+   * content encryption algorithm (`enc`) when it is not provided in options.
+   */
+  enc?: ContentEncryptionAlgorithm;
 }
 
 /** Public EC JSON Web Keys */
