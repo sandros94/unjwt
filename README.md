@@ -37,6 +37,7 @@ npx skills add sandros94/unjwt
 ```ts
 import { sign, verify } from "unjwt/jws";
 import { generateJWK } from "unjwt/jwk";
+// or import both from the root: import { sign, verify, generateJWK } from "unjwt";
 
 // Generate a key (HMAC, RSA, ECDSA, EdDSA, etc.)
 const key = await generateJWK("HS256");
@@ -80,6 +81,7 @@ const { payload } = await verify(
 
 ```ts
 import { encrypt, decrypt } from "unjwt/jwe";
+// or: import { encrypt, decrypt } from "unjwt";
 
 // Password-based encryption (simplest — uses PBES2)
 const token = await encrypt({ secret: "sensitive data" }, "my-password");
@@ -121,6 +123,7 @@ import {
   unwrapKey,
   deriveKeyFromPassword,
 } from "unjwt/jwk";
+// All of the above are also importable from "unjwt" directly.
 
 // Generate keys as CryptoKey or JWK
 const hmacKey = await generateKey("HS256"); // CryptoKey
@@ -155,6 +158,7 @@ import {
   textEncoder,
   textDecoder,
 } from "unjwt/utils";
+// Most of the above are also importable from "unjwt" directly.
 
 const bytes = randomBytes(32);
 const encoded = base64UrlEncode(bytes);

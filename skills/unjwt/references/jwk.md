@@ -2,7 +2,7 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, and PEM conversion.
 
-Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, importJWKFromPEM, exportJWKToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKFromSet } from "unjwt/jwk"`
+Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, importJWKFromPEM, exportJWKToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKFromSet } from "unjwt/jwk"` — or `from "unjwt"`
 
 ## Key Generation
 

@@ -4,7 +4,7 @@ description: "Expert knowledge for working with unjwt — a low-level, zero-dep,
 metadata:
   version: 0.1.0
   library: unjwt
-  library-version: 0.5.39
+  library-version: 0.6.0
   org: sandros94
   documentation: https://github.com/sandros94/unjwt
 ---
@@ -17,7 +17,7 @@ Implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517).
 
 ## Quick orientation
 
-> **Skill written against `unjwt@0.5.39`.** APIs are stable within v0.5 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
+> **Skill written against `unjwt@0.6.0`.** APIs are stable within v0.6 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
 
 The following is a list of reference files:
 
@@ -31,7 +31,7 @@ The following is a list of reference files:
 
 | Path                  | Purpose                                                                      |
 | --------------------- | ---------------------------------------------------------------------------- |
-| `unjwt`               | Barrel: re-exports `jws`, `jwe`, `jwk`, `utils` as namespaces                |
+| `unjwt`               | Flat barrel: all public functions and types from `jws`, `jwe`, `jwk`, `utils` |
 | `unjwt/jws`           | `sign()`, `verify()` — JWS Compact Serialization                             |
 | `unjwt/jwe`           | `encrypt()`, `decrypt()` — JWE Compact Serialization                         |
 | `unjwt/jwk`           | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2 derivation |
@@ -43,9 +43,10 @@ The following is a list of reference files:
 ## Quick Start
 
 ```ts
-// Sign and verify (JWS)
+// Sign and verify (JWS) — use subpath or root barrel
 import { sign, verify } from "unjwt/jws";
 import { generateJWK } from "unjwt/jwk";
+// or: import { sign, verify, generateJWK } from "unjwt";
 
 const key = await generateJWK("HS256");
 const token = await sign({ sub: "user123" }, key, { expiresIn: "1h" });

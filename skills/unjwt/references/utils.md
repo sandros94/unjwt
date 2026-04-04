@@ -2,7 +2,7 @@
 
 Encoding, type guards, JWT claim validation, and sanitization utilities.
 
-Import: `import { ... } from "unjwt/utils"`
+Import: `import { ... } from "unjwt/utils"` — most symbols are also available from `"unjwt"` directly. The internal helpers (`applyTypCtyDefaults`, `computeJwtTimeClaims`, `validateCriticalHeadersJWS`, `validateCriticalHeadersJWE`, `decodePayloadFromBytes`, `decodePayloadFromB64UrlSegment`, `decodeMaybeJWTString`, `getPlaintextBytes`, `isJWTContent`) are only exported from `"unjwt/utils"`.
 
 ## Encoding / Decoding
 

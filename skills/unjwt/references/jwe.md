@@ -2,7 +2,7 @@
 
 JSON Web Encryption ([RFC 7516](https://www.rfc-editor.org/rfc/rfc7516.txt)) — encrypt and decrypt data.
 
-Import: `import { encrypt, decrypt } from "unjwt/jwe"`
+Import: `import { encrypt, decrypt } from "unjwt/jwe"` — or `from "unjwt"`
 
 ## Algorithms
 

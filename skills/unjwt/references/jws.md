@@ -2,7 +2,7 @@
 
 JSON Web Signature ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515.txt)) — sign and verify tokens.
 
-Import: `import { sign, verify } from "unjwt/jws"`
+Import: `import { sign, verify } from "unjwt/jws"` — or `from "unjwt"`
 
 ## Algorithms
 
