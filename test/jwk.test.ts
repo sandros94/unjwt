@@ -355,6 +355,30 @@ describe.concurrent("JWK Utilities", () => {
       expect(keyBytes).toEqual(decodedByKey);
     });
 
+    it("should import JWK_oct as non-extractable CryptoKey when asCryptoKey is true", async () => {
+      const jwk = await generateJWK("A256GCM");
+      const key = await importKey(jwk, {
+        asCryptoKey: true,
+        algorithm: { name: "AES-GCM", length: 256 },
+        usage: ["encrypt", "decrypt"],
+      });
+      expect(key).toBeInstanceOf(CryptoKey);
+      expect(key.extractable).toBe(false); // non-extractable by default
+      expect(key.algorithm.name).toBe("AES-GCM");
+      expect(key.usages).toContain("encrypt");
+    });
+
+    it("should import JWK_oct as extractable CryptoKey when extractable: true", async () => {
+      const jwk = await generateJWK("HS256");
+      const key = await importKey(jwk, {
+        asCryptoKey: true,
+        algorithm: { name: "HMAC", hash: "SHA-256" },
+        usage: ["sign", "verify"],
+        extractable: true,
+      });
+      expect(key.extractable).toBe(true);
+    });
+
     // it("should import asymmetric public JWK (RSA) to CryptoKey", async () => {
     //   const jwk: JWK = {
     //     kty: "RSA",

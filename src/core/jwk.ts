@@ -302,13 +302,34 @@ export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Arra
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
 export async function importKey(key: JWK_oct): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(
+  key: JWK_oct,
+  options: {
+    asCryptoKey: true;
+    /** Algorithm to import the key as (e.g. `{ name: "AES-GCM", length: 256 }`). */
+    algorithm: Parameters<typeof crypto.subtle.importKey>[2];
+    /** Key usages for the resulting CryptoKey. */
+    usage: KeyUsage[];
+    /** Mark the key as extractable. Defaults to `false`. */
+    extractable?: boolean;
+  },
+): Promise<CryptoKey>;
+export async function importKey(
   key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
   alg?: string,
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
 export async function importKey(
   key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
-  alg?: string,
+  algOrOptions?:
+    | string
+    | {
+        asCryptoKey: true;
+        algorithm: Parameters<typeof crypto.subtle.importKey>[2];
+        usage: KeyUsage[];
+        extractable?: boolean;
+      },
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
+  const alg = typeof algOrOptions === "string" ? algOrOptions : undefined;
+
   if (typeof key === "string") {
     key = textEncoder.encode(key);
   }
@@ -323,7 +344,12 @@ export async function importKey(
 
   if (isJWK(key)) {
     if ("k" in key && typeof key.k === "string") {
-      return base64UrlDecode(key.k as string, false);
+      const rawBytes = base64UrlDecode(key.k as string, false);
+      if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
+        const { algorithm, usage, extractable = false } = algOrOptions;
+        return crypto.subtle.importKey("raw", rawBytes, algorithm, extractable, usage);
+      }
+      return rawBytes;
     } else {
       if (!key.alg && !alg) {
         throw new TypeError("Algorithm must be provided when importing non-oct JWK");
