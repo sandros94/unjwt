@@ -89,7 +89,7 @@ export async function encrypt(
   options: JWEEncryptOptions = {},
 ): Promise<string> {
   const {
-    protectedHeader: additionalProtectedHeader,
+    protectedHeader: rawAdditionalProtectedHeader,
     cek: providedCek,
     contentEncryptionIV: providedContentIV,
     keyManagementIV,
@@ -97,6 +97,9 @@ export async function encrypt(
     p2c,
     ecdh,
   } = options;
+  const additionalProtectedHeader = sanitizeObject<JWEHeaderParameters | undefined>(
+    rawAdditionalProtectedHeader,
+  );
   let { alg, enc } = options;
 
   // Fallback logic for alg and enc

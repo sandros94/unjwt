@@ -299,32 +299,47 @@ describe("type guards", () => {
 });
 
 describe("sanitizeObject", () => {
-  it("removes __proto__ own-property", () => {
+  it("removes __proto__ own-property from the returned copy", () => {
     // JSON.parse creates an object with __proto__ as a plain own-property
     const obj = JSON.parse('{"__proto__": {"polluted": true}, "safe": 1}');
+    const result = sanitizeObject(obj);
+    expect(Object.prototype.hasOwnProperty.call(result, "__proto__")).toBe(false);
+    expect((result as any).safe).toBe(1);
+  });
+
+  it("removes prototype own-property from the returned copy", () => {
+    const obj = JSON.parse('{"prototype": "danger", "ok": true}');
+    const result = sanitizeObject(obj);
+    expect(Object.prototype.hasOwnProperty.call(result, "prototype")).toBe(false);
+  });
+
+  it("removes constructor own-property from the returned copy", () => {
+    const obj = JSON.parse('{"constructor": {"name": "pwned"}, "value": 42}');
+    const result = sanitizeObject(obj);
+    expect(Object.prototype.hasOwnProperty.call(result, "constructor")).toBe(false);
+    expect((result as any).value).toBe(42);
+  });
+
+  it("does not mutate the original object", () => {
+    const obj = JSON.parse('{"__proto__": "bad", "safe": 1}');
     sanitizeObject(obj);
-    expect(Object.prototype.hasOwnProperty.call(obj, "__proto__")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(obj, "__proto__")).toBe(true);
     expect((obj as any).safe).toBe(1);
   });
 
-  it("removes prototype own-property", () => {
-    const obj = JSON.parse('{"prototype": "danger", "ok": true}');
-    sanitizeObject(obj);
-    expect(Object.prototype.hasOwnProperty.call(obj, "prototype")).toBe(false);
+  it("sanitizes nested dangerous keys in the returned copy", () => {
+    const inner = JSON.parse('{"__proto__": "bad", "normal": "good"}');
+    const outer: any = { nested: inner };
+    const result = sanitizeObject(outer) as any;
+    expect(Object.prototype.hasOwnProperty.call(result.nested, "__proto__")).toBe(false);
+    expect(result.nested.normal).toBe("good");
   });
 
-  it("removes constructor own-property", () => {
-    const obj = JSON.parse('{"constructor": {"name": "pwned"}, "value": 42}');
-    sanitizeObject(obj);
-    expect(Object.prototype.hasOwnProperty.call(obj, "constructor")).toBe(false);
-    expect((obj as any).value).toBe(42);
-  });
-
-  it("sanitizes nested dangerous objects (triggers seen WeakSet branch)", () => {
+  it("does not mutate nested objects in the original", () => {
     const inner = JSON.parse('{"__proto__": "bad", "normal": "good"}');
     const outer: any = { nested: inner };
     sanitizeObject(outer);
-    expect(Object.prototype.hasOwnProperty.call(inner, "__proto__")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(inner, "__proto__")).toBe(true);
     expect(inner.normal).toBe("good");
   });
 
