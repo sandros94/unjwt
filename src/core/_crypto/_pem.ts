@@ -1,15 +1,4 @@
-/**
- * This is a fork of Jose library's utility functions.
- * @source https://github.com/panva/jose/tree/69b7960c67e05be55fa2ec31c74b987696c20c60/src/lib/asn1.ts
- * @license MIT https://github.com/panva/jose/blob/69b7960c67e05be55fa2ec31c74b987696c20c60/LICENSE.md
- */
-
 import { base64Encode, base64Decode, isCryptoKey } from "../utils";
-
-const formatPEM = (b64: string, descriptor: string) => {
-  const newlined = (b64.match(/.{1,64}/g) || []).join("\n");
-  return `-----BEGIN ${descriptor}-----\n${newlined}\n-----END ${descriptor}-----`;
-};
 
 /** Key Import Function options. */
 export interface KeyImportOptions {
@@ -19,6 +8,47 @@ export interface KeyImportOptions {
    */
   extractable?: boolean;
 }
+
+export const toSPKI = (key: unknown): Promise<string> => {
+  return genericExport("public", "spki", key);
+};
+
+export const toPKCS8 = (key: unknown): Promise<string> => {
+  return genericExport("private", "pkcs8", key);
+};
+
+export const fromPKCS8: PEMImportFunction = (pem, alg, options?) => {
+  return genericImport(/(?:-----(?:BEGIN|END) PRIVATE KEY-----|\s)/g, "pkcs8", pem, alg, options);
+};
+
+export const fromSPKI: PEMImportFunction = (pem, alg, options?) => {
+  return genericImport(/(?:-----(?:BEGIN|END) PUBLIC KEY-----|\s)/g, "spki", pem, alg, options);
+};
+
+export const fromX509: PEMImportFunction = (pem, alg, options?) => {
+  let spki: string;
+  try {
+    spki = getSPKI(pem);
+  } catch (error_) {
+    throw new TypeError("Failed to parse the X.509 certificate", {
+      cause: error_,
+    });
+  }
+  return fromSPKI(spki, alg, options);
+};
+
+// --- Internal helpers ---
+
+type PEMImportFunction = (
+  pem: string,
+  alg: string,
+  options?: KeyImportOptions,
+) => Promise<CryptoKey>;
+
+const formatPEM = (b64: string, descriptor: string) => {
+  const newlined = (b64.match(/.{1,64}/g) || []).join("\n");
+  return `-----BEGIN ${descriptor}-----\n${newlined}\n-----END ${descriptor}-----`;
+};
 
 const genericExport = async (
   keyType: "private" | "public",
@@ -41,43 +71,6 @@ const genericExport = async (
     base64Encode(new Uint8Array(await crypto.subtle.exportKey(keyFormat, key))),
     `${keyType.toUpperCase()} KEY`,
   );
-};
-
-export const toSPKI = (key: unknown): Promise<string> => {
-  return genericExport("public", "spki", key);
-};
-
-export const toPKCS8 = (key: unknown): Promise<string> => {
-  return genericExport("private", "pkcs8", key);
-};
-
-const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: number[], from = 0): boolean => {
-  if (from === 0) {
-    oid.unshift(oid.length);
-    oid.unshift(0x06);
-  }
-  const i = keyData.indexOf(oid[0]!, from);
-  if (i === -1) return false;
-  const sub = keyData.subarray(i, i + oid.length);
-  if (sub.length !== oid.length) return false;
-  return sub.every((value, index) => value === oid[index]) || findOid(keyData, oid, i + 1);
-};
-
-const getNamedCurve = (keyData: Uint8Array<ArrayBuffer>): string | undefined => {
-  switch (true) {
-    case findOid(keyData, [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]): {
-      return "P-256";
-    }
-    case findOid(keyData, [0x2b, 0x81, 0x04, 0x00, 0x22]): {
-      return "P-384";
-    }
-    case findOid(keyData, [0x2b, 0x81, 0x04, 0x00, 0x23]): {
-      return "P-521";
-    }
-    default: {
-      return undefined;
-    }
-  }
 };
 
 const genericImport = async (
@@ -165,21 +158,36 @@ const genericImport = async (
   );
 };
 
-type PEMImportFunction = (
-  pem: string,
-  alg: string,
-  options?: KeyImportOptions,
-) => Promise<CryptoKey>;
-
-export const fromPKCS8: PEMImportFunction = (pem, alg, options?) => {
-  return genericImport(/(?:-----(?:BEGIN|END) PRIVATE KEY-----|\s)/g, "pkcs8", pem, alg, options);
+const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: number[], from = 0): boolean => {
+  if (from === 0) {
+    oid.unshift(oid.length);
+    oid.unshift(0x06);
+  }
+  const i = keyData.indexOf(oid[0]!, from);
+  if (i === -1) return false;
+  const sub = keyData.subarray(i, i + oid.length);
+  if (sub.length !== oid.length) return false;
+  return sub.every((value, index) => value === oid[index]) || findOid(keyData, oid, i + 1);
 };
 
-export const fromSPKI: PEMImportFunction = (pem, alg, options?) => {
-  return genericImport(/(?:-----(?:BEGIN|END) PUBLIC KEY-----|\s)/g, "spki", pem, alg, options);
+const getNamedCurve = (keyData: Uint8Array<ArrayBuffer>): string | undefined => {
+  switch (true) {
+    case findOid(keyData, [0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07]): {
+      return "P-256";
+    }
+    case findOid(keyData, [0x2b, 0x81, 0x04, 0x00, 0x22]): {
+      return "P-384";
+    }
+    case findOid(keyData, [0x2b, 0x81, 0x04, 0x00, 0x23]): {
+      return "P-521";
+    }
+    default: {
+      return undefined;
+    }
+  }
 };
 
-function getElement(seq: Uint8Array<ArrayBuffer>) {
+const getElement = (seq: Uint8Array<ArrayBuffer>) => {
   const result = [];
   let next = 0;
 
@@ -189,12 +197,11 @@ function getElement(seq: Uint8Array<ArrayBuffer>) {
     next += nextPart.byteLength;
   }
   return result;
-}
+};
 
-function parseElement(bytes: Uint8Array<ArrayBuffer>) {
+const parseElement = (bytes: Uint8Array<ArrayBuffer>) => {
   let position = 0;
 
-  // tag
   let tag = bytes[0]! & 0x1f;
   position++;
   if (tag === 0x1f) {
@@ -207,7 +214,6 @@ function parseElement(bytes: Uint8Array<ArrayBuffer>) {
     position++;
   }
 
-  // length
   let length = 0;
   if (bytes[position]! < 0x80) {
     length = bytes[position]!;
@@ -244,15 +250,15 @@ function parseElement(bytes: Uint8Array<ArrayBuffer>) {
     contents: bytes.subarray(position, byteLength),
     raw: bytes.subarray(0, byteLength),
   };
-}
+};
 
-function spkiFromX509(buf: Uint8Array<ArrayBuffer>) {
+const spkiFromX509 = (buf: Uint8Array<ArrayBuffer>) => {
   const tbsCertificate = getElement(getElement(parseElement(buf).contents)[0]!.contents);
   return base64Encode(tbsCertificate[tbsCertificate[0]!.raw[0] === 0xa0 ? 6 : 5]!.raw);
-}
+};
 
 let createPublicKey: any;
-function getSPKI(x509: string): string {
+const getSPKI = (x509: string): string => {
   try {
     // @ts-ignore
     createPublicKey ??= globalThis.process?.getBuiltinModule?.("node:crypto")?.createPublicKey;
@@ -269,16 +275,4 @@ function getSPKI(x509: string): string {
   const pem = x509.replace(/(?:-----(?:BEGIN|END) CERTIFICATE-----|\s)/g, "");
   const raw = base64Decode(pem, false);
   return formatPEM(spkiFromX509(raw), "PUBLIC KEY");
-}
-
-export const fromX509: PEMImportFunction = (pem, alg, options?) => {
-  let spki: string;
-  try {
-    spki = getSPKI(pem);
-  } catch (error_) {
-    throw new TypeError("Failed to parse the X.509 certificate", {
-      cause: error_,
-    });
-  }
-  return fromSPKI(spki, alg, options);
 };

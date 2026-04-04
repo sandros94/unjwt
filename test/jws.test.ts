@@ -284,7 +284,7 @@ describe.concurrent("JWS Utilities", () => {
         sign(payloadObj, textEncoder.encode("small-key"), {
           alg: "HS256",
         }),
-      ).rejects.toThrow("HS256 requires key length to be 32 bytes or larger");
+      ).rejects.toThrow("HS256 requires a key of at least 32 bytes");
     });
 
     it("should throw on RS CryptoKey too small", async () => {
@@ -296,7 +296,7 @@ describe.concurrent("JWS Utilities", () => {
         sign(payloadObj, invalidRSKey.privateKey, {
           alg: "RS256",
         }),
-      ).rejects.toThrow("RS256 requires key modulusLength to be 2048 bits or larger");
+      ).rejects.toThrow("RS256 requires a key modulusLength of at least 2048 bits");
     });
 
     it("should throw for invalid payload type", async () => {

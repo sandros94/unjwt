@@ -19,7 +19,7 @@ import type {
 } from "./types/jwe";
 
 import { importKey, unwrapKey } from "./jwk";
-import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./jose";
+import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./_crypto";
 import { JWTError } from "./error";
 import {
   base64UrlEncode,

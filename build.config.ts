@@ -11,7 +11,7 @@ export default defineBuildConfig({
         "./src/core/jwe",
         "./src/core/jwk",
         "./src/core/utils/index",
-        "./src/core/jose/index",
+        "./src/core/_crypto/index",
       ],
       rolldown: {
         platform: "neutral",

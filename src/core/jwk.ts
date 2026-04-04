@@ -34,22 +34,25 @@ import {
   jwkTokey,
   keyToJWK,
   bitLengthCEK,
-  deriveKey as deriveKeyPBES2,
+  deriveKeyPBES2,
+  pbes2Wrap,
+  pbes2Unwrap,
   deriveECDHESKey,
-  allowed as isEcdhKeyAllowed,
+  isECDHKeyAllowed,
   normalizeKey,
-  wrap as _wrap,
-  unwrap as _unwrap,
-  encryptIV as aesGcmKwEncrypt,
-  decryptIV as aesGcmKwDecrypt,
+  aesKwWrap,
+  aesKwUnwrap,
+  gcmkwEncrypt,
+  gcmkwDecrypt,
   fromPKCS8,
   fromSPKI,
   fromX509,
+  encryptRSAES,
   decryptRSAES,
   toPKCS8,
   toSPKI,
   type KeyImportOptions,
-} from "./jose";
+} from "./_crypto";
 
 export type * from "./types/jwk";
 export { JWTError, isJWTError } from "./error";
@@ -364,21 +367,25 @@ export async function wrapKey(
     // AES Key Wrap and PBES2 are handled by the same helper
     case "A128KW":
     case "A192KW":
-    case "A256KW":
+    case "A256KW": {
+      const encryptedKey = await aesKwWrap(alg, importedWrappingKey, cekBytes);
+      return { encryptedKey };
+    }
+
     case "PBES2-HS256+A128KW":
     case "PBES2-HS384+A192KW":
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
-      if (alg.startsWith("PBES2") && (!p2s || typeof p2c !== "number")) {
+      if (!p2s || typeof p2c !== "number") {
         throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
       }
-      return _wrap(alg, importedWrappingKey, cekBytes, p2c, p2s);
+      return pbes2Wrap(alg, importedWrappingKey, cekBytes, p2c, p2s);
     }
 
     case "A128GCMKW":
     case "A192GCMKW":
     case "A256GCMKW": {
-      const { encryptedKey, iv, tag } = await aesGcmKwEncrypt(
+      const { encryptedKey, iv, tag } = await gcmkwEncrypt(
         alg,
         importedWrappingKey,
         cekBytes,
@@ -391,19 +398,7 @@ export async function wrapKey(
     case "RSA-OAEP-256":
     case "RSA-OAEP-384":
     case "RSA-OAEP-512": {
-      // Use crypto.subtle.wrapKey directly for RSA-OAEP
-      const keyToWrapImported = await crypto.subtle.importKey(
-        "raw",
-        cekBytes,
-        { name: "AES-GCM", length: cekBytes.length * 8 },
-        true,
-        ["encrypt", "decrypt"],
-      );
-      const encryptedKey = new Uint8Array(
-        await crypto.subtle.wrapKey("raw", keyToWrapImported, importedWrappingKey as CryptoKey, {
-          name: "RSA-OAEP",
-        }),
-      );
+      const encryptedKey = await encryptRSAES(alg, importedWrappingKey as CryptoKey, cekBytes);
       return { encryptedKey };
     }
 
@@ -449,19 +444,20 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
     // AES Key Wrap and PBES2 are handled by the same helper
     case "A128KW":
     case "A192KW":
-    case "A256KW":
+    case "A256KW": {
+      unwrappedCekBytes = await aesKwUnwrap(alg, importedUnwrappingKey, wrappedKey);
+      break;
+    }
+
     case "PBES2-HS256+A128KW":
     case "PBES2-HS384+A192KW":
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
-      let p2sBytes: Uint8Array<ArrayBuffer> | undefined;
-      if (alg.startsWith("PBES2")) {
-        if (!p2s || typeof p2c !== "number") {
-          throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
-        }
-        p2sBytes = typeof p2s === "string" ? base64UrlDecode(p2s, false) : p2s;
+      if (!p2s || typeof p2c !== "number") {
+        throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
       }
-      unwrappedCekBytes = await _unwrap(alg, importedUnwrappingKey, wrappedKey, p2c, p2sBytes);
+      const p2sBytes = typeof p2s === "string" ? base64UrlDecode(p2s, false) : p2s;
+      unwrappedCekBytes = await pbes2Unwrap(alg, importedUnwrappingKey, wrappedKey, p2c, p2sBytes);
       break;
     }
 
@@ -475,7 +471,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
         typeof options.iv === "string" ? base64UrlDecode(options.iv, false) : options.iv;
       const tagBytes =
         typeof options.tag === "string" ? base64UrlDecode(options.tag, false) : options.tag;
-      unwrappedCekBytes = await aesGcmKwDecrypt(
+      unwrappedCekBytes = await gcmkwDecrypt(
         alg,
         importedUnwrappingKey,
         wrappedKey,
@@ -530,7 +526,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
         throw new TypeError("ECDH-ES requires the unwrapping key to be a CryptoKey");
       }
 
-      if (!isEcdhKeyAllowed(importedUnwrappingKey)) {
+      if (!isECDHKeyAllowed(importedUnwrappingKey)) {
         throw new Error("ECDH with the provided key is not allowed or not supported");
       }
 
@@ -579,7 +575,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
         if (!(wrappedKey instanceof Uint8Array) || wrappedKey.length === 0) {
           throw new Error("ECDH-ES key agreement with key wrapping requires an encrypted key");
         }
-        unwrappedCekBytes = await _unwrap(kwAlg, sharedSecret, wrappedKey);
+        unwrappedCekBytes = await aesKwUnwrap(kwAlg, sharedSecret, wrappedKey);
       }
 
       break;

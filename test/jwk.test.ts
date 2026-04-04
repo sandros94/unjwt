@@ -29,7 +29,7 @@ import type {
   JWKPEMAlgorithm,
 } from "../src/core/types";
 import { rsa, ec } from "./keys";
-import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/core/jose";
+import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/core/_crypto";
 
 describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {
