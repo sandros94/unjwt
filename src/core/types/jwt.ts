@@ -79,13 +79,11 @@ export interface JWTClaimValidationOptions {
   currentDate?: Date;
   /** Additional required claim names. */
   requiredClaims?: string[];
-  /** List of critical header parameters that must be understood and processed. */
-  requiredHeaders?: string[];
-
   /**
-   * Critical Header Parameters to be understood and processed.
-   * If the JWT contains critical headers not in this list (and not inherently understood by the library), decryption will fail.
-   * @deprecated use {@link requiredHeaders `recognizedHeaders` option} instead.
+   * Critical header parameters that this caller understands and has processed.
+   * If the token's `crit` header lists a parameter not present in this list
+   * (and not natively understood by the library), verification will fail per
+   * RFC 7515 §4.1.11 / RFC 7516 §4.1.13.
    */
-  critical?: string[];
+  recognizedHeaders?: string[];
 }

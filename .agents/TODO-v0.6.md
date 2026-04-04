@@ -902,6 +902,22 @@ No behaviour change. All existing tests pass.
 
 ---
 
+## Post-release: Documentation Session
+
+Once all commits are done and v0.6.0 is tagged, run a dedicated session to:
+
+- **`README.md`** — rewrite all API references to reflect the v0.6 surface:
+  `recognizedHeaders`, `generateJWK` (no object `toJWK`), `deriveJWKFromPassword`,
+  `configureJWKCache`/`clearJWKCache`/`WeakMapJWKCache`, `importFromPEM`/`exportToPEM`,
+  `unwrapKey` format discriminant, `getAllJWKsFromSet`, `deriveSharedSecret`, `"dir"` alg.
+  No migration notes — document the current API only.
+
+- **`skills/unjwt/`** — update all reference docs to match the new public signatures,
+  types, and function names. Remove any mention of removed APIs (`critical`,
+  `requiredHeaders`, `returnAs`, `toJWK: object`, etc.).
+
+---
+
 ## Tentative Items (tracked, not scheduled)
 
 These two changes require a dedicated decision session before implementation. They are not part of the v0.6 commit sequence until confirmed.

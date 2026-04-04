@@ -46,8 +46,12 @@ export interface GenerateKeyOptions {
   publicExponent?: Uint8Array<ArrayBuffer>;
   /** Named curve for EC or OKP keys. Defaults to "P-256" for EC and "Ed25519" for OKP. */
   namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448";
-  /** Export the generated key(s) as JWK. If true, the key(s) will be returned in JWK format. */
-  toJWK?: undefined | boolean | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
+  /**
+   * Export the generated key(s) as JWK. When `true`, keys are returned in JWK
+   * format with a generated `kid`. To include additional JWK parameters
+   * (e.g. a custom `kid`), use {@link generateJWK} instead.
+   */
+  toJWK?: boolean;
 }
 
 // Conditional return type when toJWK is true
@@ -60,7 +64,7 @@ type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_
         ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
         : never
   : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-    ? JWK_oct // TODO: shouldn't this be `{ encryptionKey: JWK_oct; macKey: JWK_oct }`?
+    ? JWK_oct // The composite key material is stored as a single JWK_oct and split internally during enc/dec.
     : never;
 
 // Conditional return type when toJWK is false or undefined
@@ -73,11 +77,7 @@ type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> = TAlg extends J
 export type GenerateKeyReturn<
   TAlg extends GenerateKeyAlgorithm,
   TOptions extends GenerateKeyOptions,
-> = TOptions["toJWK"] extends true
-  ? GenerateKeyReturnJWK<TAlg>
-  : TOptions["toJWK"] extends object
-    ? GenerateKeyReturnJWK<TAlg>
-    : GenerateKeyReturnCrypto<TAlg>;
+> = TOptions["toJWK"] extends true ? GenerateKeyReturnJWK<TAlg> : GenerateKeyReturnCrypto<TAlg>;
 
 export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK">;
 
@@ -93,8 +93,12 @@ export interface DeriveKeyOptions {
   keyUsage?: KeyUsage[];
   /** Mark the derived key as extractable. Defaults to false. */
   extractable?: boolean;
-  /** Export the derived key as JWK. If true, the key will be returned in JWK_oct format. */
-  toJWK?: undefined | boolean | Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
+  /**
+   * Export the derived key as JWK_oct. When `true`, returns the derived key in
+   * JWK format. To include additional JWK parameters (e.g. a custom `kid`),
+   * use {@link deriveJWKFromPassword} instead.
+   */
+  toJWK?: boolean;
 }
 
 // Conditional return type for deriveKeyFromPassword
@@ -110,8 +114,8 @@ export type KeyManagementAlgorithm =
   | JWK_AES_GCM
   | JWK_AES_GCM_KW
   | JWK_PBES2
-  | JWK_ECDH_ES;
-// TODO: | "dir";
+  | JWK_ECDH_ES
+  | "dir";
 
 export type ContentEncryptionAlgorithm = JWK_AES_GCM | JWK_AES_CBC_HMAC;
 
@@ -181,7 +185,6 @@ export interface UnwrapKeyOptions {
   keyUsage?: KeyUsage[];
   /** Mark the unwrapped key as extractable. Defaults to true. */
   extractable?: boolean;
-  returnAs?: boolean | undefined;
 }
 
 // --- Standard JWK Interfaces ---
@@ -370,7 +373,7 @@ export type JWKAlgorithm =
   | JWK_AES_CBC_HMAC
   | JWK_PBES2
   | JWK_ECDH_ES
-  | ("none" | "dir"); // No algorithm | Direct encryption
+  | "dir"; // Direct encryption (no key wrapping)
 
 export type JWKPEMAlgorithm =
   | JWK_RSA_PSS

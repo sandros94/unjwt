@@ -14,11 +14,12 @@ import type {
   JWEDecryptOptions,
   JWEDecryptResult,
   JWEHeaderParameters,
+  JWEProtectedHeader,
   JWEKeyLookupFunction,
   JWEKeyManagementHeaderParameters,
 } from "./types/jwe";
 
-import { importKey, unwrapKey } from "./jwk";
+import { importKey, unwrapKey, getJWKFromSet } from "./jwk";
 import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./_crypto";
 import { JWTError } from "./error";
 import {
@@ -27,6 +28,7 @@ import {
   randomBytes,
   textEncoder,
   isJWK,
+  isJWKSet,
   isCryptoKey,
   isCryptoKeyPair,
   sanitizeObject,
@@ -295,7 +297,10 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     );
   }
 
-  const resolvedKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
+  const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
+  const resolvedKeyMaterial = isJWKSet(rawKeyMaterial)
+    ? getJWKFromSet(rawKeyMaterial, protectedHeader)
+    : rawKeyMaterial;
   const unwrappingKey = await importKey(resolvedKeyMaterial, alg);
 
   const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
@@ -344,11 +349,8 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     options?.forceUint8Array,
   ) as T;
 
-  if (protectedHeader.crit || options?.critical?.length || options?.requiredHeaders?.length) {
-    validateCriticalHeadersJWE(protectedHeader, [
-      ...(options?.critical || []),
-      ...(options?.requiredHeaders || []),
-    ]);
+  if (protectedHeader.crit || options?.recognizedHeaders?.length) {
+    validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
   }
 
   if (
@@ -364,7 +366,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
 
   const result: JWEDecryptResult<T> = {
     payload,
-    protectedHeader,
+    protectedHeader: protectedHeader as JWEProtectedHeader,
   };
 
   if (options.returnCek) {

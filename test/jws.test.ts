@@ -1015,7 +1015,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
       // We "understand" 'exp' because it's in the options.critical array
-      await expect(verify(jws, hs256Key, { requiredHeaders: ["exp"] })).resolves.toBeDefined();
+      await expect(verify(jws, hs256Key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
     });
 
     it("should throw if crit present but no critical options provided", async () => {

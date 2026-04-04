@@ -95,27 +95,14 @@ export async function generateKey(
   const key = await crypto.subtle.generateKey(algorithm, defaultExtractable, keyUsages);
 
   if (exportToJWK) {
-    const {
-      alg: _a,
-      kty: _k,
-      key_ops: _ko,
-      ext: _e,
-      ...additionalKeyParams
-    } = typeof options.toJWK === "object" ? (options.toJWK as JWKParameters) : {};
     if (key instanceof CryptoKey) {
       // Symmetric keys (HMAC, AES-KW, AES-GCM)
-      return exportKey(key, {
-        ...additionalKeyParams,
-        alg,
-      });
+      return exportKey(key, { alg });
     } else {
       // Asymmetric keys (RSA, EC, OKP)
       const [publicKey, privateKey] = await Promise.all([
-        exportKey(key.publicKey, { ...additionalKeyParams, alg }),
-        exportKey(key.privateKey, {
-          ...additionalKeyParams,
-          alg,
-        }),
+        exportKey(key.publicKey, { alg }),
+        exportKey(key.privateKey, { alg }),
       ]);
       return { privateKey, publicKey } as JWK_Pair;
     }
@@ -137,19 +124,19 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
   jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
   options: GenerateJWKOptions = {},
 ): Promise<GenerateJWKReturn<TAlg>> {
-  const {
-    // @ts-expect-error destructuring just to avoid passing it down
-    toJWK: _,
-    ...opts
-  } = options;
+  const kid = typeof jwkParams?.kid === "string" ? jwkParams.kid : crypto.randomUUID();
+  const extraParams = { kid, ...jwkParams };
 
-  return generateKey(alg, {
-    ...opts,
-    toJWK: {
-      kid: typeof jwkParams?.kid === "string" ? jwkParams.kid : crypto.randomUUID(),
-      ...jwkParams,
-    },
-  });
+  const result = await generateKey(alg, { ...options, toJWK: true });
+
+  if (result && typeof result === "object" && "privateKey" in result && "publicKey" in result) {
+    const pair = result as { privateKey: JWK; publicKey: JWK };
+    return {
+      privateKey: { ...extraParams, ...pair.privateKey },
+      publicKey: { ...extraParams, ...pair.publicKey },
+    } as GenerateJWKReturn<TAlg>;
+  }
+  return { ...extraParams, ...(result as JWK) } as GenerateJWKReturn<TAlg>;
 }
 
 /**
@@ -203,15 +190,7 @@ export async function deriveKeyFromPassword(
 
   if (exportToJWK) {
     const jwk = await keyToJWK<JWK_oct>(derivedKey);
-    const {
-      alg: _a,
-      kty: _k,
-      key_ops: _ko,
-      ext: _e,
-      ...additionalKeyParams
-    } = typeof options.toJWK === "object" ? (options.toJWK as JWKParameters) : {};
-
-    return { ...additionalKeyParams, ...jwk, alg: wrappingAlg, kty: "oct" };
+    return { ...jwk, alg: wrappingAlg, kty: "oct" };
   }
 
   return derivedKey;
@@ -232,16 +211,8 @@ export async function deriveJWKFromPassword(
   options: Omit<DeriveKeyOptions, "toJWK">,
   jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<JWK_oct> {
-  const {
-    // @ts-expect-error destructuring just to avoid passing it down
-    toJWK: _,
-    ...opts
-  } = options;
-
-  return deriveKeyFromPassword(password, alg, {
-    ...opts,
-    toJWK: (jwkParams as object) || true,
-  });
+  const result = await deriveKeyFromPassword(password, alg, { ...options, toJWK: true });
+  return jwkParams ? { ...jwkParams, ...result } : result;
 }
 
 /**

@@ -132,7 +132,7 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should generate asymmetric JWK pair with custom `kid`", async () => {
       const kid = crypto.randomUUID();
-      const jwkPair = await generateKey("Ed25519", { toJWK: { kid } });
+      const jwkPair = await generateJWK("Ed25519", { kid });
       expect(jwkPair.privateKey.kty).toBe("OKP");
       expect(jwkPair.privateKey.alg).toBe("Ed25519");
       expect(jwkPair.privateKey.kid).toBe(kid);
@@ -258,13 +258,15 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should derive JWK with custom `kid`", async () => {
       const kid = "custom-key-id";
-      const jwk = await deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
-        salt,
-        iterations,
-        toJWK: { kid },
-      });
+      const jwk = await deriveJWKFromPassword(
+        password,
+        "PBES2-HS256+A128KW",
+        { salt, iterations },
+        { kid },
+      );
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe("A128KW");
+      expect(jwk.kid).toBe(kid);
       expect(typeof jwk.k).toBe("string");
       expect(base64UrlDecode(jwk.k, false).length).toBe(16); // 128 bits
     });

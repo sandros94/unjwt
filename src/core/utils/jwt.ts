@@ -268,11 +268,11 @@ const BASE_HEADER_PARAMS = ["alg", "typ", "cty", "kid", "jwk", "jku", "x5c", "x5
 /** Validate critical headers in JWS semantics. */
 export function validateCriticalHeadersJWS(
   protectedHeader: { crit?: string[] } & Record<string, any>,
-  requiredHeaders: string[] = [],
+  recognizedHeaders: string[] = [],
 ): void {
   if (!protectedHeader.crit) return;
   const missingHeaderParams = new Set<string>();
-  const recognizedParams = new Set<string>([...requiredHeaders, ...BASE_HEADER_PARAMS, "b64"]);
+  const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_HEADER_PARAMS, "b64"]);
 
   for (const param of protectedHeader.crit) {
     // `b64` is special: its absence should still be considered valid
@@ -293,9 +293,9 @@ export function validateCriticalHeadersJWS(
 /** Validate critical headers in JWE semantics. */
 export function validateCriticalHeadersJWE(
   protectedHeader: { crit?: string[] } & Record<string, any>,
-  understoodFromOptions?: string[],
+  recognizedHeaders?: string[],
 ): void {
-  if (protectedHeader.crit && !understoodFromOptions) {
+  if (protectedHeader.crit && !recognizedHeaders) {
     throw new JWTError(
       `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
       "ERR_JWE_INVALID",
@@ -304,7 +304,7 @@ export function validateCriticalHeadersJWE(
   if (!protectedHeader.crit) return;
 
   const understoodParams = new Set<string>([
-    ...(understoodFromOptions || []),
+    ...(recognizedHeaders || []),
     ...BASE_HEADER_PARAMS,
     "enc",
     "iv",

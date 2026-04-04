@@ -1,6 +1,7 @@
 import type { JoseHeaderParameters, JWTClaims, JWTClaimValidationOptions } from "./jwt";
 import type {
   JWK,
+  JWKSet,
   JWK_EC_Public,
   JWK_EC_Private,
   KeyManagementAlgorithm,
@@ -14,11 +15,11 @@ export interface JWEHeaderParameters extends JoseHeaderParameters {
   /**
    * `alg` (Algorithm): Header Parameter - Key Management Algorithm
    */
-  alg?: string;
+  alg?: KeyManagementAlgorithm | (string & {});
   /**
    * `enc` (Encryption Algorithm): Header Parameter - Content Encryption Algorithm
    */
-  enc?: string;
+  enc?: ContentEncryptionAlgorithm | (string & {});
   /**
    * `p2c` (PBES2 Count): Header Parameter
    */
@@ -140,7 +141,7 @@ export interface JWEEncryptOptions {
 /**
  * Key lookup function for JWE decryption.
  * @param header The JWE Protected Header.
- * @returns The key material (CryptoKey, JWK, password string, or raw Uint8Array) or a Promise resolving to it.
+ * @returns The key material (CryptoKey, JWK, JWKSet, password string, or raw Uint8Array) or a Promise resolving to it.
  */
 export type JWEKeyLookupFunction = (
   header: JWEHeaderParameters,
@@ -148,9 +149,10 @@ export type JWEKeyLookupFunction = (
 ) =>
   | CryptoKey
   | JWK
+  | JWKSet
   | string
   | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | string | Uint8Array<ArrayBuffer>>;
+  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
 
 /**
  * JWE (JSON Web Encryption) decryption options
@@ -176,6 +178,18 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
 }
 
 /**
+ * JWE Protected Header — the parsed and validated protected header returned
+ * after a successful {@link decrypt} call. Both `alg` and `enc` are present
+ * and strongly typed because decryption could not have succeeded without them.
+ */
+export interface JWEProtectedHeader extends JWEHeaderParameters {
+  /** Key management algorithm. */
+  alg: KeyManagementAlgorithm;
+  /** Content encryption algorithm. */
+  enc: ContentEncryptionAlgorithm;
+}
+
+/**
  * Result of a JWE decryption operation.
  */
 export interface JWEDecryptResult<
@@ -187,7 +201,7 @@ export interface JWEDecryptResult<
   /** The decrypted payload. */
   payload: T;
   /** The JWE Protected Header. */
-  protectedHeader: JWEHeaderParameters;
+  protectedHeader: JWEProtectedHeader;
   /** The Content Encryption Key (CEK) used for decryption, as Uint8Array. Only present when `returnCek` is true. */
   cek?: Uint8Array<ArrayBuffer>;
   /** The Additional Authenticated Data (AAD) used, as Uint8Array. Only present when `returnCek` is true. */

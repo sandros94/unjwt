@@ -288,10 +288,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   }
 
   // 9. Handle Critical Headers
-  validateCriticalHeadersJWS(protectedHeader, [
-    ...(options.critical || []),
-    ...(options.requiredHeaders || []),
-  ]);
+  validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
 
   // 10. JWT Claim Validations (if applicable)
   if (

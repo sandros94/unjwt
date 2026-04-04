@@ -423,7 +423,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       // Decrypts fine if "exp" is understood (e.g. by being in options.critical)
-      await expect(decrypt(jweCrit, key, { critical: ["exp"] })).resolves.toBeDefined();
+      await expect(decrypt(jweCrit, key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
       await expect(
         jose.compactDecrypt(jweCrit, joseKey, { crit: { exp: true } }),
       ).resolves.toBeDefined();
@@ -546,7 +546,7 @@ describe.concurrent("JWE Utilities", () => {
           protectedHeader: { crit: ["exp"], exp: 1_234_567_890 },
         });
 
-        await expect(decrypt(jweCrit, key, { requiredHeaders: ["exp"] })).resolves.toBeDefined();
+        await expect(decrypt(jweCrit, key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
       });
 
       it("it does have an expired claim but validation is skipped", async () => {
