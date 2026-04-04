@@ -95,13 +95,18 @@ export async function sign(
     }
   }
 
+  // Belt-and-suspenders guard against callers that bypass the type system with `as any`.
+  if ((alg as string) === "none") {
+    throw new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
+  }
+
   // 1. Validate and import Key
   const signingKey = await importKey(key as any, alg);
 
-  // 2. Construct Protected Header
+  // 2. Construct Protected Header — JWK kid is a fallback; user-set kid wins.
   const protectedHeader: JWSProtectedHeader = {
+    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
     ...safeAdditionalHeader,
-    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}), // Include kid if available
     alg: alg,
     typ: safeAdditionalHeader?.typ,
   };

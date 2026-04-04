@@ -131,7 +131,7 @@ export async function encrypt(
   if (p2s) jweKeyManagementParams.p2s = p2s;
   else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2s = randomBytes(16);
   if (p2c) jweKeyManagementParams.p2c = p2c;
-  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2c = 2048;
+  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2c = 600_000;
   if (ecdh?.partyUInfo) jweKeyManagementParams.apu = ecdh.partyUInfo;
   if (ecdh?.partyVInfo) jweKeyManagementParams.apv = ecdh.partyVInfo;
   if (ecdh?.ephemeralKey) {
@@ -149,12 +149,12 @@ export async function encrypt(
   } = await encryptKey(alg, enc, wrappingKeyMaterial, providedCek, jweKeyManagementParams);
 
   const jweProtectedHeader: JWEHeaderParameters = {
+    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
     ...additionalProtectedHeader,
     ...keyManagementHeaderParams,
     alg,
     enc,
   };
-  if (isJWK(key) && key.kid) jweProtectedHeader.kid = key.kid;
 
   const protectedHeader = applyTypCtyDefaults(jweProtectedHeader, payload);
 
