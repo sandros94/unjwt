@@ -17,6 +17,7 @@ export {
   importJWKFromPEM,
   exportJWKToPEM,
   getJWKFromSet,
+  getAllJWKsFromSet,
   deriveSharedSecret,
   WeakMapJWKCache,
   configureJWKCache,

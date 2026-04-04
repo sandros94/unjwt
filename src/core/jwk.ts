@@ -975,8 +975,12 @@ export function getJWKFromSet(
     const { kid, alg, kty } = kidOrProtectedHeader;
 
     if (!kid) {
+      if (jwkSet.keys.length === 1) {
+        return jwkSet.keys[0]!;
+      }
       throw new JWTError(
-        "JWS Protected Header is missing 'kid' (Key ID) and a JWK Set was provided. Cannot select key from JWK Set automatically.",
+        "JWS Protected Header is missing 'kid' (Key ID) and the JWK Set contains multiple keys. " +
+          "Add a 'kid' parameter to the token header and to the matching JWK to enable automatic selection.",
         "ERR_JWK_KEY_NOT_FOUND",
       );
     }
@@ -1002,6 +1006,34 @@ export function getJWKFromSet(
 
   throw new TypeError(
     "`kidOrProtectedHeader` must be a string (kid) or an object (JOSE Protected Header).",
+  );
+}
+
+/**
+ * Returns all JWKs from a JWK Set that match the optional filter criteria.
+ *
+ * Useful for multi-key verification retry, key rotation tooling, and
+ * constructing multi-recipient JWE JSON Serialization structures.
+ *
+ * @param jwkSet The JWK Set to search.
+ * @param filter Optional filter — all provided fields must match.
+ * @returns An array of matching JWKs. Returns all keys when no filter is given.
+ */
+export function getAllJWKsFromSet(
+  jwkSet: JWKSet,
+  filter?: { kid?: string; alg?: string; kty?: string },
+): JWK[] {
+  if (!jwkSet || !isJWKSet(jwkSet)) {
+    throw new TypeError("Invalid JWK Set provided");
+  }
+
+  if (!filter || (!filter.kid && !filter.alg && !filter.kty)) {
+    return [...jwkSet.keys];
+  }
+
+  const { kid, alg, kty } = filter;
+  return jwkSet.keys.filter(
+    (k: JWK) => (!kid || k.kid === kid) && (!alg || k.alg === alg) && (!kty || k.kty === kty),
   );
 }
 
