@@ -4,6 +4,10 @@ import type {
   JWK_Pair,
   JWK_oct,
   JWK_PBES2,
+  JWK_EC,
+  JWK_EC_Public,
+  JWK_EC_Private,
+  JWK_ECDH_ES,
   JWKPEMAlgorithm,
   JWKParameters,
   JWKCacheAdapter,
@@ -23,7 +27,9 @@ import type {
 } from "./types";
 import {
   base64UrlDecode,
+  base64UrlEncode,
   isCryptoKey,
+  isCryptoKeyPair,
   isJWK,
   isJWKSet,
   sanitizeObject,
@@ -433,8 +439,64 @@ export async function wrapKey(
     case "ECDH-ES+A128KW":
     case "ECDH-ES+A192KW":
     case "ECDH-ES+A256KW": {
-      // ECDH-ES requires more complex logic
-      throw new Error(`Algorithm ${alg} not yet implemented in wrapKey`);
+      if (!(importedWrappingKey instanceof CryptoKey)) {
+        throw new TypeError(
+          "ECDH-ES requires the wrapping key to be a CryptoKey (recipient's public key)",
+        );
+      }
+      if (!isECDHKeyAllowed(importedWrappingKey)) {
+        throw new JWTError(
+          "ECDH with the provided key is not allowed or not supported",
+          "ERR_JWK_INVALID",
+        );
+      }
+
+      const apu = options.ecdh?.partyUInfo ?? new Uint8Array(0);
+      const apv = options.ecdh?.partyVInfo ?? new Uint8Array(0);
+
+      const { ephemeralPrivateKey, epkJwk } = await resolveECDHEphemeralPair(
+        importedWrappingKey,
+        options.ecdh?.ephemeralKey,
+      );
+
+      const infoAlg =
+        alg === "ECDH-ES"
+          ? (() => {
+              if (!options.ecdh?.enc) {
+                throw new JWTError(
+                  "ECDH-ES direct key agreement requires options.ecdh.enc (the target content encryption algorithm)",
+                  "ERR_JWK_INVALID",
+                );
+              }
+              return options.ecdh.enc;
+            })()
+          : alg;
+
+      const keyLength =
+        alg === "ECDH-ES" ? bitLengthCEK(infoAlg) : Number.parseInt(alg.slice(-5, -2), 10);
+
+      const sharedSecret = await deriveECDHESKey(
+        importedWrappingKey,
+        ephemeralPrivateKey,
+        infoAlg,
+        keyLength,
+        apu,
+        apv,
+      );
+
+      const wrapResult: WrapKeyResult = { encryptedKey: new Uint8Array(0), epk: epkJwk };
+      if (apu.length > 0) wrapResult.apu = base64UrlEncode(apu);
+      if (apv.length > 0) wrapResult.apv = base64UrlEncode(apv);
+
+      if (alg === "ECDH-ES") {
+        // Direct key agreement: derived secret is the CEK; no encrypted key.
+        return wrapResult;
+      }
+
+      // Key agreement with wrapping: AES-KW the caller-supplied CEK.
+      const kwAlg = alg.slice(-6);
+      wrapResult.encryptedKey = await aesKwWrap(kwAlg, sharedSecret, cekBytes);
+      return wrapResult;
     }
 
     default: {
@@ -765,6 +827,73 @@ export async function exportJWKToPEM(
 }
 
 /**
+ * Derives a shared secret using ECDH-ES key agreement (RFC 7518 §4.6).
+ *
+ * Performs an Elliptic Curve Diffie-Hellman Ephemeral-Static key derivation
+ * followed by a Concat KDF (NIST SP 800-56A) to produce key material of the
+ * requested length. The result can be used directly as a CEK (for `ECDH-ES`
+ * direct key agreement) or as a KEK to wrap a separately generated CEK (for
+ * `ECDH-ES+A*KW`).
+ *
+ * For multi-recipient JWE, call this once per recipient with their public key
+ * and a fresh ephemeral private key, then wrap the shared CEK with the derived
+ * material using {@link wrapKey}.
+ *
+ * @param publicKey The recipient's static public key (or the sender's
+ *   ephemeral public key on the decryption side).
+ * @param privateKey The sender's ephemeral private key (or the recipient's
+ *   static private key on the decryption side).
+ * @param alg The algorithm identifier used as the `AlgorithmID` in the
+ *   concat KDF info structure. Pass a {@link JWK_ECDH_ES} variant
+ *   (e.g. `"ECDH-ES+A128KW"`) or a {@link ContentEncryptionAlgorithm}
+ *   (e.g. `"A256GCM"`) for direct key agreement.
+ * @param options Optional overrides for key length and party info.
+ */
+export async function deriveSharedSecret(
+  publicKey: CryptoKey | JWK_EC_Public,
+  privateKey: CryptoKey | JWK_EC_Private,
+  alg: JWK_ECDH_ES | ContentEncryptionAlgorithm,
+  options?: {
+    /** Override the derived key length in bits. Defaults to the standard length for `alg`. */
+    keyLength?: number;
+    /** Agreement PartyUInfo (apu). */
+    partyUInfo?: Uint8Array<ArrayBuffer>;
+    /** Agreement PartyVInfo (apv). */
+    partyVInfo?: Uint8Array<ArrayBuffer>;
+  },
+): Promise<Uint8Array<ArrayBuffer>> {
+  const pubCryptoKey = isCryptoKey(publicKey)
+    ? publicKey
+    : ((await importKey(publicKey as JWK, "ECDH-ES")) as CryptoKey);
+  const privCryptoKey = isCryptoKey(privateKey)
+    ? privateKey
+    : ((await importKey(privateKey as JWK, "ECDH-ES")) as CryptoKey);
+
+  let keyLength: number;
+  if (options?.keyLength !== undefined) {
+    keyLength = options.keyLength;
+  } else if (alg === "ECDH-ES") {
+    throw new JWTError(
+      'deriveSharedSecret with alg "ECDH-ES" requires an explicit keyLength in options',
+      "ERR_JWK_INVALID",
+    );
+  } else if ((alg as string).startsWith("ECDH-ES+")) {
+    keyLength = Number.parseInt((alg as string).slice(-5, -2), 10);
+  } else {
+    keyLength = bitLengthCEK(alg);
+  }
+
+  return deriveECDHESKey(
+    pubCryptoKey,
+    privCryptoKey,
+    alg,
+    keyLength,
+    options?.partyUInfo ?? new Uint8Array(0),
+    options?.partyVInfo ?? new Uint8Array(0),
+  );
+}
+
+/**
  * Retrieves a JWK (JSON Web Key) from a JWKSet based on a key ID (kid) or
  * properties from a JOSE Header.
  *
@@ -991,6 +1120,73 @@ function getGenerateKeyParams(
   }
 
   return { algorithm, keyUsages };
+}
+
+async function resolveECDHEphemeralPair(
+  recipientPublicKey: CryptoKey,
+  ephemeralKeyInput: NonNullable<WrapKeyOptions["ecdh"]>["ephemeralKey"],
+): Promise<{ ephemeralPrivateKey: CryptoKey; epkJwk: JWK_EC_Public }> {
+  if (!ephemeralKeyInput) {
+    const generated = await crypto.subtle.generateKey(
+      recipientPublicKey.algorithm as EcKeyAlgorithm,
+      true,
+      ["deriveBits"],
+    );
+    const rawJwk = (await keyToJWK(generated.publicKey)) as JWK_EC;
+    return { ephemeralPrivateKey: generated.privateKey, epkJwk: stripPrivateJwkFields(rawJwk) };
+  }
+
+  if (isCryptoKeyPair(ephemeralKeyInput)) {
+    const rawJwk = (await keyToJWK(ephemeralKeyInput.publicKey)) as JWK_EC;
+    return {
+      ephemeralPrivateKey: ephemeralKeyInput.privateKey,
+      epkJwk: stripPrivateJwkFields(rawJwk),
+    };
+  }
+
+  if (
+    typeof ephemeralKeyInput === "object" &&
+    "publicKey" in ephemeralKeyInput &&
+    "privateKey" in ephemeralKeyInput
+  ) {
+    const { publicKey, privateKey } = ephemeralKeyInput as {
+      publicKey: CryptoKey | JWK_EC_Public;
+      privateKey: CryptoKey | JWK_EC_Private;
+    };
+    const privCryptoKey = isCryptoKey(privateKey)
+      ? privateKey
+      : ((await importKey(privateKey as JWK, "ECDH-ES")) as CryptoKey);
+    const epkJwk = isCryptoKey(publicKey)
+      ? stripPrivateJwkFields((await keyToJWK(publicKey)) as JWK_EC)
+      : stripPrivateJwkFields(publicKey as JWK_EC);
+    return { ephemeralPrivateKey: privCryptoKey, epkJwk };
+  }
+
+  if (isCryptoKey(ephemeralKeyInput)) {
+    if (ephemeralKeyInput.type !== "private") {
+      throw new TypeError("ECDH-ES ephemeral CryptoKey must be a private key");
+    }
+    return {
+      ephemeralPrivateKey: ephemeralKeyInput,
+      epkJwk: stripPrivateJwkFields((await keyToJWK(ephemeralKeyInput)) as JWK_EC),
+    };
+  }
+
+  // JWK_EC_Private
+  if (isJWK(ephemeralKeyInput) && "d" in ephemeralKeyInput) {
+    const privCryptoKey = (await importKey(ephemeralKeyInput as JWK, "ECDH-ES")) as CryptoKey;
+    return {
+      ephemeralPrivateKey: privCryptoKey,
+      epkJwk: stripPrivateJwkFields(ephemeralKeyInput as JWK_EC),
+    };
+  }
+
+  throw new TypeError("Unsupported ECDH-ES ephemeral key material");
+}
+
+function stripPrivateJwkFields(jwk: JWK_EC): JWK_EC_Public {
+  const { d: _d, ...pub } = jwk as JWK_EC_Private;
+  return pub as JWK_EC_Public;
 }
 
 function inferAesImportAlgorithm(

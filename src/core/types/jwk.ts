@@ -127,12 +127,28 @@ export interface WrapKeyOptions {
   p2s?: Uint8Array<ArrayBuffer>;
   /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
   p2c?: number;
-  /** ECDH-ES Ephemeral Public Key. Generated if not provided for ECDH-ES. */
-  epk?: JWK_EC_Public; // Or CryptoKey? JWK is more common in JWE headers
-  /** ECDH-ES Agreement PartyUInfo. */
-  apu?: Uint8Array<ArrayBuffer>;
-  /** ECDH-ES Agreement PartyVInfo. */
-  apv?: Uint8Array<ArrayBuffer>;
+  /** ECDH-ES specific options. */
+  ecdh?: {
+    /**
+     * ECDH-ES ephemeral key material. A fresh ephemeral key pair is generated
+     * automatically when this is not provided.
+     */
+    ephemeralKey?:
+      | CryptoKey
+      | JWK_EC_Private
+      | CryptoKeyPair
+      | { publicKey: CryptoKey | JWK_EC_Public; privateKey: CryptoKey | JWK_EC_Private };
+    /** Agreement PartyUInfo (apu). */
+    partyUInfo?: Uint8Array<ArrayBuffer>;
+    /** Agreement PartyVInfo (apv). */
+    partyVInfo?: Uint8Array<ArrayBuffer>;
+    /**
+     * Content encryption algorithm used for key-length derivation.
+     * Required only when `alg` is `"ECDH-ES"` (direct key agreement).
+     * Not needed for `ECDH-ES+A128KW`, `+A192KW`, or `+A256KW`.
+     */
+    enc?: ContentEncryptionAlgorithm;
+  };
 }
 
 /** Result of the wrapKey function. */

@@ -9,6 +9,7 @@ import {
   exportKey,
   wrapKey,
   unwrapKey,
+  deriveSharedSecret,
   importJWKFromPEM,
   exportJWKToPEM,
   getJWKFromSet,
@@ -672,12 +673,12 @@ describe.concurrent("JWK Utilities", () => {
       ).rejects.toThrow("Unsupported key wrapping algorithm");
     });
 
-    it("should throw wrapKey for ECDH-ES (not yet implemented)", async () => {
-      const senderKeys = (await generateKey("ECDH-ES", {
+    it("should throw wrapKey for ECDH-ES direct without options.ecdh.enc", async () => {
+      const recipientKeys = (await generateKey("ECDH-ES", {
         namedCurve: "P-256",
       })) as CryptoKeyPair;
-      await expect(wrapKey("ECDH-ES" as any, cek, senderKeys.publicKey)).rejects.toThrow(
-        "not yet implemented in wrapKey",
+      await expect(wrapKey("ECDH-ES", cek, recipientKeys.publicKey)).rejects.toThrow(
+        "options.ecdh.enc",
       );
     });
 
@@ -861,6 +862,131 @@ describe.concurrent("JWK Utilities", () => {
 
       expect(unwrapped).toBeInstanceOf(Uint8Array);
       expect(unwrapped).toEqual(cekBytes);
+    });
+
+    it("wrapKey/unwrapKey ECDH-ES direct roundtrip — P-256", async () => {
+      const recipientKP = await crypto.subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"],
+      );
+      const enc = "A128GCM";
+
+      const { encryptedKey, epk, apu, apv } = await wrapKey(
+        "ECDH-ES",
+        randomBytes(16), // ignored for direct ECDH-ES
+        recipientKP.publicKey,
+        { ecdh: { enc } },
+      );
+
+      expect(encryptedKey.length).toBe(0); // no encrypted key for direct agreement
+      expect(epk).toBeDefined();
+
+      const derived = await unwrapKey("ECDH-ES", encryptedKey, recipientKP.privateKey, {
+        epk: epk!,
+        apu,
+        apv,
+        enc,
+        format: "raw",
+      });
+
+      expect(derived).toBeInstanceOf(Uint8Array);
+      expect(derived.length).toBe(16); // 128 bits for A128GCM
+    });
+
+    it("wrapKey/unwrapKey ECDH-ES+A128KW roundtrip", async () => {
+      const recipientKP = await crypto.subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"],
+      );
+      const cekToWrap = randomBytes(16);
+
+      const { encryptedKey, epk, apu, apv } = await wrapKey(
+        "ECDH-ES+A128KW",
+        cekToWrap,
+        recipientKP.publicKey,
+      );
+
+      expect(encryptedKey.length).toBeGreaterThan(0);
+
+      const unwrapped = await unwrapKey("ECDH-ES+A128KW", encryptedKey, recipientKP.privateKey, {
+        epk: epk!,
+        apu,
+        apv,
+        enc: "A128GCM",
+        format: "raw",
+      });
+
+      expect(unwrapped).toEqual(cekToWrap);
+    });
+
+    it("wrapKey/unwrapKey ECDH-ES+A256KW roundtrip — X25519", async () => {
+      const recipientKP = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);
+      const cekToWrap = randomBytes(32);
+
+      const { encryptedKey, epk, apu, apv } = await wrapKey(
+        "ECDH-ES+A256KW",
+        cekToWrap,
+        recipientKP.publicKey,
+      );
+
+      const unwrapped = await unwrapKey("ECDH-ES+A256KW", encryptedKey, recipientKP.privateKey, {
+        epk: epk!,
+        apu,
+        apv,
+        enc: "A256GCM",
+        format: "raw",
+      });
+
+      expect(unwrapped).toEqual(cekToWrap);
+    });
+  });
+
+  describe("deriveSharedSecret", () => {
+    it("produces the same secret on both sides — P-256", async () => {
+      const [recipientKP, ephemeralKP] = await Promise.all([
+        crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]),
+        crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]),
+      ]);
+
+      const [sender, recipient] = await Promise.all([
+        deriveSharedSecret(recipientKP.publicKey, ephemeralKP.privateKey, "ECDH-ES+A128KW"),
+        deriveSharedSecret(ephemeralKP.publicKey, recipientKP.privateKey, "ECDH-ES+A128KW"),
+      ]);
+
+      expect(sender).toEqual(recipient);
+      expect(sender.length).toBe(16);
+    });
+
+    it("produces the same secret on both sides — X25519", async () => {
+      const [recipientKP, ephemeralKP] = await Promise.all([
+        crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]),
+        crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]),
+      ]);
+
+      const [sender, recipient] = await Promise.all([
+        deriveSharedSecret(recipientKP.publicKey, ephemeralKP.privateKey, "A256GCM"),
+        deriveSharedSecret(ephemeralKP.publicKey, recipientKP.privateKey, "A256GCM"),
+      ]);
+
+      expect(sender).toEqual(recipient);
+      expect(sender.length).toBe(32);
+    });
+
+    it("throws when alg is ECDH-ES without keyLength", async () => {
+      const kp = await generateKey("ECDH-ES", { namedCurve: "P-256" });
+      await expect(deriveSharedSecret(kp.publicKey, kp.privateKey, "ECDH-ES")).rejects.toThrow(
+        "keyLength",
+      );
+    });
+
+    it("accepts explicit keyLength for ECDH-ES direct", async () => {
+      const kp = await generateKey("ECDH-ES", { namedCurve: "P-256" });
+      const secret = await deriveSharedSecret(kp.publicKey, kp.privateKey, "ECDH-ES", {
+        keyLength: 256,
+      });
+      expect(secret.length).toBe(32);
     });
   });
 
