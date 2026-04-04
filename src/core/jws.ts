@@ -81,10 +81,7 @@ export async function sign(
   key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
-  const { protectedHeader: additionalProtectedHeader } = options;
-  const safeAdditionalHeader = sanitizeObject<JWSHeaderParameters | undefined>(
-    additionalProtectedHeader,
-  );
+  const { protectedHeader: userHeader } = options;
   let { alg } = options;
 
   if (!alg) {
@@ -103,19 +100,8 @@ export async function sign(
   // 1. Validate and import Key
   const signingKey = await importKey(key as any, alg);
 
-  // 2. Construct Protected Header — JWK kid is a fallback; user-set kid wins.
-  const protectedHeader: JWSProtectedHeader = {
-    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
-    ...safeAdditionalHeader,
-    alg: alg,
-    typ: safeAdditionalHeader?.typ,
-  };
-
-  applyTypCtyDefaults(protectedHeader, payload);
-
-  if (protectedHeader.b64 === true) {
-    delete protectedHeader.b64;
-  }
+  // 2. Construct Protected Header
+  const protectedHeader = _buildJWSHeader(alg, key, userHeader, payload);
 
   // 3. Calculate expiresIn for JWT
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
@@ -311,4 +297,21 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
     payload,
     protectedHeader,
   };
+}
+
+function _buildJWSHeader(
+  alg: JWSAlgorithm,
+  key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
+  userHeader: JWSHeaderParameters | undefined,
+  payload: unknown,
+): JWSProtectedHeader {
+  const safeHeader = sanitizeObject<JWSHeaderParameters | undefined>(userHeader);
+  const header: JWSProtectedHeader = {
+    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
+    ...safeHeader,
+    alg,
+  };
+  applyTypCtyDefaults(header, payload);
+  if (header.b64 === true) delete header.b64;
+  return header;
 }

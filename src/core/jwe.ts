@@ -96,7 +96,7 @@ export async function encrypt(
   options: JWEEncryptOptions = {},
 ): Promise<string> {
   const {
-    protectedHeader: rawAdditionalProtectedHeader,
+    protectedHeader: userHeader,
     cek: providedCek,
     contentEncryptionIV: providedContentIV,
     keyManagementIV,
@@ -104,9 +104,6 @@ export async function encrypt(
     p2c,
     ecdh,
   } = options;
-  const additionalProtectedHeader = sanitizeObject<JWEHeaderParameters | undefined>(
-    rawAdditionalProtectedHeader,
-  );
   let { alg, enc } = options;
 
   // Fallback logic for alg and enc
@@ -159,15 +156,14 @@ export async function encrypt(
     parameters: keyManagementHeaderParams, // JWE header params from key encryption (e.g., epk, p2s, iv, tag)
   } = await encryptKey(alg, enc, wrappingKeyMaterial, providedCek, jweKeyManagementParams);
 
-  const jweProtectedHeader: JWEHeaderParameters = {
-    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
-    ...additionalProtectedHeader,
-    ...keyManagementHeaderParams,
+  const protectedHeader = _buildJWEHeader(
     alg,
     enc,
-  };
-
-  const protectedHeader = applyTypCtyDefaults(jweProtectedHeader, payload);
+    key,
+    userHeader,
+    keyManagementHeaderParams,
+    payload,
+  );
 
   // Calculate expiresIn for JWT
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
@@ -428,4 +424,25 @@ function parseEphemeralKey(ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ep
     epk,
     epkPrivateKey,
   };
+}
+
+function _buildJWEHeader(
+  alg: KeyManagementAlgorithm,
+  enc: ContentEncryptionAlgorithm,
+  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  userHeader: JWEEncryptOptions["protectedHeader"],
+  keyManagementParams: JWEHeaderParameters | undefined,
+  payload: unknown,
+): JWEHeaderParameters {
+  const safeHeader = sanitizeObject<JWEHeaderParameters | undefined>(
+    userHeader as JWEHeaderParameters | undefined,
+  );
+  const header: JWEHeaderParameters = {
+    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
+    ...safeHeader,
+    ...keyManagementParams,
+    alg,
+    enc,
+  };
+  return applyTypCtyDefaults(header, payload);
 }
