@@ -657,7 +657,7 @@ describe.concurrent("JWE Utilities", () => {
         apu: protectedHeader.apu,
         apv: protectedHeader.apv,
         enc,
-        returnAs: false,
+        format: "raw",
       });
       expect(expectedCek).toBeInstanceOf(Uint8Array);
 
@@ -724,7 +724,7 @@ describe.concurrent("JWE Utilities", () => {
           apu: protectedHeader.apu,
           apv: protectedHeader.apv,
           enc,
-          returnAs: false,
+          format: "raw",
         },
       );
 

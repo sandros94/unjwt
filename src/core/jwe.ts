@@ -308,9 +308,9 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   const contentAuthTagBytes = base64UrlDecode(authTagEncoded, false);
   const ciphertextBytes = base64UrlDecode(ciphertextEncoded, false);
 
-  const unwrapKeyOpts: UnwrapKeyOptions & { returnAs: boolean } = {
+  const unwrapKeyOpts: UnwrapKeyOptions = {
     enc,
-    returnAs: enc.includes("GCM"),
+    format: enc.includes("GCM") ? "cryptokey" : "raw",
     keyUsage: options?.keyUsage || ["decrypt"],
   };
   if (protectedHeader.iv) unwrapKeyOpts.iv = protectedHeader.iv;

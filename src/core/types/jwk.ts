@@ -157,6 +157,13 @@ export interface WrapKeyResult {
 
 /** Options for the unwrapKey function. */
 export interface UnwrapKeyOptions {
+  /**
+   * Output format of the unwrapped key.
+   * - `"cryptokey"` (default) — returns a `CryptoKey` ready for use with WebCrypto.
+   * - `"raw"` — returns the raw key bytes as `Uint8Array` (useful for
+   *   interoperability or when the algorithm is not directly importable).
+   */
+  format?: "cryptokey" | "raw";
   /** Initialization Vector (required for AES-GCMKW). Base64URL encoded or Uint8Array. */
   iv?: Uint8Array<ArrayBuffer> | string;
   /** Authentication Tag (required for AES-GCMKW). Base64URL encoded or Uint8Array. */

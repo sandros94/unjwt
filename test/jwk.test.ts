@@ -444,12 +444,12 @@ describe.concurrent("JWK Utilities", () => {
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
 
       const unwrappedBytes = await unwrapKey("A128KW", encryptedKey, wrappingKey, {
-        returnAs: false,
+        format: "raw",
       });
       expect(unwrappedBytes).toEqual(cek);
 
       const unwrappedKey = await unwrapKey("A128KW", encryptedKey, wrappingKey, {
-        returnAs: true,
+        format: "cryptokey",
         unwrappedKeyAlgorithm: { name: "AES-GCM" },
       });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
@@ -465,7 +465,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
 
       const unwrappedKey = await unwrapKey("RSA-OAEP", encryptedKey, privateKey, {
-        returnAs: true,
+        format: "cryptokey",
         unwrappedKeyAlgorithm: { name: "AES-GCM" },
       });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
@@ -490,7 +490,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it.each(rsaAlgorithms)(
-        "should return raw CEK bytes for %s when returnAs is false",
+        "should return raw CEK bytes for %s when format is 'raw'",
         async (alg) => {
           const pair = rsaKeyPairs[alg]!;
           const cekBytes = randomBytes(32);
@@ -498,7 +498,7 @@ describe.concurrent("JWK Utilities", () => {
 
           const unwrapped = await unwrapKey(alg, encryptedKey, pair.privateKey, {
             enc: "A128GCM",
-            returnAs: false,
+            format: "raw",
           });
 
           expect(unwrapped).toBeInstanceOf(Uint8Array);
@@ -529,7 +529,7 @@ describe.concurrent("JWK Utilities", () => {
         const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
         const unwrappedKey = await unwrapKey(alg, encryptedKey, pair.privateKey, {
-          returnAs: true,
+          format: "cryptokey",
           // no enc, no unwrappedKeyAlgorithm — hits inferAesImportAlgorithm bitLength branch
         });
 
@@ -546,7 +546,7 @@ describe.concurrent("JWK Utilities", () => {
 
         await expect(
           unwrapKey(alg, encryptedKey, pair.privateKey, {
-            returnAs: true,
+            format: "cryptokey",
             // no enc, no unwrappedKeyAlgorithm — inferAesImportAlgorithm returns undefined
           }),
         ).rejects.toThrow(/Unable to infer algorithm for RSA-OAEP unwrapped key/i);
@@ -566,7 +566,7 @@ describe.concurrent("JWK Utilities", () => {
 
         const unwrapped = await unwrapKey(alg, encryptedKey, pair.privateKey, {
           enc: "A256CBC-HS512",
-          returnAs: false,
+          format: "raw",
         });
 
         expect(unwrapped).toBeInstanceOf(Uint8Array);
@@ -585,14 +585,14 @@ describe.concurrent("JWK Utilities", () => {
       const unwrappedBytes = await unwrapKey("A128GCMKW", encryptedKey, wrappingKey, {
         iv,
         tag,
-        returnAs: false,
+        format: "raw",
       });
       expect(unwrappedBytes).toEqual(cek);
 
       const unwrappedKey = await unwrapKey("A128GCMKW", encryptedKey, wrappingKey, {
         iv,
         tag,
-        returnAs: true,
+        format: "cryptokey",
         unwrappedKeyAlgorithm: { name: "AES-GCM" },
       });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
@@ -616,14 +616,14 @@ describe.concurrent("JWK Utilities", () => {
       const unwrappedBytes = await unwrapKey("PBES2-HS256+A128KW", encryptedKey, password, {
         p2s: returnedP2s!,
         p2c: returnedP2c!,
-        returnAs: false,
+        format: "raw",
       });
       expect(unwrappedBytes).toEqual(cek);
 
       const unwrappedKey = await unwrapKey("PBES2-HS256+A128KW", encryptedKey, password, {
         p2s: returnedP2s!,
         p2c: returnedP2c!,
-        returnAs: true,
+        format: "cryptokey",
         unwrappedKeyAlgorithm: { name: "AES-GCM" },
       });
       expect(isCryptoKey(unwrappedKey)).toBe(true);
@@ -684,7 +684,7 @@ describe.concurrent("JWK Utilities", () => {
     it("should throw unwrapKey RSA-OAEP when unwrapping key is not a CryptoKey", async () => {
       await expect(
         unwrapKey("RSA-OAEP", new Uint8Array(32), randomBytes(32) as any, {
-          returnAs: false,
+          format: "raw",
         }),
       ).rejects.toThrow("RSA-OAEP requires the unwrapping key to be provided as a CryptoKey");
     });
@@ -802,7 +802,7 @@ describe.concurrent("JWK Utilities", () => {
         apu: base64UrlEncode(apu),
         apv: base64UrlEncode(apv),
         enc: "A128GCM",
-        returnAs: false,
+        format: "raw",
       });
 
       expect(unwrapped).toBeInstanceOf(Uint8Array);
@@ -856,7 +856,7 @@ describe.concurrent("JWK Utilities", () => {
         apu: base64UrlEncode(apu),
         apv: base64UrlEncode(apv),
         enc: "A128GCM",
-        returnAs: false,
+        format: "raw",
       });
 
       expect(unwrapped).toBeInstanceOf(Uint8Array);

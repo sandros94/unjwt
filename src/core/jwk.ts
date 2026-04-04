@@ -452,13 +452,31 @@ export async function wrapKey(
  * @param options Additional options required by certain algorithms (e.g., iv, tag, p2s, p2c, epk).
  * @returns A Promise resolving to the unwrapped key (CEK) as a CryptoKey or Uint8Array.
  */
-export async function unwrapKey<T extends boolean | undefined = undefined>(
+export async function unwrapKey(
   alg: KeyManagementAlgorithm,
   wrappedKey: Uint8Array<ArrayBuffer>,
   unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
-  options: UnwrapKeyOptions & { returnAs?: T } = {},
-): Promise<T extends false ? Uint8Array<ArrayBuffer> : CryptoKey> {
-  const { returnAs = true } = options; // Default to returning CryptoKey
+  options: UnwrapKeyOptions & { format: "raw" },
+): Promise<Uint8Array<ArrayBuffer>>;
+export async function unwrapKey(
+  alg: KeyManagementAlgorithm,
+  wrappedKey: Uint8Array<ArrayBuffer>,
+  unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  options?: UnwrapKeyOptions & { format?: "cryptokey" },
+): Promise<CryptoKey>;
+export async function unwrapKey(
+  alg: KeyManagementAlgorithm,
+  wrappedKey: Uint8Array<ArrayBuffer>,
+  unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  options: UnwrapKeyOptions,
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
+export async function unwrapKey(
+  alg: KeyManagementAlgorithm,
+  wrappedKey: Uint8Array<ArrayBuffer>,
+  unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  options: UnwrapKeyOptions = {},
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
+  const returnRaw = options.format === "raw";
   const defaultExtractable = options.extractable !== false; // Default true
 
   const importedUnwrappingKey = isCryptoKey(unwrappingKey)
@@ -518,7 +536,7 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
 
       unwrappedCekBytes = await decryptRSAES(alg, importedUnwrappingKey, wrappedKey);
 
-      if (!returnAs) {
+      if (returnRaw) {
         break;
       }
 
@@ -614,8 +632,8 @@ export async function unwrapKey<T extends boolean | undefined = undefined>(
   }
 
   // If returning bytes, return them now (applies to AES-KW/PBES2/AES-GCMKW paths)
-  if (!returnAs) {
-    return unwrappedCekBytes as any;
+  if (returnRaw) {
+    return unwrappedCekBytes;
   }
 
   // Otherwise, import the unwrapped bytes as a CryptoKey
