@@ -27,11 +27,11 @@ Both `useJWESession` and `useJWSSession` return a `SessionManager`:
 
 ```ts
 interface SessionManager<T, ConfigMaxAge extends ExpiresIn | undefined = ExpiresIn | undefined> {
-  readonly id: string | undefined;       // from jti — undefined until update() is called
-  readonly createdAt: number;            // from iat, in ms
+  readonly id: string | undefined; // from jti — undefined until update() is called
+  readonly createdAt: number; // from iat, in ms
   readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined; // from exp, in ms
-  readonly data: SessionData<T>;         // session payload (excludes jti/iat/exp)
-  readonly token: string | undefined;    // current raw JWT token
+  readonly data: SessionData<T>; // session payload (excludes jti/iat/exp)
+  readonly token: string | undefined; // current raw JWT token
   update(data?: SessionUpdate<T>): Promise<SessionManager<T, ConfigMaxAge>>;
   clear(): Promise<SessionManager<T, ConfigMaxAge>>;
 }
@@ -43,6 +43,7 @@ type SessionUpdate<T> =
 ```
 
 **Key behavior:**
+
 - Sessions are lazy — `id` is `undefined` until `session.update()` is called. This is intentional for OAuth/spec-compliant flows.
 - `session.update()` with no argument refreshes the token (new `jti`, new `iat`/`exp`) without changing `data`.
 
@@ -172,13 +173,13 @@ interface SessionHooksJWE<T, MaxAge, TEvent> {
 
 ### Hook lifecycle guarantees
 
-| Hook         | When it fires                                        | Mutually exclusive with |
-| ------------ | ---------------------------------------------------- | ----------------------- |
-| `onRead`     | Token decoded successfully (`id` and `token` set)    | `onExpire`, `onError`   |
-| `onUpdate`   | After seal/sign succeeds                             | —                       |
-| `onClear`    | After explicit `session.clear()` call                | `onExpire`              |
-| `onExpire`   | Token's `exp` claim is in the past                   | `onRead`, `onClear`     |
-| `onError`    | Token verification/decryption fails (non-expiry)     | `onRead`                |
+| Hook       | When it fires                                     | Mutually exclusive with |
+| ---------- | ------------------------------------------------- | ----------------------- |
+| `onRead`   | Token decoded successfully (`id` and `token` set) | `onExpire`, `onError`   |
+| `onUpdate` | After seal/sign succeeds                          | —                       |
+| `onClear`  | After explicit `session.clear()` call             | `onExpire`              |
+| `onExpire` | Token's `exp` claim is in the past                | `onRead`, `onClear`     |
+| `onError`  | Token verification/decryption fails (non-expiry)  | `onRead`                |
 
 **Important:** `onExpire` clears the cookie inline — it does **not** call the `clearSession` function, so `onClear` is **never** triggered by natural token expiry. These two hooks are semantically distinct: `onExpire` = lifetime ended by clock; `onClear` = explicit user/system termination.
 

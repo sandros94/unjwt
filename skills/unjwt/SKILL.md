@@ -29,16 +29,16 @@ The following is a list of reference files:
 
 ## Export Paths
 
-| Path                  | Purpose                                                                      |
-| --------------------- | ---------------------------------------------------------------------------- |
+| Path                  | Purpose                                                                       |
+| --------------------- | ----------------------------------------------------------------------------- |
 | `unjwt`               | Flat barrel: all public functions and types from `jws`, `jwe`, `jwk`, `utils` |
-| `unjwt/jws`           | `sign()`, `verify()` — JWS Compact Serialization                             |
-| `unjwt/jwe`           | `encrypt()`, `decrypt()` — JWE Compact Serialization                         |
-| `unjwt/jwk`           | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2 derivation |
-| `unjwt/utils`         | Base64URL encode/decode, type guards, JWT claim validation, `randomBytes`    |
-| `unjwt/adapters/h3`   | H3 session adapter (aliases h3v1)                                            |
-| `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2)                                    |
-| `unjwt/adapters/h3v2` | H3 v2 session adapter (Nuxt v5, Nitro v3)                                    |
+| `unjwt/jws`           | `sign()`, `verify()` — JWS Compact Serialization                              |
+| `unjwt/jwe`           | `encrypt()`, `decrypt()` — JWE Compact Serialization                          |
+| `unjwt/jwk`           | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2 derivation  |
+| `unjwt/utils`         | Base64URL encode/decode, type guards, JWT claim validation, `randomBytes`     |
+| `unjwt/adapters/h3`   | H3 session adapter (aliases h3v1)                                             |
+| `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2)                                     |
+| `unjwt/adapters/h3v2` | H3 v2 session adapter (Nuxt v5, Nitro v3)                                     |
 
 ## Quick Start
 
