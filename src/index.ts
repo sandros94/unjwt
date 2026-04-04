@@ -17,6 +17,9 @@ export {
   importJWKFromPEM,
   exportJWKToPEM,
   getJWKFromSet,
+  WeakMapJWKCache,
+  configureJWKCache,
+  clearJWKCache,
 } from "./core/jwk";
 export {
   textEncoder,

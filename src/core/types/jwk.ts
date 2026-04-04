@@ -1,5 +1,29 @@
 // --- JWK Function Specific Types ---
 
+/**
+ * Interface for custom JWK import cache implementations.
+ *
+ * The adapter receives the full JWK object so each implementation can choose
+ * its own keying strategy:
+ * - {@link WeakMapJWKCache} uses the object reference (GC-friendly, no string hashing needed)
+ * - A `kid`-keyed cache extracts `jwk.kid` and uses it as a string key
+ * - A content-hash cache hashes `jwk.k` or `jwk.n`+`jwk.e`
+ *
+ * @example Use a custom kid-keyed cache:
+ * ```ts
+ * import { configureJWKCache } from 'unjwt/jwk';
+ * const map = new Map<string, CryptoKey>();
+ * configureJWKCache({
+ *   get: (jwk, alg) => map.get(`${jwk.kid}:${alg}`),
+ *   set: (jwk, alg, key) => map.set(`${jwk.kid}:${alg}`, key),
+ * });
+ * ```
+ */
+export interface JWKCacheAdapter {
+  get(jwk: JWK, alg: string): CryptoKey | undefined;
+  set(jwk: JWK, alg: string, key: CryptoKey): void;
+}
+
 /** Structure returned for composite AES-CBC + HMAC keys. */
 export type CompositeKey = {
   /** The AES-CBC encryption/decryption key. */

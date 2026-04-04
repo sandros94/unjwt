@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import * as jose from "jose";
 import {
   generateKey,
@@ -12,6 +12,9 @@ import {
   importJWKFromPEM,
   exportJWKToPEM,
   getJWKFromSet,
+  WeakMapJWKCache,
+  configureJWKCache,
+  clearJWKCache,
 } from "../src/core/jwk";
 import {
   isCryptoKey,
@@ -1050,6 +1053,88 @@ describe.concurrent("JWK Utilities", () => {
           // @ts-expect-error testing invalid type
           exportJWKToPEM(rsa.jwk.public, "unsupported"),
         ).rejects.toThrow(TypeError);
+      });
+    });
+  });
+
+  describe("JWK import cache", () => {
+    // Pure WeakMapJWKCache unit tests — no module-level state, safe to run concurrently.
+    it("WeakMapJWKCache.get returns undefined for an unseen key", () => {
+      const cache = new WeakMapJWKCache();
+      const fakeJwk = { kty: "oct", k: "abc", alg: "HS256" } as any;
+      expect(cache.get(fakeJwk, "HS256")).toBeUndefined();
+    });
+
+    it("WeakMapJWKCache.set then .get returns the stored CryptoKey", async () => {
+      const cache = new WeakMapJWKCache();
+      const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, [
+        "sign",
+        "verify",
+      ]);
+      const fakeJwk = { kty: "oct", k: "abc", alg: "HS256" } as any;
+      cache.set(fakeJwk, "HS256", key);
+      expect(cache.get(fakeJwk, "HS256")).toBe(key);
+      expect(cache.get(fakeJwk, "HS384")).toBeUndefined();
+    });
+
+    it("WeakMapJWKCache stores independent entries per alg", async () => {
+      const cache = new WeakMapJWKCache();
+      const k256 = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, [
+        "sign",
+        "verify",
+      ]);
+      const k384 = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-384" }, true, [
+        "sign",
+        "verify",
+      ]);
+      const fakeJwk = { kty: "oct", k: "abc" } as any;
+      cache.set(fakeJwk, "HS256", k256);
+      cache.set(fakeJwk, "HS384", k384);
+      expect(cache.get(fakeJwk, "HS256")).toBe(k256);
+      expect(cache.get(fakeJwk, "HS384")).toBe(k384);
+    });
+
+    // Module-level state tests — must run sequentially to avoid races between
+    // configureJWKCache / clearJWKCache calls in the concurrent parent suite.
+    describe.sequential("module-level cache control", () => {
+      afterEach(() => clearJWKCache());
+
+      it("default cache returns the same CryptoKey for the same object reference", async () => {
+        const jwk = await generateJWK("ES256");
+        const first = await importKey(jwk.privateKey, "ES256");
+        const second = await importKey(jwk.privateKey, "ES256");
+        expect(first).toBe(second);
+      });
+
+      it("clearJWKCache() causes a fresh CryptoKey to be created on next call", async () => {
+        const jwk = await generateJWK("ES256");
+        const before = await importKey(jwk.privateKey, "ES256");
+        clearJWKCache();
+        const after = await importKey(jwk.privateKey, "ES256");
+        expect(before).not.toBe(after);
+      });
+
+      it("configureJWKCache(false) disables caching — each call produces a new CryptoKey", async () => {
+        configureJWKCache(false);
+        const jwk = await generateJWK("ES256");
+        const first = await importKey(jwk.privateKey, "ES256");
+        const second = await importKey(jwk.privateKey, "ES256");
+        expect(first).not.toBe(second);
+      });
+
+      it("custom JWKCacheAdapter get/set are called with the correct arguments", async () => {
+        const jwk = await generateJWK("RS256");
+        const sets: Array<[object, string]> = [];
+        configureJWKCache({
+          get: (_jwk, _alg) => undefined,
+          set: (jwk, alg, _key) => {
+            sets.push([jwk, alg]);
+          },
+        });
+        await importKey(jwk.privateKey, "RS256");
+        expect(sets.length).toBe(1);
+        expect(sets[0]![0]).toBe(jwk.privateKey);
+        expect(sets[0]![1]).toBe("RS256");
       });
     });
   });

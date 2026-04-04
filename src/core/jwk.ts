@@ -6,6 +6,7 @@ import type {
   JWK_PBES2,
   JWKPEMAlgorithm,
   JWKParameters,
+  JWKCacheAdapter,
   GenerateKeyAlgorithm,
   GenerateKeyOptions,
   GenerateKeyReturn,
@@ -244,9 +245,69 @@ export async function deriveJWKFromPassword(
 }
 
 /**
- * Cache for imported JWKs to avoid redundant CryptoKey creation.
+ * Default JWK import cache backed by a WeakMap.
+ *
+ * The outer WeakMap is keyed by the JWK object reference — a cache hit only
+ * occurs when the exact same object variable is passed to {@link importKey}.
+ * Reconstructing a structurally identical JWK (e.g. `{ ...jwk }`) will miss
+ * the cache.
+ *
+ * The inner `Record<string, CryptoKey>` uses a plain object rather than `Map`
+ * because typical entries have 1–2 algorithm strings per key. V8 applies
+ * hidden-class optimisation to small plain objects, making property access
+ * faster than `Map.get()` at this cardinality.
  */
-let _jwkCache: WeakMap<object, Record<string, CryptoKey>> | undefined;
+export class WeakMapJWKCache implements JWKCacheAdapter {
+  private readonly _map = new WeakMap<object, Record<string, CryptoKey>>();
+
+  get(jwk: JWK, alg: string): CryptoKey | undefined {
+    return this._map.get(jwk)?.[alg];
+  }
+
+  set(jwk: JWK, alg: string, key: CryptoKey): void {
+    let entry = this._map.get(jwk);
+    if (!entry) {
+      this._map.set(jwk, { [alg]: key });
+    } else {
+      entry[alg] = key;
+    }
+  }
+}
+
+let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
+
+/**
+ * Replace or disable the JWK import cache used by {@link importKey}.
+ *
+ * Pass a custom {@link JWKCacheAdapter} to use your own cache strategy
+ * (LRU, Redis-backed wrapper, test spy, etc.). Pass `false` to disable
+ * caching entirely.
+ *
+ * @example Disable caching:
+ * ```ts
+ * configureJWKCache(false);
+ * ```
+ * @example Use a custom kid-keyed cache:
+ * ```ts
+ * const map = new Map<string, CryptoKey>();
+ * configureJWKCache({
+ *   get: (jwk, alg) => map.get(`${jwk.kid}:${alg}`),
+ *   set: (jwk, alg, key) => map.set(`${jwk.kid}:${alg}`, key),
+ * });
+ * ```
+ */
+export function configureJWKCache(cache: JWKCacheAdapter | false): void {
+  _activeCache = cache;
+}
+
+/**
+ * Reset the JWK import cache to a fresh {@link WeakMapJWKCache}.
+ * Useful in test environments to clear all cached CryptoKey references
+ * between test runs without disabling the cache entirely.
+ */
+export function clearJWKCache(): void {
+  _activeCache = new WeakMapJWKCache();
+}
 /**
  * Imports a key from various formats (CryptoKey, JWK, Uint8Array).
  *
@@ -291,17 +352,12 @@ export async function importKey(
         throw new TypeError("Algorithm must be provided when importing non-oct JWK");
       }
       const effectiveAlg = (key.alg || alg)!;
-      _jwkCache ||= new WeakMap();
-      const cached = _jwkCache.get(key);
-      if (cached?.[effectiveAlg]) {
-        return cached[effectiveAlg];
+      if (_activeCache) {
+        const cached = _activeCache.get(key, effectiveAlg);
+        if (cached) return cached;
       }
       const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg });
-      if (!cached) {
-        _jwkCache.set(key, { [effectiveAlg]: cryptoKey });
-      } else {
-        cached[effectiveAlg] = cryptoKey;
-      }
+      if (_activeCache) _activeCache.set(key, effectiveAlg, cryptoKey);
       return cryptoKey;
     }
   }
