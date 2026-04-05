@@ -99,14 +99,6 @@ export interface SessionConfigJWE<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 > {
-  /** @deprecated use `key` instead */
-  secret?:
-    | string
-    | JWK_Symmetric
-    | {
-        privateKey: JWK_Private | JWK_Symmetric;
-        publicKey?: JWK_Public;
-      };
   /** Shared key used, string for PBES2 or Json Web Key (JWK) */
   key:
     | string
@@ -133,11 +125,6 @@ export interface SessionConfigJWE<
   };
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
 }
-
-/**
- * @deprecated use `SessionConfigJWE` instead
- */
-export type SessionJWEConfig = SessionConfigJWE;
 
 const DEFAULT_NAME = "h3-jwe";
 const DEFAULT_COOKIE: SessionConfigJWE["cookie"] = {
@@ -513,7 +500,7 @@ export async function sealJWESession<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<string> {
-  const key = getEncryptKey(config.key || config.secret);
+  const key = getEncryptKey(config.key);
 
   const sessionName = config.name || DEFAULT_NAME;
 
@@ -574,7 +561,7 @@ export async function unsealJWESession<
           event,
           config,
         })
-    : getDecryptKey(config.key || config.secret);
+    : getDecryptKey(config.key);
 
   const alg = config.jwe?.encryptOptions?.alg;
   const enc = config.jwe?.encryptOptions?.enc;

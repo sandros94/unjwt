@@ -125,11 +125,6 @@ export interface SessionConfigJWS<
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 
-/**
- * @deprecated use `SessionConfigJWS` instead
- */
-export type SessionJWSConfig = SessionConfigJWS;
-
 const DEFAULT_NAME = "h3-jws";
 const DEFAULT_COOKIE: SessionConfigJWS["cookie"] = {
   path: "/",
