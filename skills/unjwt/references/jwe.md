@@ -10,6 +10,7 @@ Import: `import { encrypt, decrypt } from "unjwt/jwe"` — or `from "unjwt"`
 
 | Family           | Identifiers                                                      |
 | ---------------- | ---------------------------------------------------------------- |
+| Direct           | `dir`                                                            |
 | RSA-OAEP         | `RSA-OAEP`, `RSA-OAEP-256`, `RSA-OAEP-384`, `RSA-OAEP-512`       |
 | AES Key Wrap     | `A128KW`, `A192KW`, `A256KW`                                     |
 | AES-GCM Key Wrap | `A128GCMKW`, `A192GCMKW`, `A256GCMKW`                            |
@@ -34,27 +35,28 @@ Produces a JWE Compact Serialization token.
 **Parameters:**
 
 - `payload` — `string | Uint8Array | Record<string, any>`
-- `key` — `CryptoKey | JWK | string | Uint8Array`
-  - `string` / `Uint8Array` → password for PBES2 (defaults to `PBES2-HS256+A128KW` + `A128GCM`)
-  - JWK → infers `alg`/`enc` from key properties
-  - CryptoKey → requires explicit `alg` and `enc`
+- `key`
+  - `string` → password for PBES2 (infers `alg = "PBES2-HS256+A128KW"`)
+  - `JWK` → infers `alg`/`enc` from key properties
+  - `CryptoKey | JWK_oct | Uint8Array` with `alg: "dir"` → used directly as the CEK (`enc` required)
+  - `CryptoKey` with other algorithms → requires explicit `alg` and `enc`
 - `options?: JWEEncryptOptions`
-  - `alg?: KeyManagementAlgorithm` — required when key is CryptoKey
-  - `enc?: ContentEncryptionAlgorithm` — required when key is CryptoKey
-  - `protectedHeader?: JWEHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`)
+  - `alg?: KeyManagementAlgorithm`
+  - `enc?: ContentEncryptionAlgorithm` — required when `alg` is `"dir"`
+  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`)
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `currentDate?: Date`
-  - `cek?: Uint8Array` — provide custom Content Encryption Key
-  - `contentEncryptionIV?: Uint8Array` — provide custom IV
-  - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count
+  - `cek?: Uint8Array` — custom Content Encryption Key
+  - `contentEncryptionIV?: Uint8Array` — custom IV
+  - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`)
   - `keyManagementIV?: Uint8Array` — IV for AES-GCM key wrapping
-  - `ecdh?` — `{ ephemeralKey?, partyUInfo?, partyVInfo? }` for ECDH-ES
+  - `ecdh?` — `{ ephemeralKey?, partyUInfo?, partyVInfo?, enc? }` for ECDH-ES; `enc` required only for bare `"ECDH-ES"`
 
 **Returns:** `Promise<string>` — JWE compact token
 
 ```ts
 import { encrypt } from "unjwt/jwe";
-import { generateJWK } from "unjwt/jwk";
+import { generateJWK, generateKey } from "unjwt/jwk";
 
 // Password-based (PBES2, simplest)
 const token = await encrypt({ secret: "data" }, "my-password");
@@ -66,6 +68,18 @@ const token2 = await encrypt({ secret: "data" }, aesKey);
 // Asymmetric (RSA-OAEP)
 const rsaKeys = await generateJWK("RSA-OAEP-256");
 const token3 = await encrypt({ secret: "data" }, rsaKeys.publicKey);
+
+// Direct encryption (dir) — key IS the CEK
+const cek = await generateKey("A256GCM");
+const token4 = await encrypt({ secret: "data" }, cek, { alg: "dir", enc: "A256GCM" });
+
+// Direct encryption with a JWK_oct that carries an enc hint
+const cekJwk = { ...(await generateJWK("A256GCM")), enc: "A256GCM" };
+const token5 = await encrypt({ secret: "data" }, cekJwk, { alg: "dir" }); // enc inferred from jwk.enc
+
+// ECDH-ES
+const ecKeys = await generateJWK("ECDH-ES+A256KW");
+const token6 = await encrypt({ secret: "data" }, ecKeys.publicKey);
 ```
 
 ## `decrypt(jwe, key, options?)`
@@ -76,16 +90,17 @@ Decrypts a JWE token.
 
 - `jwe` — `string` — the JWE compact token
 - `key` — `CryptoKey | JWK_Symmetric | JWK_Private | string | Uint8Array | JWEKeyLookupFunction`
+  - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
   - `JWEKeyLookupFunction`: `(header, token) => key | Promise<key>`
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms
   - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
   - `validateJWT?: boolean` — parse as JWT and validate claims
   - `forceUint8Array?: boolean` — force payload as `Uint8Array`
-  - `returnCek?: boolean` — if true, include `cek` and `aad` in result
-  - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`
+  - `returnCek?: boolean` — include raw `cek` and `aad` in result
+  - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 
-**Returns:** `Promise<JWEDecryptResult<T>>` — `{ payload, protectedHeader, cek?, aad? }`
+**Returns:** `Promise<JWEDecryptResult<T>>`
 
 ```ts
 import { decrypt } from "unjwt/jwe";
@@ -111,16 +126,20 @@ interface JWEEncryptOptions {
   enc?: ContentEncryptionAlgorithm;
   currentDate?: Date;
   expiresIn?: ExpiresIn;
-  protectedHeader?: JWEHeaderParameters; // excludes alg/enc/iv/tag/p2s/p2c/epk/apu/apv
+  protectedHeader?: StrictOmit<
+    JWEHeaderParameters,
+    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
+  >;
   cek?: Uint8Array;
   contentEncryptionIV?: Uint8Array;
   keyManagementIV?: Uint8Array;
   p2s?: Uint8Array;
-  p2c?: number;
+  p2c?: number; // default: 600_000 for PBES2
   ecdh?: {
     ephemeralKey?: CryptoKey | JWK_EC_Private | CryptoKeyPair | { publicKey; privateKey };
     partyUInfo?: Uint8Array;
     partyVInfo?: Uint8Array;
+    enc?: ContentEncryptionAlgorithm; // required for bare "ECDH-ES"
   };
 }
 
@@ -134,13 +153,19 @@ interface JWEDecryptOptions extends JWTClaimValidationOptions {
 
 interface JWEDecryptResult<T> {
   payload: T;
-  protectedHeader: JWEHeaderParameters;
+  protectedHeader: JWEProtectedHeader; // alg and enc are required and strongly typed
   cek?: Uint8Array; // only when returnCek: true
   aad?: Uint8Array; // only when returnCek: true
+}
+
+// JWEProtectedHeader extends JWEHeaderParameters with alg and enc required
+interface JWEProtectedHeader extends JWEHeaderParameters {
+  alg: KeyManagementAlgorithm;
+  enc: ContentEncryptionAlgorithm;
 }
 
 type JWEKeyLookupFunction = (
   header: JWEHeaderParameters,
   token: string,
-) => MaybePromise<CryptoKey | JWK | string | Uint8Array>;
+) => MaybePromise<CryptoKey | JWK | JWKSet | string | Uint8Array>;
 ```

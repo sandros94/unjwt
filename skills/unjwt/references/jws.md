@@ -38,6 +38,7 @@ Creates a JWS Compact Serialization token.
 - If payload is an object and `typ` is not set, defaults to `"JWT"`
 - If `expiresIn` is set and `iat` is missing, `iat` is set to current time
 - `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt))
+- When a JWK with a `kid` is used, the `kid` is added to the header as a fallback — an explicit `protectedHeader.kid` always takes precedence
 
 ```ts
 import { sign } from "unjwt/jws";
@@ -64,12 +65,12 @@ Verifies a JWS token and returns its payload.
 - `jws` — `string` — the JWS compact token
 - `key` — `CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array | JWSKeyLookupFunction`
   - `JWSKeyLookupFunction`: `(header, token) => key | Promise<key>` for dynamic key resolution
-  - `JWKSet`: automatically selects key by `kid` match
+  - `JWKSet`: automatically selects key by `kid` match; single-key sets resolve without requiring `kid`
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms
   - `validateJWT?: boolean` — parse as JWT and validate claims when `typ` is JWT-like
   - `forceUint8Array?: boolean` — force payload returned as `Uint8Array`
-  - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `requiredHeaders`
+  - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 
 **Returns:** `Promise<JWSVerifyResult<T>>` — `{ payload: T, protectedHeader: JWSProtectedHeader }`
 
@@ -80,13 +81,9 @@ import { verify } from "unjwt/jws";
 const { payload, protectedHeader } = await verify(token, hmacKey);
 
 // With key lookup
-const result = await verify(
-  token,
-  async (header) => {
-    return fetchKeyByKid(header.kid);
-  },
-  { algorithms: ["RS256"] },
-);
+const result = await verify(token, async (header) => fetchKeyByKid(header.kid), {
+  algorithms: ["RS256"],
+});
 
 // With claim validation
 const result2 = await verify(token, key, {
@@ -114,7 +111,7 @@ interface JWSVerifyOptions extends JWTClaimValidationOptions {
 
 interface JWSVerifyResult<T> {
   payload: T;
-  protectedHeader: JWSProtectedHeader;
+  protectedHeader: JWSProtectedHeader; // alg is required
 }
 
 interface JWSHeaderParameters extends JoseHeaderParameters {

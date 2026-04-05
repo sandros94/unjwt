@@ -8,7 +8,7 @@ Import paths:
 - `unjwt/adapters/h3v1` — H3 v1 (Nuxt v4, Nitro v2)
 - `unjwt/adapters/h3v2` — H3 v2 (Nuxt v5, Nitro v3)
 
-All three export the same API. Each also re-exports: `generateJWK`, `importJWKFromPEM`, `exportJWKToPEM`, `deriveJWKFromPassword`.
+All three export the same API. Each also re-exports: `generateJWK`, `importFromPEM`, `exportToPEM`, `deriveJWKFromPassword`.
 
 Peer dep: `h3`
 
@@ -32,20 +32,17 @@ interface SessionManager<T, ConfigMaxAge extends ExpiresIn | undefined = Expires
   readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined; // from exp, in ms
   readonly data: SessionData<T>; // session payload (excludes jti/iat/exp)
   readonly token: string | undefined; // current raw JWT token
-  update(data?: SessionUpdate<T>): Promise<SessionManager<T, ConfigMaxAge>>;
+  update(data: SessionUpdate<T>): Promise<SessionManager<T, ConfigMaxAge>>;
   clear(): Promise<SessionManager<T, ConfigMaxAge>>;
 }
 
-// SessionUpdate can be a partial object or an updater function
+// SessionUpdate can be a partial object (which gets merged) or an updater function
 type SessionUpdate<T> =
   | Partial<SessionData<T>>
   | ((old: SessionData<T>) => Partial<SessionData<T>> | undefined);
 ```
 
-**Key behavior:**
-
-- Sessions are lazy — `id` is `undefined` until `session.update()` is called. This is intentional for OAuth/spec-compliant flows.
-- `session.update()` with no argument refreshes the token (new `jti`, new `iat`/`exp`) without changing `data`.
+**Key behavior:** Sessions are lazy — `id` is `undefined` until `session.update()` is called.
 
 ## useJWESession / useJWSSession
 
@@ -60,17 +57,23 @@ const session = await useJWSSession<MyData>(event, config);
 
 ```ts
 interface SessionConfigJWE<
-  T = SessionClaims,
+  T,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 > {
-  key: string | JWK_Symmetric | { privateKey: JWK_Private | JWK_Symmetric; publicKey?: JWK_Public };
-  maxAge?: ExpiresIn;            // session lifetime (seconds or string: "1h", "7D", etc.)
-  name?: string;                 // cookie name (default: "h3-jwe")
-  cookie?: false | CookieSerializeOptions & { chunkMaxLength?: number };
-  sessionHeader?: false | string; // header to read token from (default: "x-{name}-session")
-  generateId?: () => string;     // default: crypto.randomUUID()
-  jwe?: { encryptOptions?: ...; decryptOptions?: ... };
+  key:
+    | string // password for PBES2
+    | JWK_Symmetric // symmetric JWK
+    | { privateKey: JWK_Private | JWK_Symmetric; publicKey?: JWK_Public };
+  maxAge?: MaxAge;
+  name?: string; // cookie name (default: "h3-jwe")
+  cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
+  sessionHeader?: false | string; // header to read token from
+  generateId?: () => string; // default: crypto.randomUUID()
+  jwe?: {
+    encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
+    decryptOptions?: JWTClaimValidationOptions;
+  };
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
 }
 ```
@@ -84,7 +87,7 @@ interface SessionConfigJWS<
   TEvent extends HTTPEvent = HTTPEvent,
 > {
   key: JWK_Symmetric | { privateKey: JWK_Private; publicKey: JWK_Public | JWK_Public[] | JWKSet };
-  maxAge?: ExpiresIn;
+  maxAge?: MaxAge;
   name?: string;                 // default: "h3-jws"
   cookie?: false | CookieSerializeOptions & { chunkMaxLength?: number };
   sessionHeader?: false | string;

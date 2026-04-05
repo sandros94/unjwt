@@ -7,7 +7,7 @@
 A collection of low-level JWT ([RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519)) utilities using the Web Crypto API. Supports:
 
 - **JWS** ([RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515)) — sign and verify tokens using HMAC, RSA, RSA-PSS, ECDSA, and EdDSA algorithms
-- **JWE** ([RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516)) — encrypt and decrypt data using AES Key Wrap, AES-GCM KW, RSA-OAEP, PBES2, and ECDH-ES key management with AES-GCM or AES-CBC+HMAC-SHA2 content encryption
+- **JWE** ([RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516)) — encrypt and decrypt data using Direct (`dir`), AES Key Wrap, AES-GCM KW, RSA-OAEP, PBES2, and ECDH-ES key management with AES-GCM or AES-CBC+HMAC-SHA2 content encryption
 - **JWK** ([RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517)) — generate, import, export, wrap, and unwrap keys (CryptoKey, JWK, PEM)
 - **Framework adapters** for cookie-based JWT sessions:
   - [H3 v1](./skills/unjwt/references/adapters-h3.md) (Nuxt v4, Nitro v2)
@@ -107,6 +107,119 @@ const ecKeys = await generateJWK("ECDH-ES+A256KW");
 const token3 = await encrypt({ data: "secret" }, ecKeys.publicKey);
 ```
 
+### ECDH-ES — End-to-End Encrypted Messaging
+
+In end-to-end encryption (E2EE), each participant holds a **key pair**: the **private key** never leaves the owner's system; the **public key** is distributed freely. A sender encrypts a message using the recipient's public key, producing a token that only the recipient — holding the matching private key — can decrypt.
+
+#### One-time key setup
+
+Each participant generates a key pair once and persists it. The public key is shared out-of-band — published to a server endpoint, written to a config file, exchanged at registration, etc.:
+
+```ts
+import { generateJWK } from "unjwt/jwk";
+
+const myKeys = await generateJWK("ECDH-ES+A256KW", { kid: "alice-2025" });
+// → { privateKey: JWK_EC_Private, publicKey: JWK_EC_Public }
+
+// Keep myKeys.privateKey in secure storage — never expose it
+// Share myKeys.publicKey freely (e.g., publish at /.well-known/jwks.json)
+```
+
+#### Sending to one recipient
+
+For two-party communication, `encrypt` and `decrypt` handle everything. Pass the recipient's public key — a one-time ephemeral key pair is generated internally per message:
+
+```ts
+import { encrypt, decrypt } from "unjwt/jwe";
+
+// Sender (Alice) ————————————————————————————————————
+// Fetch Bob's public key (from his public endpoint, shared config, etc.)
+const bobPublicKey = /* ... */;
+
+const token = await encrypt({ message: "Hello Bob!" }, bobPublicKey);
+// Send `token` to Bob over any channel — only Bob can decrypt it
+
+// Recipient (Bob) ————————————————————————————————————
+const { payload } = await decrypt(token, bobPrivateKey);
+console.log(payload.message); // "Hello Bob!"
+```
+
+Each token carries a fresh ephemeral public key (`epk`) in its header. Bob uses that `epk` together with his private key to re-derive the same shared secret Alice used, then unwraps the Content Encryption Key. At no point does Alice have Bob's private key, and Bob cannot forge a message appearing to come from Alice.
+
+#### Sending to multiple recipients
+
+**Simple — one token per recipient.** Encrypt the payload independently for each party. Each token is decryptable only by its intended recipient:
+
+```ts
+const recipients = [
+  { name: "bob", publicKey: bobPublicKey },
+  { name: "charlie", publicKey: charliePublicKey },
+];
+
+const tokens = await Promise.all(
+  recipients.map(({ publicKey }) => encrypt({ message: "Hello everyone!" }, publicKey)),
+);
+// Deliver tokens[0] to Bob, tokens[1] to Charlie
+```
+
+This is the right choice for most use cases. The only trade-off is proportional size: N recipients produce N tokens.
+
+**Shared ciphertext — one payload, N wrapped keys.** When the payload is large or bandwidth matters, encrypt the payload once with a random Content Encryption Key (`dir`), then wrap that key separately per recipient. Everyone receives the same ciphertext, each with their own individually wrapped key:
+
+```ts
+import { wrapKey, unwrapKey } from "unjwt/jwk";
+import { randomBytes } from "unjwt/utils";
+import { encrypt, decrypt } from "unjwt/jwe";
+
+const enc = "A256GCM";
+
+// 1. Generate a random CEK once for this message (32 bytes = 256-bit for A256GCM)
+const cek = randomBytes(32);
+
+// 2. Encrypt the payload ONCE using the CEK directly (alg: "dir")
+const ciphertext = await encrypt({ message: "Hello everyone!" }, cek, { alg: "dir", enc });
+
+// 3. Wrap the CEK individually for each recipient
+const wrappedKeys = await Promise.all(
+  recipients.map(async ({ name, publicKey }) => {
+    const { encryptedKey, epk } = await wrapKey("ECDH-ES+A256KW", cek, publicKey);
+    return { name, encryptedKey, epk };
+  }),
+);
+// Deliver `ciphertext` (same for all) + each recipient's own { encryptedKey, epk }
+
+// Recipient side ——————————————————————————————————————————————
+const mine = wrappedKeys.find((w) => w.name === myName)!;
+const rawCek = await unwrapKey("ECDH-ES+A256KW", mine.encryptedKey, myPrivateKey, {
+  format: "raw",
+  epk: mine.epk,
+  enc,
+});
+const { payload } = await decrypt(ciphertext, rawCek);
+console.log(payload.message); // "Hello everyone!"
+```
+
+> This pattern is the manual foundation of [JWE JSON Serialization](https://www.rfc-editor.org/rfc/rfc7516#section-3.3) (RFC 7516 §3.3), which packages the ciphertext and all wrapped keys into a single `recipients[]` JSON structure. Full JWE JSON Serialization support is planned for a future release; `wrapKey` and `unwrapKey` provide the building blocks for those who need to construct or consume the JSON form today.
+
+#### `deriveSharedSecret` — raw key material
+
+`wrapKey` and `unwrapKey` already handle the full ECDH Concat KDF + AES-KW cycle internally. `deriveSharedSecret` exposes the KDF step alone, returning the raw derived bytes before any key-wrapping step:
+
+```ts
+import { deriveSharedSecret } from "unjwt/jwk";
+
+// Both sides independently derive the exact same bytes
+const aliceView = await deriveSharedSecret(
+  bobPublicKey,
+  aliceEphemeralPrivateKey,
+  "ECDH-ES+A256KW",
+);
+const bobView = await deriveSharedSecret(aliceEphemeralPublicKey, bobPrivateKey, "ECDH-ES+A256KW");
+// aliceView and bobView are identical Uint8Arrays
+```
+
+Use `deriveSharedSecret` when you need the shared secret itself rather than a wrapped key: custom hybrid protocols that use the derived bytes directly, non-standard wrapping schemes, or verifying the key agreement step in isolation.
+
 ### JWK — Key Management
 
 > Full reference: [skills/unjwt/references/jwk.md](./skills/unjwt/references/jwk.md)
@@ -117,11 +230,14 @@ import {
   generateJWK,
   importKey,
   exportKey,
-  importJWKFromPEM,
-  exportJWKToPEM,
+  importFromPEM,
+  exportToPEM,
   wrapKey,
   unwrapKey,
   deriveKeyFromPassword,
+  getAllJWKsFromSet,
+  deriveSharedSecret,
+  configureJWKCache,
 } from "unjwt/jwk";
 // All of the above are also importable from "unjwt" directly.
 
@@ -131,13 +247,20 @@ const rsaPair = await generateKey("RS256"); // CryptoKeyPair
 const ecJwk = await generateJWK("ES256", { kid: "k1" }); // { privateKey: JWK, publicKey: JWK }
 
 // PEM conversion
-const jwk = await importJWKFromPEM(pemString, "spki", "RS256", undefined, { kid: "rsa-1" });
-const pem = await exportJWKToPEM(jwk, "spki");
+const jwk = await importFromPEM(pemString, "spki", "RS256", { jwkParams: { kid: "rsa-1" } });
+const pem = await exportToPEM(jwk, "spki");
 
 // Key wrapping
 const cek = crypto.getRandomValues(new Uint8Array(32));
 const { encryptedKey } = await wrapKey("A256KW", cek, aesKey);
-const unwrapped = await unwrapKey("A256KW", encryptedKey, aesKey, { returnAs: false });
+const unwrapped = await unwrapKey("A256KW", encryptedKey, aesKey, { format: "raw" });
+
+// ECDH-ES shared secret (e.g. for multi-recipient JWE)
+const secret = await deriveSharedSecret(
+  recipientPublicKey,
+  senderEphemeralPrivate,
+  "ECDH-ES+A256KW",
+);
 ```
 
 ### Utility Functions
