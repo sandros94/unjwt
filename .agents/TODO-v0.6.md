@@ -84,11 +84,6 @@
 Reduce the 7 sign / 5 encrypt overloads by removing the `JWTClaims`-specific variants.
 Requires confirming IntelliSense does not degrade before committing.
 
-### T-B — `ExpiresIn` unit case normalization
-
-Normalize mixed-case short units (`"D"`, `"W"`, `"M"`, `"Y"`) to lowercase.
-Requires deciding whether to keep uppercase as deprecated aliases or drop them entirely.
-
 ---
 
 ## Deferred to minor release

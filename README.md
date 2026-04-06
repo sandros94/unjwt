@@ -235,7 +235,7 @@ import {
   wrapKey,
   unwrapKey,
   deriveKeyFromPassword,
-  getAllJWKsFromSet,
+  getJWKsFromSet,
   deriveSharedSecret,
   configureJWKCache,
 } from "unjwt/jwk";

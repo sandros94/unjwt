@@ -13,7 +13,7 @@ import {
   importFromPEM,
   exportToPEM,
   getJWKFromSet,
-  getAllJWKsFromSet,
+  getJWKsFromSet,
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
@@ -1072,7 +1072,7 @@ describe.concurrent("JWK Utilities", () => {
     });
   });
 
-  describe("getAllJWKsFromSet", () => {
+  describe("getJWKsFromSet", () => {
     const jwkSet: JWKSet = {
       keys: [
         { kty: "oct", kid: "k1", alg: "HS256", k: "abc" },
@@ -1083,38 +1083,37 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw for invalid JWK Set", () => {
       // @ts-expect-error intentionally invalid
-      expect(() => getAllJWKsFromSet(null)).toThrow(TypeError);
+      expect(() => getJWKsFromSet(null)).toThrow(TypeError);
     });
 
     it("should return all keys when no filter is given", () => {
-      expect(getAllJWKsFromSet(jwkSet)).toHaveLength(3);
+      expect(getJWKsFromSet(jwkSet)).toHaveLength(3);
     });
 
-    it("should filter by kid", () => {
-      const result = getAllJWKsFromSet(jwkSet, { kid: "k1" });
+    it("should return a copy — mutating the result does not affect the set", () => {
+      const result = getJWKsFromSet(jwkSet);
+      result.pop();
+      expect(jwkSet.keys).toHaveLength(3);
+    });
+
+    it("should filter with a predicate", () => {
+      const result = getJWKsFromSet(jwkSet, (k) => k.kty === "oct");
+      expect(result).toHaveLength(2);
+      expect(result.every((k) => k.kty === "oct")).toBe(true);
+    });
+
+    it("should filter with a predicate matching a single key", () => {
+      const result = getJWKsFromSet(jwkSet, (k) => k.kid === "k1");
       expect(result).toHaveLength(1);
       expect(result[0]!.kid).toBe("k1");
     });
 
-    it("should filter by alg", () => {
-      const result = getAllJWKsFromSet(jwkSet, { alg: "HS256" });
-      expect(result).toHaveLength(1);
-      expect(result[0]!.alg).toBe("HS256");
+    it("should return all keys when predicate always returns true", () => {
+      expect(getJWKsFromSet(jwkSet, () => true)).toHaveLength(3);
     });
 
-    it("should filter by kty", () => {
-      const result = getAllJWKsFromSet(jwkSet, { kty: "oct" });
-      expect(result).toHaveLength(2);
-    });
-
-    it("should return empty array when no keys match", () => {
-      expect(getAllJWKsFromSet(jwkSet, { alg: "RS256" })).toHaveLength(0);
-    });
-
-    it("should return a copy — mutating the result does not affect the set", () => {
-      const result = getAllJWKsFromSet(jwkSet);
-      result.pop();
-      expect(jwkSet.keys).toHaveLength(3);
+    it("should return empty array when predicate matches no keys", () => {
+      expect(getJWKsFromSet(jwkSet, (k) => k.kty === "RSA")).toHaveLength(0);
     });
   });
 

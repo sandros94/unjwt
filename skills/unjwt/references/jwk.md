@@ -2,7 +2,7 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, PEM conversion, and cache control.
 
-Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importFromPEM, exportToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKFromSet, getAllJWKsFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"` — or `from "unjwt"`
+Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importFromPEM, exportToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"` — or `from "unjwt"`
 
 ## Key Generation
 
@@ -223,23 +223,14 @@ const jwk = await deriveJWKFromPassword(
 
 ## JWK Set Utilities
 
-### `getJWKFromSet(jwkSet, kidOrHeader)`
+### `getJWKsFromSet(jwkSet, filter?)`
 
-Selects a key from a JWKSet.
-
-- By `kid` string — finds the key with that `kid`
-- By protected header object — matches `kid`, with optional `alg`/`kty` refinement
-- **Single-key sets** — returns the only key even when no `kid` is present in the header
-- **Multi-key sets without `kid`** — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` with a clear message
-
-### `getAllJWKsFromSet(jwkSet, filter?)`
-
-Returns all JWKs matching an optional `{ kid?, alg?, kty? }` filter. No filter returns all keys. Useful for multi-key verification retry, key rotation, and multi-recipient JWE construction.
+Returns all JWKs from a set, optionally narrowed by a predicate `(jwk: JWK) => boolean`. No filter returns all keys. Useful for multi-key verification retry, key rotation, and multi-recipient JWE construction.
 
 ```ts
-const allKeys = getAllJWKsFromSet(jwkSet);
-const hmacKeys = getAllJWKsFromSet(jwkSet, { kty: "oct" });
-const specificKey = getAllJWKsFromSet(jwkSet, { kid: "k1", alg: "HS256" });
+const allKeys = getJWKsFromSet(jwkSet);
+const hmacKeys = getJWKsFromSet(jwkSet, (k) => k.kty === "oct");
+const recentKeys = getJWKsFromSet(jwkSet, (k) => k.kid?.endsWith("-2025") ?? false);
 ```
 
 ## JWK Import Cache

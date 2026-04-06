@@ -930,6 +930,10 @@ export async function deriveSharedSecret(
 }
 
 /**
+ * @deprecated For set queries, use {@link getJWKsFromSet} which returns all
+ * matching keys as an array. This function remains available for internal
+ * single-key resolution by `kid` or JOSE header (used by `verify` and `decrypt`).
+ *
  * Retrieves a JWK (JSON Web Key) from a JWKSet based on a key ID (kid) or
  * properties from a JOSE Header.
  *
@@ -1001,31 +1005,25 @@ export function getJWKFromSet(
 }
 
 /**
- * Returns all JWKs from a JWK Set that match the optional filter criteria.
+ * Returns all JWKs from a JWK Set, optionally narrowed by a predicate.
  *
  * Useful for multi-key verification retry, key rotation tooling, and
  * constructing multi-recipient JWE JSON Serialization structures.
  *
  * @param jwkSet The JWK Set to search.
- * @param filter Optional filter — all provided fields must match.
- * @returns An array of matching JWKs. Returns all keys when no filter is given.
+ * @param filter Optional predicate `(jwk: JWK) => boolean`. Returns all keys when omitted.
+ * @returns An array of matching JWKs.
  */
-export function getAllJWKsFromSet(
-  jwkSet: JWKSet,
-  filter?: { kid?: string; alg?: string; kty?: string },
-): JWK[] {
+export function getJWKsFromSet(jwkSet: JWKSet, filter?: (jwk: JWK) => boolean): JWK[] {
   if (!jwkSet || !isJWKSet(jwkSet)) {
     throw new TypeError("Invalid JWK Set provided");
   }
 
-  if (!filter || (!filter.kid && !filter.alg && !filter.kty)) {
+  if (!filter) {
     return [...jwkSet.keys];
   }
 
-  const { kid, alg, kty } = filter;
-  return jwkSet.keys.filter(
-    (k: JWK) => (!kid || k.kid === kid) && (!alg || k.alg === alg) && (!kty || k.kty === kty),
-  );
+  return jwkSet.keys.filter(filter);
 }
 
 function getGenerateKeyParams(
