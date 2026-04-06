@@ -1,4 +1,4 @@
-import type { JoseHeaderParameters, JWTClaims, JWTClaimValidationOptions } from "./jwt";
+import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
 import type { JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA, JWK_OKP_SIGN } from "./jwk";
 import type { ExpiresIn } from ".";
 
@@ -47,12 +47,7 @@ export interface JWSSignOptions {
 }
 
 /** Result of JWS verification */
-export interface JWSVerifyResult<
-  T extends JWTClaims | Uint8Array<ArrayBuffer> | string =
-    | JWTClaims
-    | Uint8Array<ArrayBuffer>
-    | string,
-> {
+export interface JWSVerifyResult<T extends JOSEPayload = JOSEPayload> {
   /** The decoded and verified payload. */
   payload: T;
   /** The JWS Protected Header. */

@@ -10,7 +10,7 @@ import type {
   ContentEncryptionAlgorithm,
   UnwrapKeyOptions,
 } from "./types/jwk";
-import type { JWTClaims } from "./types/jwt";
+import type { JOSEPayload, JWTClaims } from "./types/jwt";
 import type {
   JWEEncryptOptions,
   JWEDecryptOptions,
@@ -53,22 +53,17 @@ export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "
  * @returns A Promise resolving to the JWE Compact Serialization string.
  */
 export async function encrypt(
-  payload: JWTClaims,
+  payload: JOSEPayload,
   key: JWK | string | Uint8Array<ArrayBuffer>,
   options?: JWEEncryptOptions,
 ): Promise<string>;
 export async function encrypt(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: JWK | string | Uint8Array<ArrayBuffer>,
-  options?: JWEEncryptOptions,
-): Promise<string>;
-export async function encrypt(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  payload: JOSEPayload,
   key: CryptoKey | JWK_Symmetric | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions & { alg: "dir"; enc: ContentEncryptionAlgorithm },
 ): Promise<string>;
 export async function encrypt(
-  payload: JWTClaims,
+  payload: JOSEPayload,
   key: CryptoKey,
   options: JWEEncryptOptions & {
     alg: KeyManagementAlgorithm;
@@ -76,15 +71,7 @@ export async function encrypt(
   },
 ): Promise<string>;
 export async function encrypt(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: CryptoKey,
-  options: JWEEncryptOptions & {
-    alg: KeyManagementAlgorithm;
-    enc: ContentEncryptionAlgorithm;
-  },
-): Promise<string>;
-export async function encrypt(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  payload: JOSEPayload,
   key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions & {
     alg: KeyManagementAlgorithm;
@@ -92,7 +79,7 @@ export async function encrypt(
   },
 ): Promise<string>;
 export async function encrypt(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
   key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions = {},
 ): Promise<string> {
@@ -222,7 +209,7 @@ export async function encrypt(
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function decrypt<T extends JOSEPayload>(
   jwe: string,
   key:
     | CryptoKey
@@ -248,7 +235,7 @@ export async function decrypt(
     forceUint8Array: true;
   },
 ): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Record<string, unknown>>(
   jwe: string,
   key:
     | CryptoKey

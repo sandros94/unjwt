@@ -34,6 +34,16 @@ export interface JoseHeaderParameters {
   [propName: string]: unknown;
 }
 
+/**
+ * Payload accepted by {@link sign} and {@link encrypt}.
+ *
+ * Covers raw strings and bytes for non-JWT use, plus any JSON-serializable
+ * object for JWT and generic structured payloads. JWT-specific claim names
+ * are not enforced at this level — use {@link JWTClaims} when you want typed
+ * claim names and spec-compliant field types.
+ */
+export type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
+
 export interface JWTClaims {
   /** "iss" (Issuer) Claim */
   iss?: string;

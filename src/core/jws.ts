@@ -11,6 +11,7 @@ import type {
   JWKLookupFunction,
   JWSVerifyOptions,
   JWSVerifyResult,
+  JOSEPayload,
   JWTClaims,
 } from "./types";
 import { importKey, getJWKsFromSet } from "./jwk";
@@ -43,42 +44,17 @@ export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "
  * @returns A Promise resolving to the JWS Compact Serialization string.
  */
 export async function sign(
-  payload: JWTClaims,
+  payload: JOSEPayload,
   key: JWK_Symmetric | JWK_Private,
   options?: JWSSignOptions,
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: JWK_Symmetric | JWK_Private,
-  options?: JWSSignOptions,
-): Promise<string>;
-export async function sign(
-  payload: JWTClaims,
-  key: CryptoKey,
+  payload: JOSEPayload,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: CryptoKey,
-  options: JWSSignOptions & { alg: JWSAlgorithm },
-): Promise<string>;
-export async function sign(
-  payload: JWTClaims,
-  key: Uint8Array<ArrayBuffer>,
-  options: JWSSignOptions & { alg: JWSAlgorithm },
-): Promise<string>;
-export async function sign(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: Uint8Array<ArrayBuffer>,
-  options: JWSSignOptions & { alg: JWSAlgorithm },
-): Promise<string>;
-export async function sign(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
-  key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
-  options: JWSSignOptions & { alg: JWSAlgorithm },
-): Promise<string>;
-export async function sign(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
   key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
@@ -153,7 +129,7 @@ export async function sign(
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
-export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function verify<T extends JOSEPayload>(
   jws: string,
   key:
     | CryptoKey
@@ -175,7 +151,7 @@ export async function verify(
     | JWKLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
-export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
+export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record<string, unknown>>(
   jws: string,
   key:
     | CryptoKey

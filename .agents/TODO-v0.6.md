@@ -81,10 +81,12 @@
 
 ## Tentative — deferred, not scheduled
 
-### T-A — `sign()`/`encrypt()` overload reduction
+### T-A — `sign()`/`encrypt()` overload reduction — done ✅
 
-Reduce the 7 sign / 5 encrypt overloads by removing the `JWTClaims`-specific variants.
-Requires confirming IntelliSense does not degrade before committing.
+`JOSEPayload = string | Uint8Array | Record<string, unknown>` introduced in `types/jwt.ts`.
+`sign` reduced 7 → 3, `encrypt` reduced 7 → 4 (dir overload kept — semantically distinct).
+`JWSVerifyResult<T>` and `JWEDecryptResult<T>` bounds updated to `T extends JOSEPayload`.
+`getPlaintextBytes` updated to `Record<string, unknown>`.
 
 ---
 

@@ -113,7 +113,7 @@ describe.concurrent("JWE Utilities", () => {
   const testScenarios: {
     alg: KeyManagementAlgorithm;
     enc: ContentEncryptionAlgorithm;
-    plaintext: object | string | Uint8Array;
+    plaintext: Record<string, unknown> | string | Uint8Array<ArrayBuffer>;
     desc: string;
   }[] = [
     {

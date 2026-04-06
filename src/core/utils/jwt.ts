@@ -81,7 +81,7 @@ export function decodePayloadFromB64UrlSegment<T = unknown>(
 
 /** Convert plaintext input to bytes, shared by JWS & JWE when preparing payload. */
 export function getPlaintextBytes(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, any>,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
 ): Uint8Array<ArrayBuffer> {
   if (payload instanceof Uint8Array) return payload;
   if (typeof payload === "string") return textEncoder.encode(payload);

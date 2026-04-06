@@ -1,4 +1,4 @@
-import type { JoseHeaderParameters, JWTClaims, JWTClaimValidationOptions } from "./jwt";
+import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
 import type {
   JWK_EC_Public,
   JWK_EC_Private,
@@ -180,12 +180,7 @@ export interface JWEProtectedHeader extends JWEHeaderParameters {
 /**
  * Result of a JWE decryption operation.
  */
-export interface JWEDecryptResult<
-  T extends JWTClaims | Uint8Array<ArrayBuffer> | string =
-    | JWTClaims
-    | Uint8Array<ArrayBuffer>
-    | string,
-> {
+export interface JWEDecryptResult<T extends JOSEPayload = JOSEPayload> {
   /** The decrypted payload. */
   payload: T;
   /** The JWE Protected Header. */
