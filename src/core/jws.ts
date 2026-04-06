@@ -99,7 +99,7 @@ export async function sign(
   }
 
   // 1. Validate and import Key
-  const signingKey = await importKey(key as any, alg);
+  const signingKey = await _resolveSigningKey(alg, await importKey(key, alg), "sign");
 
   // 2. Construct Protected Header
   const protectedHeader = _buildJWSHeader(alg, key, userHeader, payload);
@@ -137,7 +137,7 @@ export async function sign(
   const signingInputBytes = textEncoder.encode(signingInputString);
 
   // 7. Sign
-  const signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
+  const signatureBytes = await joseSign(alg, signingKey, signingInputBytes); // signingKey is always CryptoKey
   const signatureEncoded = base64UrlEncode(signatureBytes);
 
   // 8. Assemble JWS Compact Serialization
@@ -255,7 +255,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
       try {
         const isValid = await joseVerify(
           alg,
-          await importKey(candidate as any, alg),
+          await _resolveSigningKey(alg, await importKey(candidate, alg), "verify"),
           signatureBytes,
           signingInputBytes,
         );
@@ -271,7 +271,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
       throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
     }
   } else {
-    const verificationKey = await importKey(keyInput as any, alg);
+    const verificationKey = await _resolveSigningKey(alg, await importKey(keyInput, alg), "verify");
     const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
     if (!isValid) {
       throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
@@ -319,6 +319,36 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
     payload,
     protectedHeader,
   };
+}
+
+async function _resolveSigningKey(
+  alg: string,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  usage: "sign" | "verify",
+): Promise<CryptoKey> {
+  if (key instanceof Uint8Array) {
+    const minBytes = Number.parseInt(alg.slice(2), 10) / 8;
+    if (key.length < minBytes) {
+      throw new JWTError(`${alg} requires a key of at least ${minBytes} bytes`, "ERR_JWK_INVALID");
+    }
+    return crypto.subtle.importKey(
+      "raw",
+      key,
+      { name: "HMAC", hash: `SHA-${alg.slice(-3)}` },
+      false,
+      [usage],
+    );
+  }
+  if (alg.startsWith("RS") || alg.startsWith("PS")) {
+    const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
+    if (typeof modulusLength !== "number" || modulusLength < 2048) {
+      throw new JWTError(
+        `${alg} requires a key modulusLength of at least 2048 bits`,
+        "ERR_JWK_INVALID",
+      );
+    }
+  }
+  return key;
 }
 
 function _buildJWSSetFilter(header: JWSProtectedHeader): (k: JWK) => boolean {

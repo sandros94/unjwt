@@ -1,58 +1,24 @@
-import { JWTError } from "../error";
-
 export async function sign(
   alg: string,
-  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  key: CryptoKey,
   data: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  checkSigningKeyLength(alg, key);
-  const cryptoKey = await getSignVerifyKey(alg, key, "sign");
-  const signature = await crypto.subtle.sign(
-    subtleAlgorithm(alg, cryptoKey.algorithm),
-    cryptoKey,
-    data,
-  );
+  checkSigCryptoKey(key, alg, "sign");
+  const signature = await crypto.subtle.sign(subtleAlgorithm(alg, key.algorithm), key, data);
   return new Uint8Array(signature);
 }
 
 export async function verify(
   alg: string,
-  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  key: CryptoKey,
   signature: Uint8Array<ArrayBuffer>,
   data: Uint8Array<ArrayBuffer>,
 ): Promise<boolean> {
-  checkSigningKeyLength(alg, key);
-  const cryptoKey = await getSignVerifyKey(alg, key, "verify");
-  const algorithm = subtleAlgorithm(alg, cryptoKey.algorithm);
+  checkSigCryptoKey(key, alg, "verify");
   try {
-    return await crypto.subtle.verify(algorithm, cryptoKey, signature, data);
+    return await crypto.subtle.verify(subtleAlgorithm(alg, key.algorithm), key, signature, data);
   } catch {
     return false;
-  }
-}
-
-/**
- * Consolidated key-length guard for signing algorithms. Called before any
- * crypto.subtle operation so callers get a clear JWTError rather than a
- * generic WebCrypto failure.
- *
- * - HS*: Uint8Array key must be at least alg-bit / 8 bytes long.
- * - RS* / PS*: CryptoKey modulusLength must be ≥ 2048 bits.
- */
-export function checkSigningKeyLength(alg: string, key: CryptoKey | Uint8Array<ArrayBuffer>): void {
-  if (alg.startsWith("HS") && key instanceof Uint8Array) {
-    const minBytes = Number.parseInt(alg.slice(2), 10) / 8;
-    if (key.length < minBytes) {
-      throw new JWTError(`${alg} requires a key of at least ${minBytes} bytes`, "ERR_JWK_INVALID");
-    }
-  } else if ((alg.startsWith("RS") || alg.startsWith("PS")) && key instanceof CryptoKey) {
-    const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
-    if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new JWTError(
-        `${alg} requires a key modulusLength of at least 2048 bits`,
-        "ERR_JWK_INVALID",
-      );
-    }
   }
 }
 
@@ -192,26 +158,4 @@ function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
       `CryptoKey does not support this operation, its usages must include ${usage}.`,
     );
   }
-}
-
-async function getSignVerifyKey(
-  alg: string,
-  key: CryptoKey | Uint8Array<ArrayBuffer>,
-  usage: KeyUsage,
-): Promise<CryptoKey> {
-  if (key instanceof Uint8Array) {
-    if (!alg.startsWith("HS")) {
-      throw new TypeError("Key must be of type CryptoKey or JSON Web Key for non-HMAC algorithms");
-    }
-    return crypto.subtle.importKey(
-      "raw",
-      key,
-      { hash: `SHA-${alg.slice(-3)}`, name: "HMAC" },
-      false,
-      [usage],
-    );
-  }
-
-  checkSigCryptoKey(key, alg, usage);
-  return key;
 }

@@ -66,13 +66,6 @@ describe.concurrent("_crypto primitives", () => {
       expect(await verify("Ed25519", (kp as CryptoKeyPair).publicKey, sig, data)).toBe(true);
     });
 
-    it("sign/verify roundtrip — HS256 Uint8Array key", async () => {
-      const key = crypto.getRandomValues(new Uint8Array(32));
-      const data = textEncoder.encode("hello");
-      const sig = await sign("HS256", key, data);
-      expect(await verify("HS256", key, sig, data)).toBe(true);
-    });
-
     it("rejects tampered data", async () => {
       const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, [
         "sign",

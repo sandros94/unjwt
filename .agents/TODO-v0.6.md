@@ -90,9 +90,9 @@ Requires confirming IntelliSense does not degrade before committing.
 
 ## Deferred to minor release
 
-### J-3 — `getSignVerifyKey` Uint8Array path audit (P2)
+### J-3 — `getSignVerifyKey` Uint8Array path audit (P2) — done ✅
 
-Audit whether any external path still passes `Uint8Array` directly to `_sign-verify.ts`'s `sign()`/`verify()` bypassing `importKey`. If no path does, simplify `getSignVerifyKey` by removing the import-on-the-fly branch.
+Audit confirmed: no external path bypasses `importKey`, but `importKey` for `JWK_oct`/`Uint8Array`/`string` returns raw bytes which still reached `getSignVerifyKey`'s on-the-fly import. Fixed by moving conversion + length validation into a private `_resolveSigningKey` helper in `jws.ts`. `_sign-verify.ts` `sign()`/`verify()` now accept `CryptoKey` only; `getSignVerifyKey` and `checkSigningKeyLength` removed.
 
 ---
 

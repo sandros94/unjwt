@@ -7,7 +7,7 @@
  * and not part of any public export path.
  */
 
-export { sign, verify, checkSigningKeyLength } from "./_sign-verify";
+export { sign, verify } from "./_sign-verify";
 export {
   encrypt,
   decrypt,
