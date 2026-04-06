@@ -100,7 +100,7 @@ Decrypts a JWE token.
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms
   - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
-  - `validateJWT?: boolean` — parse as JWT and validate claims
+  - `validateClaims?: boolean` — `true` always validates, `false` skips, `undefined` (default) validates when `typ` is `"JWT"` or contains `"jwt"`
   - `forceUint8Array?: boolean` — force payload as `Uint8Array`
   - `returnCek?: boolean` — include raw `cek` and `aad` in result
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
@@ -152,7 +152,7 @@ interface JWEDecryptOptions extends JWTClaimValidationOptions {
   algorithms?: KeyManagementAlgorithm[];
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   forceUint8Array?: boolean;
-  validateJWT?: boolean;
+  validateClaims?: boolean;
   returnCek?: boolean;
 }
 

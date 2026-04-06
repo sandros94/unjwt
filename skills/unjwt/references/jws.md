@@ -73,7 +73,7 @@ Verifies a JWS token and returns its payload.
 
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms
-  - `validateJWT?: boolean` — parse as JWT and validate claims when `typ` is JWT-like
+  - `validateClaims?: boolean` — `true` always validates, `false` skips, `undefined` (default) validates when `typ` is `"JWT"` or contains `"jwt"`
   - `forceUint8Array?: boolean` — force payload returned as `Uint8Array`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 
@@ -111,7 +111,7 @@ interface JWSSignOptions {
 interface JWSVerifyOptions extends JWTClaimValidationOptions {
   algorithms?: JWSAlgorithm[];
   forceUint8Array?: boolean;
-  validateJWT?: boolean;
+  validateClaims?: boolean;
 }
 
 interface JWSVerifyResult<T> {

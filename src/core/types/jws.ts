@@ -67,6 +67,12 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
   algorithms?: JWSAlgorithm[];
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
   forceUint8Array?: boolean;
-  /** Unless false, will parse payload as JWT and validate claims if applicable (typ "JWT"). */
-  validateJWT?: boolean;
+  /**
+   * Controls JWT claim validation after a successful verification.
+   *
+   * - `true` — always validate claims regardless of the `typ` header
+   * - `false` — skip claim validation entirely
+   * - `undefined` (default) — validate when `typ` is `"JWT"` or contains `"jwt"`
+   */
+  validateClaims?: boolean;
 }

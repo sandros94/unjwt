@@ -513,7 +513,7 @@ export async function verifyJWSSession<
     typ: typ || "JWT",
     algorithms: alg ? [alg] : undefined,
     forceUint8Array: false,
-    validateJWT: true,
+    validateClaims: true,
   }).catch((error_: unknown) => {
     if (isJWTError(error_, "ERR_JWT_EXPIRED")) throw error_;
     const message = error_ instanceof Error ? error_.message : String(error_);

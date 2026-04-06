@@ -398,8 +398,8 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   if (
     payload &&
     typeof payload === "object" &&
-    options.validateJWT !== false &&
-    (options.validateJWT === true || protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    options.validateClaims !== false &&
+    (options.validateClaims === true || protectedHeader.typ?.toLowerCase().includes("jwt")) &&
     !options.forceUint8Array &&
     !(payload instanceof Uint8Array)
   ) {

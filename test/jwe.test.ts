@@ -625,7 +625,7 @@ describe.concurrent("JWE Utilities", () => {
 
         const { payload } = await decrypt<JWTClaims>(jwe, key, {
           currentDate: new Date(61_000), // 61 seconds after epoch
-          validateJWT: false,
+          validateClaims: false,
         });
         expect(payload.exp).toBe(60);
       });

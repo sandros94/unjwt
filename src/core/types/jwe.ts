@@ -153,8 +153,14 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   extractable?: boolean;
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred based on JWE headers. */
   forceUint8Array?: boolean;
-  /** Unless false, will parse payload as JWT and validate claims if applicable (typ "JWT"). */
-  validateJWT?: boolean;
+  /**
+   * Controls JWT claim validation after a successful decryption.
+   *
+   * - `true` — always validate claims regardless of the `typ` header
+   * - `false` — skip claim validation entirely
+   * - `undefined` (default) — validate when `typ` is `"JWT"` or contains `"jwt"`
+   */
+  validateClaims?: boolean;
   /** If true, include the Content Encryption Key (CEK) and Additional Authenticated Data (AAD) in the result. */
   returnCek?: boolean;
 }

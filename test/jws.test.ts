@@ -1002,7 +1002,7 @@ describe.concurrent("JWS Utilities", () => {
 
         const { payload } = await verify<JWTClaims>(jws, hs256Key, {
           currentDate: new Date(61_000), // 61 seconds after epoch
-          validateJWT: false,
+          validateClaims: false,
         });
         expect(payload.exp).toBe(60);
       });

@@ -73,7 +73,9 @@
 
 - `enc?: ContentEncryptionAlgorithm` added to `JWKParameters` — non-standard field already read at runtime by the library; now properly typed
 - `JWK_Symmetric` accepted as a valid key type in the `"dir"` encrypt overload (alongside `CryptoKey | Uint8Array`)
-- `getAllJWKsFromSet(jwkSet, filter?)` exported from `unjwt/jwk` and top-level `unjwt`
+- `getJWKsFromSet(jwkSet, filter?)` exported from `unjwt/jwk` and top-level `unjwt`; `getJWKFromSet` deprecated
+- `JWSKeyLookupFunction` / `JWEKeyLookupFunction` merged into `JWKLookupFunction` (+ `JWKLookupFunctionHeader`) in `types/jwk.ts`
+- `validateJWT` renamed to `validateClaims` in `JWSVerifyOptions` and `JWEDecryptOptions`
 
 ---
 
@@ -88,22 +90,9 @@ Requires confirming IntelliSense does not degrade before committing.
 
 ## Deferred to minor release
 
-### D-11 — `validateJWT` → `validateClaims` rename (P2)
-
-`validateJWT` is a confusing tri-state. Renaming and improving its JSDoc can be a non-breaking minor-release improvement (new name alongside old, old deprecated).
-
 ### J-3 — `getSignVerifyKey` Uint8Array path audit (P2)
 
 Audit whether any external path still passes `Uint8Array` directly to `_sign-verify.ts`'s `sign()`/`verify()` bypassing `importKey`. If no path does, simplify `getSignVerifyKey` by removing the import-on-the-fly branch.
-
----
-
-## Post-release: Documentation Session
-
-Run a dedicated session once v0.6.0 is tagged:
-
-- **`README.md`** — rewrite all API references to reflect the v0.6 surface. No migration notes — document the current API only. Key changes to cover: `recognizedHeaders`, `generateJWK` (no object `toJWK`), `deriveJWKFromPassword`, `configureJWKCache` / `clearJWKCache` / `WeakMapJWKCache`, `importFromPEM` / `exportToPEM`, `unwrapKey` format discriminant, `getAllJWKsFromSet`, `deriveSharedSecret`, `"dir"` alg, `importKey` `asCryptoKey` overload, `JWKParameters.enc`.
-- **`skills/unjwt/`** — update all reference docs to match the new public signatures, types, and function names. Remove any mention of removed APIs.
 
 ---
 

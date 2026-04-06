@@ -556,7 +556,7 @@ export async function unsealJWESession<
     unwrappedKeyAlgorithm: undefined,
     keyUsage: undefined,
     forceUint8Array: false,
-    validateJWT: true,
+    validateClaims: true,
   }).catch((error_) => {
     if (error_ instanceof Error) {
       throw error_;
