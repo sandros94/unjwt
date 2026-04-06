@@ -1,5 +1,6 @@
 import type {
   JWK,
+  JWKSet,
   JWK_Symmetric,
   JWK_Private,
   JWK_EC_Public,
@@ -19,7 +20,7 @@ import type {
   JWEKeyManagementHeaderParameters,
 } from "./types/jwe";
 
-import { importKey, unwrapKey, getJWKFromSet } from "./jwk";
+import { importKey, unwrapKey, getJWKsFromSet } from "./jwk";
 import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./_crypto";
 import { JWTError } from "./error";
 import {
@@ -225,8 +226,9 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   jwe: string,
   key:
     | CryptoKey
-    | JWK_Symmetric
+    | JWKSet
     | JWK_Private
+    | JWK_Symmetric
     | string
     | Uint8Array<ArrayBuffer>
     | JWEKeyLookupFunction,
@@ -236,8 +238,9 @@ export async function decrypt(
   jwe: string,
   key:
     | CryptoKey
-    | JWK_Symmetric
+    | JWKSet
     | JWK_Private
+    | JWK_Symmetric
     | string
     | Uint8Array<ArrayBuffer>
     | JWEKeyLookupFunction,
@@ -249,8 +252,9 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   jwe: string,
   key:
     | CryptoKey
-    | JWK_Symmetric
+    | JWKSet
     | JWK_Private
+    | JWK_Symmetric
     | string
     | Uint8Array<ArrayBuffer>
     | JWEKeyLookupFunction,
@@ -305,10 +309,6 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
   }
 
   const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
-  const resolvedKeyMaterial = isJWKSet(rawKeyMaterial)
-    ? getJWKFromSet(rawKeyMaterial, protectedHeader)
-    : rawKeyMaterial;
-  const unwrappingKey = await importKey(resolvedKeyMaterial, alg);
 
   const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
   const contentIVBytes = base64UrlDecode(ivEncoded, false);
@@ -333,21 +333,56 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
-  let cek: Uint8Array<ArrayBuffer> | CryptoKey;
-  let plaintextBytes: Uint8Array<ArrayBuffer>;
-  try {
-    cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
-    plaintextBytes = await joseDecrypt(
-      enc,
-      cek,
-      ciphertextBytes,
-      contentIVBytes,
-      contentAuthTagBytes,
-      aadBytes,
-    );
-  } catch (error_) {
-    if (error_ instanceof JWTError) throw error_;
-    throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error_);
+  let cek!: Uint8Array<ArrayBuffer> | CryptoKey;
+  let plaintextBytes!: Uint8Array<ArrayBuffer>;
+
+  if (isJWKSet(rawKeyMaterial)) {
+    const candidates = getJWKsFromSet(rawKeyMaterial, _buildJWESetFilter(protectedHeader));
+    if (candidates.length === 0) {
+      throw new JWTError(
+        `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
+        "ERR_JWK_KEY_NOT_FOUND",
+      );
+    }
+    let decrypted = false;
+    for (const candidate of candidates) {
+      try {
+        const unwrappingKey = await importKey(candidate as any, alg);
+        const candidateCek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
+        plaintextBytes = await joseDecrypt(
+          enc,
+          candidateCek,
+          ciphertextBytes,
+          contentIVBytes,
+          contentAuthTagBytes,
+          aadBytes,
+        );
+        cek = candidateCek;
+        decrypted = true;
+        break;
+      } catch {
+        // this candidate did not work, try the next one
+      }
+    }
+    if (!decrypted) {
+      throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
+    }
+  } else {
+    const unwrappingKey = await importKey(rawKeyMaterial, alg);
+    try {
+      cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
+      plaintextBytes = await joseDecrypt(
+        enc,
+        cek,
+        ciphertextBytes,
+        contentIVBytes,
+        contentAuthTagBytes,
+        aadBytes,
+      );
+    } catch (error_) {
+      if (error_ instanceof JWTError) throw error_;
+      throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error_);
+    }
   }
 
   const payload = decodePayloadFromBytes<T>(
@@ -424,6 +459,11 @@ function parseEphemeralKey(ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ep
     epk,
     epkPrivateKey,
   };
+}
+
+function _buildJWESetFilter(header: JWEHeaderParameters): (k: JWK) => boolean {
+  const { kid, alg } = header;
+  return (k: JWK) => (!kid || k.kid === kid) && (!k.alg || k.alg === alg);
 }
 
 function _buildJWEHeader(

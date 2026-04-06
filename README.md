@@ -75,6 +75,20 @@ const { payload } = await verify(
 );
 ```
 
+**JWKSet for key rotation and JWKS endpoint consumption:**
+
+When a `JWKSet` is passed (directly or returned from a lookup function), `verify` tries each matching key in order until one succeeds. If the token carries a `kid`, only keys with that exact `kid` are tried — no retry. If `kid` is absent, all keys in the set whose `alg` is compatible become candidates. This makes transparent key rotation possible without any retry logic in userland.
+
+```ts
+// Fetch all public keys from a JWKS endpoint — library picks the right one
+const jwks = await fetch("https://auth.example.com/.well-known/jwks.json").then((r) => r.json());
+const { payload } = await verify(token, jwks);
+
+// Rotation window: old tokens (no kid) are tried against all keys automatically
+const rotatingSet = { keys: [newKey, legacyKey] };
+const { payload: p } = await verify(oldToken, rotatingSet);
+```
+
 ### JWE — Encrypt & Decrypt
 
 > Full reference: [skills/unjwt/references/jwe.md](./skills/unjwt/references/jwe.md)

@@ -64,8 +64,13 @@ Verifies a JWS token and returns its payload.
 
 - `jws` — `string` — the JWS compact token
 - `key` — `CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array | JWSKeyLookupFunction`
-  - `JWSKeyLookupFunction`: `(header, token) => key | Promise<key>` for dynamic key resolution
-  - `JWKSet`: automatically selects key by `kid` match; single-key sets resolve without requiring `kid`
+  - `JWSKeyLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
+  - `JWKSet`: multi-key selection with automatic retry
+    - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
+    - Token has no `kid` — all keys whose `alg` field is compatible are tried in order; the first to verify successfully wins
+    - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
+    - Same retry applies when a `JWSKeyLookupFunction` returns a `JWKSet`
+
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms
   - `validateJWT?: boolean` — parse as JWT and validate claims when `typ` is JWT-like

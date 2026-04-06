@@ -390,6 +390,19 @@ describe.concurrent("JWE Utilities", () => {
       jwe = await encrypt(plaintextObj, key, { alg, enc });
     });
 
+    it("should decrypt with JWKSet from lookup by trying multiple keys when no kid is present", async () => {
+      // Two AES-KW keys without kid — encrypt with key2, set has key1 first so retry is exercised
+      const [rawKey1, rawKey2] = await Promise.all([generateKey("A256KW"), generateKey("A256KW")]);
+      const token = await encrypt(plaintextObj, rawKey2, { alg: "A256KW", enc: "A256GCM" });
+      const [jwk1, jwk2] = await Promise.all([
+        exportKey(rawKey1, { alg: "A256KW" }),
+        exportKey(rawKey2, { alg: "A256KW" }),
+      ]);
+      const set = { keys: [jwk1, jwk2] };
+      const { payload } = await decrypt(token, set);
+      expect(payload).toEqual(plaintextObj);
+    });
+
     it("should decrypt with a key lookup function", async () => {
       const keyLookup: JWEKeyLookupFunction = (header) => {
         if (header.alg === alg) return key;

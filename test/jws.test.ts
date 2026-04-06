@@ -537,6 +537,19 @@ describe.concurrent("JWS Utilities", () => {
       expect(payload).toEqual(payloadObj);
     });
 
+    it("should verify with JWKSet by trying multiple keys when no kid is present", async () => {
+      // Two HMAC keys without kid — sign with key2, set has key1 first so retry is exercised
+      const [raw1, raw2] = await Promise.all([generateKey("HS256"), generateKey("HS256")]);
+      const [jwk1, jwk2] = await Promise.all([
+        exportKey(raw1, { alg: "HS256" }),
+        exportKey(raw2, { alg: "HS256" }),
+      ]);
+      const jws = await sign(payloadObj, raw2, { alg: "HS256" });
+      const set: JWKSet = { keys: [jwk1, jwk2] };
+      const { payload } = await verify(jws, set);
+      expect(payload).toEqual(payloadObj);
+    });
+
     it("should verify with algorithms option (success)", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
       await expect(

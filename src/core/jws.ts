@@ -1,4 +1,5 @@
 import type {
+  JWK,
   JWK_Symmetric,
   JWK_Public,
   JWK_Private,
@@ -12,7 +13,7 @@ import type {
   JWSVerifyResult,
   JWTClaims,
 } from "./types";
-import { importKey, getJWKFromSet } from "./jwk";
+import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import { JWTError } from "./error";
 import {
@@ -156,9 +157,9 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   jws: string,
   key:
     | CryptoKey
-    | JWK_Symmetric
-    | JWK_Public
     | JWKSet
+    | JWK_Public
+    | JWK_Symmetric
     | Uint8Array<ArrayBuffer>
     | JWSKeyLookupFunction,
   options?: JWSVerifyOptions,
@@ -167,9 +168,9 @@ export async function verify(
   jws: string,
   key:
     | CryptoKey
-    | JWK_Symmetric
-    | JWK_Public
     | JWKSet
+    | JWK_Public
+    | JWK_Symmetric
     | Uint8Array<ArrayBuffer>
     | JWSKeyLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
@@ -178,9 +179,9 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   jws: string,
   key:
     | CryptoKey
-    | JWK_Symmetric
-    | JWK_Public
     | JWKSet
+    | JWK_Public
+    | JWK_Symmetric
     | Uint8Array<ArrayBuffer>
     | JWSKeyLookupFunction,
   options: JWSVerifyOptions = {},
@@ -234,26 +235,48 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
     throw new JWTError("Invalid JWS: Signature could not be decoded.", "ERR_JWS_INVALID");
   }
 
-  // 5. Obtain and Import Key
+  // 5. Obtain Key
   const keyInput: CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array<ArrayBuffer> =
     typeof key === "function" ? await key(protectedHeader, jws) : key;
-  const resolvedKey: CryptoKey | JWK_Symmetric | JWK_Public | Uint8Array<ArrayBuffer> = isJWKSet(
-    keyInput,
-  )
-    ? getJWKFromSet(keyInput, protectedHeader)
-    : keyInput;
-
-  const verificationKey = await importKey(resolvedKey as any, alg);
 
   // 6. Reconstruct Signing Input
-  const signingInputString = `${protectedHeaderEncoded}.${payloadEncoded}`;
-  const signingInputBytes = textEncoder.encode(signingInputString);
+  const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
 
-  // 7. Verify Signature
-  const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
-
-  if (!isValid) {
-    throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
+  // 7. Verify Signature (with multi-key retry for JWKSets)
+  if (isJWKSet(keyInput)) {
+    const candidates = getJWKsFromSet(keyInput, _buildJWSSetFilter(protectedHeader));
+    if (candidates.length === 0) {
+      throw new JWTError(
+        `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
+        "ERR_JWK_KEY_NOT_FOUND",
+      );
+    }
+    let verified = false;
+    for (const candidate of candidates) {
+      try {
+        const isValid = await joseVerify(
+          alg,
+          await importKey(candidate as any, alg),
+          signatureBytes,
+          signingInputBytes,
+        );
+        if (isValid) {
+          verified = true;
+          break;
+        }
+      } catch {
+        // this candidate did not work, try the next one
+      }
+    }
+    if (!verified) {
+      throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
+    }
+  } else {
+    const verificationKey = await importKey(keyInput as any, alg);
+    const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
+    if (!isValid) {
+      throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
+    }
   }
 
   // 8. Decode Payload
@@ -297,6 +320,11 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
     payload,
     protectedHeader,
   };
+}
+
+function _buildJWSSetFilter(header: JWSProtectedHeader): (k: JWK) => boolean {
+  const { kid, alg } = header;
+  return (k: JWK) => (!kid || k.kid === kid) && (!k.alg || k.alg === alg);
 }
 
 function _buildJWSHeader(
