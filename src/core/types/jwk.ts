@@ -1,6 +1,48 @@
 // --- JWK Function Specific Types ---
 
 /**
+ * The decoded JOSE protected header received by a {@link JWKLookupFunction}.
+ *
+ * The most commonly inspected fields are explicitly typed; additional
+ * algorithm-specific parameters (`epk`, `p2s`, `p2c`, `apu`, `apv`, …) are
+ * accessible through the index signature.
+ *
+ * `alg` is always present on both JWS and JWE tokens. `enc` is only present
+ * on JWE tokens.
+ */
+export type JWKLookupFunctionHeader = {
+  kid?: string;
+  alg?: string;
+  enc?: string;
+  typ?: string;
+  crit?: string[];
+  [propName: string]: unknown;
+};
+
+/**
+ * A callback that resolves the decryption or verification key from a token's
+ * decoded protected header and the raw compact token string.
+ *
+ * Accepted by both {@link verify} (JWS) and {@link decrypt} (JWE). When a
+ * {@link JWKSet} is returned, the library tries each key whose `kid` and `alg`
+ * are compatible with the header in order, stopping at the first that succeeds
+ * — see {@link getJWKsFromSet} for the selection logic.
+ *
+ * Returning a `string` is meaningful for JWE only (PBES2 password); for JWS
+ * a string return is encoded to bytes and used as a raw symmetric key.
+ */
+export type JWKLookupFunction = (
+  header: JWKLookupFunctionHeader,
+  token: string,
+) =>
+  | CryptoKey
+  | JWK
+  | JWKSet
+  | string
+  | Uint8Array<ArrayBuffer>
+  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
+
+/**
  * Interface for custom JWK import cache implementations.
  *
  * The adapter receives the full JWK object so each implementation can choose

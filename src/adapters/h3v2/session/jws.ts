@@ -17,7 +17,7 @@ import type {
   JWK_Private,
   JWK_Symmetric,
   JWSSignOptions,
-  JWSProtectedHeader,
+  JWKLookupFunctionHeader,
   JWTClaimValidationOptions,
 } from "../../../core/types";
 import { sign, verify, JWTError, isJWTError } from "../../../core/jws";
@@ -90,7 +90,7 @@ export interface SessionHooksJWS<
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
   onVerifyKeyLookup?: (args: {
-    header: JWSProtectedHeader;
+    header: JWKLookupFunctionHeader;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
@@ -488,7 +488,7 @@ export async function verifyJWSSession<
 ): Promise<Partial<SessionJWS<T, MaxAge>>> {
   const alg = config.jws?.signOptions?.alg;
   const jwk = config.hooks?.onVerifyKeyLookup
-    ? (header: JWSProtectedHeader) =>
+    ? (header: JWKLookupFunctionHeader) =>
         config.hooks!.onVerifyKeyLookup!({
           header,
           event,

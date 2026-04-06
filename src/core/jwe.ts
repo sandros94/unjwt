@@ -5,6 +5,7 @@ import type {
   JWK_Private,
   JWK_EC_Public,
   JWK_EC_Private,
+  JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
   UnwrapKeyOptions,
@@ -16,7 +17,6 @@ import type {
   JWEDecryptResult,
   JWEHeaderParameters,
   JWEProtectedHeader,
-  JWEKeyLookupFunction,
   JWEKeyManagementHeaderParameters,
 } from "./types/jwe";
 
@@ -231,7 +231,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     | JWK_Symmetric
     | string
     | Uint8Array<ArrayBuffer>
-    | JWEKeyLookupFunction,
+    | JWKLookupFunction,
   options?: JWEDecryptOptions,
 ): Promise<JWEDecryptResult<T>>;
 export async function decrypt(
@@ -243,7 +243,7 @@ export async function decrypt(
     | JWK_Symmetric
     | string
     | Uint8Array<ArrayBuffer>
-    | JWEKeyLookupFunction,
+    | JWKLookupFunction,
   options: JWEDecryptOptions & {
     forceUint8Array: true;
   },
@@ -257,7 +257,7 @@ export async function decrypt<T extends JWTClaims | Uint8Array<ArrayBuffer> | st
     | JWK_Symmetric
     | string
     | Uint8Array<ArrayBuffer>
-    | JWEKeyLookupFunction,
+    | JWKLookupFunction,
   options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");

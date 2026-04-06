@@ -63,13 +63,13 @@ Verifies a JWS token and returns its payload.
 **Parameters:**
 
 - `jws` — `string` — the JWS compact token
-- `key` — `CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array | JWSKeyLookupFunction`
-  - `JWSKeyLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
+- `key` — `CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array | JWKLookupFunction`
+  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
   - `JWKSet`: multi-key selection with automatic retry
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
     - Token has no `kid` — all keys whose `alg` field is compatible are tried in order; the first to verify successfully wins
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
-    - Same retry applies when a `JWSKeyLookupFunction` returns a `JWKSet`
+    - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
 
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms
@@ -126,8 +126,16 @@ interface JWSHeaderParameters extends JoseHeaderParameters {
 
 // JWSProtectedHeader is JWSHeaderParameters with alg required
 
-type JWSKeyLookupFunction = (
-  header: JWSProtectedHeader,
+// JWKLookupFunction is shared with JWE decrypt — imported from unjwt/jwk or unjwt
+type JWKLookupFunction = (
+  header: {
+    kid?: string;
+    alg?: string;
+    enc?: string;
+    typ?: string;
+    crit?: string[];
+    [key: string]: unknown;
+  },
   token: string,
-) => MaybePromise<CryptoKey | JWK | JWKSet | Uint8Array>;
+) => MaybePromise<CryptoKey | JWK | JWKSet | string | Uint8Array>;
 ```

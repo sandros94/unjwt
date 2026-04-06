@@ -8,7 +8,7 @@ import type {
   JWSSignOptions,
   JWSHeaderParameters,
   JWSProtectedHeader,
-  JWSKeyLookupFunction,
+  JWKLookupFunction,
   JWSVerifyOptions,
   JWSVerifyResult,
   JWTClaims,
@@ -161,7 +161,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
     | JWK_Public
     | JWK_Symmetric
     | Uint8Array<ArrayBuffer>
-    | JWSKeyLookupFunction,
+    | JWKLookupFunction,
   options?: JWSVerifyOptions,
 ): Promise<JWSVerifyResult<T>>;
 export async function verify(
@@ -172,7 +172,7 @@ export async function verify(
     | JWK_Public
     | JWK_Symmetric
     | Uint8Array<ArrayBuffer>
-    | JWSKeyLookupFunction,
+    | JWKLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | string>(
@@ -183,7 +183,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
     | JWK_Public
     | JWK_Symmetric
     | Uint8Array<ArrayBuffer>
-    | JWSKeyLookupFunction,
+    | JWKLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   // 1. Parse JWS
@@ -236,8 +236,7 @@ export async function verify<T extends JWTClaims | Uint8Array<ArrayBuffer> | str
   }
 
   // 5. Obtain Key
-  const keyInput: CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array<ArrayBuffer> =
-    typeof key === "function" ? await key(protectedHeader, jws) : key;
+  const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
 
   // 6. Reconstruct Signing Input
   const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
 import { generateKey, exportKey } from "../src/core/jwk";
 import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src/core/utils";
-import type { JWSProtectedHeader, JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
+import type { JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -487,7 +487,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "key1" }, // Using "key1" kid for test purposes
       });
 
-      const keyLookup = (header: JWSProtectedHeader) => {
+      const keyLookup = (header: { kid?: string; alg?: string }) => {
         if (header.kid === "key1" && header.alg === "HS256") {
           return hs256Key;
         }
@@ -507,7 +507,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "key2" },
       });
 
-      const keyLookup = async (header: JWSProtectedHeader) => {
+      const keyLookup = async (header: { kid?: string; alg?: string }) => {
         await Promise.resolve(); // Ensure async resolution
         if (header.kid === "key2" && header.alg === "HS256") {
           return hs256Key;
@@ -1092,7 +1092,7 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { kid: "key3" },
       });
-      const keyLookup = (_header: JWSProtectedHeader) => {
+      const keyLookup = (_header: { kid?: string; alg?: string }) => {
         throw new Error("Key lookup failed");
       };
       await expect(verify(jws, keyLookup)).rejects.toThrow("Key lookup failed");

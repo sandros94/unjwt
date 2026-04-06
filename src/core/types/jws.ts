@@ -1,13 +1,5 @@
 import type { JoseHeaderParameters, JWTClaims, JWTClaimValidationOptions } from "./jwt";
-import type {
-  JWK,
-  JWKSet,
-  JWK_HMAC,
-  JWK_RSA_SIGN,
-  JWK_RSA_PSS,
-  JWK_ECDSA,
-  JWK_OKP_SIGN,
-} from "./jwk";
+import type { JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA, JWK_OKP_SIGN } from "./jwk";
 import type { ExpiresIn } from ".";
 
 /** JWS Signing Algorithm Identifier. */
@@ -78,19 +70,3 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
   /** Unless false, will parse payload as JWT and validate claims if applicable (typ "JWT"). */
   validateJWT?: boolean;
 }
-
-/**
- * Key lookup function for JWS verification.
- * @param header The JWS Protected Header.
- * @param token The JWS token.
- * @returns The key material (CryptoKey, JWK, or raw Uint8Array) or a Promise resolving to it.
- */
-export type JWSKeyLookupFunction = (
-  header: JWSProtectedHeader,
-  token: string,
-) =>
-  | CryptoKey
-  | JWK
-  | JWKSet
-  | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer>>;

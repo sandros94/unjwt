@@ -1,7 +1,5 @@
 import type { JoseHeaderParameters, JWTClaims, JWTClaimValidationOptions } from "./jwt";
 import type {
-  JWK,
-  JWKSet,
   JWK_EC_Public,
   JWK_EC_Private,
   KeyManagementAlgorithm,
@@ -137,22 +135,6 @@ export interface JWEEncryptOptions {
    */
   contentEncryptionIV?: Uint8Array<ArrayBuffer>;
 }
-
-/**
- * Key lookup function for JWE decryption.
- * @param header The JWE Protected Header.
- * @returns The key material (CryptoKey, JWK, JWKSet, password string, or raw Uint8Array) or a Promise resolving to it.
- */
-export type JWEKeyLookupFunction = (
-  header: JWEHeaderParameters,
-  token: string,
-) =>
-  | CryptoKey
-  | JWK
-  | JWKSet
-  | string
-  | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
 
 /**
  * JWE (JSON Web Encryption) decryption options

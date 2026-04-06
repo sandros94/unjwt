@@ -89,14 +89,14 @@ Decrypts a JWE token.
 **Parameters:**
 
 - `jwe` — `string` — the JWE compact token
-- `key` — `CryptoKey | JWK_Symmetric | JWK_Private | string | Uint8Array | JWEKeyLookupFunction`
+- `key` — `CryptoKey | JWK_Symmetric | JWK_Private | string | Uint8Array | JWKLookupFunction`
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
-  - `JWEKeyLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
+  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
   - `JWKSet`: multi-key selection with automatic retry
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
     - Token has no `kid` — all keys whose `alg` field is compatible are tried in order; the first to verify successfully wins
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
-    - Same retry applies when a `JWEKeyLookupFunction` returns a `JWKSet`
+    - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms
   - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
@@ -169,8 +169,16 @@ interface JWEProtectedHeader extends JWEHeaderParameters {
   enc: ContentEncryptionAlgorithm;
 }
 
-type JWEKeyLookupFunction = (
-  header: JWEHeaderParameters,
+// JWKLookupFunction is shared with JWS verify — imported from unjwt/jwk or unjwt
+type JWKLookupFunction = (
+  header: {
+    kid?: string;
+    alg?: string;
+    enc?: string;
+    typ?: string;
+    crit?: string[];
+    [key: string]: unknown;
+  },
   token: string,
 ) => MaybePromise<CryptoKey | JWK | JWKSet | string | Uint8Array>;
 ```

@@ -16,7 +16,7 @@ import type {
   JWK_Private,
   JWK_EC_Public,
   JWTClaims,
-  JWEKeyLookupFunction,
+  JWKLookupFunction,
   JWEHeaderParameters,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
@@ -188,7 +188,7 @@ describe.concurrent("JWE Utilities", () => {
           | JWK_Private
           | string
           | Uint8Array<ArrayBuffer>
-          | JWEKeyLookupFunction;
+          | JWKLookupFunction;
         let plaintextBuffer: Uint8Array;
 
         const keySet = keys[alg as string];
@@ -404,7 +404,7 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should decrypt with a key lookup function", async () => {
-      const keyLookup: JWEKeyLookupFunction = (header) => {
+      const keyLookup: JWKLookupFunction = (header) => {
         if (header.alg === alg) return key;
         throw new Error("Key not found");
       };
