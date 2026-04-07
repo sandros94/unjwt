@@ -96,7 +96,7 @@ Returns `true` when headers indicate JWT/JSON content.
 
 ### `getPlaintextBytes(payload)`
 
-Converts `string | Uint8Array | Record<string, any>` to `Uint8Array` bytes.
+Converts `string | Uint8Array | Record<string, unknown>` to `Uint8Array` bytes.
 
 ## Utility Types
 

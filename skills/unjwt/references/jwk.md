@@ -2,7 +2,9 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, PEM conversion, and cache control.
 
-Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importFromPEM, exportToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"` — or `from "unjwt"`
+Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importFromPEM, exportToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
+
+Key lookup types (also from `unjwt/jwk`): `JWKLookupFunction`, `JWKLookupFunctionHeader` — or `from "unjwt"`
 
 ## Key Generation
 
@@ -220,6 +222,28 @@ const jwk = await deriveJWKFromPassword(
   { kid: "derived-key" },
 );
 ```
+
+## Key Lookup Function
+
+`JWKLookupFunction` and `JWKLookupFunctionHeader` are defined in `unjwt/jwk` and shared by both `verify` (JWS) and `decrypt` (JWE). Using a single unified type avoids the former `JWSKeyLookupFunction` / `JWEKeyLookupFunction` split.
+
+```ts
+type JWKLookupFunctionHeader = {
+  kid?: string;
+  alg?: string;
+  enc?: string; // only present on JWE tokens
+  typ?: string;
+  crit?: string[];
+  [propName: string]: unknown; // epk, p2s, p2c, apu, apv, ...
+};
+
+type JWKLookupFunction = (
+  header: JWKLookupFunctionHeader,
+  token: string,
+) => MaybePromise<CryptoKey | JWK | JWKSet | string | Uint8Array>;
+```
+
+When a `JWKLookupFunction` returns a `JWKSet`, the same multi-key retry logic applies as when passing a `JWKSet` directly — see `getJWKsFromSet` for the selection behaviour.
 
 ## JWK Set Utilities
 

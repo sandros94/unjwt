@@ -89,14 +89,13 @@ Decrypts a JWE token.
 **Parameters:**
 
 - `jwe` — `string` — the JWE compact token
-- `key` — `CryptoKey | JWK_Symmetric | JWK_Private | string | Uint8Array | JWKLookupFunction`
+- `key` — `CryptoKey | JWK_Symmetric | JWK_Private | JWKSet | string | Uint8Array | JWKLookupFunction`
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
-  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
-  - `JWKSet`: multi-key selection with automatic retry
-    - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
-    - Token has no `kid` — all keys whose `alg` field is compatible are tried in order; the first to verify successfully wins
+  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases
+    - Token has `kid` — only keys with that exact `kid` are tried (fast path, no retry)
+    - Token has no `kid` — all keys whose `alg` field is compatible are tried in order; first to succeed wins
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
-    - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
+  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms
   - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
@@ -156,7 +155,9 @@ interface JWEDecryptOptions extends JWTClaimValidationOptions {
   returnCek?: boolean;
 }
 
-interface JWEDecryptResult<T> {
+type JOSEPayload = string | Uint8Array | Record<string, unknown>;
+
+interface JWEDecryptResult<T extends JOSEPayload = JOSEPayload> {
   payload: T;
   protectedHeader: JWEProtectedHeader; // alg and enc are required and strongly typed
   cek?: Uint8Array; // only when returnCek: true

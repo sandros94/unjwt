@@ -23,7 +23,7 @@ The following is a list of reference files:
 
 - `references/jws.md`: `sign()`, `verify()`, `JWSSignOptions`, `JWSVerifyOptions`
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `JWEEncryptOptions`, `JWEDecryptOptions`
-- `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importFromPEM`, `exportToPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), all JWK type definitions
+- `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importFromPEM`, `exportToPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`, `getJWKFromSet` — deprecated), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
 - `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `randomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`), `validateJwtClaims`, `computeExpiresInSeconds`, `ExpiresIn` format, `JWTClaimValidationOptions`, `sanitizeObject`
 - `references/adapters-h3.md`: H3 session adapters (v1 and v2), `useJWESession`, `useJWSSession`, `SessionManager` interface, `SessionConfigJWE`, `SessionConfigJWS`, lifecycle hooks (`onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`), key lookup hooks (`onUnsealKeyLookup`, `onVerifyKeyLookup`), lower-level functions, cookie chunking (v2), header-based tokens, refresh token pattern
 
@@ -66,6 +66,7 @@ await session.update({ userId: "123" });
 
 ## Key Concepts
 
+- **`JOSEPayload`**: the payload type accepted by `sign`/`encrypt` — `string | Uint8Array | Record<string, unknown>`; covers both JWT and generic serializable objects. `JWTClaims` remains the spec-compliant sub-type for typed claim access
 - **JWK-first key model**: functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string
 - **Algorithm inference**: `sign`/`encrypt` infer `alg`/`enc` from JWK properties when not explicitly provided; password strings default to PBES2
 - **`dir` (direct encryption)**: pass a `CryptoKey | JWK_oct | Uint8Array` directly as the CEK; `enc` must always be specified

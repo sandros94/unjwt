@@ -22,7 +22,7 @@ Creates a JWS Compact Serialization token.
 
 **Parameters:**
 
-- `payload` — `string | Uint8Array | Record<string, any>` (objects are JSON-serialized)
+- `payload` — `JOSEPayload` = `string | Uint8Array | Record<string, unknown>` (objects are JSON-serialized)
 - `key` — `CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array`
   - JWK keys infer `alg` automatically; CryptoKey/Uint8Array require `options.alg`
 - `options?: JWSSignOptions`
@@ -114,7 +114,9 @@ interface JWSVerifyOptions extends JWTClaimValidationOptions {
   validateClaims?: boolean;
 }
 
-interface JWSVerifyResult<T> {
+type JOSEPayload = string | Uint8Array | Record<string, unknown>;
+
+interface JWSVerifyResult<T extends JOSEPayload = JOSEPayload> {
   payload: T;
   protectedHeader: JWSProtectedHeader; // alg is required
 }
