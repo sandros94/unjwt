@@ -9,7 +9,7 @@
 - `JWTError` and `isJWTError` utilities ([4722732](https://github.com/sandros94/unjwt/commit/4722732))
 - **adapters:** Improve hook consistency and JWTError integration into `onExpire` ([5ccba0b](https://github.com/sandros94/unjwt/commit/5ccba0b))
 - **jwk:** Configurable JWK import cache via JWKCacheAdapter ([6278677](https://github.com/sandros94/unjwt/commit/6278677))
-- ⚠️  Type system overhaul ([a5e4c3e](https://github.com/sandros94/unjwt/commit/a5e4c3e))
+- ⚠️ Type system overhaul ([a5e4c3e](https://github.com/sandros94/unjwt/commit/a5e4c3e))
 - **jwk:** Full ECDH-ES support in wrapKey/unwrapKey + deriveSharedSecret export ([a39b3b8](https://github.com/sandros94/unjwt/commit/a39b3b8))
 - **jwe:** Wire dir (direct key agreement) algorithm ([4d0b4bc](https://github.com/sandros94/unjwt/commit/4d0b4bc))
 - **jwk:** ImportKey — opt-in CryptoKey output for oct JWKs ([17dd93b](https://github.com/sandros94/unjwt/commit/17dd93b))
@@ -26,18 +26,18 @@
 - **adapters:** Token initialization in sessions ([71abe44](https://github.com/sandros94/unjwt/commit/71abe44))
 - `utils` module exports ([3a015b1](https://github.com/sandros94/unjwt/commit/3a015b1))
 - **security:** Make sanitizeObject non-mutating ([75478c2](https://github.com/sandros94/unjwt/commit/75478c2))
-- ⚠️  Unify JWK lookup type for both jws and jwe ([b17ab10](https://github.com/sandros94/unjwt/commit/b17ab10))
+- ⚠️ Unify JWK lookup type for both jws and jwe ([b17ab10](https://github.com/sandros94/unjwt/commit/b17ab10))
 
 ### 💅 Refactors
 
 - **adapters:** Hook handling + typing and fix `onClear` exposing session before clearance ([3cc4667](https://github.com/sandros94/unjwt/commit/3cc4667))
 - Module exports ([917b9d4](https://github.com/sandros94/unjwt/commit/917b9d4))
-- ⚠️  Remove namespace exports ([7e3535b](https://github.com/sandros94/unjwt/commit/7e3535b))
-- Promote jose fork to internal _crypto/ implementation ([5683425](https://github.com/sandros94/unjwt/commit/5683425))
-- Extract _buildJWSHeader/_buildJWEHeader internal utilities ([a19ee4a](https://github.com/sandros94/unjwt/commit/a19ee4a))
-- ⚠️  Rename to `validateClaims` for better understanding ([33a7f49](https://github.com/sandros94/unjwt/commit/33a7f49))
+- ⚠️ Remove namespace exports ([7e3535b](https://github.com/sandros94/unjwt/commit/7e3535b))
+- Promote jose fork to internal \_crypto/ implementation ([5683425](https://github.com/sandros94/unjwt/commit/5683425))
+- Extract \_buildJWSHeader/\_buildJWEHeader internal utilities ([a19ee4a](https://github.com/sandros94/unjwt/commit/a19ee4a))
+- ⚠️ Rename to `validateClaims` for better understanding ([33a7f49](https://github.com/sandros94/unjwt/commit/33a7f49))
 - Simplify internal code ([162f5ac](https://github.com/sandros94/unjwt/commit/162f5ac))
-- ⚠️  Simplify sign/encrypt overloads and use generic `JOSEPayload` type ([cca3950](https://github.com/sandros94/unjwt/commit/cca3950))
+- ⚠️ Simplify sign/encrypt overloads and use generic `JOSEPayload` type ([cca3950](https://github.com/sandros94/unjwt/commit/cca3950))
 
 ### 📖 Documentation
 
@@ -59,11 +59,11 @@
 
 #### ⚠️ Breaking Changes
 
-- ⚠️  Type system overhaul ([a5e4c3e](https://github.com/sandros94/unjwt/commit/a5e4c3e))
-- ⚠️  Unify JWK lookup type for both jws and jwe ([b17ab10](https://github.com/sandros94/unjwt/commit/b17ab10))
-- ⚠️  Remove namespace exports ([7e3535b](https://github.com/sandros94/unjwt/commit/7e3535b))
-- ⚠️  Rename to `validateClaims` for better understanding ([33a7f49](https://github.com/sandros94/unjwt/commit/33a7f49))
-- ⚠️  Simplify sign/encrypt overloads and use generic `JOSEPayload` type ([cca3950](https://github.com/sandros94/unjwt/commit/cca3950))
+- ⚠️ Type system overhaul ([a5e4c3e](https://github.com/sandros94/unjwt/commit/a5e4c3e))
+- ⚠️ Unify JWK lookup type for both jws and jwe ([b17ab10](https://github.com/sandros94/unjwt/commit/b17ab10))
+- ⚠️ Remove namespace exports ([7e3535b](https://github.com/sandros94/unjwt/commit/7e3535b))
+- ⚠️ Rename to `validateClaims` for better understanding ([33a7f49](https://github.com/sandros94/unjwt/commit/33a7f49))
+- ⚠️ Simplify sign/encrypt overloads and use generic `JOSEPayload` type ([cca3950](https://github.com/sandros94/unjwt/commit/cca3950))
 
 ### ❤️ Contributors
 
