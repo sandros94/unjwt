@@ -1,5 +1,78 @@
 # Changelog
 
+## v0.6.0
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.5.40...v0.6.0)
+
+### 🚀 Enhancements
+
+- `JWTError` and `isJWTError` utilities ([4722732](https://github.com/sandros94/unjwt/commit/4722732))
+- **adapters:** Improve hook consistency and JWTError integration into `onExpire` ([5ccba0b](https://github.com/sandros94/unjwt/commit/5ccba0b))
+- **jwk:** Configurable JWK import cache via JWKCacheAdapter ([6278677](https://github.com/sandros94/unjwt/commit/6278677))
+- ⚠️ Type system overhaul ([a5e4c3e](https://github.com/sandros94/unjwt/commit/a5e4c3e))
+- **jwk:** Full ECDH-ES support in wrapKey/unwrapKey + deriveSharedSecret export ([a39b3b8](https://github.com/sandros94/unjwt/commit/a39b3b8))
+- **jwe:** Wire dir (direct key agreement) algorithm ([4d0b4bc](https://github.com/sandros94/unjwt/commit/4d0b4bc))
+- **jwk:** ImportKey — opt-in CryptoKey output for oct JWKs ([17dd93b](https://github.com/sandros94/unjwt/commit/17dd93b))
+- **jwk:** GetJWKFromSet single-key auto-resolve + getAllJWKsFromSet ([008c200](https://github.com/sandros94/unjwt/commit/008c200))
+- Unify JWKSet filtering under new `getJWKsFromSet` function ([4887881](https://github.com/sandros94/unjwt/commit/4887881))
+- Add JWK retry functionality for JWKSet ([ef3eefd](https://github.com/sandros94/unjwt/commit/ef3eefd))
+
+### 🩹 Fixes
+
+- Allow updating a token regardless of being able to store it in cookie (for direct body responses, OAuth) ([a1eb5d0](https://github.com/sandros94/unjwt/commit/a1eb5d0))
+- **adapters:** Ensure session.token is always current and hooks fire reliably ([8fbfa00](https://github.com/sandros94/unjwt/commit/8fbfa00))
+- **adapters:** Simplify token exposure via session ([de1efb4](https://github.com/sandros94/unjwt/commit/de1efb4))
+- **adapters:** Make `onError` hook more consistent ([a974ca1](https://github.com/sandros94/unjwt/commit/a974ca1))
+- **adapters:** Token initialization in sessions ([71abe44](https://github.com/sandros94/unjwt/commit/71abe44))
+- `utils` module exports ([3a015b1](https://github.com/sandros94/unjwt/commit/3a015b1))
+- **security:** Make sanitizeObject non-mutating ([75478c2](https://github.com/sandros94/unjwt/commit/75478c2))
+- ⚠️ Unify JWK lookup type for both jws and jwe ([b17ab10](https://github.com/sandros94/unjwt/commit/b17ab10))
+
+### 💅 Refactors
+
+- **adapters:** Hook handling + typing and fix `onClear` exposing session before clearance ([3cc4667](https://github.com/sandros94/unjwt/commit/3cc4667))
+- Module exports ([917b9d4](https://github.com/sandros94/unjwt/commit/917b9d4))
+- ⚠️ Remove namespace exports ([7e3535b](https://github.com/sandros94/unjwt/commit/7e3535b))
+- Promote jose fork to internal \_crypto/ implementation ([5683425](https://github.com/sandros94/unjwt/commit/5683425))
+- Extract \_buildJWSHeader/\_buildJWEHeader internal utilities ([a19ee4a](https://github.com/sandros94/unjwt/commit/a19ee4a))
+- ⚠️ Rename to `validateClaims` for better understanding ([33a7f49](https://github.com/sandros94/unjwt/commit/33a7f49))
+- Simplify internal code ([162f5ac](https://github.com/sandros94/unjwt/commit/162f5ac))
+- ⚠️ Simplify sign/encrypt overloads and use generic `JOSEPayload` type ([cca3950](https://github.com/sandros94/unjwt/commit/cca3950))
+
+### 📖 Documentation
+
+- Update based on recent changes ([7fa9d65](https://github.com/sandros94/unjwt/commit/7fa9d65))
+- Update for v0.6 release ([f0ac225](https://github.com/sandros94/unjwt/commit/f0ac225))
+
+### 🏡 Chore
+
+- Update h3 dep ([0c15bdb](https://github.com/sandros94/unjwt/commit/0c15bdb))
+- Apply automated updates ([72c5bb5](https://github.com/sandros94/unjwt/commit/72c5bb5))
+- Update AGENTS.md ([f2f552a](https://github.com/sandros94/unjwt/commit/f2f552a))
+- **agent:** Add adapter hooks planned changes ([e83cd79](https://github.com/sandros94/unjwt/commit/e83cd79))
+- Apply automated updates ([be57acc](https://github.com/sandros94/unjwt/commit/be57acc))
+- Apply automated updates ([8ef6218](https://github.com/sandros94/unjwt/commit/8ef6218))
+- **agent:** Update plan state ([78358dd](https://github.com/sandros94/unjwt/commit/78358dd))
+- Update rolldown dep and remove engine ([102da68](https://github.com/sandros94/unjwt/commit/102da68))
+- Update AGENTS.md ([1593e18](https://github.com/sandros94/unjwt/commit/1593e18))
+- Cleanup deprecated code ([5cd67bb](https://github.com/sandros94/unjwt/commit/5cd67bb))
+- **release:** V0.5.41 ([0f0563d](https://github.com/sandros94/unjwt/commit/0f0563d))
+- Apply automated updates ([faa8bf7](https://github.com/sandros94/unjwt/commit/faa8bf7))
+- **release:** V0.5.41" ([e54dafc](https://github.com/sandros94/unjwt/commit/e54dafc))
+- Add git hooks ([92f5f39](https://github.com/sandros94/unjwt/commit/92f5f39))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️ Type system overhaul ([a5e4c3e](https://github.com/sandros94/unjwt/commit/a5e4c3e))
+- ⚠️ Unify JWK lookup type for both jws and jwe ([b17ab10](https://github.com/sandros94/unjwt/commit/b17ab10))
+- ⚠️ Remove namespace exports ([7e3535b](https://github.com/sandros94/unjwt/commit/7e3535b))
+- ⚠️ Rename to `validateClaims` for better understanding ([33a7f49](https://github.com/sandros94/unjwt/commit/33a7f49))
+- ⚠️ Simplify sign/encrypt overloads and use generic `JOSEPayload` type ([cca3950](https://github.com/sandros94/unjwt/commit/cca3950))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.5.40
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.5.39...v0.5.40)
