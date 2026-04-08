@@ -1,6 +1,6 @@
 {
   "name": "unjwt",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Low-level JWT utilities",
   "license": "MIT",
   "author": {
