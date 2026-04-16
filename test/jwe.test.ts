@@ -403,6 +403,18 @@ describe.concurrent("JWE Utilities", () => {
       expect(payload).toEqual(plaintextObj);
     });
 
+    // Unwrap / AEAD failures are "try next"; malformed JWKs must surface immediately.
+    it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
+      const rawValid = await generateKey("A256KW");
+      const validJwk = await exportKey(rawValid, { alg: "A256KW" });
+      // kty=RSA with alg=A256KW is nonsensical — `subtleMapping` rejects the combination.
+      const malformedJwk = { kty: "RSA", alg: "A256KW" } as unknown as JWK;
+      const token = await encrypt(plaintextObj, rawValid, { alg: "A256KW", enc: "A256GCM" });
+
+      const set = { keys: [malformedJwk, validJwk] };
+      await expect(decrypt(token, set)).rejects.toThrow(/Invalid or unsupported JWK "alg"/);
+    });
+
     it("should decrypt with a key lookup function", async () => {
       const keyLookup: JWKLookupFunction = (header) => {
         if (header.alg === alg) return key;

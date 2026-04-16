@@ -550,6 +550,20 @@ describe.concurrent("JWS Utilities", () => {
       expect(payload).toEqual(payloadObj);
     });
 
+    // The loop's "try next" contract only covers cryptographic signature mismatch
+    // (which `joseVerify` returns as `false`). Malformed JWKs must surface instead
+    // of being silently skipped to the next candidate.
+    it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
+      const rawValid = await generateKey("HS256");
+      const validJwk = await exportKey(rawValid, { alg: "HS256" });
+      // kty=RSA with alg=HS256 is nonsensical — `subtleMapping` rejects the combination.
+      const malformedJwk = { kty: "RSA", alg: "HS256" } as unknown as JWK;
+      const jws = await sign(payloadObj, rawValid, { alg: "HS256" });
+
+      const set: JWKSet = { keys: [malformedJwk, validJwk] };
+      await expect(verify(jws, set)).rejects.toThrow(/Invalid or unsupported JWK "alg"/);
+    });
+
     it("should verify with algorithms option (success)", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
       await expect(

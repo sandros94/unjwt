@@ -225,21 +225,19 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
         "ERR_JWK_KEY_NOT_FOUND",
       );
     }
+    // Malformed candidates (unsupported alg/kty, wrong key usage) surface immediately —
+    // the "try next" contract only covers cryptographic signature mismatch, which
+    // `joseVerify` reports as `false` rather than by throwing.
     let verified = false;
     for (const candidate of candidates) {
-      try {
-        const isValid = await joseVerify(
-          alg,
-          await _resolveSigningKey(alg, await importKey(candidate, alg), "verify"),
-          signatureBytes,
-          signingInputBytes,
-        );
-        if (isValid) {
-          verified = true;
-          break;
-        }
-      } catch {
-        // this candidate did not work, try the next one
+      const verificationKey = await _resolveSigningKey(
+        alg,
+        await importKey(candidate, alg),
+        "verify",
+      );
+      if (await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes)) {
+        verified = true;
+        break;
       }
     }
     if (!verified) {

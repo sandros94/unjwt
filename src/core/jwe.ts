@@ -330,10 +330,12 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
         "ERR_JWK_KEY_NOT_FOUND",
       );
     }
+    // `importKey` runs outside the narrow catch: malformed candidates surface rather than
+    // being silently skipped. Only unwrap/AEAD failures count as "try next".
     let decrypted = false;
     for (const candidate of candidates) {
+      const unwrappingKey = await importKey(candidate as any, alg);
       try {
-        const unwrappingKey = await importKey(candidate as any, alg);
         const candidateCek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
         plaintextBytes = await joseDecrypt(
           enc,
@@ -346,8 +348,9 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
         cek = candidateCek;
         decrypted = true;
         break;
-      } catch {
-        // this candidate did not work, try the next one
+      } catch (err) {
+        if (err instanceof JWTError && err.code !== "ERR_JWE_DECRYPTION_FAILED") throw err;
+        // raw WebCrypto errors and ERR_JWE_DECRYPTION_FAILED → try next candidate
       }
     }
     if (!decrypted) {
