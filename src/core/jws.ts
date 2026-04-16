@@ -83,7 +83,6 @@ export async function sign(
   // 3. Calculate expiresIn for JWT
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
     payload,
-    protectedHeader.typ,
     options.expiresIn,
     options.currentDate,
   );
@@ -260,11 +259,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   try {
     payload = (
       useB64
-        ? decodePayloadFromB64UrlSegment<T>(
-            payloadEncoded as string,
-            protectedHeader,
-            options.forceUint8Array,
-          )
+        ? decodePayloadFromB64UrlSegment<T>(payloadEncoded as string, options.forceUint8Array)
         : options.forceUint8Array
           ? textEncoder.encode(payloadEncoded)
           : payloadEncoded
@@ -279,14 +274,13 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   // 9. Handle Critical Headers
   validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
 
-  // 10. JWT Claim Validations (if applicable)
+  // 10. JWT Claim Validations (RFC 7519) — runs for any JSON-object payload; opt out via `validateClaims: false`.
   if (
     payload &&
     typeof payload === "object" &&
-    options.validateClaims !== false &&
-    (options.validateClaims === true || protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    !(payload instanceof Uint8Array) &&
     !options.forceUint8Array &&
-    !(payload instanceof Uint8Array)
+    options.validateClaims !== false
   ) {
     validateJwtClaims(payload as JWTClaims, options);
   }

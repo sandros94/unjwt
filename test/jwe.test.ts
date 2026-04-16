@@ -630,6 +630,40 @@ describe.concurrent("JWE Utilities", () => {
         expect(payload.exp).toBe(60);
       });
 
+      it("rejects expired token even when typ header is absent", async () => {
+        // Encrypting a plain JSON string as Uint8Array bypasses `applyTypCtyDefaults`
+        // so the protected header has no `typ`. Prior to v0.7.0 this silently skipped
+        // claim validation because the condition was typ-gated.
+        const key = keys[alg]!.key as CryptoKey;
+        const expiredPayload = {
+          sub: "abc",
+          exp: Math.floor(Date.now() / 1000) - 60,
+        };
+        const jwe = await encrypt(textEncoder.encode(JSON.stringify(expiredPayload)), key, {
+          alg,
+          enc,
+          protectedHeader: { cty: "application/json" },
+        });
+
+        await expect(decrypt<JWTClaims>(jwe, key)).rejects.toThrow("Token has expired");
+      });
+
+      it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const jwe = await encrypt({ sub: "abc", exp: "never" }, key, { alg, enc });
+
+        try {
+          await decrypt(jwe, key);
+          expect.fail("decrypt should have thrown");
+        } catch (err) {
+          expect(isJWTError(err)).toBe(true);
+          if (isJWTError(err)) expect(err.code).toBe("ERR_JWT_CLAIM_INVALID");
+          expect((err as Error).message).toContain(
+            '"exp" (Expiration Time) Claim must be a number',
+          );
+        }
+      });
+
       it("should throw if JWT has expired", async () => {
         const key = keys[alg]!.key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc" };

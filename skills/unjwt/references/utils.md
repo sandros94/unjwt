@@ -57,6 +57,8 @@ Converts `ExpiresIn` to seconds.
 
 Validates JWT claims against `JWTClaimValidationOptions`. Throws `JWTError` on failure. Checks: `exp`, `nbf`, `iat`, `iss`, `sub`, `aud`, `maxTokenAge`, `requiredClaims`.
 
+`exp`, `nbf`, and `iat` are strictly validated per RFC 7519 §4.1 — if the claim is present but not a finite number (string, `null`, `NaN`, etc.) the function throws `ERR_JWT_CLAIM_INVALID` rather than silently skipping the comparison.
+
 ```ts
 interface JWTClaimValidationOptions {
   audience?: string | string[];

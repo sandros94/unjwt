@@ -30,53 +30,38 @@ export function isJWTContent(header: { typ?: string; cty?: string } | undefined)
   return cty === "json" || cty === "application/json" || (!!cty && cty.endsWith("+json"));
 }
 
-/**
- * Given a decoded string and JOSE headers, return an object if JSON, otherwise the string.
- */
-export function decodeMaybeJWTString<T = unknown>(
-  decodedString: string,
-  header: { typ?: string; cty?: string } | undefined,
-): T | string {
-  if (isJWTContent(header)) {
-    const looksLikeJson =
-      (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
-      (decodedString.startsWith("[") && decodedString.endsWith("]"));
-    if (looksLikeJson) {
-      try {
-        const obj = JSON.parse(decodedString);
-        return sanitizeObject(obj as any) as unknown as T;
-      } catch {
-        // fallthrough to return string if malformed
-      }
+/** Parse a decoded string as JSON when it looks like a JSON object or array, otherwise return the string verbatim. */
+export function decodeMaybeJWTString<T = unknown>(decodedString: string): T | string {
+  const looksLikeJson =
+    (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
+    (decodedString.startsWith("[") && decodedString.endsWith("]"));
+  if (looksLikeJson) {
+    try {
+      const obj = JSON.parse(decodedString);
+      return sanitizeObject(obj as any) as unknown as T;
+    } catch {
+      // fallthrough to return string if malformed
     }
   }
   return decodedString;
 }
 
-/**
- * Decode a payload that is represented as raw bytes into T | string, honoring forceUint8Array and headers.
- */
+/** Decode raw payload bytes honoring `forceUint8Array`. */
 export function decodePayloadFromBytes<T = unknown>(
   bytes: Uint8Array<ArrayBuffer>,
-  header: { typ?: string; cty?: string } | undefined,
   forceUint8Array?: boolean,
 ): T | Uint8Array<ArrayBuffer> | string {
   if (forceUint8Array) return bytes;
-  const decodedString = textDecoder.decode(bytes);
-  return decodeMaybeJWTString<T>(decodedString, header);
+  return decodeMaybeJWTString<T>(textDecoder.decode(bytes));
 }
 
-/**
- * Decode a payload that is a Base64URL segment into T | string | Uint8Array based on flags and headers.
- */
+/** Decode a Base64URL-encoded payload segment honoring `forceUint8Array`. */
 export function decodePayloadFromB64UrlSegment<T = unknown>(
   payloadEncoded: string,
-  header: { typ?: string; cty?: string } | undefined,
   forceUint8Array?: boolean,
 ): T | Uint8Array<ArrayBuffer> | string {
   if (forceUint8Array) return base64UrlDecode(payloadEncoded, false);
-  const decodedString = base64UrlDecode(payloadEncoded);
-  return decodeMaybeJWTString<T>(decodedString, header);
+  return decodeMaybeJWTString<T>(base64UrlDecode(payloadEncoded));
 }
 
 /** Convert plaintext input to bytes, shared by JWS & JWE when preparing payload. */
@@ -144,16 +129,14 @@ export function computeExpiresInSeconds(expiresIn: ExpiresIn): number {
 }
 export const computeMaxTokenAgeSeconds: (expiresIn: ExpiresIn) => number = computeExpiresInSeconds;
 
-/** Optionally compute iat/exp when signing JWTs. */
+/** Compute iat/exp for any JSON-object payload when `expiresIn` is set and `exp` is not already present. */
 export function computeJwtTimeClaims(
   payload: unknown,
-  headerTyp: string | undefined,
   expiresIn?: ExpiresIn,
   currentDate: Date = new Date(),
 ): JWTClaims | undefined {
   if (
     expiresIn === undefined ||
-    !headerTyp?.toLowerCase().includes("jwt") ||
     !(payload && typeof payload === "object") ||
     payload instanceof Uint8Array ||
     (payload as any).exp
@@ -191,6 +174,20 @@ export function validateJwtClaims(
       `Missing required JWT Claims: ${[...missingClaims].join(", ")}`,
       "ERR_JWT_CLAIM_MISSING",
     );
+  }
+
+  // RFC 7519 §4.1 — `exp`, `nbf`, `iat` are NumericDate and must be finite numbers if present.
+  if (jwtClaims.exp !== undefined && !Number.isFinite(jwtClaims.exp)) {
+    throw new JWTError(
+      'JWT "exp" (Expiration Time) Claim must be a number.',
+      "ERR_JWT_CLAIM_INVALID",
+    );
+  }
+  if (jwtClaims.nbf !== undefined && !Number.isFinite(jwtClaims.nbf)) {
+    throw new JWTError('JWT "nbf" (Not Before) Claim must be a number.', "ERR_JWT_CLAIM_INVALID");
+  }
+  if (jwtClaims.iat !== undefined && !Number.isFinite(jwtClaims.iat)) {
+    throw new JWTError('JWT "iat" (Issued At) Claim must be a number.', "ERR_JWT_CLAIM_INVALID");
   }
 
   if (options.issuer) {

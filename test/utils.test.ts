@@ -158,13 +158,13 @@ describe.concurrent("Utility Functions", () => {
       const date = new Date(0); // epoch
       const now = date.getTime(); // 0 seconds
 
-      let claims = computeJwtTimeClaims({}, "JWT", "1m", date)!;
+      let claims = computeJwtTimeClaims({}, "1m", date)!;
       expect(claims).toHaveProperty("iat");
       expect(claims.iat).toBe(now);
       expect(claims).toHaveProperty("exp");
       expect(claims.exp).toBe(now + 60);
 
-      claims = computeJwtTimeClaims({ iat: 1000 }, "JWT", "1m", date)!;
+      claims = computeJwtTimeClaims({ iat: 1000 }, "1m", date)!;
       expect(claims).toHaveProperty("iat");
       expect(claims.iat).toBe(1000);
       expect(claims).toHaveProperty("exp");
@@ -175,15 +175,15 @@ describe.concurrent("Utility Functions", () => {
       const date = new Date(0); // epoch
 
       // no expiresIn
-      let claims = computeJwtTimeClaims({}, "JWT", undefined, date);
+      let claims = computeJwtTimeClaims({}, undefined, date);
       expect(claims).toBeUndefined();
 
       // `exp` already present
-      claims = computeJwtTimeClaims({ exp: 2000 }, "JWT", "1m", date);
+      claims = computeJwtTimeClaims({ exp: 2000 }, "1m", date);
       expect(claims).toBeUndefined();
 
-      // invalid `typ`
-      claims = computeJwtTimeClaims({}, "invalid", "1m", date);
+      // non-object payload
+      claims = computeJwtTimeClaims(textEncoder.encode("bytes"), "1m", date);
       expect(claims).toBeUndefined();
     });
   });

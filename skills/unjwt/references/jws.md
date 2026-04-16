@@ -73,7 +73,7 @@ Verifies a JWS token and returns its payload.
 
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms
-  - `validateClaims?: boolean` — `true` always validates, `false` skips, `undefined` (default) validates when `typ` is `"JWT"` or contains `"jwt"`
+  - `validateClaims?: boolean` — `false` explicitly skips JWT claim validation. Defaults to `undefined`, which validates whenever the decoded payload is a JSON object — **independent of the `typ` header**, because `typ` is signer-controlled and cannot gate security-critical checks
   - `forceUint8Array?: boolean` — force payload returned as `Uint8Array`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 

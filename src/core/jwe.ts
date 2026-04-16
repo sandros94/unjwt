@@ -156,7 +156,6 @@ export async function encrypt(
   // Calculate expiresIn for JWT
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
     payload,
-    protectedHeader.typ,
     options.expiresIn,
     options.currentDate,
   );
@@ -372,23 +371,19 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     }
   }
 
-  const payload = decodePayloadFromBytes<T>(
-    plaintextBytes,
-    protectedHeader,
-    options?.forceUint8Array,
-  ) as T;
+  const payload = decodePayloadFromBytes<T>(plaintextBytes, options?.forceUint8Array) as T;
 
   if (protectedHeader.crit || options?.recognizedHeaders?.length) {
     validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
   }
 
+  // JWT Claim Validations (RFC 7519) — runs for any JSON-object payload; opt out via `validateClaims: false`.
   if (
     payload &&
     typeof payload === "object" &&
-    options.validateClaims !== false &&
-    (options.validateClaims === true || protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    !(payload instanceof Uint8Array) &&
     !options.forceUint8Array &&
-    !(payload instanceof Uint8Array)
+    options.validateClaims !== false
   ) {
     validateJwtClaims(payload as JWTClaims, options);
   }

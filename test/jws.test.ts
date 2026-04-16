@@ -1006,6 +1006,49 @@ describe.concurrent("JWS Utilities", () => {
         });
         expect(payload.exp).toBe(60);
       });
+
+      it("rejects expired token even when signer omitted the typ header", async () => {
+        // Hand-craft a JWS without `typ` in the header — simulates a signer that
+        // bypasses `applyTypCtyDefaults`. Prior to v0.7.0 this silently skipped
+        // claim validation because the condition was typ-gated.
+        const header = { alg: "HS256" };
+        const payload = {
+          sub: "abc",
+          exp: Math.floor(Date.now() / 1000) - 60,
+        };
+        const headerEncoded = base64UrlEncode(JSON.stringify(header));
+        const payloadEncoded = base64UrlEncode(JSON.stringify(payload));
+        const signingInput = textEncoder.encode(`${headerEncoded}.${payloadEncoded}`);
+        const rawKey = await crypto.subtle.exportKey("raw", hs256Key as CryptoKey);
+        const macKey = await crypto.subtle.importKey(
+          "raw",
+          rawKey,
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"],
+        );
+        const signatureBytes = new Uint8Array(
+          await crypto.subtle.sign("HMAC", macKey, signingInput),
+        );
+        const jws = `${headerEncoded}.${payloadEncoded}.${base64UrlEncode(signatureBytes)}`;
+
+        await expect(verify(jws, hs256Key)).rejects.toThrow("Token has expired");
+      });
+
+      it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
+        const jws = await sign({ sub: "abc", exp: "never" }, hs256Key, { alg: "HS256" });
+
+        try {
+          await verify(jws, hs256Key);
+          expect.fail("verify should have thrown");
+        } catch (err) {
+          expect(isJWTError(err)).toBe(true);
+          if (isJWTError(err)) expect(err.code).toBe("ERR_JWT_CLAIM_INVALID");
+          expect((err as Error).message).toContain(
+            '"exp" (Expiration Time) Claim must be a number',
+          );
+        }
+      });
     });
 
     it("should throw if algorithm not allowed", async () => {
