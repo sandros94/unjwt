@@ -596,6 +596,24 @@ describe.concurrent("JWS Utilities", () => {
         );
       });
 
+      // RFC 7515 §4.1.11 — registered params the library does not process must not be treated as
+      // implicitly understood. `jwk`/`jku`/`x5c`/`x5t`/`x5u` require explicit `recognizedHeaders`.
+      it.each(["jwk", "jku", "x5c", "x5t", "x5u"])(
+        "rejects '%s' in crit without explicit recognizedHeaders",
+        async (param) => {
+          const jws = await sign(payloadString, hs256Key, {
+            alg: "HS256",
+            protectedHeader: { crit: [param], [param]: "irrelevant" },
+          });
+          await expect(verify(jws, hs256Key)).rejects.toThrow(
+            `Missing critical header parameters: ${param}`,
+          );
+          await expect(
+            verify(jws, hs256Key, { recognizedHeaders: [param] }),
+          ).resolves.toBeDefined();
+        },
+      );
+
       it("should throw if a header listed in 'crit' is not present", async () => {
         // We'll use 'kid' as an example of a known header that might be critical
         // but isn't provided in this specific JWS.

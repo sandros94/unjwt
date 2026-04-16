@@ -505,6 +505,23 @@ describe.concurrent("JWE Utilities", () => {
       );
     });
 
+    // RFC 7516 §4.1.13 — registered params the library does not process must not be treated as
+    // implicitly understood. `jwk`/`jku`/`x5c`/`x5t`/`x5u` require explicit `recognizedHeaders`.
+    it.each(["jwk", "jku", "x5c", "x5t", "x5u"])(
+      "rejects '%s' in crit without explicit recognizedHeaders",
+      async (param) => {
+        const jweCrit = await encrypt(plaintextString, key, {
+          alg,
+          enc,
+          protectedHeader: { crit: [param], [param]: "irrelevant" },
+        });
+        await expect(decrypt(jweCrit, key)).rejects.toThrow(
+          `Unprocessed critical header parameters: ${param}`,
+        );
+        await expect(decrypt(jweCrit, key, { recognizedHeaders: [param] })).resolves.toBeDefined();
+      },
+    );
+
     it("should correctly parse plaintext as JSON or string based on typ/cty", async () => {
       // 1. typ: "JWT"
       const jweJwt = await encrypt(plaintextObj, key, {

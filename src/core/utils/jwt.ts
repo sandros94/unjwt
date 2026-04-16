@@ -260,7 +260,23 @@ export function validateJwtClaims(
   }
 }
 
-const BASE_HEADER_PARAMS = ["alg", "typ", "cty", "kid", "jwk", "jku", "x5c", "x5t", "x5u"];
+// RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` entries must be parameters the recipient actively
+// processes. Registered-but-unprocessed params (`jwk`, `jku`, `x5c`, `x5t`, `x5u`) are excluded.
+const BASE_PROCESSED_JWS = ["alg", "typ", "cty", "kid", "b64"];
+const BASE_PROCESSED_JWE = [
+  "alg",
+  "enc",
+  "typ",
+  "cty",
+  "kid",
+  "iv",
+  "tag",
+  "p2s",
+  "p2c",
+  "epk",
+  "apu",
+  "apv",
+];
 
 /** Validate critical headers in JWS semantics. */
 export function validateCriticalHeadersJWS(
@@ -269,10 +285,10 @@ export function validateCriticalHeadersJWS(
 ): void {
   if (!protectedHeader.crit) return;
   const missingHeaderParams = new Set<string>();
-  const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_HEADER_PARAMS, "b64"]);
+  const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_PROCESSED_JWS]);
 
   for (const param of protectedHeader.crit) {
-    // `b64` is special: its absence should still be considered valid
+    // `b64` (RFC 7797) is special: its absence defaults to `true` and is still valid.
     if (recognizedParams.has(param) && (param in protectedHeader || param === "b64")) {
       continue;
     }
@@ -292,29 +308,10 @@ export function validateCriticalHeadersJWE(
   protectedHeader: { crit?: string[] } & Record<string, any>,
   recognizedHeaders?: string[],
 ): void {
-  if (protectedHeader.crit && !recognizedHeaders) {
-    throw new JWTError(
-      `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
-      "ERR_JWE_INVALID",
-    );
-  }
   if (!protectedHeader.crit) return;
-
-  const understoodParams = new Set<string>([
-    ...(recognizedHeaders || []),
-    ...BASE_HEADER_PARAMS,
-    "enc",
-    "iv",
-    "tag",
-    "p2s",
-    "p2c",
-    "epk",
-    "apu",
-    "apv",
-  ]);
+  const understoodParams = new Set<string>([...(recognizedHeaders || []), ...BASE_PROCESSED_JWE]);
 
   for (const critParam of protectedHeader.crit) {
-    // Parameter must also be present in the protected header
     if (!Object.prototype.hasOwnProperty.call(protectedHeader, critParam)) {
       throw new JWTError(
         `Critical header parameter "${critParam}" listed in "crit" but not present in the protected header.`,
