@@ -80,5 +80,6 @@ $RECYCLE.BIN/
 
 # Various
 .profile
+**.local.*
 
 # Project specific
