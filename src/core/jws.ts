@@ -79,7 +79,11 @@ export async function sign(
   }
 
   // 1. Validate and import Key
-  const signingKey = await _resolveSigningKey(alg, await importKey(key, alg), "sign");
+  const signingKey = await _resolveSigningKey(
+    alg,
+    await importKey(key, { alg, expect: "private" }),
+    "sign",
+  );
 
   // 2. Construct Protected Header
   const protectedHeader = _buildJWSHeader(alg, key, userHeader, payload);
@@ -251,7 +255,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     for (const candidate of candidates) {
       const verificationKey = await _resolveSigningKey(
         alg,
-        await importKey(candidate, alg),
+        await importKey(candidate, { alg, expect: "public" }),
         "verify",
       );
       if (await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes)) {
@@ -263,7 +267,11 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
       throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
     }
   } else {
-    const verificationKey = await _resolveSigningKey(alg, await importKey(keyInput, alg), "verify");
+    const verificationKey = await _resolveSigningKey(
+      alg,
+      await importKey(keyInput, { alg, expect: "public" }),
+      "verify",
+    );
     const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
     if (!isValid) {
       throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");

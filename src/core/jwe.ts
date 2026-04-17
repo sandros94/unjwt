@@ -140,7 +140,7 @@ export async function encrypt(
     jweKeyManagementParams.epkPrivateKey = epkPrivateKey;
   }
 
-  const wrappingKeyMaterial = await importKey(key, alg);
+  const wrappingKeyMaterial = await importKey(key, { alg, expect: "public" });
 
   const {
     cek: finalCek, // This is the CEK (CryptoKey | Uint8Array) to be used for content encryption
@@ -355,7 +355,7 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     // being silently skipped. Only unwrap/AEAD failures count as "try next".
     let decrypted = false;
     for (const candidate of candidates) {
-      const unwrappingKey = await importKey(candidate as any, alg);
+      const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
       try {
         const candidateCek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
         plaintextBytes = await joseDecrypt(
@@ -378,7 +378,7 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
       throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
     }
   } else {
-    const unwrappingKey = await importKey(rawKeyMaterial, alg);
+    const unwrappingKey = await importKey(rawKeyMaterial, { alg, expect: "private" });
     try {
       cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
       plaintextBytes = await joseDecrypt(

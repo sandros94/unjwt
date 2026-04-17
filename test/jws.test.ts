@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
-import { generateKey, exportKey } from "../src/core/jwk";
+import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
 import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src/core/utils";
 import type { JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
 
@@ -1165,6 +1165,27 @@ describe.concurrent("JWS Utilities", () => {
     it("should throw for invalid JWS format", async () => {
       await expect(verify("a.b", hs256Key)).rejects.toThrow(
         "Invalid JWS: Must contain three parts",
+      );
+    });
+
+    // M11: entry points pin `expect` so a wrong-direction key fails at import.
+    it("rejects a private JWK passed to verify()", async () => {
+      const { privateKey, publicKey } = await generateJWK("ES256");
+      const jws = await sign(payloadObj, privateKey);
+      // Sanity: the public key verifies normally.
+      await expect(verify(jws, publicKey)).resolves.toBeDefined();
+      // Passing the private JWK to verify is the threat M11 closes.
+      await expect(verify(jws, privateKey)).rejects.toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+      );
+    });
+
+    it("rejects a public JWK passed to sign()", async () => {
+      const { publicKey } = await generateJWK("ES256");
+      // `sign`'s type union already excludes `JWK_Public`; cast past it to exercise
+      // the runtime M11 guard that callers using `as any` would otherwise bypass.
+      await expect(sign(payloadObj, publicKey as any)).rejects.toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
       );
     });
 

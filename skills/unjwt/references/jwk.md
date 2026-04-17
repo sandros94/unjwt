@@ -62,10 +62,20 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 
 - `string` → encoded to `Uint8Array`
 - `Uint8Array` → returned as-is
-- `CryptoKey` → returned as-is
+- `CryptoKey` → returned as-is (subject to `expect` validation if supplied)
 - `JWK_oct` → `k` decoded to `Uint8Array` (default)
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
 - Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`)
+
+#### `expect` option
+
+Pass `{ expect: "public" | "private" }` to validate the caller's intent against the key's
+shape **before** the import. A private JWK or CryptoKey passed with `expect: "public"` throws
+`ERR_JWK_INVALID` instead of silently importing the private material — and vice versa.
+`expect` is a no-op for symmetric (`oct`) JWKs and `"secret"`-type CryptoKeys.
+
+`verify` / `decrypt` pin `expect: "public"` and `expect: "private"` respectively, so the
+common paths are correct by default. Callers using `importKey` directly opt in explicitly.
 
 ```ts
 // Default: JWK_oct returns raw bytes
@@ -77,6 +87,9 @@ const key = await importKey(symJwk, {
   algorithm: { name: "AES-GCM", length: 256 },
   usage: ["encrypt", "decrypt"],
 }); // CryptoKey, extractable: false by default
+
+// Assert intent on an asymmetric JWK before import
+const recipientPub = await importKey(recipientJwk, { alg: "RSA-OAEP-256", expect: "public" });
 ```
 
 ### `exportKey(key, jwk?)`

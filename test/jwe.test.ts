@@ -325,6 +325,42 @@ describe.concurrent("JWE Utilities", () => {
         encrypt(null, key, { alg: "A128KW", enc: "A128GCM" }),
       ).rejects.toThrow(/Plaintext must be/i);
     });
+
+    // M11: entry points pin `expect` so wrong-direction asymmetric keys fail at import.
+    it("rejects a private recipient JWK passed to encrypt()", async () => {
+      const { privateKey, publicKey } = await generateJWK(
+        "RSA-OAEP-256",
+        {},
+        { modulusLength: 2048 },
+      );
+      // Sanity: public key encrypts normally.
+      await expect(
+        encrypt(plaintextObj, publicKey, { alg: "RSA-OAEP-256", enc: "A256GCM" }),
+      ).resolves.toBeTypeOf("string");
+      // Passing the private JWK to encrypt is the threat M11 closes.
+      await expect(
+        encrypt(plaintextObj, privateKey, { alg: "RSA-OAEP-256", enc: "A256GCM" }),
+      ).rejects.toThrow(expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }));
+    });
+
+    it("rejects a public recipient JWK passed to decrypt()", async () => {
+      const { privateKey, publicKey } = await generateJWK(
+        "RSA-OAEP-256",
+        {},
+        { modulusLength: 2048 },
+      );
+      const jwe = await encrypt(plaintextObj, publicKey, {
+        alg: "RSA-OAEP-256",
+        enc: "A256GCM",
+      });
+      // Sanity: private key decrypts normally.
+      await expect(decrypt(jwe, privateKey)).resolves.toBeDefined();
+      // Public JWK on the decrypt side is already rejected by `decrypt`'s TS union;
+      // cast past it to exercise the runtime M11 guard for callers that use `as any`.
+      await expect(decrypt(jwe, publicKey as any)).rejects.toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+      );
+    });
   });
 
   describe("PBES2 p2c bounds", () => {
@@ -460,7 +496,9 @@ describe.concurrent("JWE Utilities", () => {
       const rawValid = await generateKey("A256KW");
       const validJwk = await exportKey(rawValid, { alg: "A256KW" });
       // kty=RSA with alg=A256KW is nonsensical — `subtleMapping` rejects the combination.
-      const malformedJwk = { kty: "RSA", alg: "A256KW" } as unknown as JWK;
+      // The fake `d` field satisfies M11's `expect: "private"` intent check so the alg
+      // mismatch surfaces (rather than the intent check short-circuiting first).
+      const malformedJwk = { kty: "RSA", alg: "A256KW", d: "fake" } as unknown as JWK;
       const token = await encrypt(plaintextObj, rawValid, { alg: "A256KW", enc: "A256GCM" });
 
       const set = { keys: [malformedJwk, validJwk] };

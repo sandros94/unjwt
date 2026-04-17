@@ -406,6 +406,45 @@ describe.concurrent("JWK Utilities", () => {
     //   }; // Provide actual values
     //   await expect(importKey(jwk, "ES256")).resolves.toBeDefined();
     // });
+
+    // --- `expect` intent (M11) ---
+    describe("expect option", () => {
+      it("rejects a private JWK when expect is 'public'", async () => {
+        const { privateKey } = await generateJWK("ES256");
+        await expect(importKey(privateKey, { expect: "public" })).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+      });
+
+      it("rejects a public JWK when expect is 'private'", async () => {
+        const { publicKey } = await generateJWK("ES256");
+        await expect(importKey(publicKey, { expect: "private" })).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+      });
+
+      it("accepts matching intent on both sides", async () => {
+        const { privateKey, publicKey } = await generateJWK("ES256");
+        await expect(importKey(privateKey, { expect: "private" })).resolves.toBeInstanceOf(
+          CryptoKey,
+        );
+        await expect(importKey(publicKey, { expect: "public" })).resolves.toBeInstanceOf(CryptoKey);
+      });
+
+      it("rejects a private CryptoKey when expect is 'public'", async () => {
+        const { privateKey } = await generateKey("ES256");
+        await expect(importKey(privateKey, { expect: "public" } as any)).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+      });
+
+      it("is a no-op on symmetric (oct) JWKs", async () => {
+        const jwk = await generateJWK("HS256");
+        // oct JWKs have no public/private distinction — both directions succeed.
+        await expect(importKey(jwk, { expect: "public" })).resolves.toBeInstanceOf(Uint8Array);
+        await expect(importKey(jwk, { expect: "private" })).resolves.toBeInstanceOf(Uint8Array);
+      });
+    });
   });
 
   describe("exportKey", () => {

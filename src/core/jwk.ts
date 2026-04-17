@@ -332,14 +332,21 @@ export function clearJWKCache(): void {
 /**
  * Imports a key from various formats (CryptoKey, JWK, Uint8Array).
  *
- * - If `key` is a CryptoKey, it's returned directly.
- * - If `key` is a Uint8Array, it's returned directly.
- * - If `key` is a JWK_oct (symmetric key with 'k'), the raw key bytes are returned as Uint8Array.
- * - If `key` is any other JWK type (asymmetric), the `alg` parameter is required, and a CryptoKey is returned.
+ * - If `key` is a `CryptoKey`, it's returned directly.
+ * - If `key` is a `Uint8Array`, it's returned directly.
+ * - If `key` is a `JWK_oct` (symmetric key with `k`), the raw key bytes are returned as `Uint8Array`.
+ * - If `key` is any other JWK type (asymmetric), an algorithm hint is required (positional or via options)
+ *   and a `CryptoKey` is returned.
  *
- * @param key The key to import.
- * @param alg The algorithm hint, required when importing asymmetric JWKs.
- * @returns A Promise resolving to the imported key as CryptoKey or Uint8Array.
+ * ### `expect` option (asymmetric only)
+ *
+ * Pass `expect: "public"` or `expect: "private"` to validate the caller's intent against the key's
+ * shape before the import. A private JWK passed with `expect: "public"` throws `ERR_JWK_INVALID`
+ * instead of silently importing the private material. Callers who deliberately want to drop private
+ * fields can do so themselves — no silent stripping.
+ *
+ * `expect` is a no-op for symmetric (`oct`) JWKs and for `CryptoKey` instances whose
+ * `algorithm.type` is `"secret"`.
  */
 export async function importKey(key: string): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>>;
@@ -359,6 +366,15 @@ export async function importKey(
 ): Promise<CryptoKey>;
 export async function importKey(
   key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
+  options: {
+    /** Algorithm hint. Required when `key.alg` is absent on an asymmetric JWK. */
+    alg?: string;
+    /** Reject on shape mismatch instead of silently importing. */
+    expect?: "public" | "private";
+  },
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
+export async function importKey(
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
   alg?: string,
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
 export async function importKey(
@@ -366,13 +382,16 @@ export async function importKey(
   algOrOptions?:
     | string
     | {
-        asCryptoKey: true;
-        algorithm: Parameters<typeof crypto.subtle.importKey>[2];
-        usage: KeyUsage[];
+        asCryptoKey?: true;
+        algorithm?: Parameters<typeof crypto.subtle.importKey>[2];
+        usage?: KeyUsage[];
         extractable?: boolean;
+        alg?: string;
+        expect?: "public" | "private";
       },
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
-  const alg = typeof algOrOptions === "string" ? algOrOptions : undefined;
+  const alg = typeof algOrOptions === "string" ? algOrOptions : (algOrOptions?.alg ?? undefined);
+  const expect = typeof algOrOptions === "object" ? (algOrOptions.expect ?? undefined) : undefined;
 
   if (typeof key === "string") {
     key = textEncoder.encode(key);
@@ -383,6 +402,7 @@ export async function importKey(
   }
 
   if (isCryptoKey(key)) {
+    assertIntentOnCryptoKey(key, expect);
     return key;
   }
 
@@ -391,6 +411,12 @@ export async function importKey(
       const rawBytes = base64UrlDecode(key.k as string, false);
       if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
         const { algorithm, usage, extractable = false } = algOrOptions;
+        if (!algorithm || !usage) {
+          throw new JWTError(
+            "asCryptoKey option requires `algorithm` and `usage` to be provided.",
+            "ERR_JWK_INVALID",
+          );
+        }
         return crypto.subtle.importKey("raw", rawBytes, algorithm, extractable, usage);
       }
       return rawBytes;
@@ -401,19 +427,51 @@ export async function importKey(
           "ERR_JWK_INVALID",
         );
       }
+      assertIntentOnJWK(key, expect);
       const effectiveAlg = (key.alg || alg)!;
+      const cacheKey = expect ? `${effectiveAlg}:${expect}` : effectiveAlg;
       if (_activeCache) {
-        const cached = _activeCache.get(key, effectiveAlg);
+        const cached = _activeCache.get(key, cacheKey);
         if (cached) return cached;
       }
       const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg });
-      if (_activeCache) _activeCache.set(key, effectiveAlg, cryptoKey);
+      if (_activeCache) _activeCache.set(key, cacheKey, cryptoKey);
       return cryptoKey;
     }
   }
 
   // This should be unreachable
   throw new JWTError("Invalid key type provided to importKey", "ERR_JWK_INVALID");
+}
+
+function assertIntentOnJWK(jwk: JWK, expect: "public" | "private" | undefined): void {
+  if (expect === undefined || jwk.kty === "oct") return;
+  const hasPrivateScalar = "d" in jwk && typeof (jwk as { d?: unknown }).d === "string";
+  if (expect === "public" && hasPrivateScalar) {
+    throw new JWTError(
+      "Private JWK passed where a public key is expected. Strip `d` (and CRT fields on RSA) before import.",
+      "ERR_JWK_INVALID",
+    );
+  }
+  if (expect === "private" && !hasPrivateScalar) {
+    throw new JWTError("Public JWK passed where a private key is expected.", "ERR_JWK_INVALID");
+  }
+}
+
+function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | undefined): void {
+  if (expect === undefined || key.type === "secret") return;
+  if (expect === "public" && key.type === "private") {
+    throw new JWTError(
+      "Private CryptoKey passed where a public key is expected.",
+      "ERR_JWK_INVALID",
+    );
+  }
+  if (expect === "private" && key.type === "public") {
+    throw new JWTError(
+      "Public CryptoKey passed where a private key is expected.",
+      "ERR_JWK_INVALID",
+    );
+  }
 }
 
 /**
@@ -437,12 +495,16 @@ export async function exportKey<T extends JWK>(key: CryptoKey, jwk?: Partial<JWK
 async function resolveWrappingKey(
   alg: KeyManagementAlgorithm,
   key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  expect?: "public" | "private",
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
   if (alg.startsWith("PBES2") && (typeof key === "string" || key instanceof Uint8Array)) {
     return typeof key === "string" ? textEncoder.encode(key) : key;
   }
   if (typeof key === "string") {
     throw new TypeError(`Key must be CryptoKey, JWK, or Uint8Array for ${alg}`);
+  }
+  if (expect !== undefined) {
+    return importKey(key as any, { alg, expect });
   }
   return importKey(key as any, alg);
 }
@@ -467,7 +529,7 @@ export async function wrapKey(
       ? keyToWrap
       : new Uint8Array(await crypto.subtle.exportKey("raw", keyToWrap));
 
-  const importedWrappingKey = await resolveWrappingKey(alg, wrappingKey);
+  const importedWrappingKey = await resolveWrappingKey(alg, wrappingKey, "public");
 
   switch (alg) {
     case "dir": {
@@ -622,9 +684,7 @@ export async function unwrapKey(
   const returnRaw = options.format === "raw";
   const defaultExtractable = options.extractable !== false; // Default true
 
-  const importedUnwrappingKey = isCryptoKey(unwrappingKey)
-    ? unwrappingKey
-    : await resolveWrappingKey(alg, unwrappingKey);
+  const importedUnwrappingKey = await resolveWrappingKey(alg, unwrappingKey, "private");
 
   let unwrappedCekBytes: Uint8Array<ArrayBuffer>;
 
