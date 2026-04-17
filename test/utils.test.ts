@@ -174,17 +174,14 @@ describe.concurrent("Utility Functions", () => {
     });
 
     it("should return undefined for invalid inputs", () => {
-      const date = new Date(0); // epoch
+      const date = new Date(0);
 
-      // no expiresIn
       let claims = computeJwtTimeClaims({}, undefined, date);
       expect(claims).toBeUndefined();
 
-      // `exp` already present
       claims = computeJwtTimeClaims({ exp: 2000 }, "1m", date);
       expect(claims).toBeUndefined();
 
-      // non-object payload
       claims = computeJwtTimeClaims(textEncoder.encode("bytes"), "1m", date);
       expect(claims).toBeUndefined();
     });
@@ -353,9 +350,8 @@ describe("sanitizeObject", () => {
 
   it("skips already-seen nested objects (WeakSet seen.has() === true branch)", () => {
     const shared = { val: "ok" };
-    const obj: any = { a: shared, b: shared }; // same object referenced twice
+    const obj: any = { a: shared, b: shared };
     sanitizeObject(obj);
-    // No infinite loop and the shared object is untouched
     expect(obj.a).toBe(shared);
     expect(obj.b).toBe(shared);
   });
@@ -405,21 +401,21 @@ describe("validateJwtClaims additional cases", () => {
 
   it("throws 'Token is too old' for maxTokenAge violation", () => {
     const oldIat = Math.floor(Date.now() / 1000) - 300; // 300s ago
-    expect(
-      () => validateJwtClaims({ iat: oldIat }, { maxTokenAge: 60 }), // max age 60s
-    ).toThrow("Token is too old");
+    expect(() => validateJwtClaims({ iat: oldIat }, { maxTokenAge: 60 })).toThrow(
+      "Token is too old",
+    );
   });
 
   it("throws when maxTokenAge is set but iat is not a number", () => {
-    // iat must be present (otherwise line 189 fires first); here it's a string
+    // `iat` must be present — otherwise the missing-claim check fires first and
+    // this branch never runs.
     expect(() =>
       // @ts-expect-error intentional non-number iat
       validateJwtClaims({ iat: "not-a-number" }, { maxTokenAge: 60 }),
     ).toThrow('"iat" (Issued At) Claim must be a number');
   });
 
-  // RFC 7519 §4.1 NumericDate enforcement — mirrors the JWS/JWE end-to-end `exp` tests
-  // at the unit level and covers the otherwise-unreached `nbf` branch.
+  // RFC 7519 §4.1: exp/nbf/iat are NumericDate and must be finite numbers.
   it("throws on non-finite exp / nbf", () => {
     // @ts-expect-error intentional non-number exp
     expect(() => validateJwtClaims({ exp: "never" })).toThrow(
@@ -467,7 +463,6 @@ describe("inferJWSAllowedAlgorithms", () => {
 
     const rsa = await generateKey("RS512", { modulusLength: 2048 });
     expect(inferJWSAllowedAlgorithms(rsa.publicKey)).toEqual(["RS512"]);
-    // CryptoKeyPair delegates to publicKey.
     expect(inferJWSAllowedAlgorithms(rsa)).toEqual(["RS512"]);
 
     const pss = await generateKey("PS256", { modulusLength: 2048 });
@@ -523,7 +518,6 @@ describe("inferJWEAllowedAlgorithms", () => {
       "dir",
     ]);
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "dir" })).toEqual(["dir"]);
-    // oct JWK with no alg → undefined (length-ambiguous).
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x" })).toBeUndefined();
   });
 
@@ -536,12 +530,11 @@ describe("inferJWEAllowedAlgorithms", () => {
 
     const rsaOaep = await generateKey("RSA-OAEP-384", { modulusLength: 2048 });
     expect(inferJWEAllowedAlgorithms(rsaOaep.privateKey)).toEqual(["RSA-OAEP-384"]);
-    // CryptoKeyPair delegates to privateKey on the decrypt-side helper.
     expect(inferJWEAllowedAlgorithms(rsaOaep)).toEqual(["RSA-OAEP-384"]);
 
+    // A bare ECDH CryptoKey carries no wrap-variant hint, so inference returns the
+    // full ECDH-ES family and the caller selects the specific wrap alg.
     const ecdh = await generateKey("ECDH-ES+A128KW", { namedCurve: "P-256" });
-    // CryptoKey inference returns the full ECDH-ES family since the CryptoKey itself
-    // carries no alg hint; the specific wrap variant is caller-selected.
     expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES");
     expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES+A128KW");
   });

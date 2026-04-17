@@ -1,5 +1,3 @@
-// --- JWK Function Specific Types ---
-
 /**
  * The decoded JOSE protected header received by a {@link JWKLookupFunction}.
  *
@@ -96,9 +94,8 @@ export interface GenerateKeyOptions {
   toJWK?: boolean;
 }
 
-// Conditional return type when toJWK is true.
-// `JWK_ECDH_ES` can resolve to either EC (P-256/P-384/P-521) or OKP (X25519/X448) depending on
-// the runtime `namedCurve`, so its branch returns the union of both shapes.
+// JWK_ECDH_ES resolves to EC (P-256/P-384/P-521) or OKP (X25519/X448) at runtime
+// depending on `namedCurve`, so its branch returns the union of both shapes.
 type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_Asymmetric_Algorithm
   ? TAlg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
     ? { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
@@ -112,11 +109,10 @@ type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_
           ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
           : never
   : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-    ? JWK_oct // Composite AES-CBC+HMAC material is stored as one JWK_oct and split internally during enc/dec.
+    ? JWK_oct
     : never;
 
-// Conditional return type when toJWK is false or undefined.
-// AES-CBC+HMAC returns raw bytes because the composite layout isn't directly importable via WebCrypto.
+// AES-CBC+HMAC returns raw bytes — the composite layout isn't directly importable via Web Crypto.
 type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_AES_CBC_HMAC
   ? Uint8Array<ArrayBuffer>
   : TAlg extends JWK_Asymmetric_Algorithm
@@ -150,7 +146,6 @@ export interface DeriveKeyOptions {
   toJWK?: boolean;
 }
 
-// Conditional return type for deriveKeyFromPassword
 export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> = TOptions["toJWK"] extends true
   ? JWK_oct
   : TOptions["toJWK"] extends object
@@ -280,8 +275,6 @@ export interface UnwrapKeyOptions {
   /** Mark the unwrapped key as extractable. Defaults to true. */
   extractable?: boolean;
 }
-
-// --- Standard JWK Interfaces ---
 
 /**
  * Forked from https://github.com/panva/jose/tree/v6.0.10

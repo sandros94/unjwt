@@ -95,7 +95,6 @@ export async function encrypt(
   } = options;
   let { alg, enc } = options;
 
-  // Fallback logic for alg and enc
   if (!alg) {
     if (typeof key === "string" || key instanceof Uint8Array) {
       alg = "PBES2-HS256+A128KW";
@@ -111,7 +110,7 @@ export async function encrypt(
   }
   if (!enc) {
     if (alg === "dir") {
-      // Allow enc to be carried on the JWK itself as a non-standard hint.
+      // Allow `enc` to ride on the JWK when `alg: "dir"`.
       enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : undefined;
       if (!enc) {
         throw new JWTError('JWE "enc" must be provided when alg is "dir"', "ERR_JWE_ENC_MISSING");
@@ -121,7 +120,6 @@ export async function encrypt(
     }
   }
 
-  // Prepare parameters for encryptKey
   const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
   if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
   if (p2s) jweKeyManagementParams.p2s = p2s;
@@ -139,9 +137,9 @@ export async function encrypt(
   const wrappingKeyMaterial = await importKey(key, { alg, expect: "public" });
 
   const {
-    cek: finalCek, // This is the CEK (CryptoKey | Uint8Array) to be used for content encryption
-    encryptedKey: jweEncryptedKey, // This is the JWE Encrypted Key (Uint8Array | undefined)
-    parameters: keyManagementHeaderParams, // JWE header params from key encryption (e.g., epk, p2s, iv, tag)
+    cek: finalCek,
+    encryptedKey: jweEncryptedKey,
+    parameters: keyManagementHeaderParams,
   } = await encryptKey(alg, enc, wrappingKeyMaterial, providedCek, jweKeyManagementParams);
 
   const protectedHeader = _buildJWEHeader(
@@ -153,7 +151,6 @@ export async function encrypt(
     payload,
   );
 
-  // Calculate expiresIn for JWT
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
     payload,
     options.expiresIn,
@@ -184,8 +181,7 @@ export async function encrypt(
     );
   }
 
-  // For 'dir' or 'ECDH-ES' (direct key agreement), jweEncryptedKey will be undefined.
-  // The JWE Encrypted Key part should be an empty string in these cases.
+  // `dir` and `ECDH-ES` (direct key agreement) have no encrypted key — RFC 7516 §4.5.
   const encryptedKeyEncoded = jweEncryptedKey ? base64UrlEncode(jweEncryptedKey) : "";
 
   const jweParts: string[] = [
@@ -296,8 +292,8 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
 
   const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
 
-  // If no explicit allowlist, infer one from the key shape and enforce.
-  // Safe default — prevents signer-controlled `alg` from dictating key management.
+  // Without an explicit allowlist, infer from the key shape — prevents
+  // sender-controlled `alg` from dictating key management.
   if (!options?.algorithms) {
     const inferred = inferJWEAllowedAlgorithms(rawKeyMaterial);
     if (!inferred) {
@@ -347,8 +343,8 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
         "ERR_JWK_KEY_NOT_FOUND",
       );
     }
-    // `importKey` runs outside the narrow catch: malformed candidates surface rather than
-    // being silently skipped. Only unwrap/AEAD failures count as "try next".
+    // `importKey` runs outside the catch: malformed candidates surface rather than being
+    // silently skipped. Only unwrap/AEAD failures count as "try next".
     let decrypted = false;
     for (const candidate of candidates) {
       const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
@@ -367,7 +363,6 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
         break;
       } catch (err) {
         if (err instanceof JWTError && err.code !== "ERR_JWE_DECRYPTION_FAILED") throw err;
-        // raw WebCrypto errors and ERR_JWE_DECRYPTION_FAILED → try next candidate
       }
     }
     if (!decrypted) {
@@ -397,7 +392,7 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
   }
 
-  // JWT Claim Validations (RFC 7519) — runs for any JSON-object payload; opt out via `validateClaims: false`.
+  // RFC 7519 JWT claim validation runs for any JSON-object payload; opt out via `validateClaims: false`.
   if (
     payload &&
     typeof payload === "object" &&

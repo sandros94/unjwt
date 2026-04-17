@@ -21,7 +21,6 @@ import { textEncoder } from "../src/core/utils";
 import { rsa, ec } from "./keys";
 
 describe.concurrent("_crypto primitives", () => {
-  // --- _sign-verify ---
   describe("_sign-verify", () => {
     it("sign/verify roundtrip — HS256", async () => {
       const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, true, [
@@ -77,7 +76,6 @@ describe.concurrent("_crypto primitives", () => {
     });
   });
 
-  // --- _aes ---
   describe("_aes: content encryption", () => {
     it("AES-GCM encrypt/decrypt roundtrip", async () => {
       const cek = generateCEK("A256GCM");
@@ -160,7 +158,6 @@ describe.concurrent("_crypto primitives", () => {
     });
   });
 
-  // --- _rsa ---
   describe("_rsa: RSA-OAEP", () => {
     it("encryptRSAES/decryptRSAES roundtrip", async () => {
       const kp = await crypto.subtle.generateKey(
@@ -180,7 +177,6 @@ describe.concurrent("_crypto primitives", () => {
     });
   });
 
-  // --- _ecdh ---
   describe("_ecdh: ECDH-ES key derivation", () => {
     it("deriveECDHESKey roundtrip — P-256", async () => {
       const recipientKP = await crypto.subtle.generateKey(
@@ -233,7 +229,6 @@ describe.concurrent("_crypto primitives", () => {
     });
   });
 
-  // --- _pbes2 ---
   describe("_pbes2: PBES2 key derivation", () => {
     it("deriveKeyPBES2 is deterministic with same inputs", async () => {
       const password = textEncoder.encode("hunter2");
@@ -265,7 +260,6 @@ describe.concurrent("_crypto primitives", () => {
     });
   });
 
-  // --- _key-codec ---
   describe("_key-codec: JWK ↔ CryptoKey", () => {
     it("jwkTokey / keyToJWK roundtrip — EC private", async () => {
       const cryptoKey = await jwkTokey(ec.jwk.private);
@@ -295,7 +289,6 @@ describe.concurrent("_crypto primitives", () => {
     });
   });
 
-  // --- _pem ---
   describe("_pem: PEM import/export", () => {
     it("fromSPKI / toSPKI roundtrip — RSA public", async () => {
       const cryptoKey = await fromSPKI(rsa.pem.spki, "RS256");

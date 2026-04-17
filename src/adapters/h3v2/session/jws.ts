@@ -35,11 +35,11 @@ export interface SessionJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
-  // Mapped from payload.jti
+  /** Session ID — mirrors the JWT `jti` claim. `undefined` until the session is persisted. */
   id: string | undefined;
-  // Mapped from payload.iat (in ms)
+  /** Session creation time in ms — mirrors the JWT `iat` claim (seconds). */
   createdAt: number;
-  // Mapped from payload.exp (in ms)
+  /** Session expiry time in ms — mirrors the JWT `exp` claim (seconds). */
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   token: string | undefined;
@@ -245,9 +245,8 @@ export async function getJWSSession<
     return session;
   }
 
-  // Placeholder session object
   const now = config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
-  const createdAt = now - (now % 1000); // round to seconds
+  const createdAt = now - (now % 1000);
   const session: SessionJWS<T, MaxAge> = {
     id: undefined,
     createdAt,
@@ -333,7 +332,7 @@ export function getJWSSessionToken<
     }
   }
 
-  // Check Set-Cookie (eg. in case of redirects)
+  // Set-Cookie header may carry a freshly-minted session on redirect responses.
   if (config.cookie !== false && hasWritableResponse(event)) {
     const setCookie = event.res.headers.get("set-cookie");
     if (typeof setCookie === "string") {
@@ -341,7 +340,6 @@ export function getJWSSessionToken<
     }
   }
 
-  // Fallback to cookie if not found earlier
   if (!token) {
     token = getChunkedCookie(event, sessionName);
   }
@@ -417,8 +415,8 @@ export async function updateJWSSession<
     });
   }
 
-  // Fire after signing so the hook receives the definitive new token, jti, and timestamps.
-  // Also fires when update is undefined (pure token refresh with no payload change).
+  // Fires after signing so the hook receives the definitive new token, jti, and
+  // timestamps. Also fires on pure token refresh (update is undefined).
   await config.hooks?.onUpdate?.({
     session,
     oldSession,
@@ -465,7 +463,8 @@ export async function signJWSSession<
 
   const token = await sign(payload, key, {
     ...config.jws?.signOptions,
-    expiresIn: undefined, // controlled via 'exp' claim
+    // `exp` is computed from `maxAge` and carried via the `exp` claim above.
+    expiresIn: undefined,
     protectedHeader: {
       ...config.jws?.signOptions?.protectedHeader,
       kid: "kid" in key ? key.kid : undefined,
@@ -543,7 +542,6 @@ export async function clearJWSSession<
   const context = getEventContext<H3EventContext>(event);
   const sessionName = config.name || DEFAULT_NAME;
 
-  // If session exists in context store for hook and delete it
   let session = context.sessions?.[sessionName] as SessionJWS<T, MaxAge> | undefined;
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];

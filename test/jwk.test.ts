@@ -378,7 +378,6 @@ describe.concurrent("JWK Utilities", () => {
       expect(key.extractable).toBe(true);
     });
 
-    // --- `expect` intent (M11) ---
     describe("expect option", () => {
       it("rejects a private JWK when expect is 'public'", async () => {
         const { privateKey } = await generateJWK("ES256");
@@ -473,7 +472,6 @@ describe.concurrent("JWK Utilities", () => {
       "decrypt",
     ]);
 
-    // --- AES-KW ---
     it("should wrap/unwrap with AES-KW (A128KW)", async () => {
       const wrappingKey = await generateKey("A128KW");
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
@@ -492,7 +490,6 @@ describe.concurrent("JWK Utilities", () => {
       expect(unwrappedKey.algorithm.name).toBe("AES-GCM");
     });
 
-    // --- RSA-OAEP ---
     it("should wrap/unwrap with RSA-OAEP", async () => {
       const { publicKey, privateKey } = await generateKey("RSA-OAEP", {
         modulusLength: 2048,
@@ -610,9 +607,9 @@ describe.concurrent("JWK Utilities", () => {
       });
     });
 
-    // --- AES-GCMKW ---
     it("should wrap/unwrap with AES-GCMKW (A128GCMKW)", async () => {
-      const wrappingKey = await generateKey("A128GCM", { extractable: true }); // Key for AES-GCMKW must be AES-GCM
+      // AES-GCMKW uses an AES-GCM key to wrap another AES-GCM CEK.
+      const wrappingKey = await generateKey("A128GCM", { extractable: true });
       const { encryptedKey, iv, tag } = await wrapKey("A128GCMKW", cek, wrappingKey);
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
       expect(typeof iv).toBe("string");
@@ -634,7 +631,6 @@ describe.concurrent("JWK Utilities", () => {
       expect(isCryptoKey(unwrappedKey)).toBe(true);
     });
 
-    // --- PBES2 ---
     it("should wrap/unwrap with PBES2", async () => {
       const password = "test-password";
       const p2s = randomBytes(16);
@@ -1328,9 +1324,8 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should throw when options.pemFormat forces pkcs8 on a public JWK", async () => {
-        // M11 intent check catches the mismatch during the intermediate import —
-        // the message points at the JWK/direction conflict, which is clearer than the
-        // downstream CryptoKey-type check that used to fire.
+        // The `expect: "private"` intent check catches the direction mismatch during
+        // the intermediate import — clearer than the downstream CryptoKey-type error.
         await expect(exportPEM(rsa.jwk.public, { pemFormat: "pkcs8" })).rejects.toThrow(
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
         );

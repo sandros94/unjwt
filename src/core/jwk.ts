@@ -122,32 +122,29 @@ export async function generateKey(
   options: GenerateKeyOptions = {},
 ): Promise<CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | JWK_Pair> {
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
-  const defaultExtractable = options.extractable !== false; // Default true
+  const defaultExtractable = options.extractable !== false;
 
-  // Handle AES-CBC separately as it requires raw key generation
+  // AES-CBC+HMAC composite material isn't directly importable via Web Crypto,
+  // so we generate and export raw bytes.
   if (alg === "A128CBC-HS256" || alg === "A192CBC-HS384" || alg === "A256CBC-HS512") {
     const keyLength = bitLengthCEK(alg);
     const keyBytes = randomBytes(keyLength >> 3);
 
     if (exportToJWK) {
-      // Use keyToJWK which handles Uint8Array<ArrayBuffer> to JWK_oct
-      return keyToJWK(keyBytes); // Returns JWK_oct
+      return keyToJWK(keyBytes);
     }
-    return keyBytes; // Returns Uint8Array<ArrayBuffer>
+    return keyBytes;
   }
 
-  // For other algorithms, use crypto.subtle.generateKey
   const { algorithm, keyUsages } = getGenerateKeyParams(alg, options);
 
   const key = await crypto.subtle.generateKey(algorithm, defaultExtractable, keyUsages);
 
   if (exportToJWK) {
     if (key instanceof CryptoKey) {
-      // Symmetric keys (HMAC, AES-KW, AES-GCM). Force `alg` since Web Crypto's JWK
-      // export drops the `KW` suffix on AES-GCM key wrap algorithms.
+      // Force `alg`: Web Crypto's JWK export drops the `KW` suffix on AES-GCM key wrap algs.
       return { ...(await exportKey(key)), alg };
     } else {
-      // Asymmetric keys (RSA, EC, OKP)
       const [pub, priv] = await Promise.all([exportKey(key.publicKey), exportKey(key.privateKey)]);
       return { privateKey: { ...priv, alg }, publicKey: { ...pub, alg } } as JWK_Pair;
     }
@@ -157,12 +154,40 @@ export async function generateKey(
 }
 
 /**
- * Generates a Json Web Key (JWK) for the specified algorithm.
+ * Generates a ready-to-use JWK (or JWK pair) for the specified algorithm.
  *
- * @param alg The JWA algorithm identifier (e.g., "HS256", "RS256", "A128GCM").
- * @param jwkParams Optional partial JWK to merge with the generated key, allowing overrides.
- * @param options Configuration options for key generation.
- * @returns A Promise resolving to the generated JWK or JWK pair representation.
+ * Always returns JWK form with a `kid` attached — auto-generated via
+ * `crypto.randomUUID()` when not supplied. For a `CryptoKey` / `CryptoKeyPair`
+ * result instead, use {@link generateKey}. PBES2 is not a key-generation
+ * algorithm — use {@link deriveJWKFromPassword}.
+ *
+ * Composite AES-CBC+HMAC keys (`A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`)
+ * are serialised to a single `JWK_oct` and re-split internally on use.
+ *
+ * @param alg The JWA algorithm identifier (e.g. `"HS256"`, `"RS256"`, `"ES256"`,
+ *            `"A128GCM"`, `"A256CBC-HS512"`). PBES2, `"dir"`, and `"none"` are
+ *            not accepted.
+ * @param options
+ *   - `extractable?` — forwarded to `crypto.subtle.generateKey`. Defaults to `true`.
+ *   - `keyUsage?` — override the default usages derived from `alg`.
+ *   - `modulusLength?` — RSA only; defaults to `2048`.
+ *   - `publicExponent?` — RSA only; defaults to `0x010001`.
+ *   - `namedCurve?` — EC and OKP only; defaults to `"P-256"` for EC and `"Ed25519"` for OKP.
+ *   - JWK metadata (`kid`, `use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the
+ *     result. `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot
+ *     be overridden here.
+ *
+ * @example
+ * ```ts
+ * // HS256 → JWK_oct
+ * const hmac = await generateJWK("HS256");
+ *
+ * // RS256 → { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
+ * const rsa = await generateJWK("RS256", { modulusLength: 2048, kid: "rsa-1" });
+ *
+ * // ES256 with explicit metadata
+ * const { privateKey, publicKey } = await generateJWK("ES256", { kid: "ec-1", use: "sig" });
+ * ```
  */
 export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
   alg: TAlg,
@@ -230,12 +255,11 @@ export async function deriveKeyFromPassword(
 
   const derivedBytes = await deriveKeyPBES2(salt, alg, iterations, passwordBytes);
 
-  const wrappingAlg = alg.slice(-6); // "A128KW", "A192KW", "A256KW"
+  const wrappingAlg = alg.slice(-6);
   const defaultUsages: KeyUsage[] = ["wrapKey", "unwrapKey"];
   const finalUsages = keyUsage ?? defaultUsages;
   const finalExtractable = exportToJWK ? true : extractable === true;
 
-  // Import the derived bytes as a CryptoKey for the wrapping algorithm
   const derivedKey = await crypto.subtle.importKey(
     "raw",
     derivedBytes,
@@ -253,13 +277,23 @@ export async function deriveKeyFromPassword(
 }
 
 /**
- * Derives a Json Web Key (JWK) from a password using PBKDF2 as specified by PBES2 algorithms.
+ * Derives a `JWK_oct` from a password using PBKDF2 as specified by PBES2
+ * (RFC 7518 §4.8). The resulting JWK's `alg` is the underlying AES-KW variant
+ * (`A128KW` / `A192KW` / `A256KW`), ready to use with {@link wrapKey} /
+ * {@link unwrapKey}.
  *
- * @param password The password to derive the key from (string or Uint8Array).
- * @param alg The PBES2 algorithm identifier (e.g., "PBES2-HS256+A128KW").
- * @param jwkParams Optional partial JWK to merge with the generated key, allowing overrides.
- * @param options Configuration options including salt and iterations.
- * @returns A Promise resolving to the derived JWK (JWK_oct).
+ * For a `CryptoKey` result without JWK metadata, use {@link deriveKeyFromPassword}.
+ *
+ * @param password The password to derive the key from (string or `Uint8Array`).
+ * @param alg The PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`).
+ * @param options
+ *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets (RFC 7518 §4.8.1.1).
+ *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
+ *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
+ *   - `extractable?` — forwarded to `crypto.subtle.importKey`. Defaults to `false`.
+ *   - JWK metadata (`kid`, `use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the
+ *     result. `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot
+ *     be overridden here.
  */
 export async function deriveJWKFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
@@ -452,7 +486,6 @@ export async function importKey(
     }
   }
 
-  // This should be unreachable
   throw new JWTError("Invalid key type provided to importKey", "ERR_JWK_INVALID");
 }
 
@@ -553,8 +586,7 @@ export async function wrapKey(
 
   switch (alg) {
     case "dir": {
-      // Direct encryption: the provided key IS the CEK — nothing to wrap.
-      // The JWE Encrypted Key field is empty per RFC 7516 §4.5.
+      // RFC 7516 §4.5: for direct encryption, the JWE Encrypted Key is empty.
       return { encryptedKey: new Uint8Array(0) };
     }
 
@@ -655,11 +687,9 @@ export async function wrapKey(
       if (apv.length > 0) wrapResult.apv = base64UrlEncode(apv);
 
       if (alg === "ECDH-ES") {
-        // Direct key agreement: derived secret is the CEK; no encrypted key.
         return wrapResult;
       }
 
-      // Key agreement with wrapping: AES-KW the caller-supplied CEK.
       const kwAlg = alg.slice(-6);
       wrapResult.encryptedKey = await aesKwWrap(kwAlg, sharedSecret, cekBytes);
       return wrapResult;
@@ -713,7 +743,6 @@ export async function unwrapKey(
 
   switch (alg) {
     case "dir": {
-      // Direct encryption: the provided key IS the CEK — nothing to unwrap.
       if (importedUnwrappingKey instanceof Uint8Array) {
         unwrappedCekBytes = importedUnwrappingKey;
       } else {
@@ -896,12 +925,10 @@ export async function unwrapKey(
     }
   }
 
-  // If returning bytes, return them now (applies to AES-KW/PBES2/AES-GCMKW paths)
   if (returnRaw) {
     return unwrappedCekBytes;
   }
 
-  // Otherwise, import the unwrapped bytes as a CryptoKey
   const finalKey = await crypto.subtle.importKey(
     "raw",
     unwrappedCekBytes,
@@ -1223,7 +1250,6 @@ export function getJWKFromSet(
   }
 
   if (typeof kidOrProtectedHeader === "string") {
-    // If kidOrProtectedHeader is a string, treat it as a kid
     const kid = kidOrProtectedHeader;
     const selectedKey = jwkSet.keys.find((k: JWK) => k.kid === kid);
     if (!selectedKey) {
@@ -1231,8 +1257,6 @@ export function getJWKFromSet(
     }
     return selectedKey;
   } else if (typeof kidOrProtectedHeader === "object") {
-    // If kidOrProtectedHeader is an object, treat it as a protected header
-
     const { kid, alg, kty } = kidOrProtectedHeader;
 
     if (!kid) {
@@ -1305,7 +1329,6 @@ function getGenerateKeyParams(
   const defaultKeyUsage = options?.keyUsage;
 
   switch (alg) {
-    // HMAC Signatures
     case "HS256":
     case "HS384":
     case "HS512": {
@@ -1317,7 +1340,6 @@ function getGenerateKeyParams(
       break;
     }
 
-    // RSA Signatures
     case "RS256":
     case "RS384":
     case "RS512": {
@@ -1331,7 +1353,6 @@ function getGenerateKeyParams(
       break;
     }
 
-    // RSA PSS Signatures
     case "PS256":
     case "PS384":
     case "PS512": {
@@ -1345,7 +1366,6 @@ function getGenerateKeyParams(
       break;
     }
 
-    // RSA Encryption
     case "RSA-OAEP":
     case "RSA-OAEP-256":
     case "RSA-OAEP-384":
@@ -1360,7 +1380,6 @@ function getGenerateKeyParams(
       break;
     }
 
-    // AES Key Wrap
     case "A128KW":
     case "A192KW":
     case "A256KW": {
@@ -1370,25 +1389,20 @@ function getGenerateKeyParams(
       break;
     }
 
-    // AES GCM Encryption
     case "A128GCM":
     case "A192GCM":
     case "A256GCM":
     case "A128GCMKW":
     case "A192GCMKW":
     case "A256GCMKW": {
-      // If it ends in KW, strip it to get the length
       const baseAlg = alg.replace("KW", "");
       const length = Number.parseInt(baseAlg.slice(1, 4), 10);
       algorithm = { name: "AES-GCM", length };
-
-      // If it's explicitly KW, default to wrapping usages, otherwise encrypt/decrypt
       keyUsages =
         defaultKeyUsage ?? (alg.endsWith("KW") ? ["wrapKey", "unwrapKey"] : ["encrypt", "decrypt"]);
       break;
     }
 
-    // ECDSA Signatures
     case "ES256":
     case "ES384":
     case "ES512": {
@@ -1420,7 +1434,6 @@ function getGenerateKeyParams(
       break;
     }
 
-    // ECDSA Signatures
     case "ECDH-ES":
     case "ECDH-ES+A128KW":
     case "ECDH-ES+A192KW":
@@ -1512,7 +1525,6 @@ async function resolveECDHEphemeralPair(
     };
   }
 
-  // JWK_EC_Private
   if (isJWK(ephemeralKeyInput) && "d" in ephemeralKeyInput) {
     const privCryptoKey = (await importKey(ephemeralKeyInput as JWK, {
       alg: "ECDH-ES",

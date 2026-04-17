@@ -96,7 +96,6 @@ export interface JWEEncryptOptions {
     "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
   >;
 
-  // Key Wrapping specific options (passed to jwk.wrapKey)
   /** Initialization Vector for AES-GCMKW key wrapping. Generated if not provided. */
   keyManagementIV?: Uint8Array<ArrayBuffer>;
   /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */

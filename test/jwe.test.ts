@@ -275,10 +275,10 @@ describe.concurrent("JWE Utilities", () => {
       expect(textDecoder.decode(josePlaintext)).toBe(t);
     });
 
-    // M13: `alg` is inferred from the JWK verbatim; no silent `A*GCM → A*GCMKW` coercion.
+    // `alg` is inferred from the JWK verbatim — no silent `A*GCM → A*GCMKW` coercion.
     it("encrypts a GCMKW oct JWK via its declared alg without coercion", async () => {
       const jwk = await generateJWK("A256GCMKW");
-      expect(jwk.alg).toBe("A256GCMKW"); // generateJWK now preserves KW suffix
+      expect(jwk.alg).toBe("A256GCMKW");
       const jwe = await encrypt("payload", jwk, { enc: "A256GCM" });
       const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
       expect(header.alg).toBe("A256GCMKW");
@@ -286,13 +286,12 @@ describe.concurrent("JWE Utilities", () => {
       expect(payload).toBe("payload");
     });
 
+    // An oct JWK with `alg: "A256GCM"` used for key wrap requires an explicit `alg`
+    // override — the library never rewrites `A256GCM` into `A256GCMKW` silently.
     it("rejects an oct JWK with alg=A256GCM used for key wrap without explicit alg", async () => {
-      // The library no longer rewrites `A256GCM` on an oct JWK into `A256GCMKW`.
-      // Callers who want key wrap must supply `alg` explicitly.
       const jwk = await generateJWK("A256GCM");
       expect(jwk.alg).toBe("A256GCM");
       await expect(encrypt("payload", jwk)).rejects.toThrow(/Invalid or unsupported "alg"/i);
-      // With explicit alg, the caller's intent is honoured.
       const jwe = await encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" });
       const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
       expect(header.alg).toBe("A256GCMKW");
@@ -303,8 +302,8 @@ describe.concurrent("JWE Utilities", () => {
       const enc: ContentEncryptionAlgorithm = "A128GCM";
       const key = keys[alg]!.key as CryptoKey;
 
-      const customCek = randomBytes(128 / 8); // 128 bits for A128GCM
-      const customIv = randomBytes(96 / 8); // 96 bits for A128GCM
+      const customCek = randomBytes(128 / 8);
+      const customIv = randomBytes(96 / 8);
 
       const jwe = await encrypt(plaintextString, key, {
         alg,
@@ -315,8 +314,8 @@ describe.concurrent("JWE Utilities", () => {
 
       const { payload: decryptedPayload } = await decrypt(jwe, key);
       expect(decryptedPayload).toBe(plaintextString);
-      // Note: We can't directly compare the CEK after it's been wrapped and unwrapped
-      // unless we unwrap it manually here. But we can check the IV.
+      // Only the IV is verifiable here; the CEK is wrapped so its bytes aren't visible
+      // without a manual unwrap.
       const jweParts = jwe.split(".");
       const decodedIv = base64UrlDecode(jweParts[2], false);
       expect(decodedIv).toEqual(customIv);
@@ -349,16 +348,15 @@ describe.concurrent("JWE Utilities", () => {
       ).rejects.toThrow(/Plaintext must be/i);
     });
 
-    // M11: entry points pin `expect` so wrong-direction asymmetric keys fail at import.
+    // `encrypt` / `decrypt` pin `expect: "public" | "private"` on import, so a
+    // wrong-direction asymmetric JWK fails fast instead of being silently accepted.
     it("rejects a private recipient JWK passed to encrypt()", async () => {
       const { privateKey, publicKey } = await generateJWK("RSA-OAEP-256", {
         modulusLength: 2048,
       });
-      // Sanity: public key encrypts normally.
       await expect(
         encrypt(plaintextObj, publicKey, { alg: "RSA-OAEP-256", enc: "A256GCM" }),
       ).resolves.toBeTypeOf("string");
-      // Passing the private JWK to encrypt is the threat M11 closes.
       await expect(
         encrypt(plaintextObj, privateKey, { alg: "RSA-OAEP-256", enc: "A256GCM" }),
       ).rejects.toThrow(expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }));
@@ -372,10 +370,9 @@ describe.concurrent("JWE Utilities", () => {
         alg: "RSA-OAEP-256",
         enc: "A256GCM",
       });
-      // Sanity: private key decrypts normally.
       await expect(decrypt(jwe, privateKey)).resolves.toBeDefined();
-      // Public JWK on the decrypt side is already rejected by `decrypt`'s TS union;
-      // cast past it to exercise the runtime M11 guard for callers that use `as any`.
+      // `decrypt`'s TS union already rejects `JWK_Public`; the cast exercises the
+      // runtime guard for callers that use `as any`.
       await expect(decrypt(jwe, publicKey as any)).rejects.toThrow(
         expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
       );
@@ -511,9 +508,9 @@ describe.concurrent("JWE Utilities", () => {
     it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
       const rawValid = await generateKey("A256KW");
       const validJwk = await exportKey(rawValid);
-      // kty=RSA with alg=A256KW is nonsensical — `subtleMapping` rejects the combination.
-      // The fake `d` field satisfies M11's `expect: "private"` intent check so the alg
-      // mismatch surfaces (rather than the intent check short-circuiting first).
+      // `kty: "RSA"` with `alg: "A256KW"` is nonsensical — `subtleMapping` rejects
+      // the combination. The fake `d` field satisfies the `expect: "private"` intent
+      // check so the alg mismatch surfaces rather than the intent guard short-circuiting.
       const malformedJwk = { kty: "RSA", alg: "A256KW", d: "fake" } as unknown as JWK;
       const token = await encrypt(plaintextObj, rawValid, { alg: "A256KW", enc: "A256GCM" });
 

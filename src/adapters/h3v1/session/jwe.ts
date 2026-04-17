@@ -33,11 +33,11 @@ export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
-  // Mapped from payload.jti
+  /** Session ID — mirrors the JWT `jti` claim. `undefined` until the session is persisted. */
   id: string | undefined;
-  // Mapped from payload.iat (in ms)
+  /** Session creation time in ms — mirrors the JWT `iat` claim (seconds). */
   createdAt: number;
-  // Mapped from payload.exp (in ms)
+  /** Session expiry time in ms — mirrors the JWT `exp` claim (seconds). */
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   token: string | undefined;
@@ -265,9 +265,8 @@ export async function getJWESession<
     return session;
   }
 
-  // Placeholder session object
   const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-  const createdAt = now - (now % 1000); // round to seconds
+  const createdAt = now - (now % 1000);
   const session: SessionJWE<T, MaxAge> = {
     id: undefined,
     createdAt,
@@ -281,7 +280,6 @@ export async function getJWESession<
   };
   event.context.sessions![sessionName] = session;
 
-  // Attempt to read existing token from headers/cookies
   const token = getJWESessionToken(event, config);
 
   let exclusiveHookFired = false;
@@ -352,7 +350,7 @@ export function getJWESessionToken<
     }
   }
 
-  // Check Set-Cookie (eg. in case of redirects)
+  // Set-Cookie header may carry a freshly-minted session on redirect responses.
   if (config.cookie !== false) {
     const setCookie = _getResHeader(event, "set-cookie");
     if (typeof setCookie === "string") {
@@ -367,7 +365,6 @@ export function getJWESessionToken<
     }
   }
 
-  // Fallback to cookie if not found earlier
   if (!token) {
     const cookieHeader = _getReqHeader(event, "cookie");
     if (cookieHeader) {
@@ -435,7 +432,7 @@ export async function updateJWESession<
   }
 
   const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-  const createdAt = now - (now % 1000); // round to seconds
+  const createdAt = now - (now % 1000);
   Object.assign(session, {
     id: config.generateId?.() || crypto.randomUUID(),
     createdAt,
@@ -466,15 +463,12 @@ export async function updateJWESession<
       expires:
         config.maxAge === undefined
           ? undefined
-          : new Date(
-              // createdAt is ms, maxAge is seconds
-              session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
-            ),
+          : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
     });
   }
 
-  // Fire after sealing so the hook receives the definitive new token, jti, and timestamps.
-  // Also fires when update is undefined (pure token refresh with no payload change).
+  // Fires after sealing so the hook receives the definitive new token, jti, and
+  // timestamps. Also fires on pure token refresh (update is undefined).
   await config.hooks?.onUpdate?.({
     session,
     oldSession,
@@ -530,7 +524,8 @@ export async function sealJWESession<
   }
   const token = await encrypt(payload, key, {
     ...config.jwe?.encryptOptions,
-    expiresIn: undefined, // controlled via 'exp' claim
+    // `exp` is computed from `maxAge` and carried via the `exp` claim above.
+    expiresIn: undefined,
     protectedHeader: {
       ...config.jwe?.encryptOptions?.protectedHeader,
       kid: typeof key === "string" ? undefined : key.kid,
@@ -597,7 +592,7 @@ export async function unsealJWESession<
 
   return {
     id: jti,
-    createdAt: iat * 1000, // Convert back to ms
+    createdAt: iat * 1000,
     expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn ? number : T["exp"],
     data: (data && typeof data === "object" ? data : Object.create(null)) as any,
   };
@@ -618,7 +613,6 @@ export async function clearJWESession<
 
   const sessionName = config.name || DEFAULT_NAME;
 
-  // If session exists in context store for hook and delete it
   let session = event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];

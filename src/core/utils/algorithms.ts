@@ -41,8 +41,6 @@ export function inferJWEAllowedAlgorithms(key: unknown): KeyManagementAlgorithm[
   return undefined;
 }
 
-// --- Internal helpers ---
-
 function unionFromJWKSet<T extends string>(
   keys: readonly JWK[],
   mapper: (k: JWK) => T[] | undefined,

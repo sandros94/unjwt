@@ -73,22 +73,19 @@ export async function sign(
     }
   }
 
-  // Belt-and-suspenders guard against callers that bypass the type system with `as any`.
+  // Runtime guard for callers that bypass the type system with `as any`.
   if ((alg as string) === "none") {
     throw new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
   }
 
-  // 1. Validate and import Key
   const signingKey = await _resolveSigningKey(
     alg,
     await importKey(key, { alg, expect: "private" }),
     "sign",
   );
 
-  // 2. Construct Protected Header
   const protectedHeader = _buildJWSHeader(alg, key, userHeader, payload);
 
-  // 3. Calculate expiresIn for JWT
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
     payload,
     options.expiresIn,
@@ -98,12 +95,10 @@ export async function sign(
   const protectedHeaderString = JSON.stringify(protectedHeader);
   const protectedHeaderEncoded = base64UrlEncode(protectedHeaderString);
 
-  // 4. Prepare Payload
   let payloadBytes: Uint8Array<ArrayBuffer>;
   if (payload instanceof Uint8Array) {
     payloadBytes = payload;
   } else if (typeof payload === "string") {
-    // Handle string payload
     payloadBytes = textEncoder.encode(payload);
   } else if (typeof payload === "object" && payload !== null) {
     payloadBytes = textEncoder.encode(JSON.stringify(computedPayload || payload));
@@ -111,19 +106,16 @@ export async function sign(
     throw new TypeError("Payload must be a string, Uint8Array, or a JSON-serializable object.");
   }
 
-  // 5. Encode Payload (conditionally based on b64 header)
+  // RFC 7797: when `b64: false`, the payload is not base64url-encoded in the signing input.
   const useB64 = protectedHeader.b64 !== false;
   const payloadEncoded = useB64 ? base64UrlEncode(payloadBytes) : textDecoder.decode(payloadBytes);
 
-  // 6. Construct Signing Input
   const signingInputString = `${protectedHeaderEncoded}.${payloadEncoded}`;
   const signingInputBytes = textEncoder.encode(signingInputString);
 
-  // 7. Sign
-  const signatureBytes = await joseSign(alg, signingKey, signingInputBytes); // signingKey is always CryptoKey
+  const signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
   const signatureEncoded = base64UrlEncode(signatureBytes);
 
-  // 8. Assemble JWS Compact Serialization
   return `${signingInputString}.${signatureEncoded}`;
 }
 
@@ -169,7 +161,6 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     | JWKLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
-  // 1. Parse JWS
   const parts = jws.split(".");
   if (parts.length !== 3) {
     throw new JWTError(
@@ -179,7 +170,6 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   }
   const [protectedHeaderEncoded, payloadEncoded, signatureEncoded] = parts;
 
-  // 2. Decode Header
   let protectedHeader: JWSProtectedHeader;
   try {
     const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
@@ -197,12 +187,11 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   const alg = protectedHeader.alg;
 
-  // 3. Check Algorithm Allowed against explicit allowlist (fast path before key resolution).
+  // Explicit allowlist check runs before key resolution (fast path).
   if (options.algorithms && !options.algorithms.includes(alg)) {
     throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
   }
 
-  // Validate `typ` Header Parameter
   if (options.typ && protectedHeader.typ !== options.typ) {
     throw new JWTError(
       `Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
@@ -210,7 +199,6 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     );
   }
 
-  // 4. Decode Signature
   let signatureBytes: Uint8Array<ArrayBuffer>;
   try {
     signatureBytes = base64UrlDecode(signatureEncoded, false);
@@ -218,11 +206,10 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     throw new JWTError("Invalid JWS: Signature could not be decoded.", "ERR_JWS_INVALID");
   }
 
-  // 5. Obtain Key
   const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
 
-  // 5b. If no explicit allowlist, infer one from the key shape and enforce.
-  //     Safe default — prevents signer-controlled `alg` from dictating verification.
+  // Without an explicit allowlist, infer from the key shape — prevents
+  // signer-controlled `alg` from dictating verification.
   if (!options.algorithms) {
     const inferred = inferJWSAllowedAlgorithms(keyInput);
     if (!inferred) {
@@ -236,10 +223,8 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     }
   }
 
-  // 6. Reconstruct Signing Input
   const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
 
-  // 7. Verify Signature (with multi-key retry for JWKSets)
   if (isJWKSet(keyInput)) {
     const candidates = getJWKsFromSet(keyInput, _buildJWSSetFilter(protectedHeader));
     if (candidates.length === 0) {
@@ -248,9 +233,9 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
         "ERR_JWK_KEY_NOT_FOUND",
       );
     }
-    // Malformed candidates (unsupported alg/kty, wrong key usage) surface immediately —
+    // Malformed candidates (unsupported alg/kty, wrong usage) surface immediately;
     // the "try next" contract only covers cryptographic signature mismatch, which
-    // `joseVerify` reports as `false` rather than by throwing.
+    // `joseVerify` reports as `false` rather than throwing.
     let verified = false;
     for (const candidate of candidates) {
       const verificationKey = await _resolveSigningKey(
@@ -278,7 +263,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     }
   }
 
-  // 8. Decode Payload
+  // RFC 7797: when `b64: false`, the payload segment is the raw payload (not base64url-encoded).
   const useB64 = protectedHeader.b64 !== false;
   let payload: T;
   try {
@@ -296,10 +281,9 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     );
   }
 
-  // 9. Handle Critical Headers
   validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
 
-  // 10. JWT Claim Validations (RFC 7519) — runs for any JSON-object payload; opt out via `validateClaims: false`.
+  // RFC 7519 JWT claim validation runs for any JSON-object payload; opt out via `validateClaims: false`.
   if (
     payload &&
     typeof payload === "object" &&

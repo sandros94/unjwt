@@ -156,7 +156,7 @@ export function validateJwtClaims(
   jwtClaims: JWTClaims,
   options: JWTClaimValidationOptions = {},
 ): void {
-  const clockTolerance = options.clockTolerance ?? 0; // seconds
+  const clockTolerance = options.clockTolerance ?? 0;
   const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
 
   const allRequiredClaims = new Set<string>(options.requiredClaims || []);
@@ -240,7 +240,6 @@ export function validateJwtClaims(
         "ERR_JWT_CLAIM_INVALID",
       );
     }
-    // iat must not be in the future (beyond clock tolerance)
     if (jwtClaims.iat > currentTime + clockTolerance) {
       throw new JWTError(
         `JWT "iat" (Issued At) Claim validation failed: Token was issued in the future (iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,

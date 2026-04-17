@@ -43,7 +43,7 @@ function _toBuffer(data: Uint8Array<ArrayBuffer> | string): InstanceType<typeof 
     : _Buffer!.from(data);
 }
 
-/* Base64 encoding function */
+/** Base64-encode bytes (or a UTF-8 string) to a standard base64 string with padding. */
 export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
   if (_hasBuffer) {
     return _toBuffer(data).toString("base64");
@@ -55,7 +55,7 @@ export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
   return btoa(String.fromCodePoint(...encodedData));
 }
 
-/* Base64 URL encoding function */
+/** Base64url-encode bytes (or a UTF-8 string) per RFC 4648 §5, without padding. */
 export function base64UrlEncode(data: Uint8Array<ArrayBuffer> | string): string {
   if (_hasBuffer) {
     return _toBuffer(data).toString("base64url");
@@ -70,7 +70,11 @@ export function base64UrlEncode(data: Uint8Array<ArrayBuffer> | string): string 
     .replace(/=/g, "");
 }
 
-/* Base64 decoding function */
+/**
+ * Decode a standard base64 string. Returns a UTF-8 decoded string by default,
+ * or raw `Uint8Array` bytes when `toString` is `false`. Empty / undefined input
+ * returns `""` (or an empty `Uint8Array`).
+ */
 export function base64Decode(str: string | undefined): string;
 export function base64Decode<T extends boolean | undefined>(
   str?: string | undefined,
@@ -100,7 +104,11 @@ export function base64Decode(
   return decodeToString ? textDecoder.decode(data) : data;
 }
 
-/* Base64 URL decoding function */
+/**
+ * Decode a base64url string per RFC 4648 §5 (padding optional). Returns a UTF-8
+ * decoded string by default, or raw `Uint8Array` bytes when `toString` is `false`.
+ * Empty / undefined input returns `""` (or an empty `Uint8Array`).
+ */
 export function base64UrlDecode(str: string | undefined): string;
 export function base64UrlDecode<T extends boolean | undefined>(
   str?: string | undefined,
@@ -136,16 +144,12 @@ export function base64UrlDecode(
   return decodeToString ? textDecoder.decode(data) : data;
 }
 
-/* Generate a random Uint8Array<ArrayBuffer> of specified length */
+/** Generate `length` cryptographically-random bytes via `crypto.getRandomValues`. */
 export function randomBytes(length: Readonly<number>): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length));
 }
 
-/**
- * Concatenates multiple Uint8Arrays
- * @param arrays Arrays to concatenate
- * @returns Concatenated array
- */
+/** Concatenate multiple `Uint8Array`s into a single contiguous buffer. */
 export function concatUint8Arrays(
   ...arrays: Readonly<Uint8Array<ArrayBuffer>[]>
 ): Uint8Array<ArrayBuffer> {
@@ -161,34 +165,40 @@ export function concatUint8Arrays(
   return result;
 }
 
+/** Wrap a value in an array; returns the array unchanged if already an array. */
 export function maybeArray<T>(item: T | T[]): T[] {
   return Array.isArray(item) ? item : [item];
 }
 
-/* Type guard for JWK */
+/** Type guard for {@link JWK} — checks for an object with a string `kty`. */
 export function isJWK(key: any): key is JWK {
   return (
     typeof key === "object" && key !== null && "kty" in key && typeof (key as JWK).kty === "string"
   );
 }
 
-/* Type guard for JWK Set */
+/** Type guard for {@link JWKSet} — checks for an object with a `keys` array. */
 export function isJWKSet(key: any): key is JWKSet {
   return key && typeof key === "object" && "keys" in key && Array.isArray((key as JWKSet).keys);
 }
 
+/** Asserts that `key` is a `CryptoKey`; throws `TypeError` otherwise. */
 export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
   if (!isCryptoKey(key)) {
     throw new Error("CryptoKey instance expected");
   }
 }
 
-/* Type guard for CryptoKey */
+/**
+ * Type guard for `CryptoKey`. Uses `Symbol.toStringTag` instead of `instanceof`
+ * so it works across worker / realm boundaries where `CryptoKey` identities differ.
+ */
 export function isCryptoKey(key: unknown): key is CryptoKey {
-  // @ts-expect-error
+  // @ts-expect-error indexing CryptoKey via Symbol.toStringTag isn't in the type.
   return key?.[Symbol.toStringTag] === "CryptoKey";
 }
 
+/** Type guard for `CryptoKeyPair` — both `publicKey` and `privateKey` must be CryptoKeys. */
 export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
   key && typeof key === "object" && isCryptoKey(key.publicKey) && isCryptoKey(key.privateKey);
 
@@ -217,7 +227,6 @@ export function isPrivateJWK(key: unknown): key is JWK_Private {
   if (key.kty === "RSA") {
     return typeof (key as Partial<JWK_RSA_Private>).d === "string";
   }
-  // "oct" and other kty values are not considered "private" asymmetric keys
   return false;
 }
 
