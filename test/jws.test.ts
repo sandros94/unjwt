@@ -160,6 +160,24 @@ describe.concurrent("JWS Utilities", () => {
       expect(joseHeader.typ).toBe("custom");
     });
 
+    // `alg` must come from the top-level `options.alg`; allowing it inside
+    // `protectedHeader` would let it be silently overwritten. The compile-time
+    // assertion below fails the typecheck run if the StrictOmit guard regresses.
+    it("rejects `alg` inside protectedHeader at the type level", async () => {
+      const key = await generateKey("HS256");
+
+      const jwsOptions = {
+        alg: "HS256",
+        protectedHeader: { alg: "HS512" },
+      };
+
+      // @ts-expect-error `alg` is forbidden inside protectedHeader.
+      const jws = await sign(payloadObj, key, jwsOptions);
+
+      const header = JSON.parse(base64UrlDecode(jws.split(".")[0]));
+      expect(header.alg).toBe("HS256");
+    });
+
     it("should include computed `exp`", async () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign({ ...payloadObj, iat: undefined }, key, {
