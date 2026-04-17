@@ -275,6 +275,29 @@ describe.concurrent("JWE Utilities", () => {
       expect(textDecoder.decode(josePlaintext)).toBe(t);
     });
 
+    // M13: `alg` is inferred from the JWK verbatim; no silent `A*GCM → A*GCMKW` coercion.
+    it("encrypts a GCMKW oct JWK via its declared alg without coercion", async () => {
+      const jwk = await generateJWK("A256GCMKW");
+      expect(jwk.alg).toBe("A256GCMKW"); // generateJWK now preserves KW suffix
+      const jwe = await encrypt("payload", jwk, { enc: "A256GCM" });
+      const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
+      expect(header.alg).toBe("A256GCMKW");
+      const { payload } = await decrypt(jwe, jwk);
+      expect(payload).toBe("payload");
+    });
+
+    it("rejects an oct JWK with alg=A256GCM used for key wrap without explicit alg", async () => {
+      // The library no longer rewrites `A256GCM` on an oct JWK into `A256GCMKW`.
+      // Callers who want key wrap must supply `alg` explicitly.
+      const jwk = await generateJWK("A256GCM");
+      expect(jwk.alg).toBe("A256GCM");
+      await expect(encrypt("payload", jwk)).rejects.toThrow(/Invalid or unsupported "alg"/i);
+      // With explicit alg, the caller's intent is honoured.
+      const jwe = await encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" });
+      const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
+      expect(header.alg).toBe("A256GCMKW");
+    });
+
     it("should use provided CEK and contentEncryptionIV", async () => {
       const alg: KeyManagementAlgorithm = "A128KW";
       const enc: ContentEncryptionAlgorithm = "A128GCM";

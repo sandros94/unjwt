@@ -484,9 +484,11 @@ function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | 
 export async function exportKey<T extends JWK>(key: CryptoKey, jwk?: Partial<JWK>): Promise<T> {
   const exportedJwk = await keyToJWK<T>(key);
 
-  // Merge the additional jwk properties and make sure the exported ones have priority
+  // Caller-supplied fields (`alg`, `kid`, `use`, ...) win over what Web Crypto returns.
+  // Web Crypto's JWK export drops the `KW` suffix from AES-GCM key wrap algs, so trusting
+  // its `alg` here would turn a caller's requested `A256GCMKW` into `A256GCM`.
   if (jwk) {
-    return { ...sanitizeObject(jwk), ...exportedJwk };
+    return { ...exportedJwk, ...sanitizeObject(jwk) };
   }
 
   return exportedJwk;

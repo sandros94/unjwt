@@ -100,11 +100,7 @@ export async function encrypt(
     if (typeof key === "string" || key instanceof Uint8Array) {
       alg = "PBES2-HS256+A128KW";
     } else if (isJWK(key)) {
-      // Use AES-GCM keys for Key Wrapping
-      alg =
-        key.alg === "A128GCM" || key.alg === "A192GCM" || key.alg === "A256GCM"
-          ? (`${key.alg}KW` as KeyManagementAlgorithm)
-          : (key.alg as KeyManagementAlgorithm);
+      alg = key.alg as KeyManagementAlgorithm;
     }
   }
   if (!alg) {
