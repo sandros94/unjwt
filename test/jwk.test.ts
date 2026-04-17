@@ -1193,6 +1193,27 @@ describe.concurrent("JWK Utilities", () => {
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_UNSUPPORTED" }),
         );
       });
+
+      it("rejects PEM with a mismatched label", async () => {
+        // SPKI body fed to the pkcs8 importer — label says PUBLIC but pkcs8 requires PRIVATE.
+        await expect(importFromPEM(rsa.pem.spki, "pkcs8", "RS256")).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+        // Symmetric case: pkcs8 body fed to the spki importer.
+        await expect(importFromPEM(rsa.pem.pkcs8, "spki", "RS256")).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+      });
+
+      it("rejects PEM with no BEGIN/END labels", async () => {
+        const stripped = rsa.pem.spki.replace(/-----(BEGIN|END) [A-Z ]+-----/g, "").trim();
+        await expect(importFromPEM(stripped, "spki", "RS256")).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+        await expect(importFromPEM(stripped, "pkcs8", "RS256")).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+      });
     });
 
     describe("exportToPEM", () => {
