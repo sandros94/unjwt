@@ -163,6 +163,10 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   validateClaims?: boolean;
   /** If true, include the Content Encryption Key (CEK) and Additional Authenticated Data (AAD) in the result. */
   returnCek?: boolean;
+  /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
+  minIterations?: number;
+  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  maxIterations?: number;
 }
 
 /**

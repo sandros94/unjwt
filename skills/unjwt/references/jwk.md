@@ -116,6 +116,7 @@ Unwraps a CEK.
   - `unwrappedKeyAlgorithm?`, `keyUsage?`, `extractable?` — for CryptoKey import
   - `iv?`, `tag?` — AES-GCMKW
   - `p2s?`, `p2c?` — PBES2
+  - `minIterations?`, `maxIterations?` — PBES2 `p2c` bounds. Default floor `1000` (RFC 7518 §4.8.1.2), default ceiling `1_000_000`
   - `epk?`, `apu?`, `apv?`, `enc?` — ECDH-ES
 
 ```ts

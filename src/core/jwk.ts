@@ -603,12 +603,20 @@ export async function unwrapKey(
     case "PBES2-HS256+A128KW":
     case "PBES2-HS384+A192KW":
     case "PBES2-HS512+A256KW": {
-      const { p2s, p2c } = options;
+      const { p2s, p2c, minIterations, maxIterations } = options;
       if (!p2s || typeof p2c !== "number") {
         throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
       }
       const p2sBytes = typeof p2s === "string" ? base64UrlDecode(p2s, false) : p2s;
-      unwrappedCekBytes = await pbes2Unwrap(alg, importedUnwrappingKey, wrappedKey, p2c, p2sBytes);
+      unwrappedCekBytes = await pbes2Unwrap(
+        alg,
+        importedUnwrappingKey,
+        wrappedKey,
+        p2c,
+        p2sBytes,
+        minIterations,
+        maxIterations,
+      );
       break;
     }
 

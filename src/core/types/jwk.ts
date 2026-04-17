@@ -230,6 +230,10 @@ export interface UnwrapKeyOptions {
   p2s?: Uint8Array<ArrayBuffer> | string;
   /** PBES2 Iteration count (required for PBES2). */
   p2c?: number;
+  /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
+  minIterations?: number;
+  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  maxIterations?: number;
   /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
   epk?: JWK_EC_Public | CryptoKey;
   /** ECDH-ES Agreement PartyUInfo. Base64URL encoded or Uint8Array. */

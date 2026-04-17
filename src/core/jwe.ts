@@ -332,6 +332,8 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   if (options?.unwrappedKeyAlgorithm)
     unwrapKeyOpts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
   if (options?.extractable) unwrapKeyOpts.extractable = options.extractable;
+  if (options?.minIterations !== undefined) unwrapKeyOpts.minIterations = options.minIterations;
+  if (options?.maxIterations !== undefined) unwrapKeyOpts.maxIterations = options.maxIterations;
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
