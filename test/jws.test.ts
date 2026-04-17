@@ -558,10 +558,7 @@ describe.concurrent("JWS Utilities", () => {
     it("should verify with JWKSet by trying multiple keys when no kid is present", async () => {
       // Two HMAC keys without kid — sign with key2, set has key1 first so retry is exercised
       const [raw1, raw2] = await Promise.all([generateKey("HS256"), generateKey("HS256")]);
-      const [jwk1, jwk2] = await Promise.all([
-        exportKey(raw1, { alg: "HS256" }),
-        exportKey(raw2, { alg: "HS256" }),
-      ]);
+      const [jwk1, jwk2] = await Promise.all([exportKey(raw1), exportKey(raw2)]);
       const jws = await sign(payloadObj, raw2, { alg: "HS256" });
       const set: JWKSet = { keys: [jwk1, jwk2] };
       const { payload } = await verify(jws, set);
@@ -573,7 +570,7 @@ describe.concurrent("JWS Utilities", () => {
     // of being silently skipped to the next candidate.
     it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
       const rawValid = await generateKey("HS256");
-      const validJwk = await exportKey(rawValid, { alg: "HS256" });
+      const validJwk = await exportKey(rawValid);
       // kty=RSA with alg=HS256 is nonsensical — `subtleMapping` rejects the combination.
       const malformedJwk = { kty: "RSA", alg: "HS256" } as unknown as JWK;
       const jws = await sign(payloadObj, rawValid, { alg: "HS256" });

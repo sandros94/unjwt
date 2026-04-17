@@ -36,13 +36,14 @@ PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriv
 
 To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` instead of `toJWK: true`.
 
-### `generateJWK(alg, jwkParams?, options?)`
+### `generateJWK(alg, options?)`
 
-Always returns JWK format with a generated `kid`.
+Always returns JWK format with a `kid` (auto-generated via `crypto.randomUUID()` when not supplied).
 
 - `alg: GenerateKeyAlgorithm`
-- `jwkParams?` — extra JWK fields (`kid`, `use`, etc.); `kid` is generated via `crypto.randomUUID()` if omitted
-- `options?: GenerateJWKOptions` — same as `GenerateKeyOptions` minus `toJWK`
+- `options?` — combined `GenerateKeyOptions` (minus `toJWK`) and JWK metadata (`kid`, `use`,
+  `x5c`, etc.). `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot be
+  overridden here.
 
 ```ts
 import { generateKey, generateJWK } from "unjwt/jwk";
@@ -52,6 +53,8 @@ const rsaKeyPair = await generateKey("RS256", { modulusLength: 4096 });
 
 const ecKeys = await generateJWK("ES256", { kid: "ec-1" });
 // → { privateKey: JWK_EC_Private, publicKey: JWK_EC_Public }
+
+const rsaJwk = await generateJWK("RS256", { modulusLength: 2048, kid: "rsa-1", use: "sig" });
 ```
 
 ## Key Import/Export
@@ -92,9 +95,11 @@ const key = await importKey(symJwk, {
 const recipientPub = await importKey(recipientJwk, { alg: "RSA-OAEP-256", expect: "public" });
 ```
 
-### `exportKey(key, jwk?)`
+### `exportKey(key, jwkParams?)`
 
-Exports a `CryptoKey` to JWK format. Optional `jwk` param merges additional properties.
+Exports a `CryptoKey` to JWK format. `jwkParams` optionally merges metadata fields
+(`kid`, `use`, `x5c`, etc.) onto the result. `alg`, `kty`, `key_ops`, and `ext` are
+preserved from Web Crypto's authoritative export and cannot be overridden here.
 
 Returns `Promise<JWK>`.
 
@@ -244,20 +249,18 @@ PBKDF2 derivation for PBES2 algorithms.
 
 Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
 
-### `deriveJWKFromPassword(password, alg, options, jwkParams?)`
+### `deriveJWKFromPassword(password, alg, options)`
 
-Convenience wrapper that always returns `JWK_oct`. Pass extra JWK fields (e.g. `kid`) via `jwkParams`.
+Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 derivation
+knobs (`salt`, `iterations`, `extractable`, `keyUsage`) with JWK metadata fields (`kid`, `use`, …).
+`alg`, `kty`, `key_ops`, and `ext` are managed by the library.
 
 ```ts
-const jwk = await deriveJWKFromPassword(
-  "my-password",
-  "PBES2-HS256+A128KW",
-  {
-    salt: crypto.getRandomValues(new Uint8Array(16)),
-    iterations: 600_000,
-  },
-  { kid: "derived-key" },
-);
+const jwk = await deriveJWKFromPassword("my-password", "PBES2-HS256+A128KW", {
+  salt: crypto.getRandomValues(new Uint8Array(16)),
+  iterations: 600_000,
+  kid: "derived-key",
+});
 ```
 
 ## Key Lookup Function

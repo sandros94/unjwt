@@ -263,12 +263,11 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should derive JWK with custom `kid`", async () => {
       const kid = "custom-key-id";
-      const jwk = await deriveJWKFromPassword(
-        password,
-        "PBES2-HS256+A128KW",
-        { salt, iterations },
-        { kid },
-      );
+      const jwk = await deriveJWKFromPassword(password, "PBES2-HS256+A128KW", {
+        salt,
+        iterations,
+        kid,
+      });
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe("A128KW");
       expect(jwk.kid).toBe(kid);
@@ -308,15 +307,11 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should derive JWK with custom `kid`", async () => {
       const kid = "custom-key-id";
-      const jwk = await deriveJWKFromPassword(
-        password,
-        "PBES2-HS256+A128KW",
-        {
-          salt,
-          iterations,
-        },
-        { kid },
-      );
+      const jwk = await deriveJWKFromPassword(password, "PBES2-HS256+A128KW", {
+        salt,
+        iterations,
+        kid,
+      });
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe("A128KW");
       expect(typeof jwk.k).toBe("string");
@@ -382,30 +377,6 @@ describe.concurrent("JWK Utilities", () => {
       });
       expect(key.extractable).toBe(true);
     });
-
-    // it("should import asymmetric public JWK (RSA) to CryptoKey", async () => {
-    //   const jwk: JWK = {
-    //     kty: "RSA",
-    //     alg: "RS256",
-    //     n: "...",
-    //     e: "AQAB",
-    //     use: "sig",
-    //   };
-    //   await expect(importKey(jwk, "RS256")).resolves.toBeDefined();
-    // });
-
-    // it("should import asymmetric private JWK (EC) to CryptoKey", async () => {
-    //   const jwk: JWK = {
-    //     kty: "EC",
-    //     alg: "ES256",
-    //     crv: "P-256",
-    //     x: "...",
-    //     y: "...",
-    //     d: "...",
-    //     use: "sig",
-    //   }; // Provide actual values
-    //   await expect(importKey(jwk, "ES256")).resolves.toBeDefined();
-    // });
 
     // --- `expect` intent (M11) ---
     describe("expect option", () => {
@@ -485,12 +456,9 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should merge provided partial JWK properties", async () => {
       const cryptoKey = await generateKey("HS256");
-      const jwk = await exportKey<JWK_oct>(cryptoKey, {
-        alg: "HS256",
-        use: "sig",
-      });
+      const jwk = await exportKey<JWK_oct>(cryptoKey, { use: "sig" });
       expect(jwk.kty).toBe("oct");
-      expect(jwk.alg).toBe("HS256");
+      expect(jwk.alg).toBe("HS256"); // carried through from Web Crypto export
       expect(jwk.use).toBe("sig");
       expect(typeof jwk.k).toBe("string");
 

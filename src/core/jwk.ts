@@ -143,15 +143,13 @@ export async function generateKey(
 
   if (exportToJWK) {
     if (key instanceof CryptoKey) {
-      // Symmetric keys (HMAC, AES-KW, AES-GCM)
-      return exportKey(key, { alg });
+      // Symmetric keys (HMAC, AES-KW, AES-GCM). Force `alg` since Web Crypto's JWK
+      // export drops the `KW` suffix on AES-GCM key wrap algorithms.
+      return { ...(await exportKey(key)), alg };
     } else {
       // Asymmetric keys (RSA, EC, OKP)
-      const [publicKey, privateKey] = await Promise.all([
-        exportKey(key.publicKey, { alg }),
-        exportKey(key.privateKey, { alg }),
-      ]);
-      return { privateKey, publicKey } as JWK_Pair;
+      const [pub, priv] = await Promise.all([exportKey(key.publicKey), exportKey(key.privateKey)]);
+      return { privateKey: { ...priv, alg }, publicKey: { ...pub, alg } } as JWK_Pair;
     }
   }
 
@@ -168,13 +166,21 @@ export async function generateKey(
  */
 export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
   alg: TAlg,
-  jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
-  options: GenerateJWKOptions = {},
+  options?: GenerateJWKOptions & Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<GenerateJWKReturn<TAlg>> {
-  const kid = typeof jwkParams?.kid === "string" ? jwkParams.kid : crypto.randomUUID();
-  const extraParams = { kid, ...jwkParams };
+  const { keyUsage, extractable, modulusLength, publicExponent, namedCurve, ...jwkParams } =
+    options ?? {};
+  const kid = typeof jwkParams.kid === "string" ? jwkParams.kid : crypto.randomUUID();
+  const extraParams = { ...jwkParams, kid };
 
-  const result = await generateKey(alg, { ...options, toJWK: true });
+  const result = await generateKey(alg, {
+    keyUsage,
+    extractable,
+    modulusLength,
+    publicExponent,
+    namedCurve,
+    toJWK: true,
+  });
 
   if (result && typeof result === "object" && "privateKey" in result && "publicKey" in result) {
     const pair = result as { privateKey: JWK; publicKey: JWK };
@@ -258,11 +264,17 @@ export async function deriveKeyFromPassword(
 export async function deriveJWKFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
   alg: JWK_PBES2,
-  options: Omit<DeriveKeyOptions, "toJWK">,
-  jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
+  options: Omit<DeriveKeyOptions, "toJWK"> & Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<JWK_oct> {
-  const result = await deriveKeyFromPassword(password, alg, { ...options, toJWK: true });
-  return jwkParams ? { ...jwkParams, ...result } : result;
+  const { salt, iterations, keyUsage, extractable, ...jwkParams } = options;
+  const result = await deriveKeyFromPassword(password, alg, {
+    salt,
+    iterations,
+    keyUsage,
+    extractable,
+    toJWK: true,
+  });
+  return Object.keys(jwkParams).length > 0 ? { ...jwkParams, ...result } : result;
 }
 
 /**
@@ -481,16 +493,14 @@ function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | 
  * @param jwk Optional partial JWK to merge with the exported key, allowing overrides.
  * @returns A Promise resolving to the exported JWK.
  */
-export async function exportKey<T extends JWK>(key: CryptoKey, jwk?: Partial<JWK>): Promise<T> {
+export async function exportKey<T extends JWK>(
+  key: CryptoKey,
+  jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
+): Promise<T> {
   const exportedJwk = await keyToJWK<T>(key);
-
-  // Caller-supplied fields (`alg`, `kid`, `use`, ...) win over what Web Crypto returns.
-  // Web Crypto's JWK export drops the `KW` suffix from AES-GCM key wrap algs, so trusting
-  // its `alg` here would turn a caller's requested `A256GCMKW` into `A256GCM`.
-  if (jwk) {
-    return { ...exportedJwk, ...sanitizeObject(jwk) };
+  if (jwkParams) {
+    return { ...exportedJwk, ...sanitizeObject(jwkParams) };
   }
-
   return exportedJwk;
 }
 
@@ -968,7 +978,8 @@ export async function importPEM<T extends JWK>(
     }
   }
 
-  return exportKey(cryptoKey, { alg, ...options?.jwkParams });
+  const jwk = await exportKey(cryptoKey, options?.jwkParams);
+  return { ...jwk, alg } as T;
 }
 
 /**

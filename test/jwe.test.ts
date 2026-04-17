@@ -351,11 +351,9 @@ describe.concurrent("JWE Utilities", () => {
 
     // M11: entry points pin `expect` so wrong-direction asymmetric keys fail at import.
     it("rejects a private recipient JWK passed to encrypt()", async () => {
-      const { privateKey, publicKey } = await generateJWK(
-        "RSA-OAEP-256",
-        {},
-        { modulusLength: 2048 },
-      );
+      const { privateKey, publicKey } = await generateJWK("RSA-OAEP-256", {
+        modulusLength: 2048,
+      });
       // Sanity: public key encrypts normally.
       await expect(
         encrypt(plaintextObj, publicKey, { alg: "RSA-OAEP-256", enc: "A256GCM" }),
@@ -367,11 +365,9 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("rejects a public recipient JWK passed to decrypt()", async () => {
-      const { privateKey, publicKey } = await generateJWK(
-        "RSA-OAEP-256",
-        {},
-        { modulusLength: 2048 },
-      );
+      const { privateKey, publicKey } = await generateJWK("RSA-OAEP-256", {
+        modulusLength: 2048,
+      });
       const jwe = await encrypt(plaintextObj, publicKey, {
         alg: "RSA-OAEP-256",
         enc: "A256GCM",
@@ -505,10 +501,7 @@ describe.concurrent("JWE Utilities", () => {
       // Two AES-KW keys without kid — encrypt with key2, set has key1 first so retry is exercised
       const [rawKey1, rawKey2] = await Promise.all([generateKey("A256KW"), generateKey("A256KW")]);
       const token = await encrypt(plaintextObj, rawKey2, { alg: "A256KW", enc: "A256GCM" });
-      const [jwk1, jwk2] = await Promise.all([
-        exportKey(rawKey1, { alg: "A256KW" }),
-        exportKey(rawKey2, { alg: "A256KW" }),
-      ]);
+      const [jwk1, jwk2] = await Promise.all([exportKey(rawKey1), exportKey(rawKey2)]);
       const set = { keys: [jwk1, jwk2] };
       const { payload } = await decrypt(token, set);
       expect(payload).toEqual(plaintextObj);
@@ -517,7 +510,7 @@ describe.concurrent("JWE Utilities", () => {
     // Unwrap / AEAD failures are "try next"; malformed JWKs must surface immediately.
     it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
       const rawValid = await generateKey("A256KW");
-      const validJwk = await exportKey(rawValid, { alg: "A256KW" });
+      const validJwk = await exportKey(rawValid);
       // kty=RSA with alg=A256KW is nonsensical — `subtleMapping` rejects the combination.
       // The fake `d` field satisfies M11's `expect: "private"` intent check so the alg
       // mismatch surfaces (rather than the intent check short-circuiting first).
@@ -586,7 +579,7 @@ describe.concurrent("JWE Utilities", () => {
     // Absent `options.algorithms` falls back to inference from the key shape.
     // The token's declared `alg` must be in the inferred set or decryption fails closed.
     it("infers the algorithm allowlist from a JWK when options.algorithms is absent", async () => {
-      const kwJwk = await exportKey<JWK_Symmetric>(await generateKey("A128KW"), { alg: "A128KW" });
+      const kwJwk = await exportKey<JWK_Symmetric>(await generateKey("A128KW"));
       const token = await encrypt(plaintextObj, kwJwk, { alg: "A128KW", enc: "A128GCM" });
       // JWK with alg: "A128KW" infers to ["A128KW", "dir"].
       await expect(decrypt(token, kwJwk)).resolves.toBeDefined();
