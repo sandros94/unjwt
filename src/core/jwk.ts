@@ -65,11 +65,53 @@ export { JWTError, isJWTError } from "./error";
 export type { JWTErrorCode, JWTErrorCauseMap } from "./error";
 
 /**
- * Generates a cryptographic key for the specified algorithm.
+ * Generates a cryptographic key for the specified JWA algorithm.
  *
- * @param alg The JWA algorithm identifier (e.g., "HS256", "RS256", "A128GCM").
- * @param options Configuration options for key generation.
- * @returns A Promise resolving to the generated key (CryptoKey, CryptoKeyPair, or Uint8Array) or its JWK representation.
+ * The return type is narrowed by `alg` and `options.toJWK`. When `toJWK` is not set
+ * (or is `false`):
+ *
+ * - **Symmetric algorithms** (`HS*`, `A*KW`, `A*GCM`, `A*GCMKW`) → `CryptoKey`. The key
+ *   is imported with Web Crypto usages derived from the algorithm (e.g. `["sign", "verify"]`
+ *   for HMAC, `["wrapKey", "unwrapKey"]` for AES-KW, `["encrypt", "decrypt"]` for AES-GCM).
+ * - **AES-CBC + HMAC composites** (`A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`) →
+ *   `Uint8Array`. These keys are returned as raw bytes because the composite layout
+ *   (AES key ∥ HMAC key) is not directly importable via `crypto.subtle.importKey`. They
+ *   are split internally during encrypt/decrypt.
+ * - **Asymmetric algorithms** (`RS*`, `PS*`, `ES*`, `RSA-OAEP*`, `Ed25519`, `EdDSA`,
+ *   `ECDH-ES*`) → `CryptoKeyPair`.
+ *
+ * When `options.toJWK` is `true`, the same call returns a JWK / JWK pair instead, with
+ * a freshly generated `kid` attached (use {@link generateJWK} to customise `kid`,
+ * `use`, etc.). Composite AES-CBC+HMAC keys are serialised to a single `JWK_oct` and
+ * re-split internally on use.
+ *
+ * PBES2 is not a key-generation algorithm — use {@link deriveKeyFromPassword} or
+ * {@link deriveJWKFromPassword} instead.
+ *
+ * @param alg The JWA algorithm identifier (e.g. `"HS256"`, `"RS256"`, `"A128GCM"`,
+ *            `"A256CBC-HS512"`). PBES2, `"dir"`, and `"none"` are not accepted.
+ * @param options
+ *   - `toJWK?` — when `true`, return JWK / JWK pair instead of `CryptoKey` / `CryptoKeyPair`.
+ *   - `extractable?` — forwarded to `crypto.subtle.generateKey`. Defaults to `true`.
+ *   - `keyUsage?` — override the default usages derived from `alg`.
+ *   - `modulusLength?` — RSA only; defaults to `2048`.
+ *   - `publicExponent?` — RSA only; defaults to `0x010001`.
+ *   - `namedCurve?` — EC and OKP only; defaults to `"P-256"` for EC and `"Ed25519"` for OKP.
+ *
+ * @example
+ * ```ts
+ * // HS256 → CryptoKey
+ * const hmac = await generateKey("HS256");
+ *
+ * // A256CBC-HS512 → Uint8Array (composite key)
+ * const cek = await generateKey("A256CBC-HS512");
+ *
+ * // RS256 → CryptoKeyPair
+ * const rsa = await generateKey("RS256", { modulusLength: 2048 });
+ *
+ * // As JWK pair
+ * const { privateKey, publicKey } = await generateKey("ES256", { toJWK: true });
+ * ```
  */
 export async function generateKey<
   TAlg extends GenerateKeyAlgorithm,

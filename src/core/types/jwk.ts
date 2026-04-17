@@ -96,20 +96,27 @@ export interface GenerateKeyOptions {
   toJWK?: boolean;
 }
 
-// Conditional return type when toJWK is true
+// Conditional return type when toJWK is true.
+// `JWK_ECDH_ES` can resolve to either EC (P-256/P-384/P-521) or OKP (X25519/X448) depending on
+// the runtime `namedCurve`, so its branch returns the union of both shapes.
 type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_Asymmetric_Algorithm
   ? TAlg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
     ? { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
-    : TAlg extends JWK_ECDSA | JWK_ECDH_ES
+    : TAlg extends JWK_ECDSA
       ? { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
-      : TAlg extends JWK_OKP_SIGN
-        ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
-        : never
+      : TAlg extends JWK_ECDH_ES
+        ?
+            | { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
+            | { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
+        : TAlg extends JWK_OKP_SIGN
+          ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
+          : never
   : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-    ? JWK_oct // The composite key material is stored as a single JWK_oct and split internally during enc/dec.
+    ? JWK_oct // Composite AES-CBC+HMAC material is stored as one JWK_oct and split internally during enc/dec.
     : never;
 
-// Conditional return type when toJWK is false or undefined
+// Conditional return type when toJWK is false or undefined.
+// AES-CBC+HMAC returns raw bytes because the composite layout isn't directly importable via WebCrypto.
 type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_AES_CBC_HMAC
   ? Uint8Array<ArrayBuffer>
   : TAlg extends JWK_Asymmetric_Algorithm

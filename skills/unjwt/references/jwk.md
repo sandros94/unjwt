@@ -12,15 +12,27 @@ Unless specific control over the output format is required, prefer `generateJWK(
 
 ### `generateKey(alg, options?)`
 
-Generates a cryptographic key as `CryptoKey`, `CryptoKeyPair`, or `Uint8Array` depending on algorithm.
+Generates a cryptographic key. The return type is narrowed by `alg` and `options.toJWK`:
+
+| Algorithm family                                  | `toJWK: false` (default)                               | `toJWK: true`                                                |
+| ------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------ |
+| `HS*`, `A*KW`, `A*GCM`, `A*GCMKW`                 | `CryptoKey`                                            | `JWK_oct`                                                    |
+| `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512` | `Uint8Array<ArrayBuffer>` (composite AES + HMAC bytes) | `JWK_oct` (composite bytes serialised as one `oct` key)      |
+| `RS*`, `PS*`, `RSA-OAEP*`                         | `CryptoKeyPair`                                        | `{ privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }` |
+| `ES*`                                             | `CryptoKeyPair`                                        | `{ privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }`   |
+| `Ed25519`, `EdDSA`                                | `CryptoKeyPair`                                        | `{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }` |
+| `ECDH-ES*`                                        | `CryptoKeyPair`                                        | `JWK_EC` **or** `JWK_OKP` pair, depending on `namedCurve`    |
 
 - `alg: GenerateKeyAlgorithm` — any JWS or JWE algorithm except `"dir"` and PBES2
 - `options?: GenerateKeyOptions`
-  - `toJWK?: boolean` — when `true`, returns JWK format instead of CryptoKey
+  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`
   - `extractable?: boolean` — default `true`
   - `keyUsage?: KeyUsage[]`
-  - `modulusLength?: number` — RSA modulus length (default `2048`)
-  - `namedCurve?` — `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`
+  - `modulusLength?: number` — RSA only, default `2048`
+  - `publicExponent?: Uint8Array` — RSA only, default `0x010001`
+  - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`
+
+PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriveJWKFromPassword`.
 
 To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` instead of `toJWK: true`.
 
