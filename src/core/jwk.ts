@@ -169,10 +169,13 @@ export async function deriveKeyFromPassword(
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
 
   if (!(salt instanceof Uint8Array) || salt.length < 8) {
-    throw new Error("PBES2 Salt Input (salt) must be 8 or more octets");
+    throw new JWTError("PBES2 Salt Input (salt) must be 8 or more octets", "ERR_JWE_INVALID");
   }
   if (typeof iterations !== "number" || iterations < 1) {
-    throw new Error("PBES2 Iteration Count (iterations) must be a positive integer");
+    throw new JWTError(
+      "PBES2 Iteration Count (iterations) must be a positive integer",
+      "ERR_JWE_INVALID",
+    );
   }
 
   const passwordBytes = typeof password === "string" ? textEncoder.encode(password) : password;
@@ -351,7 +354,10 @@ export async function importKey(
       return rawBytes;
     } else {
       if (!key.alg && !alg) {
-        throw new TypeError("Algorithm must be provided when importing non-oct JWK");
+        throw new JWTError(
+          "Algorithm must be provided when importing non-oct JWK",
+          "ERR_JWK_INVALID",
+        );
       }
       const effectiveAlg = (key.alg || alg)!;
       if (_activeCache) {
@@ -440,7 +446,10 @@ export async function wrapKey(
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c } = options;
       if (!p2s || typeof p2c !== "number") {
-        throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
+        throw new JWTError(
+          "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
+          "ERR_JWE_INVALID",
+        );
       }
       return pbes2Wrap(alg, importedWrappingKey, cekBytes, p2c, p2s);
     }
@@ -530,7 +539,7 @@ export async function wrapKey(
     }
 
     default: {
-      throw new Error(`Unsupported key wrapping algorithm: ${alg}`);
+      throw new JWTError(`Unsupported key wrapping algorithm: ${alg}`, "ERR_JWK_UNSUPPORTED");
     }
   }
 }
@@ -605,7 +614,10 @@ export async function unwrapKey(
     case "PBES2-HS512+A256KW": {
       const { p2s, p2c, minIterations, maxIterations } = options;
       if (!p2s || typeof p2c !== "number") {
-        throw new Error("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
+        throw new JWTError(
+          "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
+          "ERR_JWE_INVALID",
+        );
       }
       const p2sBytes = typeof p2s === "string" ? base64UrlDecode(p2s, false) : p2s;
       unwrappedCekBytes = await pbes2Unwrap(
@@ -624,7 +636,10 @@ export async function unwrapKey(
     case "A192GCMKW":
     case "A256GCMKW": {
       if (!options.iv || !options.tag) {
-        throw new Error("AES-GCMKW requires 'iv' and 'tag' options for unwrapping");
+        throw new JWTError(
+          "AES-GCMKW requires 'iv' and 'tag' options for unwrapping",
+          "ERR_JWE_INVALID",
+        );
       }
       const ivBytes =
         typeof options.iv === "string" ? base64UrlDecode(options.iv, false) : options.iv;
@@ -659,8 +674,9 @@ export async function unwrapKey(
         inferAesImportAlgorithm(options.enc, unwrappedCekBytes.length);
 
       if (!inferredAlgorithm) {
-        throw new Error(
+        throw new JWTError(
           'Unable to infer algorithm for RSA-OAEP unwrapped key. Provide "unwrappedKeyAlgorithm" in options.',
+          "ERR_JWE_INVALID",
         );
       }
 
@@ -679,14 +695,20 @@ export async function unwrapKey(
     case "ECDH-ES+A192KW":
     case "ECDH-ES+A256KW": {
       if (!options.epk) {
-        throw new Error("ECDH-ES requires 'epk' (Ephemeral Public Key) option");
+        throw new JWTError(
+          "ECDH-ES requires 'epk' (Ephemeral Public Key) option",
+          "ERR_JWE_INVALID",
+        );
       }
       if (!(importedUnwrappingKey instanceof CryptoKey)) {
         throw new TypeError("ECDH-ES requires the unwrapping key to be a CryptoKey");
       }
 
       if (!isECDHKeyAllowed(importedUnwrappingKey)) {
-        throw new Error("ECDH with the provided key is not allowed or not supported");
+        throw new JWTError(
+          "ECDH with the provided key is not allowed or not supported",
+          "ERR_JWK_INVALID",
+        );
       }
 
       const epkCandidate =
@@ -695,7 +717,7 @@ export async function unwrapKey(
           : ((await normalizeKey(options.epk, alg)) as CryptoKey);
 
       if (!(epkCandidate instanceof CryptoKey)) {
-        throw new TypeError("Failed to normalize ECDH ephemeral public key");
+        throw new JWTError("Failed to normalize ECDH ephemeral public key", "ERR_JWK_INVALID");
       }
 
       const apuBytes =
@@ -710,8 +732,9 @@ export async function unwrapKey(
       const infoAlg = alg === "ECDH-ES" ? options.enc : alg;
 
       if (!infoAlg) {
-        throw new Error(
+        throw new JWTError(
           "ECDH-ES requires content encryption algorithm ('enc') to derive the shared secret",
+          "ERR_JWE_INVALID",
         );
       }
 
@@ -732,7 +755,10 @@ export async function unwrapKey(
       } else {
         const kwAlg = alg.slice(-6);
         if (!(wrappedKey instanceof Uint8Array) || wrappedKey.length === 0) {
-          throw new Error("ECDH-ES key agreement with key wrapping requires an encrypted key");
+          throw new JWTError(
+            "ECDH-ES key agreement with key wrapping requires an encrypted key",
+            "ERR_JWE_INVALID",
+          );
         }
         unwrappedCekBytes = await aesKwUnwrap(kwAlg, sharedSecret, wrappedKey);
       }
@@ -741,7 +767,7 @@ export async function unwrapKey(
     }
 
     default: {
-      throw new Error(`Unsupported key unwrapping algorithm: ${alg}`);
+      throw new JWTError(`Unsupported key unwrapping algorithm: ${alg}`, "ERR_JWK_UNSUPPORTED");
     }
   }
 
@@ -801,7 +827,7 @@ export async function importFromPEM<T extends JWK>(
       break;
     }
     default: {
-      throw new TypeError(`Unsupported PEM type: ${pemType}`);
+      throw new JWTError(`Unsupported PEM type: ${pemType}`, "ERR_JWK_UNSUPPORTED");
     }
   }
 
@@ -823,15 +849,17 @@ export async function exportToPEM(
   algForCryptoKeyImport?: JWKPEMAlgorithm,
 ): Promise<string> {
   if (jwk.kty === "oct") {
-    throw new TypeError(
+    throw new JWTError(
       "Octet (symmetric) JWKs (kty: 'oct') cannot be exported to PKCS8 or SPKI PEM formats.",
+      "ERR_JWK_UNSUPPORTED",
     );
   }
 
   const effectiveAlg = jwk.alg || algForCryptoKeyImport;
   if (!effectiveAlg && (jwk.kty === "RSA" || jwk.kty === "EC" || jwk.kty === "OKP")) {
-    throw new TypeError(
+    throw new JWTError(
       "Algorithm (alg) must be provided in the JWK or as a parameter for converting this JWK type to a CryptoKey.",
+      "ERR_JWK_INVALID",
     );
   }
 
@@ -843,29 +871,34 @@ export async function exportToPEM(
   const cryptoKeyCandidate = await importKey(jwkForImport, effectiveAlg);
 
   if (!isCryptoKey(cryptoKeyCandidate)) {
-    throw new Error("Failed to convert JWK to a CryptoKey instance suitable for PEM export.");
+    throw new JWTError(
+      "Failed to convert JWK to a CryptoKey instance suitable for PEM export.",
+      "ERR_JWK_INVALID",
+    );
   }
   const cryptoKey = cryptoKeyCandidate;
 
   switch (pemFormat) {
     case "pkcs8": {
       if (cryptoKey.type !== "private") {
-        throw new TypeError(
+        throw new JWTError(
           `Only 'private' type CryptoKeys can be exported to PKCS8 PEM format. Key type is '${cryptoKey.type}'.`,
+          "ERR_JWK_INVALID",
         );
       }
       return toPKCS8(cryptoKey);
     }
     case "spki": {
       if (cryptoKey.type !== "public") {
-        throw new TypeError(
+        throw new JWTError(
           `Only 'public' type CryptoKeys can be exported to SPKI PEM format. Key type is '${cryptoKey.type}'.`,
+          "ERR_JWK_INVALID",
         );
       }
       return toSPKI(cryptoKey);
     }
     default: {
-      throw new TypeError(`Unsupported PEM format: ${pemFormat}`);
+      throw new JWTError(`Unsupported PEM format: ${pemFormat}`, "ERR_JWK_UNSUPPORTED");
     }
   }
 }
@@ -961,7 +994,7 @@ export function getJWKFromSet(
   kidOrProtectedHeader: string | (JoseHeaderParameters & { alg?: string; kty?: string }),
 ): JWK {
   if (!jwkSet || !isJWKSet(jwkSet)) {
-    throw new TypeError("Invalid JWK Set provided");
+    throw new JWTError("Invalid JWK Set provided", "ERR_JWK_INVALID");
   }
 
   if (typeof kidOrProtectedHeader === "string") {
@@ -1024,7 +1057,7 @@ export function getJWKFromSet(
  */
 export function getJWKsFromSet(jwkSet: JWKSet, filter?: (jwk: JWK) => boolean): JWK[] {
   if (!jwkSet || !isJWKSet(jwkSet)) {
-    throw new TypeError("Invalid JWK Set provided");
+    throw new JWTError("Invalid JWK Set provided", "ERR_JWK_INVALID");
   }
 
   if (!filter) {
@@ -1153,8 +1186,9 @@ function getGenerateKeyParams(
           break;
         }
         default: {
-          throw new Error(
+          throw new JWTError(
             "Unsupported namedCurve provided. Supported values are: Ed25519 and Ed448",
+            "ERR_JWK_UNSUPPORTED",
           );
         }
       }
@@ -1180,8 +1214,9 @@ function getGenerateKeyParams(
           break;
         }
         default: {
-          throw new Error(
+          throw new JWTError(
             "Unsupported namedCurve provided. Supported values are: P-256, P-384, P-521 and X25519",
+            "ERR_JWK_UNSUPPORTED",
           );
         }
       }
@@ -1189,7 +1224,10 @@ function getGenerateKeyParams(
     }
 
     default: {
-      throw new Error(`Unsupported or invalid algorithm for key generation: ${alg}`);
+      throw new JWTError(
+        `Unsupported or invalid algorithm for key generation: ${alg}`,
+        "ERR_JWK_UNSUPPORTED",
+      );
     }
   }
 
@@ -1238,7 +1276,7 @@ async function resolveECDHEphemeralPair(
 
   if (isCryptoKey(ephemeralKeyInput)) {
     if (ephemeralKeyInput.type !== "private") {
-      throw new TypeError("ECDH-ES ephemeral CryptoKey must be a private key");
+      throw new JWTError("ECDH-ES ephemeral CryptoKey must be a private key", "ERR_JWK_INVALID");
     }
     return {
       ephemeralPrivateKey: ephemeralKeyInput,
@@ -1255,7 +1293,7 @@ async function resolveECDHEphemeralPair(
     };
   }
 
-  throw new TypeError("Unsupported ECDH-ES ephemeral key material");
+  throw new JWTError("Unsupported ECDH-ES ephemeral key material", "ERR_JWK_INVALID");
 }
 
 function stripPrivateJwkFields(jwk: JWK_EC): JWK_EC_Public {

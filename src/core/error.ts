@@ -17,13 +17,17 @@ export type JWTErrorCode =
   | "ERR_JWS_INVALID" // structural / format error
   | "ERR_JWS_SIGNATURE_INVALID" // cryptographic signature verification failed
   | "ERR_JWS_ALG_NOT_ALLOWED" // algorithm rejected by caller policy
+  | "ERR_JWS_ALG_MISSING" // required `alg` option absent on sign
   // JWE (RFC 7516)
-  | "ERR_JWE_INVALID" // structural / format error
+  | "ERR_JWE_INVALID" // structural / format / option error
   | "ERR_JWE_DECRYPTION_FAILED" // content decryption or key unwrap failed
   | "ERR_JWE_ALG_NOT_ALLOWED" // algorithm rejected by caller policy
+  | "ERR_JWE_ALG_MISSING" // required `alg` option absent on encrypt
+  | "ERR_JWE_ENC_MISSING" // required `enc` option absent on encrypt
   // JWK (RFC 7517)
   | "ERR_JWK_INVALID" // malformed or unsupported key material
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set
+  | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
   | (string & {}); // forward-compatible escape hatch
 
 /**

@@ -1274,5 +1274,17 @@ describe.concurrent("JWS Utilities", () => {
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWT_CLAIM_INVALID")).toBe(true);
     });
+
+    it("ERR_JWS_ALG_MISSING — sign without inferable alg", async () => {
+      // Raw Uint8Array carries no `alg`; the second positional overload requires a TS `alg`
+      // option, so we deliberately cast to bypass and exercise the runtime guard.
+      const key = textEncoder.encode("raw-hmac-key-bytes");
+      const error = await (sign as (p: unknown, k: unknown) => Promise<string>)(
+        "payload",
+        key,
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_ALG_MISSING")).toBe(true);
+    });
   });
 });

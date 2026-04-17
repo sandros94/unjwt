@@ -17,6 +17,8 @@ import {
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
+  JWTError,
+  isJWTError,
 } from "../src/core/jwk";
 import {
   isCryptoKey,
@@ -1026,9 +1028,13 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw for invalid JWK Set", () => {
       // @ts-expect-error intentionally invalid JWK set
-      expect(() => getJWKFromSet(null, "key-1")).toThrow(TypeError);
+      expect(() => getJWKFromSet(null, "key-1")).toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+      );
       // @ts-expect-error intentionally invalid JWK set
-      expect(() => getJWKFromSet({ notKeys: [] }, "key-1")).toThrow(TypeError);
+      expect(() => getJWKFromSet({ notKeys: [] }, "key-1")).toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+      );
     });
 
     it("should find a key by string kid", () => {
@@ -1083,7 +1089,9 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw for invalid JWK Set", () => {
       // @ts-expect-error intentionally invalid
-      expect(() => getJWKsFromSet(null)).toThrow(TypeError);
+      expect(() => getJWKsFromSet(null)).toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+      );
     });
 
     it("should return all keys when no filter is given", () => {
@@ -1181,7 +1189,9 @@ describe.concurrent("JWK Utilities", () => {
         await expect(
           // @ts-expect-error testing invalid type
           importFromPEM(rsa.pem.spki, "unsupported", "RS256"),
-        ).rejects.toThrow(TypeError);
+        ).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_UNSUPPORTED" }),
+        );
       });
     });
 
@@ -1256,7 +1266,9 @@ describe.concurrent("JWK Utilities", () => {
         await expect(
           // @ts-expect-error testing invalid type
           exportToPEM(rsa.jwk.public, "unsupported"),
-        ).rejects.toThrow(TypeError);
+        ).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_UNSUPPORTED" }),
+        );
       });
     });
   });

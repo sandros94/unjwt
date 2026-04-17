@@ -108,15 +108,18 @@ export async function encrypt(
     }
   }
   if (!alg) {
-    throw new TypeError(
+    throw new JWTError(
       'JWE "alg" (Key Management Algorithm) must be provided in options or inferable from the key',
+      "ERR_JWE_ALG_MISSING",
     );
   }
   if (!enc) {
     if (alg === "dir") {
       // Allow enc to be carried on the JWK itself as a non-standard hint.
       enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : undefined;
-      if (!enc) throw new TypeError('JWE "enc" must be provided when alg is "dir"');
+      if (!enc) {
+        throw new JWTError('JWE "enc" must be provided when alg is "dir"', "ERR_JWE_ENC_MISSING");
+      }
     } else {
       enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A128GCM";
     }
@@ -436,26 +439,36 @@ function parseEphemeralKey(ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ep
   ) {
     const candidate = ephemeralKey;
     if (!candidate.publicKey || !candidate.privateKey) {
-      throw new TypeError(
+      throw new JWTError(
         "ECDH-ES custom ephemeral key must include both publicKey and privateKey.",
+        "ERR_JWK_INVALID",
       );
     }
     epk = candidate.publicKey;
     epkPrivateKey = candidate.privateKey;
   } else if (isCryptoKey(ephemeralKey)) {
     if (ephemeralKey.type !== "private") {
-      throw new TypeError("ECDH-ES custom ephemeral CryptoKey must include private key material.");
+      throw new JWTError(
+        "ECDH-ES custom ephemeral CryptoKey must include private key material.",
+        "ERR_JWK_INVALID",
+      );
     }
     epk = ephemeralKey;
     epkPrivateKey = ephemeralKey;
   } else if (isJWK(ephemeralKey)) {
     if (!("d" in ephemeralKey) || typeof ephemeralKey.d !== "string") {
-      throw new TypeError('ECDH-ES custom ephemeral JWK must include private parameter "d".');
+      throw new JWTError(
+        'ECDH-ES custom ephemeral JWK must include private parameter "d".',
+        "ERR_JWK_INVALID",
+      );
     }
     epk = ephemeralKey;
     epkPrivateKey = ephemeralKey;
   } else {
-    throw new TypeError("Unsupported ECDH-ES ephemeral key material provided in options.");
+    throw new JWTError(
+      "Unsupported ECDH-ES ephemeral key material provided in options.",
+      "ERR_JWK_INVALID",
+    );
   }
 
   return {

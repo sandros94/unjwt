@@ -66,7 +66,10 @@ export async function sign(
     if (isJWK(key) && key.alg) {
       alg = key.alg as JWSAlgorithm;
     } else {
-      throw new TypeError('JWS "alg" (Algorithm) must be provided in options');
+      throw new JWTError(
+        'JWS "alg" (Algorithm) must be provided in options',
+        "ERR_JWS_ALG_MISSING",
+      );
     }
   }
 

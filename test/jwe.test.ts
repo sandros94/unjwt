@@ -1062,5 +1062,25 @@ describe.concurrent("JWE Utilities", () => {
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
     });
+
+    it("ERR_JWE_ALG_MISSING — encrypt without inferable alg", async () => {
+      // CryptoKey is neither Uint8Array (→ PBES2 default) nor a JWK (→ alg field);
+      // TS types enforce `alg` on the CryptoKey overload, so cast to exercise the runtime guard.
+      const key = await generateKey("A256KW");
+      const error = await (encrypt as (p: unknown, k: unknown) => Promise<string>)(
+        "payload",
+        key,
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_ALG_MISSING")).toBe(true);
+    });
+
+    it("ERR_JWE_ENC_MISSING — encrypt with alg:'dir' and no enc", async () => {
+      const key = await generateKey("A256GCM");
+      // @ts-expect-error intentionally omitting enc
+      const error = await encrypt("payload", key, { alg: "dir" }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_ENC_MISSING")).toBe(true);
+    });
   });
 });
