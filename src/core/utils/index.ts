@@ -20,7 +20,10 @@ export type * from "./types";
 export const textEncoder: TextEncoder = /* @__PURE__ */ new TextEncoder();
 export const textDecoder: TextDecoder = /* @__PURE__ */ new TextDecoder();
 
-// Prefer Node.js Buffer (fastest), then Uint8Array.toBase64/fromBase64, then atob/btoa fallback
+// Prefer Node.js Buffer (fastest), then Uint8Array.toBase64/fromBase64, then atob/btoa fallback.
+// Benchmarked on Node 22/24, Deno 2.x, and Bun 1.3: the Buffer path is substantially faster
+// than `Uint8Array.toBase64` on every tested runtime that ships Buffer. Do NOT "clean up" the
+// fastpath in favour of the Web-native API without re-running `pnpm bench` first.
 const _Buffer = /* @__PURE__ */ (() => {
   try {
     return globalThis.Buffer;

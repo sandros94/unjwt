@@ -1046,7 +1046,10 @@ export async function exportPEM(
   const pemFormat = options?.pemFormat ?? ("d" in jwk ? "pkcs8" : "spki");
 
   // Intermediate CryptoKey must be extractable to be exported back to PEM.
-  const cryptoKeyCandidate = await importKey({ ...jwk, ext: true }, effectiveAlg);
+  const cryptoKeyCandidate = await importKey(
+    { ...jwk, ext: true },
+    { alg: effectiveAlg, expect: pemFormat === "pkcs8" ? "private" : "public" },
+  );
 
   if (!isCryptoKey(cryptoKeyCandidate)) {
     throw new JWTError(
@@ -1139,10 +1142,10 @@ export async function deriveSharedSecret(
 ): Promise<Uint8Array<ArrayBuffer>> {
   const pubCryptoKey = isCryptoKey(publicKey)
     ? publicKey
-    : ((await importKey(publicKey as JWK, "ECDH-ES")) as CryptoKey);
+    : ((await importKey(publicKey as JWK, { alg: "ECDH-ES", expect: "public" })) as CryptoKey);
   const privCryptoKey = isCryptoKey(privateKey)
     ? privateKey
-    : ((await importKey(privateKey as JWK, "ECDH-ES")) as CryptoKey);
+    : ((await importKey(privateKey as JWK, { alg: "ECDH-ES", expect: "private" })) as CryptoKey);
 
   let keyLength: number;
   if (options?.keyLength !== undefined) {
@@ -1465,7 +1468,10 @@ async function resolveECDHEphemeralPair(
     };
     const privCryptoKey = isCryptoKey(privateKey)
       ? privateKey
-      : ((await importKey(privateKey as JWK, "ECDH-ES")) as CryptoKey);
+      : ((await importKey(privateKey as JWK, {
+          alg: "ECDH-ES",
+          expect: "private",
+        })) as CryptoKey);
     const epkJwk = isCryptoKey(publicKey)
       ? stripPrivateJwkFields((await keyToJWK(publicKey)) as JWK_EC)
       : stripPrivateJwkFields(publicKey as JWK_EC);
@@ -1484,7 +1490,10 @@ async function resolveECDHEphemeralPair(
 
   // JWK_EC_Private
   if (isJWK(ephemeralKeyInput) && "d" in ephemeralKeyInput) {
-    const privCryptoKey = (await importKey(ephemeralKeyInput as JWK, "ECDH-ES")) as CryptoKey;
+    const privCryptoKey = (await importKey(ephemeralKeyInput as JWK, {
+      alg: "ECDH-ES",
+      expect: "private",
+    })) as CryptoKey;
     return {
       ephemeralPrivateKey: privCryptoKey,
       epkJwk: stripPrivateJwkFields(ephemeralKeyInput as JWK_EC),

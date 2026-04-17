@@ -1322,14 +1322,17 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should throw when options.pemFormat forces pkcs8 on a public JWK", async () => {
+        // M11 intent check catches the mismatch during the intermediate import —
+        // the message points at the JWK/direction conflict, which is clearer than the
+        // downstream CryptoKey-type check that used to fire.
         await expect(exportPEM(rsa.jwk.public, { pemFormat: "pkcs8" })).rejects.toThrow(
-          "Only 'private' type CryptoKeys can be exported to PKCS8",
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
         );
       });
 
       it("should throw when options.pemFormat forces spki on a private JWK", async () => {
         await expect(exportPEM(rsa.jwk.private, { pemFormat: "spki" })).rejects.toThrow(
-          "Only 'public' type CryptoKeys can be exported to SPKI",
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
         );
       });
 
