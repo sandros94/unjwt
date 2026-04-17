@@ -978,6 +978,44 @@ describe.concurrent("JWK Utilities", () => {
 
       expect(unwrapped).toEqual(cekToWrap);
     });
+
+    // WrapKeyResult is discriminated by alg family; compile-time assertions below
+    // fail the typecheck run if the conditional narrowing regresses.
+    it("wrapKey result narrows by alg at the type level", async () => {
+      const aesKw = await generateKey("A128KW");
+      const aesKwRes = await wrapKey("A128KW", cek, aesKw);
+      expect(aesKwRes.encryptedKey).toBeInstanceOf(Uint8Array);
+      // @ts-expect-error AES-KW result has no `p2s` field.
+      void aesKwRes.p2s;
+      // @ts-expect-error AES-KW result has no `iv` field.
+      void aesKwRes.iv;
+      // @ts-expect-error AES-KW result has no `epk` field.
+      void aesKwRes.epk;
+
+      const pbes2Res = await wrapKey("PBES2-HS256+A128KW", cek, "password", {
+        p2s: randomBytes(16),
+        p2c: 2000,
+      });
+      const _pbes2p2s: string = pbes2Res.p2s;
+      const _pbes2p2c: number = pbes2Res.p2c;
+      void _pbes2p2s;
+      void _pbes2p2c;
+
+      const gcmKwRes = await wrapKey("A128GCMKW", cek, await generateKey("A128GCM"));
+      const _gcmIv: string = gcmKwRes.iv;
+      const _gcmTag: string = gcmKwRes.tag;
+      void _gcmIv;
+      void _gcmTag;
+
+      const ecdhKP = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
+        "deriveBits",
+      ]);
+      const ecdhRes = await wrapKey("ECDH-ES", cek, ecdhKP.publicKey, {
+        ecdh: { enc: "A128GCM" },
+      });
+      const _epk: JWK_EC_Public = ecdhRes.epk;
+      void _epk;
+    });
   });
 
   describe("deriveSharedSecret", () => {

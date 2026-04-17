@@ -200,25 +200,43 @@ export interface WrapKeyOptions {
   };
 }
 
-/** Result of the wrapKey function. */
-export interface WrapKeyResult {
-  /** The wrapped key (Ciphertext). */
-  encryptedKey: Uint8Array<ArrayBuffer>;
-  /** Initialization Vector used (only for AES-GCMKW). Base64URL encoded. */
-  iv?: string;
-  /** Authentication Tag generated (only for AES-GCMKW). Base64URL encoded. */
-  tag?: string;
-  /** PBES2 Salt value used (only for PBES2). Base64URL encoded. */
-  p2s?: string;
-  /** PBES2 Iteration count used (only for PBES2). */
-  p2c?: number;
-  /** ECDH-ES Ephemeral Public Key used (only for ECDH-ES). */
-  epk?: JWK_EC_Public;
-  /** ECDH-ES Agreement PartyUInfo used (only for ECDH-ES). Base64URL encoded. */
-  apu?: string;
-  /** ECDH-ES Agreement PartyVInfo used (only for ECDH-ES). Base64URL encoded. */
-  apv?: string;
-}
+/**
+ * Result of {@link wrapKey}, discriminated by key management algorithm family.
+ *
+ * Narrow the shape by passing a literal `alg` to `wrapKey`:
+ * - PBES2 → `{ encryptedKey, p2s, p2c }`
+ * - AES-GCMKW → `{ encryptedKey, iv, tag }`
+ * - ECDH-ES / ECDH-ES+A*KW → `{ encryptedKey, epk, apu?, apv? }`
+ * - dir / AES-KW / RSA-OAEP → `{ encryptedKey }`
+ */
+export type WrapKeyResult<TAlg extends KeyManagementAlgorithm = KeyManagementAlgorithm> =
+  TAlg extends JWK_PBES2
+    ? {
+        encryptedKey: Uint8Array<ArrayBuffer>;
+        /** PBES2 Salt value (p2s). Base64URL encoded. */
+        p2s: string;
+        /** PBES2 Iteration count (p2c). */
+        p2c: number;
+      }
+    : TAlg extends JWK_AES_GCM_KW
+      ? {
+          encryptedKey: Uint8Array<ArrayBuffer>;
+          /** AES-GCMKW Initialization Vector. Base64URL encoded. */
+          iv: string;
+          /** AES-GCMKW Authentication Tag. Base64URL encoded. */
+          tag: string;
+        }
+      : TAlg extends JWK_ECDH_ES
+        ? {
+            encryptedKey: Uint8Array<ArrayBuffer>;
+            /** Ephemeral Public Key. */
+            epk: JWK_EC_Public;
+            /** Agreement PartyUInfo. Base64URL encoded. Present only when supplied. */
+            apu?: string;
+            /** Agreement PartyVInfo. Base64URL encoded. Present only when supplied. */
+            apv?: string;
+          }
+        : { encryptedKey: Uint8Array<ArrayBuffer> };
 
 /** Options for the unwrapKey function. */
 export interface UnwrapKeyOptions {

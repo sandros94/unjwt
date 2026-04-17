@@ -524,12 +524,20 @@ async function resolveWrappingKey(
 /**
  * Wraps a Content Encryption Key (CEK) using the specified algorithm and wrapping key.
  *
+ * The return shape is narrowed by `alg` — see {@link WrapKeyResult}.
+ *
  * @param alg The JWA key management algorithm (e.g., "A128KW", "RSA-OAEP", "PBES2-HS256+A128KW").
  * @param keyToWrap The key to be wrapped (CEK), typically a symmetric key as Uint8Array or CryptoKey.
  * @param wrappingKey The key used to wrap the CEK (CryptoKey, JWK, or password string/Uint8Array for PBES2).
  * @param options Additional options required by certain algorithms (e.g., p2s, p2c for PBES2).
- * @returns A Promise resolving to an object containing the wrapped key and any necessary parameters (iv, tag, epk, etc.).
+ * @returns A Promise resolving to an alg-specific {@link WrapKeyResult}.
  */
+export async function wrapKey<TAlg extends KeyManagementAlgorithm>(
+  alg: TAlg,
+  keyToWrap: CryptoKey | Uint8Array<ArrayBuffer>,
+  wrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  options?: WrapKeyOptions,
+): Promise<WrapKeyResult<TAlg>>;
 export async function wrapKey(
   alg: KeyManagementAlgorithm,
   keyToWrap: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -639,7 +647,10 @@ export async function wrapKey(
         apv,
       );
 
-      const wrapResult: WrapKeyResult = { encryptedKey: new Uint8Array(0), epk: epkJwk };
+      const wrapResult: WrapKeyResult<JWK_ECDH_ES> = {
+        encryptedKey: new Uint8Array(0),
+        epk: epkJwk,
+      };
       if (apu.length > 0) wrapResult.apu = base64UrlEncode(apu);
       if (apv.length > 0) wrapResult.apv = base64UrlEncode(apv);
 

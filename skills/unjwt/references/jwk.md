@@ -120,7 +120,14 @@ Wraps a Content Encryption Key using the specified key management algorithm.
     - `partyUInfo?`, `partyVInfo?` — agreement party info
     - `enc?` — content encryption algorithm, **required** for bare `"ECDH-ES"` (direct key agreement)
 
-Returns `Promise<WrapKeyResult>` — `{ encryptedKey, iv?, tag?, p2s?, p2c?, epk?, apu?, apv? }`
+Returns `Promise<WrapKeyResult<TAlg>>`, narrowed by `alg`:
+
+| `alg` family                     | Result shape                        |
+| -------------------------------- | ----------------------------------- |
+| `"dir"`, `"A*KW"`, `"RSA-OAEP*"` | `{ encryptedKey }`                  |
+| `"PBES2-*"`                      | `{ encryptedKey, p2s, p2c }`        |
+| `"A*GCMKW"`                      | `{ encryptedKey, iv, tag }`         |
+| `"ECDH-ES"`, `"ECDH-ES+A*KW"`    | `{ encryptedKey, epk, apu?, apv? }` |
 
 For `"ECDH-ES"` (direct), `encryptedKey` is an empty `Uint8Array` per RFC 7516 §4.6.
 
