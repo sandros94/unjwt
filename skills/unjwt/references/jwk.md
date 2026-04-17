@@ -2,7 +2,7 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, PEM conversion, and cache control.
 
-Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importFromPEM, exportToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
+Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
 
 Key lookup types (also from `unjwt/jwk`): `JWKLookupFunction`, `JWKLookupFunctionHeader` — or `from "unjwt"`
 
@@ -166,33 +166,44 @@ for (const recipient of recipients) {
 
 ## PEM Conversion
 
-### `importFromPEM(pem, pemType, alg, options?)`
+### `importPEM(pem, alg, options?)`
 
-Imports a PEM-encoded key and returns it as a JWK.
+Imports a PEM-encoded key and returns it as a JWK. The PEM type is inferred from the
+`-----BEGIN <X>-----` label (`PRIVATE KEY` → `pkcs8`, `PUBLIC KEY` → `spki`, `CERTIFICATE` → `x509`).
 
-- `pemType: "pkcs8" | "spki" | "x509"`
 - `alg: JWKPEMAlgorithm`
 - `options?`
+  - `pemType?: "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
   - `extractable?: boolean` — default `false` for private keys, `true` for public keys
   - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`)
 
+Throws `ERR_JWK_INVALID` when the PEM has no recognisable label and `pemType` is not supplied,
+or when the label does not match the requested/inferred type.
+
 Returns `Promise<JWK>`.
 
-### `exportToPEM(jwk, pemFormat, alg?)`
+### `exportPEM(jwk, options?)`
 
-Exports a JWK to PEM-encoded string.
+Exports a JWK to a PEM-encoded string. The PEM format is inferred from the JWK shape
+(presence of `d` → `pkcs8`, otherwise `spki`). X.509 certificate export is intentionally not
+supported: a certificate requires metadata and a CA signature that a JWK cannot provide.
 
-- `pemFormat: "pkcs8" | "spki"`
-- `alg?` — required if `jwk.alg` is undefined
+- `options?`
+  - `pemFormat?: "pkcs8" | "spki"` — inferred from the JWK shape when omitted
+  - `alg?: JWKPEMAlgorithm` — algorithm hint used when `jwk.alg` is absent
 
 Returns `Promise<string>`.
 
 ```ts
-import { importFromPEM, exportToPEM } from "unjwt/jwk";
+import { importPEM, exportPEM } from "unjwt/jwk";
 
-const jwk = await importFromPEM(pemString, "spki", "RS256", { jwkParams: { kid: "rsa-1" } });
-const pem = await exportToPEM(jwk, "spki");
+const jwk = await importPEM(pemString, "RS256", { jwkParams: { kid: "rsa-1" } });
+const pem = await exportPEM(jwk);
 ```
+
+`importFromPEM(pem, pemType, alg, options?)` and `exportToPEM(jwk, pemFormat, alg?)` are retained
+as `@deprecated` aliases with their original positional signatures — existing callers compile
+unchanged and will see an IDE deprecation hint until they migrate.
 
 ## Password-Based Key Derivation
 

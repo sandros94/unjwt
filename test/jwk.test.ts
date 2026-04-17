@@ -10,6 +10,8 @@ import {
   wrapKey,
   unwrapKey,
   deriveSharedSecret,
+  importPEM,
+  exportPEM,
   importFromPEM,
   exportToPEM,
   getJWKFromSet,
@@ -17,8 +19,6 @@ import {
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
-  JWTError,
-  isJWTError,
 } from "../src/core/jwk";
 import {
   isCryptoKey,
@@ -950,7 +950,9 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("wrapKey/unwrapKey ECDH-ES+A256KW roundtrip — X25519", async () => {
-      const recipientKP = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);
+      const recipientKP = (await crypto.subtle.generateKey({ name: "X25519" }, true, [
+        "deriveBits",
+      ])) as CryptoKeyPair;
       const cekToWrap = randomBytes(32);
 
       const { encryptedKey, epk, apu, apv } = await wrapKey(
@@ -989,8 +991,12 @@ describe.concurrent("JWK Utilities", () => {
 
     it("produces the same secret on both sides — X25519", async () => {
       const [recipientKP, ephemeralKP] = await Promise.all([
-        crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]),
-        crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]),
+        crypto.subtle.generateKey({ name: "X25519" }, true, [
+          "deriveBits",
+        ]) as Promise<CryptoKeyPair>,
+        crypto.subtle.generateKey({ name: "X25519" }, true, [
+          "deriveBits",
+        ]) as Promise<CryptoKeyPair>,
       ]);
 
       const [sender, recipient] = await Promise.all([
@@ -1126,16 +1132,16 @@ describe.concurrent("JWK Utilities", () => {
   });
 
   describe("PEM <-> JWK Conversion", () => {
-    describe("importFromPEM", () => {
+    describe("importPEM", () => {
       it("should import PKCS#8 PEM to JWK (RSA)", async () => {
-        const jwk = await importFromPEM<JWK_RSA_Private>(rsa.pem.pkcs8, "pkcs8", "RS256");
+        const jwk = await importPEM<JWK_RSA_Private>(rsa.pem.pkcs8, "RS256");
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         expect(jwk.d).toBeDefined();
       });
 
       it("should import SPKI PEM to JWK (RSA)", async () => {
-        const jwk = await importFromPEM<JWK_RSA_Public>(rsa.pem.spki, "spki", "RS256");
+        const jwk = await importPEM<JWK_RSA_Public>(rsa.pem.spki, "RS256");
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         // @ts-expect-error d should not be on public key
@@ -1147,7 +1153,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import X.509 PEM to JWK (RSA Public Key)", async () => {
-        const jwk = await importFromPEM(rsa.pem.x509, "x509", "RS256");
+        const jwk = await importPEM(rsa.pem.x509, "RS256");
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         // @ts-expect-error d should not be on public key
@@ -1159,7 +1165,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import PKCS#8 PEM to JWK (EC)", async () => {
-        const jwk = await importFromPEM<JWK_EC_Private>(ec.pem.pkcs8, "pkcs8", "ES256");
+        const jwk = await importPEM<JWK_EC_Private>(ec.pem.pkcs8, "ES256");
         expect(jwk.kty).toBe("EC");
         expect(jwk.alg).toBe("ES256");
         expect(jwk.crv).toBe("P-256");
@@ -1167,7 +1173,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import SPKI PEM to JWK (EC)", async () => {
-        const jwk = await importFromPEM<JWK_EC_Public>(ec.pem.spki, "spki", "ES256");
+        const jwk = await importPEM<JWK_EC_Public>(ec.pem.spki, "ES256");
         expect(jwk.kty).toBe("EC");
         expect(jwk.alg).toBe("ES256");
 
@@ -1177,7 +1183,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should merge jwkExtras", async () => {
-        const jwk = await importFromPEM(rsa.pem.spki, "spki", "RS256", {
+        const jwk = await importPEM(rsa.pem.spki, "RS256", {
           jwkParams: { kid: "test-kid", use: "enc" },
         });
         expect(jwk.kid).toBe("test-kid");
@@ -1185,10 +1191,27 @@ describe.concurrent("JWK Utilities", () => {
         expect(jwk.alg).toBe("RS256"); // Should still be set from the 'alg' param
       });
 
+      it("honours an explicit options.pemType override", async () => {
+        // Label says PUBLIC KEY; explicit pemType "spki" matches and succeeds.
+        const jwk = await importPEM(rsa.pem.spki, "RS256", { pemType: "spki" });
+        expect(jwk.kty).toBe("RSA");
+        // Forcing pkcs8 on a SPKI body still fails at label assertion.
+        await expect(importPEM(rsa.pem.spki, "RS256", { pemType: "pkcs8" })).rejects.toThrow(
+          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+        );
+      });
+
+      it("throws when PEM type cannot be inferred", async () => {
+        const stripped = rsa.pem.spki.replace(/-----(BEGIN|END) [A-Z ]+-----/g, "").trim();
+        await expect(importPEM(stripped, "RS256")).rejects.toThrow(/Cannot infer PEM type/);
+      });
+
       it("should throw for unsupported PEM type", async () => {
         await expect(
-          // @ts-expect-error testing invalid type
-          importFromPEM(rsa.pem.spki, "unsupported", "RS256"),
+          importPEM(rsa.pem.spki, "RS256", {
+            // @ts-expect-error testing invalid type
+            pemType: "unsupported",
+          }),
         ).rejects.toThrow(
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_UNSUPPORTED" }),
         );
@@ -1196,36 +1219,26 @@ describe.concurrent("JWK Utilities", () => {
 
       it("rejects PEM with a mismatched label", async () => {
         // SPKI body fed to the pkcs8 importer — label says PUBLIC but pkcs8 requires PRIVATE.
-        await expect(importFromPEM(rsa.pem.spki, "pkcs8", "RS256")).rejects.toThrow(
+        await expect(importPEM(rsa.pem.spki, "RS256", { pemType: "pkcs8" })).rejects.toThrow(
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
         );
         // Symmetric case: pkcs8 body fed to the spki importer.
-        await expect(importFromPEM(rsa.pem.pkcs8, "spki", "RS256")).rejects.toThrow(
-          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
-        );
-      });
-
-      it("rejects PEM with no BEGIN/END labels", async () => {
-        const stripped = rsa.pem.spki.replace(/-----(BEGIN|END) [A-Z ]+-----/g, "").trim();
-        await expect(importFromPEM(stripped, "spki", "RS256")).rejects.toThrow(
-          expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
-        );
-        await expect(importFromPEM(stripped, "pkcs8", "RS256")).rejects.toThrow(
+        await expect(importPEM(rsa.pem.pkcs8, "RS256", { pemType: "spki" })).rejects.toThrow(
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
         );
       });
     });
 
-    describe("exportToPEM", () => {
+    describe("exportPEM", () => {
       it("should export private RSA JWK to PKCS#8 PEM", async () => {
-        const pem = await exportToPEM(rsa.jwk.private, "pkcs8");
+        const pem = await exportPEM(rsa.jwk.private);
 
         // TODO: beautify this garbage
         expect(`${pem}\n`.replace(/\\n/g, "")).toMatch(rsa.pem.pkcs8.replace(/\\n/g, ""));
       });
 
       it("should export public RSA JWK to SPKI PEM", async () => {
-        const pem = await exportToPEM(rsa.jwk.public, "spki");
+        const pem = await exportPEM(rsa.jwk.public);
 
         const joseKey = await jose.importJWK(rsa.jwk.public);
         const josePem = await jose.exportSPKI(joseKey as CryptoKey);
@@ -1233,7 +1246,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should export private EC JWK to PKCS#8 PEM", async () => {
-        const pem = await exportToPEM(ec.jwk.private, "pkcs8");
+        const pem = await exportPEM(ec.jwk.private);
 
         const joseKey = await jose.importJWK(ec.jwk.private);
         const josePem = await jose.exportPKCS8(joseKey as CryptoKey);
@@ -1241,7 +1254,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should export public EC JWK to SPKI PEM", async () => {
-        const pem = await exportToPEM(ec.jwk.public, "spki");
+        const pem = await exportPEM(ec.jwk.public);
 
         const joseKey = await jose.importJWK(ec.jwk.public);
         const josePem = await jose.exportSPKI(joseKey as CryptoKey);
@@ -1250,46 +1263,62 @@ describe.concurrent("JWK Utilities", () => {
 
       it("should throw when exporting 'oct' JWK to PEM", async () => {
         const octJwk: JWK_oct = { kty: "oct", k: "somekey" };
-        await expect(exportToPEM(octJwk, "pkcs8")).rejects.toThrow(
+        await expect(exportPEM(octJwk)).rejects.toThrow(
           "Octet (symmetric) JWKs (kty: 'oct') cannot be exported",
         );
       });
 
       it("should throw if alg is missing and required for JWK to CryptoKey conversion", async () => {
         const rsaNoAlg = { ...rsa.jwk.public, alg: undefined };
-        await expect(exportToPEM(rsaNoAlg, "spki")).rejects.toThrow(
-          "Algorithm (alg) must be provided",
-        );
+        await expect(exportPEM(rsaNoAlg)).rejects.toThrow("Algorithm (alg) must be provided");
       });
 
-      it("should use algForCryptoKeyImport if JWK has no alg", async () => {
+      it("should use options.alg if JWK has no alg", async () => {
         const rsaNoAlg = { ...rsa.jwk.public, alg: undefined };
-        const pem = await exportToPEM(rsaNoAlg, "spki", "RS256" as JWKPEMAlgorithm);
+        const pem = await exportPEM(rsaNoAlg, { alg: "RS256" as JWKPEMAlgorithm });
 
         const joseKey = await jose.importJWK(rsa.jwk.public);
         const josePem = await jose.exportSPKI(joseKey as CryptoKey);
         expect(pem).toEqual(josePem);
       });
 
-      it("should throw when exporting public JWK as PKCS#8", async () => {
-        await expect(exportToPEM(rsa.jwk.public, "pkcs8")).rejects.toThrow(
+      it("should throw when options.pemFormat forces pkcs8 on a public JWK", async () => {
+        await expect(exportPEM(rsa.jwk.public, { pemFormat: "pkcs8" })).rejects.toThrow(
           "Only 'private' type CryptoKeys can be exported to PKCS8",
         );
       });
 
-      it("should throw when exporting private JWK as SPKI", async () => {
-        await expect(exportToPEM(rsa.jwk.private, "spki")).rejects.toThrow(
+      it("should throw when options.pemFormat forces spki on a private JWK", async () => {
+        await expect(exportPEM(rsa.jwk.private, { pemFormat: "spki" })).rejects.toThrow(
           "Only 'public' type CryptoKeys can be exported to SPKI",
         );
       });
 
       it("should throw for unsupported PEM format", async () => {
         await expect(
-          // @ts-expect-error testing invalid type
-          exportToPEM(rsa.jwk.public, "unsupported"),
+          exportPEM(rsa.jwk.public, {
+            // @ts-expect-error testing invalid type
+            pemFormat: "unsupported",
+          }),
         ).rejects.toThrow(
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_UNSUPPORTED" }),
         );
+      });
+    });
+
+    describe("deprecated aliases", () => {
+      it("importFromPEM forwards to importPEM with pemType preserved", async () => {
+        const jwk = await importFromPEM<JWK_RSA_Private>(rsa.pem.pkcs8, "pkcs8", "RS256");
+        expect(jwk.kty).toBe("RSA");
+        expect(jwk.alg).toBe("RS256");
+        expect(jwk.d).toBeDefined();
+      });
+
+      it("exportToPEM forwards to exportPEM with pemFormat preserved", async () => {
+        const pem = await exportToPEM(rsa.jwk.public, "spki");
+        const joseKey = await jose.importJWK(rsa.jwk.public);
+        const josePem = await jose.exportSPKI(joseKey as CryptoKey);
+        expect(pem).toEqual(josePem);
       });
     });
   });

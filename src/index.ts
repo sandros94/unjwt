@@ -14,6 +14,8 @@ export {
   unwrapKey,
   deriveKeyFromPassword,
   deriveJWKFromPassword,
+  importPEM,
+  exportPEM,
   importFromPEM,
   exportToPEM,
   getJWKFromSet,

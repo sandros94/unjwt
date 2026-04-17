@@ -789,21 +789,46 @@ export async function unwrapKey(
 }
 
 /**
- * Imports a key from a PEM-encoded string and converts it to a JWK.
+ * Imports a PEM-encoded key and returns it as a JWK.
+ *
+ * The PEM type is inferred from the `-----BEGIN <X>-----` label:
+ * - `PRIVATE KEY` → PKCS#8 private key (RFC 5208)
+ * - `PUBLIC KEY`  → SubjectPublicKeyInfo public key (RFC 5280 §4.1.2.7)
+ * - `CERTIFICATE` → X.509 certificate; its SPKI is extracted into the JWK and all cert metadata
+ *                   (issuer, validity, extensions) is discarded — a JWK cannot represent it
+ *
+ * A caller can override the inference via `options.pemType`; the underlying label assertion
+ * still runs, so a mismatched override (e.g. `pemType: "pkcs8"` on a SPKI body) throws
+ * `ERR_JWK_INVALID` before any crypto work.
  *
  * @param pem The PEM-encoded string.
- * @param pemType The type of PEM encoding ('pkcs8' for private keys, 'spki' for public keys, 'x509' for certificates).
- * @param alg The JWA algorithm identifier. This is crucial for `crypto.subtle.importKey`
- *            to understand the key's intended algorithm and for setting the 'alg' field in the resulting JWK.
- * @param importOptions Options for the PEM import process (e.g., extractable for the CryptoKey).
- * @param jwkExtras Additional properties to merge into the resulting JWK.
- * @returns A Promise resolving to the imported key as a JWK.
+ * @param alg The JWA algorithm identifier. Required for `crypto.subtle.importKey` to understand
+ *            the key's intended algorithm and for setting the `alg` field on the resulting JWK.
+ * @param options
+ *   - `pemType?` — explicit PEM type; inferred from the label when omitted.
+ *   - `extractable?` — forwarded to `crypto.subtle.importKey`. Defaults to `false` for private
+ *     keys and `true` for public keys.
+ *   - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`).
+ *     `alg`, `kty`, `key_ops`, and `ext` are reserved and cannot be overridden here.
+ * @throws `JWTError("ERR_JWK_INVALID")` if the PEM type cannot be inferred (no recognised label
+ *         and no `options.pemType`), or if the label does not match the requested/inferred type.
+ * @throws `JWTError("ERR_JWK_UNSUPPORTED")` if `options.pemType` is a value outside the supported set.
+ *
+ * @example
+ * ```ts
+ * // Inferred — label on the PEM drives selection.
+ * const jwk = await importPEM(pemString, "RS256", { jwkParams: { kid: "rsa-1" } });
+ *
+ * // Explicit override.
+ * const jwk2 = await importPEM(pemString, "RS256", { pemType: "x509" });
+ * ```
  */
-export async function importFromPEM<T extends JWK>(
+export async function importPEM<T extends JWK>(
   pem: string,
-  pemType: "pkcs8" | "spki" | "x509",
   alg: JWKPEMAlgorithm,
   options?: {
+    /** PEM type. Inferred from the PEM label when omitted. */
+    pemType?: "pkcs8" | "spki" | "x509";
     /** Passed to `crypto.subtle.importKey`. Defaults to `false` for private keys, `true` otherwise. */
     extractable?: boolean;
     /** Additional JWK properties merged into the exported key (e.g. `kid`). */
@@ -811,6 +836,14 @@ export async function importFromPEM<T extends JWK>(
   },
 ): Promise<T> {
   const extractable = options?.extractable !== false;
+  const pemType = options?.pemType ?? inferPEMType(pem);
+
+  if (!pemType) {
+    throw new JWTError(
+      'Cannot infer PEM type from the input; pass "options.pemType" explicitly.',
+      "ERR_JWK_INVALID",
+    );
+  }
 
   let cryptoKey: CryptoKey;
   switch (pemType) {
@@ -835,18 +868,63 @@ export async function importFromPEM<T extends JWK>(
 }
 
 /**
+ * @deprecated Use {@link importPEM} instead. `pemType` has moved into the options object and
+ * is now inferred from the PEM label by default.
+ */
+export async function importFromPEM<T extends JWK>(
+  pem: string,
+  pemType: "pkcs8" | "spki" | "x509",
+  alg: JWKPEMAlgorithm,
+  options?: {
+    extractable?: boolean;
+    jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
+  },
+): Promise<T> {
+  return importPEM<T>(pem, alg, { pemType, ...options });
+}
+
+/**
  * Exports a JWK to a PEM-encoded string.
  *
- * @param jwk The JWK to export.
- * @param pemFormat The desired PEM format ('pkcs8' for private keys, 'spki' for public keys).
- * @param algForCryptoKeyImport If the JWK does not have an 'alg' property, this algorithm hint is
- *                              required to correctly convert it to a CryptoKey first.
- * @returns A Promise resolving to the PEM-encoded key string.
+ * The PEM format is inferred from the JWK shape:
+ * - JWK with `d` (private component) → PKCS#8 (`-----BEGIN PRIVATE KEY-----`)
+ * - JWK without `d` → SubjectPublicKeyInfo (`-----BEGIN PUBLIC KEY-----`)
+ *
+ * X.509 certificate export is intentionally not supported: a certificate carries metadata
+ * (subject/issuer DNs, validity window, extensions) and a CA signature that a JWK cannot provide.
+ * Producing a cert is a CA operation, not a key-format conversion.
+ *
+ * Symmetric `oct` JWKs cannot be exported to PEM — PKCS#8/SPKI are asymmetric-key formats.
+ *
+ * @param jwk The JWK to export. Must not be `kty: "oct"`.
+ * @param options
+ *   - `pemFormat?` — force the output format. Inferred from the JWK shape when omitted.
+ *   - `alg?` — algorithm hint used only when `jwk.alg` is absent (both `kty: "RSA"` / `"EC"` /
+ *     `"OKP"` JWKs need an algorithm to be round-tripped through `crypto.subtle.importKey`).
+ * @throws `JWTError("ERR_JWK_UNSUPPORTED")` for `oct` JWKs, or an unrecognised `pemFormat`.
+ * @throws `JWTError("ERR_JWK_INVALID")` if the JWK requires an `alg` hint that was not supplied,
+ *         or if `pemFormat` is forced to a value incompatible with the JWK's public/private shape.
+ *
+ * @example
+ * ```ts
+ * // Inferred — private JWKs become PKCS#8, public JWKs become SPKI.
+ * const pem = await exportPEM(jwk);
+ *
+ * // Override (will throw if incompatible with the JWK shape).
+ * const spki = await exportPEM(jwk, { pemFormat: "spki" });
+ *
+ * // JWK without `alg` — provide a hint.
+ * const pem2 = await exportPEM(rawJwk, { alg: "RS256" });
+ * ```
  */
-export async function exportToPEM(
+export async function exportPEM(
   jwk: JWK,
-  pemFormat: "pkcs8" | "spki",
-  algForCryptoKeyImport?: JWKPEMAlgorithm,
+  options?: {
+    /** PEM format. Inferred from the JWK shape when omitted. */
+    pemFormat?: "pkcs8" | "spki";
+    /** Algorithm hint used when `jwk.alg` is absent. */
+    alg?: JWKPEMAlgorithm;
+  },
 ): Promise<string> {
   if (jwk.kty === "oct") {
     throw new JWTError(
@@ -855,20 +933,18 @@ export async function exportToPEM(
     );
   }
 
-  const effectiveAlg = jwk.alg || algForCryptoKeyImport;
+  const effectiveAlg = jwk.alg || options?.alg;
   if (!effectiveAlg && (jwk.kty === "RSA" || jwk.kty === "EC" || jwk.kty === "OKP")) {
     throw new JWTError(
-      "Algorithm (alg) must be provided in the JWK or as a parameter for converting this JWK type to a CryptoKey.",
+      "Algorithm (alg) must be provided in the JWK or via options for converting this JWK type to a CryptoKey.",
       "ERR_JWK_INVALID",
     );
   }
 
-  // Ensure the JWK is treated as extractable for the intermediate CryptoKey,
-  // as PEM export should require a CryptoKey to be extractable.
-  const jwkForImport: JWK = { ...jwk, ext: true };
+  const pemFormat = options?.pemFormat ?? ("d" in jwk ? "pkcs8" : "spki");
 
-  // This function returns CryptoKey for non-'oct' JWKs.
-  const cryptoKeyCandidate = await importKey(jwkForImport, effectiveAlg);
+  // Intermediate CryptoKey must be extractable to be exported back to PEM.
+  const cryptoKeyCandidate = await importKey({ ...jwk, ext: true }, effectiveAlg);
 
   if (!isCryptoKey(cryptoKeyCandidate)) {
     throw new JWTError(
@@ -901,6 +977,26 @@ export async function exportToPEM(
       throw new JWTError(`Unsupported PEM format: ${pemFormat}`, "ERR_JWK_UNSUPPORTED");
     }
   }
+}
+
+/**
+ * @deprecated Use {@link exportPEM} instead. `pemFormat` has moved into the options object and
+ * is now inferred from the JWK shape by default. The `algForCryptoKeyImport` parameter has
+ * been renamed to `options.alg`.
+ */
+export async function exportToPEM(
+  jwk: JWK,
+  pemFormat: "pkcs8" | "spki",
+  algForCryptoKeyImport?: JWKPEMAlgorithm,
+): Promise<string> {
+  return exportPEM(jwk, { pemFormat, alg: algForCryptoKeyImport });
+}
+
+function inferPEMType(pem: string): "pkcs8" | "spki" | "x509" | undefined {
+  if (pem.includes("-----BEGIN PRIVATE KEY-----")) return "pkcs8";
+  if (pem.includes("-----BEGIN PUBLIC KEY-----")) return "spki";
+  if (pem.includes("-----BEGIN CERTIFICATE-----")) return "x509";
+  return undefined;
 }
 
 /**
