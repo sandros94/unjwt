@@ -6,7 +6,7 @@ export default defineConfig({
       exclude: [
         "dist/**",
         "test/**",
-        "src/core/jose/**",
+        "src/core/_crypto/**",
         "build.config.ts",
         "eslint.config.mjs",
         "vitest.config.ts",
