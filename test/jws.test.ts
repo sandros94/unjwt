@@ -1097,6 +1097,33 @@ describe.concurrent("JWS Utilities", () => {
       ).rejects.toThrow('"alg" (Algorithm) Header Parameter value not allowed');
     });
 
+    // Absent `options.algorithms` falls back to inference from the key shape.
+    // The token's declared `alg` must be in the inferred set or verification fails closed.
+    it("infers the algorithm allowlist from a CryptoKey when options.algorithms is absent", async () => {
+      const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
+      // HS256 CryptoKey infers to ["HS256"] only.
+      await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+      // A forged token claiming a different alg against the same key is rejected.
+      const [, payloadPart, sigPart] = jws.split(".");
+      const forgedHeader = base64UrlEncode(JSON.stringify({ alg: "HS512", typ: "JWT" }));
+      await expect(verify(`${forgedHeader}.${payloadPart}.${sigPart}`, hs256Key)).rejects.toThrow(
+        "Algorithm not allowed: HS512",
+      );
+    });
+
+    it("requires explicit options.algorithms when the key shape is ambiguous", async () => {
+      // Raw `Uint8Array` carries no metadata — inference cannot determine an alg.
+      const rawKey = await crypto.subtle.exportKey("raw", hs256Key as CryptoKey);
+      const jws = await sign(payloadObj, new Uint8Array(rawKey), { alg: "HS256" });
+      await expect(verify(jws, new Uint8Array(rawKey))).rejects.toThrow(
+        /Cannot infer allowed algorithms/,
+      );
+      // Explicit allowlist unblocks verification.
+      await expect(
+        verify(jws, new Uint8Array(rawKey), { algorithms: ["HS256"] }),
+      ).resolves.toBeDefined();
+    });
+
     it("should handle critical headers (success)", async () => {
       const jws = await sign(payloadString, hs256Key, {
         alg: "HS256",

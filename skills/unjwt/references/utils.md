@@ -82,6 +82,14 @@ interface JWTClaimValidationOptions {
 
 Returns a **deep structural copy** of `obj` with prototype-pollution vectors (`__proto__`, `prototype`, `constructor`) stripped at every level. The input is never modified. Applied internally to all parsed JWT headers and user-supplied option objects.
 
+### `inferJWSAllowedAlgorithms(key)`
+
+Returns the set of JWS signing algorithms a given key can unambiguously produce, or `undefined` when inference is not possible. Used by `verify()` as the default allowlist when `options.algorithms` is omitted. Returns `undefined` for raw `Uint8Array` keys, JWKs without `alg`, or lookup functions — callers with those shapes must pass `algorithms` explicitly.
+
+### `inferJWEAllowedAlgorithms(key)`
+
+Returns the set of JWE key-management algorithms a given key can unambiguously handle, or `undefined` when inference is not possible. Used by `decrypt()` as the default allowlist when `options.algorithms` is omitted. Passwords (`string` / `Uint8Array`) infer to the three PBES2 variants plus `"dir"`; symmetric keys infer to their specific wrap alg plus `"dir"`.
+
 ## Helper Functions
 
 ### `maybeArray(item)`

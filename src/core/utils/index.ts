@@ -12,6 +12,7 @@ import type {
   JWK_RSA_Private,
 } from "../types";
 
+export * from "./algorithms";
 export * from "./jwt";
 export * from "./sanitize";
 export type * from "./types";

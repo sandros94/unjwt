@@ -470,6 +470,21 @@ describe.concurrent("JWE Utilities", () => {
       ).rejects.toThrow('"alg" (Algorithm) Header Parameter value not allowed');
     });
 
+    // Absent `options.algorithms` falls back to inference from the key shape.
+    // The token's declared `alg` must be in the inferred set or decryption fails closed.
+    it("infers the algorithm allowlist from a JWK when options.algorithms is absent", async () => {
+      const kwJwk = await exportKey<JWK_Symmetric>(await generateKey("A128KW"), { alg: "A128KW" });
+      const token = await encrypt(plaintextObj, kwJwk, { alg: "A128KW", enc: "A128GCM" });
+      // JWK with alg: "A128KW" infers to ["A128KW", "dir"].
+      await expect(decrypt(token, kwJwk)).resolves.toBeDefined();
+      // A forged header claiming a different key management alg is rejected.
+      const [, encKeyPart, ivPart, ctPart, tagPart] = token.split(".");
+      const forgedHeader = base64UrlEncode(JSON.stringify({ alg: "A256KW", enc: "A128GCM" }));
+      await expect(
+        decrypt(`${forgedHeader}.${encKeyPart}.${ivPart}.${ctPart}.${tagPart}`, kwJwk),
+      ).rejects.toThrow("Key management algorithm not allowed: A256KW");
+    });
+
     it("should throw if content encryption algorithm not allowed", async () => {
       await expect(decrypt(jwe, key, { encryptionAlgorithms: ["A256GCM"] })).rejects.toThrow(
         `Content encryption algorithm not allowed: ${enc}`,

@@ -72,7 +72,7 @@ Verifies a JWS token and returns its payload.
     - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
 
 - `options?: JWSVerifyOptions`
-  - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms
+  - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWSAllowedAlgorithms`; pass explicitly when the key carries no usable metadata (raw `Uint8Array`, alg-less JWKs, lookup functions returning ambiguous shapes)
   - `validateClaims?: boolean` — `false` explicitly skips JWT claim validation. Defaults to `undefined`, which validates whenever the decoded payload is a JSON object — **independent of the `typ` header**, because `typ` is signer-controlled and cannot gate security-critical checks
   - `forceUint8Array?: boolean` — force payload returned as `Uint8Array`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`

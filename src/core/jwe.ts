@@ -37,6 +37,7 @@ import {
   computeJwtTimeClaims,
   decodePayloadFromBytes,
   getPlaintextBytes,
+  inferJWEAllowedAlgorithms,
   validateCriticalHeadersJWE,
   validateJwtClaims,
 } from "./utils";
@@ -295,6 +296,21 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   }
 
   const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
+
+  // If no explicit allowlist, infer one from the key shape and enforce.
+  // Safe default — prevents signer-controlled `alg` from dictating key management.
+  if (!options?.algorithms) {
+    const inferred = inferJWEAllowedAlgorithms(rawKeyMaterial);
+    if (!inferred) {
+      throw new JWTError(
+        'Cannot infer allowed key management algorithms from this key; pass "options.algorithms" explicitly.',
+        "ERR_JWE_ALG_NOT_ALLOWED",
+      );
+    }
+    if (!inferred.includes(alg)) {
+      throw new JWTError(`Key management algorithm not allowed: ${alg}`, "ERR_JWE_ALG_NOT_ALLOWED");
+    }
+  }
 
   const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
   const contentIVBytes = base64UrlDecode(ivEncoded, false);

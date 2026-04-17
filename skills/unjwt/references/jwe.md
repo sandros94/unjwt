@@ -97,7 +97,7 @@ Decrypts a JWE token.
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
   - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
 - `options?: JWEDecryptOptions`
-  - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms
+  - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata
   - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
   - `validateClaims?: boolean` — `false` explicitly skips JWT claim validation. Defaults to `undefined`, which validates whenever the decrypted payload is a JSON object — **independent of the `typ` header**, because `typ` is signer-controlled and cannot gate security-critical checks
   - `forceUint8Array?: boolean` — force payload as `Uint8Array`

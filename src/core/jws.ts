@@ -28,6 +28,7 @@ import {
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromB64UrlSegment,
+  inferJWSAllowedAlgorithms,
   validateCriticalHeadersJWS,
   validateJwtClaims,
 } from "./utils";
@@ -189,7 +190,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   const alg = protectedHeader.alg;
 
-  // 3. Check Algorithm Allowed (if options provided)
+  // 3. Check Algorithm Allowed against explicit allowlist (fast path before key resolution).
   if (options.algorithms && !options.algorithms.includes(alg)) {
     throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
   }
@@ -212,6 +213,21 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   // 5. Obtain Key
   const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
+
+  // 5b. If no explicit allowlist, infer one from the key shape and enforce.
+  //     Safe default — prevents signer-controlled `alg` from dictating verification.
+  if (!options.algorithms) {
+    const inferred = inferJWSAllowedAlgorithms(keyInput);
+    if (!inferred) {
+      throw new JWTError(
+        'Cannot infer allowed algorithms from this key; pass "options.algorithms" explicitly.',
+        "ERR_JWS_ALG_NOT_ALLOWED",
+      );
+    }
+    if (!inferred.includes(alg)) {
+      throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
+    }
+  }
 
   // 6. Reconstruct Signing Input
   const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
