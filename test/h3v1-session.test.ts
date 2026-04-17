@@ -392,7 +392,6 @@ describe("adapter h3 v1", () => {
           onRead: vi.fn(async ({ session, event, config }) => {
             if (session.expiresAt !== undefined) {
               const timeLeft = session.expiresAt - session.createdAt;
-              // if time left is less than half of maxAge, refresh
               if (timeLeft < config.maxAge! / 2) {
                 await updateJWESession(event, config);
               }
@@ -526,7 +525,6 @@ describe("adapter h3 v1", () => {
           },
         };
 
-        // Manually create a token with the correct key
         const token = await encrypt(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key,
@@ -799,7 +797,6 @@ describe("adapter h3 v1", () => {
           },
         };
 
-        // Manually create a token with the correct key
         const token = await sign(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key.privateKey,
@@ -859,22 +856,18 @@ describe("adapter h3 v1", () => {
 
       const res = await localRequest.get("/");
 
-      // Two updates → two onUpdate calls
       expect(updates).toHaveLength(2);
 
-      // First update: no previous token
       expect(updates[0]!.oldToken).toBeUndefined();
       expect(updates[0]!.token).toBeTypeOf("string");
       expect(updates[0]!.token!.length).toBeGreaterThan(0);
       expect(updates[0]!.id).toBe("1");
 
-      // Second update: oldSession.token is the token produced by the first update
       expect(updates[1]!.oldToken).toBe(updates[0]!.token);
       expect(updates[1]!.token).toBeTypeOf("string");
       expect(updates[1]!.token).not.toBe(updates[0]!.token);
       expect(updates[1]!.id).toBe("2");
 
-      // session.token on the manager equals the last issued token
       expect(res.body.token).toBe(updates[1]!.token);
     });
 
@@ -982,23 +975,19 @@ describe("adapter h3 v1", () => {
         }),
       );
 
-      // First request — creates session, onRead fires with undefined (no incoming token)
       await localRequest.post("/");
       expect(readTokens[0]).toBeUndefined();
 
-      // Store the cookie for the next request
       const initRes = await localRequest.post("/");
       const cookie = initRes.headers["set-cookie"]?.[0];
       expect(cookie).toBeDefined();
 
-      // Second read — onRead fires with the raw cookie token
       const readRes = await localRequest.get("/").set("Cookie", cookie!);
       const lastReadToken = readTokens[readTokens.length - 1];
       expect(lastReadToken).toBeTypeOf("string");
       expect(lastReadToken!.length).toBeGreaterThan(0);
       expect(readRes.body.token).toBe(lastReadToken);
 
-      // Advance past expiry
       vi.setSystemTime(new Date("2025-01-01T00:00:05.000Z"));
       await localRequest.get("/").set("Cookie", cookie!);
       expect(expireTokens.length).toBeGreaterThan(0);

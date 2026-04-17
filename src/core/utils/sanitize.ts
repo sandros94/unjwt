@@ -17,8 +17,6 @@ export function sanitizeObject<T extends Record<string, unknown> | undefined>(ob
   return _sanitizeCopy(obj, new WeakSet()) as T;
 }
 
-// --- Internal helpers ---
-
 function _sanitizeCopy(current: object, seen: WeakSet<object>): unknown {
   seen.add(current);
 

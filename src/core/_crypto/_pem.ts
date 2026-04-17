@@ -1,4 +1,5 @@
 import { base64Encode, base64Decode, isCryptoKey } from "../utils";
+import { JWTError } from "../error";
 
 /** Key Import Function options. */
 export interface KeyImportOptions {
@@ -18,11 +19,25 @@ export const toPKCS8 = (key: unknown): Promise<string> => {
 };
 
 export const fromPKCS8: PEMImportFunction = (pem, alg, options?) => {
-  return genericImport(/(?:-----(?:BEGIN|END) PRIVATE KEY-----|\s)/g, "pkcs8", pem, alg, options);
+  return genericImport(
+    /(?:-----(?:BEGIN|END) PRIVATE KEY-----|\s)/g,
+    "PRIVATE KEY",
+    "pkcs8",
+    pem,
+    alg,
+    options,
+  );
 };
 
 export const fromSPKI: PEMImportFunction = (pem, alg, options?) => {
-  return genericImport(/(?:-----(?:BEGIN|END) PUBLIC KEY-----|\s)/g, "spki", pem, alg, options);
+  return genericImport(
+    /(?:-----(?:BEGIN|END) PUBLIC KEY-----|\s)/g,
+    "PUBLIC KEY",
+    "spki",
+    pem,
+    alg,
+    options,
+  );
 };
 
 export const fromX509: PEMImportFunction = (pem, alg, options?) => {
@@ -50,6 +65,20 @@ const formatPEM = (b64: string, descriptor: string) => {
   return `-----BEGIN ${descriptor}-----\n${newlined}\n-----END ${descriptor}-----`;
 };
 
+const assertPEMLabel = (pem: string, descriptor: string): void => {
+  const begin = `-----BEGIN ${descriptor}-----`;
+  const end = `-----END ${descriptor}-----`;
+  if (!pem.includes(begin) || !pem.includes(end)) {
+    const found = pem.match(/-----BEGIN [^-]+-----/)?.[0];
+    throw new JWTError(
+      found
+        ? `PEM label mismatch: expected "${begin}", got "${found}".`
+        : `PEM label missing: expected "${begin}".`,
+      "ERR_JWK_INVALID",
+    );
+  }
+};
+
 const genericExport = async (
   keyType: "private" | "public",
   keyFormat: "spki" | "pkcs8",
@@ -75,6 +104,7 @@ const genericExport = async (
 
 const genericImport = async (
   replace: RegExp,
+  descriptor: "PRIVATE KEY" | "PUBLIC KEY",
   keyFormat: "spki" | "pkcs8",
   pem: string,
   alg: string,
@@ -83,6 +113,7 @@ const genericImport = async (
   let algorithm: RsaHashedImportParams | EcKeyAlgorithm | Algorithm;
   let keyUsages: KeyUsage[];
 
+  assertPEMLabel(pem, descriptor);
   const cleanedPem = pem.replace(replace, "");
   const keyData = base64Decode(cleanedPem, false);
 

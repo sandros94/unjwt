@@ -1,5 +1,3 @@
-// --- JWK Function Specific Types ---
-
 /**
  * The decoded JOSE protected header received by a {@link JWKLookupFunction}.
  *
@@ -96,20 +94,25 @@ export interface GenerateKeyOptions {
   toJWK?: boolean;
 }
 
-// Conditional return type when toJWK is true
+// JWK_ECDH_ES resolves to EC (P-256/P-384/P-521) or OKP (X25519/X448) at runtime
+// depending on `namedCurve`, so its branch returns the union of both shapes.
 type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_Asymmetric_Algorithm
   ? TAlg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
     ? { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
-    : TAlg extends JWK_ECDSA | JWK_ECDH_ES
+    : TAlg extends JWK_ECDSA
       ? { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
-      : TAlg extends JWK_OKP_SIGN
-        ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
-        : never
+      : TAlg extends JWK_ECDH_ES
+        ?
+            | { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
+            | { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
+        : TAlg extends JWK_OKP_SIGN
+          ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
+          : never
   : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-    ? JWK_oct // The composite key material is stored as a single JWK_oct and split internally during enc/dec.
+    ? JWK_oct
     : never;
 
-// Conditional return type when toJWK is false or undefined
+// AES-CBC+HMAC returns raw bytes — the composite layout isn't directly importable via Web Crypto.
 type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_AES_CBC_HMAC
   ? Uint8Array<ArrayBuffer>
   : TAlg extends JWK_Asymmetric_Algorithm
@@ -143,7 +146,6 @@ export interface DeriveKeyOptions {
   toJWK?: boolean;
 }
 
-// Conditional return type for deriveKeyFromPassword
 export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> = TOptions["toJWK"] extends true
   ? JWK_oct
   : TOptions["toJWK"] extends object
@@ -193,25 +195,43 @@ export interface WrapKeyOptions {
   };
 }
 
-/** Result of the wrapKey function. */
-export interface WrapKeyResult {
-  /** The wrapped key (Ciphertext). */
-  encryptedKey: Uint8Array<ArrayBuffer>;
-  /** Initialization Vector used (only for AES-GCMKW). Base64URL encoded. */
-  iv?: string;
-  /** Authentication Tag generated (only for AES-GCMKW). Base64URL encoded. */
-  tag?: string;
-  /** PBES2 Salt value used (only for PBES2). Base64URL encoded. */
-  p2s?: string;
-  /** PBES2 Iteration count used (only for PBES2). */
-  p2c?: number;
-  /** ECDH-ES Ephemeral Public Key used (only for ECDH-ES). */
-  epk?: JWK_EC_Public;
-  /** ECDH-ES Agreement PartyUInfo used (only for ECDH-ES). Base64URL encoded. */
-  apu?: string;
-  /** ECDH-ES Agreement PartyVInfo used (only for ECDH-ES). Base64URL encoded. */
-  apv?: string;
-}
+/**
+ * Result of {@link wrapKey}, discriminated by key management algorithm family.
+ *
+ * Narrow the shape by passing a literal `alg` to `wrapKey`:
+ * - PBES2 → `{ encryptedKey, p2s, p2c }`
+ * - AES-GCMKW → `{ encryptedKey, iv, tag }`
+ * - ECDH-ES / ECDH-ES+A*KW → `{ encryptedKey, epk, apu?, apv? }`
+ * - dir / AES-KW / RSA-OAEP → `{ encryptedKey }`
+ */
+export type WrapKeyResult<TAlg extends KeyManagementAlgorithm = KeyManagementAlgorithm> =
+  TAlg extends JWK_PBES2
+    ? {
+        encryptedKey: Uint8Array<ArrayBuffer>;
+        /** PBES2 Salt value (p2s). Base64URL encoded. */
+        p2s: string;
+        /** PBES2 Iteration count (p2c). */
+        p2c: number;
+      }
+    : TAlg extends JWK_AES_GCM_KW
+      ? {
+          encryptedKey: Uint8Array<ArrayBuffer>;
+          /** AES-GCMKW Initialization Vector. Base64URL encoded. */
+          iv: string;
+          /** AES-GCMKW Authentication Tag. Base64URL encoded. */
+          tag: string;
+        }
+      : TAlg extends JWK_ECDH_ES
+        ? {
+            encryptedKey: Uint8Array<ArrayBuffer>;
+            /** Ephemeral Public Key. */
+            epk: JWK_EC_Public;
+            /** Agreement PartyUInfo. Base64URL encoded. Present only when supplied. */
+            apu?: string;
+            /** Agreement PartyVInfo. Base64URL encoded. Present only when supplied. */
+            apv?: string;
+          }
+        : { encryptedKey: Uint8Array<ArrayBuffer> };
 
 /** Options for the unwrapKey function. */
 export interface UnwrapKeyOptions {
@@ -230,6 +250,10 @@ export interface UnwrapKeyOptions {
   p2s?: Uint8Array<ArrayBuffer> | string;
   /** PBES2 Iteration count (required for PBES2). */
   p2c?: number;
+  /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
+  minIterations?: number;
+  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  maxIterations?: number;
   /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
   epk?: JWK_EC_Public | CryptoKey;
   /** ECDH-ES Agreement PartyUInfo. Base64URL encoded or Uint8Array. */
@@ -251,8 +275,6 @@ export interface UnwrapKeyOptions {
   /** Mark the unwrapped key as extractable. Defaults to true. */
   extractable?: boolean;
 }
-
-// --- Standard JWK Interfaces ---
 
 /**
  * Forked from https://github.com/panva/jose/tree/v6.0.10

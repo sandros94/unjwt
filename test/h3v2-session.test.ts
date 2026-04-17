@@ -166,7 +166,6 @@ describe("adapter h3 v2", () => {
     });
 
     it("accepts token from authorization header", async () => {
-      // Lets create a new sealed session token first
       const sealed = await encrypt(
         {
           jti: "999",
@@ -176,7 +175,6 @@ describe("adapter h3 v2", () => {
         sessionConfig.key,
       );
 
-      // Now request with authorization header
       const result = await app.request("/", {
         headers: {
           Authorization: `Bearer ${sealed}`,
@@ -239,9 +237,8 @@ describe("adapter h3 v2", () => {
     });
 
     it("update throws on a non-writable event when cookies are enabled", async () => {
-      // Simulate a read-only / upgrade-type event that has no `.res`
-      // (e.g. WebSocket upgrade in h3v2 — hasWritableResponse() returns false).
-      // Cookie is enabled in config, so attempting to update should throw.
+      // Read-only event (e.g. WebSocket upgrade) has no `.res`, so
+      // `hasWritableResponse()` returns false and cookie-enabled updates must throw.
       const roConfig: SessionConfigJWE = {
         ...sessionConfig,
         name: "h3-jwe-test-no-res",
@@ -409,7 +406,6 @@ describe("adapter h3 v2", () => {
     });
 
     it("accepts token from authorization header", async () => {
-      // Lets create a new signed session token first
       const signed = await sign(
         {
           jti: "999",
@@ -419,7 +415,6 @@ describe("adapter h3 v2", () => {
         sessionConfig.key.privateKey,
       );
 
-      // Now request with authorization header
       const result = await app.request("/", {
         headers: {
           Authorization: `Bearer ${signed}`,
@@ -482,9 +477,8 @@ describe("adapter h3 v2", () => {
     });
 
     it("update throws on a non-writable event when cookies are enabled", async () => {
-      // Simulate a read-only / upgrade-type event that has no `.res`
-      // (e.g. WebSocket upgrade in h3v2 — hasWritableResponse() returns false).
-      // Cookie is enabled in config, so attempting to update should throw.
+      // Read-only event (e.g. WebSocket upgrade) has no `.res`, so
+      // `hasWritableResponse()` returns false and cookie-enabled updates must throw.
       const roConfig: SessionConfigJWS = {
         ...sessionConfig,
         name: "h3-jws-test-no-res",
@@ -527,7 +521,6 @@ describe("adapter h3 v2", () => {
           },
         };
 
-        // Manually create a token with the correct key
         const token = await encrypt(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key,
@@ -578,7 +571,6 @@ describe("adapter h3 v2", () => {
           },
         };
 
-        // Manually create a token with the correct key
         const token = await sign(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key.privateKey,
@@ -727,22 +719,18 @@ describe("adapter h3 v2", () => {
         return { token: session.token };
       });
 
-      // First POST — new session, onRead fires with undefined (no incoming token)
       await localApp.request("/", { method: "POST" });
       expect(readTokens[0]).toBeUndefined();
 
-      // Second POST — onRead fires with undefined again (fresh request), then update issues token
       const initRes = await localApp.request("/", { method: "POST" });
       const cookie = initRes.headers.getSetCookie()[0];
       expect(cookie).toBeDefined();
 
-      // GET with cookie — onRead fires with the raw cookie token
       await localApp.request("/", { headers: { Cookie: cookie! } });
       const lastReadToken = readTokens[readTokens.length - 1];
       expect(lastReadToken).toBeTypeOf("string");
       expect(lastReadToken!.length).toBeGreaterThan(0);
 
-      // Advance past expiry
       vi.setSystemTime(new Date("2025-01-01T00:00:05.000Z"));
       await localApp.request("/", { headers: { Cookie: cookie! } });
       expect(expireTokens.length).toBeGreaterThan(0);

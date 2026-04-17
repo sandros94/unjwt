@@ -37,6 +37,7 @@ import {
   computeJwtTimeClaims,
   decodePayloadFromBytes,
   getPlaintextBytes,
+  inferJWEAllowedAlgorithms,
   validateCriticalHeadersJWE,
   validateJwtClaims,
 } from "./utils";
@@ -94,34 +95,31 @@ export async function encrypt(
   } = options;
   let { alg, enc } = options;
 
-  // Fallback logic for alg and enc
   if (!alg) {
     if (typeof key === "string" || key instanceof Uint8Array) {
       alg = "PBES2-HS256+A128KW";
     } else if (isJWK(key)) {
-      // Use AES-GCM keys for Key Wrapping
-      alg =
-        key.alg === "A128GCM" || key.alg === "A192GCM" || key.alg === "A256GCM"
-          ? (`${key.alg}KW` as KeyManagementAlgorithm)
-          : (key.alg as KeyManagementAlgorithm);
+      alg = key.alg as KeyManagementAlgorithm;
     }
   }
   if (!alg) {
-    throw new TypeError(
+    throw new JWTError(
       'JWE "alg" (Key Management Algorithm) must be provided in options or inferable from the key',
+      "ERR_JWE_ALG_MISSING",
     );
   }
   if (!enc) {
     if (alg === "dir") {
-      // Allow enc to be carried on the JWK itself as a non-standard hint.
+      // Allow `enc` to ride on the JWK when `alg: "dir"`.
       enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : undefined;
-      if (!enc) throw new TypeError('JWE "enc" must be provided when alg is "dir"');
+      if (!enc) {
+        throw new JWTError('JWE "enc" must be provided when alg is "dir"', "ERR_JWE_ENC_MISSING");
+      }
     } else {
       enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A128GCM";
     }
   }
 
-  // Prepare parameters for encryptKey
   const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
   if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
   if (p2s) jweKeyManagementParams.p2s = p2s;
@@ -136,12 +134,12 @@ export async function encrypt(
     jweKeyManagementParams.epkPrivateKey = epkPrivateKey;
   }
 
-  const wrappingKeyMaterial = await importKey(key, alg);
+  const wrappingKeyMaterial = await importKey(key, { alg, expect: "public" });
 
   const {
-    cek: finalCek, // This is the CEK (CryptoKey | Uint8Array) to be used for content encryption
-    encryptedKey: jweEncryptedKey, // This is the JWE Encrypted Key (Uint8Array | undefined)
-    parameters: keyManagementHeaderParams, // JWE header params from key encryption (e.g., epk, p2s, iv, tag)
+    cek: finalCek,
+    encryptedKey: jweEncryptedKey,
+    parameters: keyManagementHeaderParams,
   } = await encryptKey(alg, enc, wrappingKeyMaterial, providedCek, jweKeyManagementParams);
 
   const protectedHeader = _buildJWEHeader(
@@ -153,10 +151,8 @@ export async function encrypt(
     payload,
   );
 
-  // Calculate expiresIn for JWT
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
     payload,
-    protectedHeader.typ,
     options.expiresIn,
     options.currentDate,
   );
@@ -185,8 +181,7 @@ export async function encrypt(
     );
   }
 
-  // For 'dir' or 'ECDH-ES' (direct key agreement), jweEncryptedKey will be undefined.
-  // The JWE Encrypted Key part should be an empty string in these cases.
+  // `dir` and `ECDH-ES` (direct key agreement) have no encrypted key — RFC 7516 §4.5.
   const encryptedKeyEncoded = jweEncryptedKey ? base64UrlEncode(jweEncryptedKey) : "";
 
   const jweParts: string[] = [
@@ -297,6 +292,21 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
 
   const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
 
+  // Without an explicit allowlist, infer from the key shape — prevents
+  // sender-controlled `alg` from dictating key management.
+  if (!options?.algorithms) {
+    const inferred = inferJWEAllowedAlgorithms(rawKeyMaterial);
+    if (!inferred) {
+      throw new JWTError(
+        'Cannot infer allowed key management algorithms from this key; pass "options.algorithms" explicitly.',
+        "ERR_JWE_ALG_NOT_ALLOWED",
+      );
+    }
+    if (!inferred.includes(alg)) {
+      throw new JWTError(`Key management algorithm not allowed: ${alg}`, "ERR_JWE_ALG_NOT_ALLOWED");
+    }
+  }
+
   const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
   const contentIVBytes = base64UrlDecode(ivEncoded, false);
   const contentAuthTagBytes = base64UrlDecode(authTagEncoded, false);
@@ -317,6 +327,8 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   if (options?.unwrappedKeyAlgorithm)
     unwrapKeyOpts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
   if (options?.extractable) unwrapKeyOpts.extractable = options.extractable;
+  if (options?.minIterations !== undefined) unwrapKeyOpts.minIterations = options.minIterations;
+  if (options?.maxIterations !== undefined) unwrapKeyOpts.maxIterations = options.maxIterations;
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
@@ -331,10 +343,12 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
         "ERR_JWK_KEY_NOT_FOUND",
       );
     }
+    // `importKey` runs outside the catch: malformed candidates surface rather than being
+    // silently skipped. Only unwrap/AEAD failures count as "try next".
     let decrypted = false;
     for (const candidate of candidates) {
+      const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
       try {
-        const unwrappingKey = await importKey(candidate as any, alg);
         const candidateCek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
         plaintextBytes = await joseDecrypt(
           enc,
@@ -347,15 +361,15 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
         cek = candidateCek;
         decrypted = true;
         break;
-      } catch {
-        // this candidate did not work, try the next one
+      } catch (err) {
+        if (err instanceof JWTError && err.code !== "ERR_JWE_DECRYPTION_FAILED") throw err;
       }
     }
     if (!decrypted) {
       throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
     }
   } else {
-    const unwrappingKey = await importKey(rawKeyMaterial, alg);
+    const unwrappingKey = await importKey(rawKeyMaterial, { alg, expect: "private" });
     try {
       cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
       plaintextBytes = await joseDecrypt(
@@ -372,23 +386,19 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     }
   }
 
-  const payload = decodePayloadFromBytes<T>(
-    plaintextBytes,
-    protectedHeader,
-    options?.forceUint8Array,
-  ) as T;
+  const payload = decodePayloadFromBytes<T>(plaintextBytes, options?.forceUint8Array) as T;
 
   if (protectedHeader.crit || options?.recognizedHeaders?.length) {
     validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
   }
 
+  // RFC 7519 JWT claim validation runs for any JSON-object payload; opt out via `validateClaims: false`.
   if (
     payload &&
     typeof payload === "object" &&
-    options.validateClaims !== false &&
-    (options.validateClaims === true || protectedHeader.typ?.toLowerCase().includes("jwt")) &&
+    !(payload instanceof Uint8Array) &&
     !options.forceUint8Array &&
-    !(payload instanceof Uint8Array)
+    options.validateClaims !== false
   ) {
     validateJwtClaims(payload as JWTClaims, options);
   }
@@ -420,26 +430,36 @@ function parseEphemeralKey(ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ep
   ) {
     const candidate = ephemeralKey;
     if (!candidate.publicKey || !candidate.privateKey) {
-      throw new TypeError(
+      throw new JWTError(
         "ECDH-ES custom ephemeral key must include both publicKey and privateKey.",
+        "ERR_JWK_INVALID",
       );
     }
     epk = candidate.publicKey;
     epkPrivateKey = candidate.privateKey;
   } else if (isCryptoKey(ephemeralKey)) {
     if (ephemeralKey.type !== "private") {
-      throw new TypeError("ECDH-ES custom ephemeral CryptoKey must include private key material.");
+      throw new JWTError(
+        "ECDH-ES custom ephemeral CryptoKey must include private key material.",
+        "ERR_JWK_INVALID",
+      );
     }
     epk = ephemeralKey;
     epkPrivateKey = ephemeralKey;
   } else if (isJWK(ephemeralKey)) {
     if (!("d" in ephemeralKey) || typeof ephemeralKey.d !== "string") {
-      throw new TypeError('ECDH-ES custom ephemeral JWK must include private parameter "d".');
+      throw new JWTError(
+        'ECDH-ES custom ephemeral JWK must include private parameter "d".',
+        "ERR_JWK_INVALID",
+      );
     }
     epk = ephemeralKey;
     epkPrivateKey = ephemeralKey;
   } else {
-    throw new TypeError("Unsupported ECDH-ES ephemeral key material provided in options.");
+    throw new JWTError(
+      "Unsupported ECDH-ES ephemeral key material provided in options.",
+      "ERR_JWK_INVALID",
+    );
   }
 
   return {

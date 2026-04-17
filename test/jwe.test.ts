@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError } from "../src/core/jwe";
-import { generateKey, generateJWK, exportKey, unwrapKey } from "../src/core/jwk";
+import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
 import {
   randomBytes,
   textEncoder,
@@ -275,13 +275,35 @@ describe.concurrent("JWE Utilities", () => {
       expect(textDecoder.decode(josePlaintext)).toBe(t);
     });
 
+    // `alg` is inferred from the JWK verbatim — no silent `A*GCM → A*GCMKW` coercion.
+    it("encrypts a GCMKW oct JWK via its declared alg without coercion", async () => {
+      const jwk = await generateJWK("A256GCMKW");
+      expect(jwk.alg).toBe("A256GCMKW");
+      const jwe = await encrypt("payload", jwk, { enc: "A256GCM" });
+      const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
+      expect(header.alg).toBe("A256GCMKW");
+      const { payload } = await decrypt(jwe, jwk);
+      expect(payload).toBe("payload");
+    });
+
+    // An oct JWK with `alg: "A256GCM"` used for key wrap requires an explicit `alg`
+    // override — the library never rewrites `A256GCM` into `A256GCMKW` silently.
+    it("rejects an oct JWK with alg=A256GCM used for key wrap without explicit alg", async () => {
+      const jwk = await generateJWK("A256GCM");
+      expect(jwk.alg).toBe("A256GCM");
+      await expect(encrypt("payload", jwk)).rejects.toThrow(/Invalid or unsupported "alg"/i);
+      const jwe = await encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" });
+      const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
+      expect(header.alg).toBe("A256GCMKW");
+    });
+
     it("should use provided CEK and contentEncryptionIV", async () => {
       const alg: KeyManagementAlgorithm = "A128KW";
       const enc: ContentEncryptionAlgorithm = "A128GCM";
       const key = keys[alg]!.key as CryptoKey;
 
-      const customCek = randomBytes(128 / 8); // 128 bits for A128GCM
-      const customIv = randomBytes(96 / 8); // 96 bits for A128GCM
+      const customCek = randomBytes(128 / 8);
+      const customIv = randomBytes(96 / 8);
 
       const jwe = await encrypt(plaintextString, key, {
         alg,
@@ -292,8 +314,8 @@ describe.concurrent("JWE Utilities", () => {
 
       const { payload: decryptedPayload } = await decrypt(jwe, key);
       expect(decryptedPayload).toBe(plaintextString);
-      // Note: We can't directly compare the CEK after it's been wrapped and unwrapped
-      // unless we unwrap it manually here. But we can check the IV.
+      // Only the IV is verifiable here; the CEK is wrapped so its bytes aren't visible
+      // without a manual unwrap.
       const jweParts = jwe.split(".");
       const decodedIv = base64UrlDecode(jweParts[2], false);
       expect(decodedIv).toEqual(customIv);
@@ -324,6 +346,88 @@ describe.concurrent("JWE Utilities", () => {
         // @ts-expect-error intentionally invalid payload
         encrypt(null, key, { alg: "A128KW", enc: "A128GCM" }),
       ).rejects.toThrow(/Plaintext must be/i);
+    });
+
+    // `encrypt` / `decrypt` pin `expect: "public" | "private"` on import, so a
+    // wrong-direction asymmetric JWK fails fast instead of being silently accepted.
+    it("rejects a private recipient JWK passed to encrypt()", async () => {
+      const { privateKey, publicKey } = await generateJWK("RSA-OAEP-256", {
+        modulusLength: 2048,
+      });
+      await expect(
+        encrypt(plaintextObj, publicKey, { alg: "RSA-OAEP-256", enc: "A256GCM" }),
+      ).resolves.toBeTypeOf("string");
+      await expect(
+        encrypt(plaintextObj, privateKey, { alg: "RSA-OAEP-256", enc: "A256GCM" }),
+      ).rejects.toThrow(expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }));
+    });
+
+    it("rejects a public recipient JWK passed to decrypt()", async () => {
+      const { privateKey, publicKey } = await generateJWK("RSA-OAEP-256", {
+        modulusLength: 2048,
+      });
+      const jwe = await encrypt(plaintextObj, publicKey, {
+        alg: "RSA-OAEP-256",
+        enc: "A256GCM",
+      });
+      await expect(decrypt(jwe, privateKey)).resolves.toBeDefined();
+      // `decrypt`'s TS union already rejects `JWK_Public`; the cast exercises the
+      // runtime guard for callers that use `as any`.
+      await expect(decrypt(jwe, publicKey as any)).rejects.toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+      );
+    });
+  });
+
+  describe("PBES2 p2c bounds", () => {
+    const password = textEncoder.encode("securepassword123");
+    const alg: KeyManagementAlgorithm = "PBES2-HS256+A128KW";
+
+    it("rejects p2c below the default minimum of 1000 iterations", async () => {
+      const cek = randomBytes(32);
+      const p2s = randomBytes(16);
+      const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 500, p2s });
+      await expect(
+        unwrapKey(alg, encryptedKey, password, { p2c: 500, p2s, format: "raw" }),
+      ).rejects.toThrow(/"p2c" below the minimum of 1000/);
+    });
+
+    it("rejects p2c above the default maximum of 1_000_000 iterations", async () => {
+      // The bounds check fires before PBKDF2, so no need to actually wrap at that iteration count.
+      const p2s = randomBytes(16);
+      await expect(
+        unwrapKey(alg, randomBytes(40), password, {
+          p2c: 1_000_001,
+          p2s,
+          format: "raw",
+        }),
+      ).rejects.toThrow(/"p2c" above the maximum of 1000000/);
+    });
+
+    it("accepts p2c at the default floor of 1000 iterations", async () => {
+      const cek = randomBytes(32);
+      const p2s = randomBytes(16);
+      const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 1000, p2s });
+      const unwrapped = await unwrapKey(alg, encryptedKey, password, {
+        p2c: 1000,
+        p2s,
+        format: "raw",
+      });
+      expect(unwrapped).toEqual(cek);
+    });
+
+    it("honours caller-supplied minIterations override", async () => {
+      const cek = randomBytes(32);
+      const p2s = randomBytes(16);
+      const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 500, p2s });
+      // Below default floor (1000), but a caller-supplied floor of 100 accepts it.
+      const unwrapped = await unwrapKey(alg, encryptedKey, password, {
+        p2c: 500,
+        p2s,
+        format: "raw",
+        minIterations: 100,
+      });
+      expect(unwrapped).toEqual(cek);
     });
   });
 
@@ -394,13 +498,24 @@ describe.concurrent("JWE Utilities", () => {
       // Two AES-KW keys without kid — encrypt with key2, set has key1 first so retry is exercised
       const [rawKey1, rawKey2] = await Promise.all([generateKey("A256KW"), generateKey("A256KW")]);
       const token = await encrypt(plaintextObj, rawKey2, { alg: "A256KW", enc: "A256GCM" });
-      const [jwk1, jwk2] = await Promise.all([
-        exportKey(rawKey1, { alg: "A256KW" }),
-        exportKey(rawKey2, { alg: "A256KW" }),
-      ]);
+      const [jwk1, jwk2] = await Promise.all([exportKey(rawKey1), exportKey(rawKey2)]);
       const set = { keys: [jwk1, jwk2] };
       const { payload } = await decrypt(token, set);
       expect(payload).toEqual(plaintextObj);
+    });
+
+    // Unwrap / AEAD failures are "try next"; malformed JWKs must surface immediately.
+    it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
+      const rawValid = await generateKey("A256KW");
+      const validJwk = await exportKey(rawValid);
+      // `kty: "RSA"` with `alg: "A256KW"` is nonsensical — `subtleMapping` rejects
+      // the combination. The fake `d` field satisfies the `expect: "private"` intent
+      // check so the alg mismatch surfaces rather than the intent guard short-circuiting.
+      const malformedJwk = { kty: "RSA", alg: "A256KW", d: "fake" } as unknown as JWK;
+      const token = await encrypt(plaintextObj, rawValid, { alg: "A256KW", enc: "A256GCM" });
+
+      const set = { keys: [malformedJwk, validJwk] };
+      await expect(decrypt(token, set)).rejects.toThrow(/Invalid or unsupported JWK "alg"/);
     });
 
     it("should decrypt with a key lookup function", async () => {
@@ -458,6 +573,21 @@ describe.concurrent("JWE Utilities", () => {
       ).rejects.toThrow('"alg" (Algorithm) Header Parameter value not allowed');
     });
 
+    // Absent `options.algorithms` falls back to inference from the key shape.
+    // The token's declared `alg` must be in the inferred set or decryption fails closed.
+    it("infers the algorithm allowlist from a JWK when options.algorithms is absent", async () => {
+      const kwJwk = await exportKey<JWK_Symmetric>(await generateKey("A128KW"));
+      const token = await encrypt(plaintextObj, kwJwk, { alg: "A128KW", enc: "A128GCM" });
+      // JWK with alg: "A128KW" infers to ["A128KW", "dir"].
+      await expect(decrypt(token, kwJwk)).resolves.toBeDefined();
+      // A forged header claiming a different key management alg is rejected.
+      const [, encKeyPart, ivPart, ctPart, tagPart] = token.split(".");
+      const forgedHeader = base64UrlEncode(JSON.stringify({ alg: "A256KW", enc: "A128GCM" }));
+      await expect(
+        decrypt(`${forgedHeader}.${encKeyPart}.${ivPart}.${ctPart}.${tagPart}`, kwJwk),
+      ).rejects.toThrow("Key management algorithm not allowed: A256KW");
+    });
+
     it("should throw if content encryption algorithm not allowed", async () => {
       await expect(decrypt(jwe, key, { encryptionAlgorithms: ["A256GCM"] })).rejects.toThrow(
         `Content encryption algorithm not allowed: ${enc}`,
@@ -504,6 +634,23 @@ describe.concurrent("JWE Utilities", () => {
         'Extension Header Parameter "unknownParam" is not recognized',
       );
     });
+
+    // RFC 7516 §4.1.13 — registered params the library does not process must not be treated as
+    // implicitly understood. `jwk`/`jku`/`x5c`/`x5t`/`x5u` require explicit `recognizedHeaders`.
+    it.each(["jwk", "jku", "x5c", "x5t", "x5u"])(
+      "rejects '%s' in crit without explicit recognizedHeaders",
+      async (param) => {
+        const jweCrit = await encrypt(plaintextString, key, {
+          alg,
+          enc,
+          protectedHeader: { crit: [param], [param]: "irrelevant" },
+        });
+        await expect(decrypt(jweCrit, key)).rejects.toThrow(
+          `Unprocessed critical header parameters: ${param}`,
+        );
+        await expect(decrypt(jweCrit, key, { recognizedHeaders: [param] })).resolves.toBeDefined();
+      },
+    );
 
     it("should correctly parse plaintext as JSON or string based on typ/cty", async () => {
       // 1. typ: "JWT"
@@ -628,6 +775,40 @@ describe.concurrent("JWE Utilities", () => {
           validateClaims: false,
         });
         expect(payload.exp).toBe(60);
+      });
+
+      it("rejects expired token even when typ header is absent", async () => {
+        // Encrypting a plain JSON string as Uint8Array bypasses `applyTypCtyDefaults`
+        // so the protected header has no `typ`. Prior to v0.7.0 this silently skipped
+        // claim validation because the condition was typ-gated.
+        const key = keys[alg]!.key as CryptoKey;
+        const expiredPayload = {
+          sub: "abc",
+          exp: Math.floor(Date.now() / 1000) - 60,
+        };
+        const jwe = await encrypt(textEncoder.encode(JSON.stringify(expiredPayload)), key, {
+          alg,
+          enc,
+          protectedHeader: { cty: "application/json" },
+        });
+
+        await expect(decrypt<JWTClaims>(jwe, key)).rejects.toThrow("Token has expired");
+      });
+
+      it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const jwe = await encrypt({ sub: "abc", exp: "never" }, key, { alg, enc });
+
+        try {
+          await decrypt(jwe, key);
+          expect.fail("decrypt should have thrown");
+        } catch (err) {
+          expect(isJWTError(err)).toBe(true);
+          if (isJWTError(err)) expect(err.code).toBe("ERR_JWT_CLAIM_INVALID");
+          expect((err as Error).message).toContain(
+            '"exp" (Expiration Time) Claim must be a number',
+          );
+        }
       });
 
       it("should throw if JWT has expired", async () => {
@@ -931,6 +1112,26 @@ describe.concurrent("JWE Utilities", () => {
       const error = await decrypt(jwe, otherKey).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    });
+
+    it("ERR_JWE_ALG_MISSING — encrypt without inferable alg", async () => {
+      // CryptoKey is neither Uint8Array (→ PBES2 default) nor a JWK (→ alg field);
+      // TS types enforce `alg` on the CryptoKey overload, so cast to exercise the runtime guard.
+      const key = await generateKey("A256KW");
+      const error = await (encrypt as (p: unknown, k: unknown) => Promise<string>)(
+        "payload",
+        key,
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_ALG_MISSING")).toBe(true);
+    });
+
+    it("ERR_JWE_ENC_MISSING — encrypt with alg:'dir' and no enc", async () => {
+      const key = await generateKey("A256GCM");
+      // @ts-expect-error intentionally omitting enc
+      const error = await encrypt("payload", key, { alg: "dir" }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_ENC_MISSING")).toBe(true);
     });
   });
 });

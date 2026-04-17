@@ -81,7 +81,11 @@ export interface JWTClaimValidationOptions {
   subject?: string;
   /** Maximum token age, from the JWT "iat" (Issued At) Claim value. Implies presence requirement. */
   maxTokenAge?: MaxTokenAge;
-  /** Clock skew tolerance (in seconds) for validating time-based claims (nbf/exp/iat). */
+  /**
+   * Clock skew tolerance (in seconds) for validating time-based claims (nbf/exp/iat).
+   *
+   * @default 0
+   */
   clockTolerance?: number;
   /** Expected JWT "typ" (Type) Header Parameter value. Implies presence requirement. */
   typ?: string;
