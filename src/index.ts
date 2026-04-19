@@ -46,6 +46,7 @@ export {
   isPublicJWK,
   sanitizeObject,
   validateJwtClaims,
+  computeDurationInSeconds,
   computeExpiresInSeconds,
   computeMaxTokenAgeSeconds,
 } from "./core/utils";

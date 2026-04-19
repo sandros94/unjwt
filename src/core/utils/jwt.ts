@@ -1,4 +1,4 @@
-import type { JWTClaims, JWTClaimValidationOptions, ExpiresIn } from "../types";
+import type { JWTClaims, JWTClaimValidationOptions, Duration, ExpiresIn } from "../types";
 import { base64UrlDecode, textDecoder, textEncoder, maybeArray, safeJsonParse } from "./index";
 import { JWTError } from "../error";
 
@@ -101,56 +101,146 @@ const TIME_CONSTANTS = Object.freeze({
   year: 31_536_000,
   years: 31_536_000,
 });
-const EXPIRES_IN_REGEX =
+const DURATION_REGEX =
   /^(\d+)(s|second|seconds|m|minute|minutes|h|hour|hours|D|day|days|W|week|weeks|M|month|months|Y|year|years)?$/;
 
-export function computeExpiresInSeconds(expiresIn: ExpiresIn): number {
-  if (typeof expiresIn === "number") {
-    if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
-      throw new TypeError(
-        "If 'expiresIn' is a number, it must be a positive integer representing seconds.",
-      );
+function _parseDurationSeconds(value: Duration): number {
+  if (typeof value === "number") {
+    if (!Number.isInteger(value)) {
+      throw new TypeError("Duration must be an integer number of seconds.");
     }
-    return expiresIn;
+    return value;
   }
-
-  if (typeof expiresIn === "string") {
-    const match = expiresIn.match(EXPIRES_IN_REGEX);
+  if (typeof value === "string") {
+    const match = value.match(DURATION_REGEX);
     if (!match || !match[1]) {
       throw new TypeError(
-        "Invalid 'expiresIn' format. Must be a positive integer or a string like '10m', '2h', '7D', etc.",
+        "Invalid duration format. Must be an integer or a string like '10m', '2h', '7D', etc.",
       );
     }
-
-    const value = Number.parseInt(match[1], 10);
+    const n = Number.parseInt(match[1], 10);
     const unit = (match[2] || "s") as keyof typeof TIME_CONSTANTS;
-
-    return value * TIME_CONSTANTS[unit];
+    return n * TIME_CONSTANTS[unit];
   }
-
-  throw new TypeError("'expiresIn' must be a number or a string representing time duration.");
+  throw new TypeError("Duration must be a number or a string representing time.");
 }
-export const computeMaxTokenAgeSeconds: (expiresIn: ExpiresIn) => number = computeExpiresInSeconds;
 
-/** Compute iat/exp for any JSON-object payload when `expiresIn` is set and `exp` is not already present. */
+/**
+ * Parse a {@link Duration} (integer seconds or shorthand string like `"10m"`)
+ * into a positive integer number of seconds. Used for `expiresIn`-style inputs
+ * where `0` / negatives are invalid.
+ *
+ * For inputs that legitimately permit `0` (e.g. `notBeforeIn: 0`), compute the
+ * bounds at the call site instead.
+ */
+export function computeDurationInSeconds(duration: Duration): number {
+  const seconds = _parseDurationSeconds(duration);
+  if (seconds <= 0) {
+    throw new TypeError("Duration must be a positive integer number of seconds.");
+  }
+  return seconds;
+}
+
+/** @deprecated Renamed to {@link computeDurationInSeconds} in v0.7.0. */
+export const computeExpiresInSeconds: (expiresIn: ExpiresIn) => number = computeDurationInSeconds;
+
+/** @deprecated Renamed to {@link computeDurationInSeconds} in v0.7.0. */
+export const computeMaxTokenAgeSeconds: (expiresIn: ExpiresIn) => number = computeDurationInSeconds;
+
+/** Options for {@link computeJwtTimeClaims}. */
+export interface ComputeJwtTimeClaimsOptions {
+  /** Reference moment for `iat` (and for `expiresIn` / `notBeforeIn` math). Defaults to `new Date()`. */
+  currentDate?: Date;
+  /** Duration until `exp`, relative to `currentDate`. Mutually exclusive with `expiresAt`. */
+  expiresIn?: ExpiresIn;
+  /** Absolute moment for `exp`. Mutually exclusive with `expiresIn`. */
+  expiresAt?: Date;
+  /**
+   * Duration from `iat` before which the JWT must not be accepted.
+   * `0` is allowed and means `nbf = iat` (explicit temporal floor at sign time).
+   * Mutually exclusive with `notBeforeAt`.
+   */
+  notBeforeIn?: ExpiresIn;
+  /** Absolute moment for `nbf` (RFC 7519 §4.1.5). Mutually exclusive with `notBeforeIn`. */
+  notBeforeAt?: Date;
+}
+
+/**
+ * Compute `iat` + optional `exp` / `nbf` for any JSON-object payload.
+ *
+ * Returns a shallow-cloned payload with the time claims added, or `undefined`
+ * when no hint applies (no expiry/nbf provided, non-object payload, or the
+ * payload already carries the corresponding claim).
+ *
+ * `expiresIn` / `expiresAt` and `notBeforeIn` / `notBeforeAt` are each mutually
+ * exclusive pairs — passing both within a pair throws `ERR_JWT_CLAIM_INVALID`.
+ * Invalid `Date` inputs (NaN `.getTime()`) and negative `notBeforeIn` durations
+ * also throw.
+ */
 export function computeJwtTimeClaims(
   payload: unknown,
-  expiresIn?: ExpiresIn,
-  currentDate?: Date,
+  options?: ComputeJwtTimeClaimsOptions,
 ): JWTClaims | undefined {
-  if (
-    expiresIn === undefined ||
-    !(payload && typeof payload === "object") ||
-    payload instanceof Uint8Array ||
-    (payload as any).exp
-  ) {
-    return undefined;
+  const { currentDate, expiresIn, expiresAt, notBeforeIn, notBeforeAt } = options ?? {};
+
+  if (expiresIn !== undefined && expiresAt !== undefined) {
+    throw new JWTError(
+      '"expiresIn" and "expiresAt" are mutually exclusive; pass only one.',
+      "ERR_JWT_CLAIM_INVALID",
+    );
+  }
+  if (notBeforeIn !== undefined && notBeforeAt !== undefined) {
+    throw new JWTError(
+      '"notBeforeIn" and "notBeforeAt" are mutually exclusive; pass only one.',
+      "ERR_JWT_CLAIM_INVALID",
+    );
   }
 
+  const hasExpHint = expiresIn !== undefined || expiresAt !== undefined;
+  const hasNbfHint = notBeforeIn !== undefined || notBeforeAt !== undefined;
+  if (!hasExpHint && !hasNbfHint) return undefined;
+  if (!payload || typeof payload !== "object" || payload instanceof Uint8Array) return undefined;
+
+  const typedPayload = payload as JWTClaims;
+  const wantsExp = hasExpHint && typedPayload.exp === undefined;
+  const wantsNbf = hasNbfHint && typedPayload.nbf === undefined;
+  if (!wantsExp && !wantsNbf) return undefined;
+
   const now = Math.round((currentDate ?? new Date()).getTime() / 1000);
-  const claims: JWTClaims = { ...(payload as JWTClaims) };
+  const claims: JWTClaims = { ...typedPayload };
   claims.iat ||= now;
-  claims.exp = claims.iat + computeExpiresInSeconds(expiresIn);
+
+  if (wantsExp) {
+    if (expiresAt !== undefined) {
+      const expMs = expiresAt.getTime();
+      if (!Number.isFinite(expMs)) {
+        throw new JWTError('"expiresAt" must be a valid Date.', "ERR_JWT_CLAIM_INVALID");
+      }
+      claims.exp = Math.floor(expMs / 1000);
+    } else {
+      claims.exp = claims.iat + computeDurationInSeconds(expiresIn!);
+    }
+  }
+
+  if (wantsNbf) {
+    if (notBeforeAt !== undefined) {
+      const nbfMs = notBeforeAt.getTime();
+      if (!Number.isFinite(nbfMs)) {
+        throw new JWTError('"notBeforeAt" must be a valid Date.', "ERR_JWT_CLAIM_INVALID");
+      }
+      claims.nbf = Math.floor(nbfMs / 1000);
+    } else {
+      const offset = _parseDurationSeconds(notBeforeIn!);
+      if (offset < 0) {
+        throw new JWTError(
+          '"notBeforeIn" must be zero or a positive duration.',
+          "ERR_JWT_CLAIM_INVALID",
+        );
+      }
+      claims.nbf = claims.iat + offset;
+    }
+  }
+
   return claims;
 }
 
@@ -260,7 +350,7 @@ export function validateJwtClaims(
     }
     if (
       jwtClaims.iat <
-      currentTime - computeMaxTokenAgeSeconds(options.maxTokenAge) - clockTolerance
+      currentTime - computeDurationInSeconds(options.maxTokenAge) - clockTolerance
     ) {
       throw new JWTError(
         `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}s, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,

@@ -732,6 +732,35 @@ describe.concurrent("JWE Utilities", () => {
         expect(payload.exp).toBe(999);
       });
 
+      it("sets exp from expiresAt (absolute expiry)", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const expiresAt = new Date("2030-01-01T00:00:00Z");
+        const jwe = await encrypt({ sub: "abc" }, key, {
+          alg,
+          enc,
+          expiresAt,
+          currentDate: new Date(0),
+        });
+
+        const { payload } = await decrypt<JWTClaims>(jwe, key, {
+          currentDate: new Date(0),
+        });
+        expect(payload.exp).toBe(Math.floor(expiresAt.getTime() / 1000));
+        expect(payload.iat).toBe(0);
+      });
+
+      it("throws when both expiresIn and expiresAt are set", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        await expect(
+          encrypt({ sub: "abc" }, key, {
+            alg,
+            enc,
+            expiresIn: 60,
+            expiresAt: new Date("2030-01-01T00:00:00Z"),
+          }),
+        ).rejects.toThrow(/mutually exclusive/i);
+      });
+
       it("defaults typ/cty when encrypting object and leaves typ undefined for string", async () => {
         const key = keys[alg]!.key as CryptoKey;
         const obj = { hello: "world" };

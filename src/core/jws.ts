@@ -87,11 +87,7 @@ export async function sign(
 
   const protectedHeader = _buildJWSHeader(alg, key, userHeader, payload);
 
-  const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
-    payload,
-    options.expiresIn,
-    options.currentDate,
-  );
+  const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
 
   const protectedHeaderString = JSON.stringify(protectedHeader);
   const protectedHeaderEncoded = base64UrlEncode(protectedHeaderString);

@@ -191,6 +191,137 @@ describe.concurrent("JWS Utilities", () => {
       expect(josePayload.exp).toBeDefined();
     });
 
+    it("should set `exp` from `expiresAt` (absolute expiry)", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const expiresAt = new Date("2030-01-01T00:00:00Z");
+      const jws = await sign({ ...payloadObj, iat: undefined, exp: undefined }, key, {
+        expiresAt,
+      });
+      const [, payloadEncoded] = jws.split(".");
+      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      expect(payload.exp).toBe(Math.floor(expiresAt.getTime() / 1000));
+      expect(payload.iat).toBeDefined();
+    });
+
+    it("should throw when both `expiresIn` and `expiresAt` are set", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      await expect(
+        sign({ ...payloadObj, iat: undefined, exp: undefined }, key, {
+          expiresIn: 60,
+          expiresAt: new Date("2030-01-01T00:00:00Z"),
+        }),
+      ).rejects.toThrow(/mutually exclusive/i);
+    });
+
+    it("should throw when `expiresAt` is an invalid Date", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      await expect(
+        sign({ ...payloadObj, iat: undefined, exp: undefined }, key, {
+          expiresAt: new Date("not-a-date"),
+        }),
+      ).rejects.toThrow(/valid Date/i);
+    });
+
+    it("should set `nbf` from `notBeforeAt`", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const notBeforeAt = new Date("2030-01-01T00:00:00Z");
+      const jws = await sign({ ...payloadObj, iat: undefined, exp: undefined }, key, {
+        expiresIn: "1h",
+        notBeforeAt,
+      });
+      const [, payloadEncoded] = jws.split(".");
+      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      expect(payload.nbf).toBe(Math.floor(notBeforeAt.getTime() / 1000));
+      expect(payload.iat).toBeDefined();
+      expect(payload.exp).toBeDefined();
+    });
+
+    it("should not override existing `nbf` claim", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const jws = await sign({ sub: "x", nbf: 999, iat: undefined, exp: undefined }, key, {
+        expiresIn: "1h",
+        notBeforeAt: new Date("2030-01-01T00:00:00Z"),
+      });
+      const [, payloadEncoded] = jws.split(".");
+      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      expect(payload.nbf).toBe(999);
+    });
+
+    it("should throw when `notBeforeAt` is an invalid Date", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      await expect(
+        sign({ ...payloadObj, iat: undefined, exp: undefined }, key, {
+          expiresIn: "1h",
+          notBeforeAt: new Date("not-a-date"),
+        }),
+      ).rejects.toThrow(/valid Date/i);
+    });
+
+    it("roundtrips `nbf` — verify rejects before, accepts after", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const notBeforeAt = new Date("2030-01-01T00:00:00Z");
+      const jws = await sign({ sub: "x", iat: undefined, exp: undefined }, key, {
+        currentDate: new Date("2029-12-31T00:00:00Z"),
+        expiresIn: "7D",
+        notBeforeAt,
+      });
+
+      await expect(
+        verify(jws, key, { currentDate: new Date("2029-12-31T12:00:00Z") }),
+      ).rejects.toThrow(/not yet valid/);
+
+      await expect(
+        verify(jws, key, { currentDate: new Date("2030-01-02T00:00:00Z") }),
+      ).resolves.toBeDefined();
+    });
+
+    it("should set `nbf` from `notBeforeIn` duration", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const jws = await sign({ sub: "x", iat: undefined, exp: undefined }, key, {
+        currentDate: new Date(0),
+        expiresIn: "1h",
+        notBeforeIn: "5m",
+      });
+      const [, payloadEncoded] = jws.split(".");
+      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      expect(payload.iat).toBe(0);
+      expect(payload.nbf).toBe(300);
+    });
+
+    it("should accept `notBeforeIn: 0` as `nbf = iat`", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const jws = await sign({ sub: "x", iat: undefined, exp: undefined }, key, {
+        currentDate: new Date(0),
+        expiresIn: "1h",
+        notBeforeIn: 0,
+      });
+      const [, payloadEncoded] = jws.split(".");
+      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      expect(payload.iat).toBe(0);
+      expect(payload.nbf).toBe(0);
+    });
+
+    it("should throw when both `notBeforeIn` and `notBeforeAt` are set", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      await expect(
+        sign({ sub: "x", iat: undefined, exp: undefined }, key, {
+          expiresIn: "1h",
+          notBeforeIn: 60,
+          notBeforeAt: new Date("2030-01-01T00:00:00Z"),
+        }),
+      ).rejects.toThrow(/mutually exclusive/i);
+    });
+
+    it("should throw on negative `notBeforeIn`", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      await expect(
+        sign({ sub: "x", iat: undefined, exp: undefined }, key, {
+          expiresIn: "1h",
+          notBeforeIn: -60,
+        }),
+      ).rejects.toThrow(/zero or a positive/i);
+    });
+
     it("should include computed `exp` and throw because it is expired", async () => {
       const date = new Date();
       const creationDate = new Date(date.getTime() - 60 * 2 * 1000);

@@ -43,9 +43,38 @@ export interface JWSSignOptions {
   currentDate?: Date;
 
   /**
-   * Time at which the JWS should expire, if no `exp` was already provided.
+   * Duration until the JWS should expire, relative to `currentDate` (or `new Date()`).
+   * Skipped when the payload already carries an `exp` claim.
+   *
+   * Mutually exclusive with {@link expiresAt}.
    */
   expiresIn?: ExpiresIn;
+
+  /**
+   * Absolute moment at which the JWS should expire (sets the `exp` claim directly).
+   * Skipped when the payload already carries an `exp` claim.
+   *
+   * Mutually exclusive with {@link expiresIn}.
+   */
+  expiresAt?: Date;
+
+  /**
+   * Duration from `iat` before which the JWS must not be accepted.
+   * `0` is allowed and sets `nbf = iat` (explicit temporal floor at sign time).
+   * Skipped when the payload already carries an `nbf` claim.
+   *
+   * Mutually exclusive with {@link notBeforeAt}.
+   */
+  notBeforeIn?: ExpiresIn;
+
+  /**
+   * Absolute moment before which the JWS must not be accepted (sets the `nbf`
+   * claim directly per RFC 7519 §4.1.5). Skipped when the payload already
+   * carries an `nbf` claim.
+   *
+   * Mutually exclusive with {@link notBeforeIn}.
+   */
+  notBeforeAt?: Date;
 }
 
 /** Result of JWS verification */

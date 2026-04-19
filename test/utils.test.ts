@@ -160,30 +160,85 @@ describe.concurrent("Utility Functions", () => {
       const date = new Date(0); // epoch
       const now = date.getTime(); // 0 seconds
 
-      let claims = computeJwtTimeClaims({}, "1m", date)!;
+      let claims = computeJwtTimeClaims({}, { expiresIn: "1m", currentDate: date })!;
       expect(claims).toHaveProperty("iat");
       expect(claims.iat).toBe(now);
       expect(claims).toHaveProperty("exp");
       expect(claims.exp).toBe(now + 60);
 
-      claims = computeJwtTimeClaims({ iat: 1000 }, "1m", date)!;
+      claims = computeJwtTimeClaims({ iat: 1000 }, { expiresIn: "1m", currentDate: date })!;
       expect(claims).toHaveProperty("iat");
       expect(claims.iat).toBe(1000);
       expect(claims).toHaveProperty("exp");
       expect(claims.exp).toBe(1060);
     });
 
+    it("should set exp from expiresAt (absolute)", () => {
+      const at = new Date("2030-01-01T00:00:00Z");
+      const claims = computeJwtTimeClaims({}, { expiresAt: at, currentDate: new Date(0) })!;
+      expect(claims.exp).toBe(Math.floor(at.getTime() / 1000));
+      expect(claims.iat).toBe(0);
+    });
+
+    it("should set nbf from notBeforeAt", () => {
+      const nbfDate = new Date("2030-01-01T00:00:00Z");
+      const claims = computeJwtTimeClaims({}, { notBeforeAt: nbfDate, currentDate: new Date(0) })!;
+      expect(claims.nbf).toBe(Math.floor(nbfDate.getTime() / 1000));
+      expect(claims.iat).toBe(0);
+      expect(claims.exp).toBeUndefined();
+    });
+
+    it("should set nbf from notBeforeIn (relative)", () => {
+      const claims = computeJwtTimeClaims({}, { notBeforeIn: "5m", currentDate: new Date(0) })!;
+      expect(claims.nbf).toBe(300);
+      expect(claims.iat).toBe(0);
+      expect(claims.exp).toBeUndefined();
+    });
+
+    it("should accept notBeforeIn: 0 (nbf = iat)", () => {
+      const claims = computeJwtTimeClaims({}, { notBeforeIn: 0, currentDate: new Date(0) })!;
+      expect(claims.nbf).toBe(0);
+      expect(claims.iat).toBe(0);
+    });
+
+    it("throws when both notBeforeIn and notBeforeAt are provided", () => {
+      expect(() => computeJwtTimeClaims({}, { notBeforeIn: 60, notBeforeAt: new Date() })).toThrow(
+        /mutually exclusive/i,
+      );
+    });
+
+    it("throws on negative notBeforeIn", () => {
+      expect(() => computeJwtTimeClaims({}, { notBeforeIn: -60 })).toThrow(/zero or a positive/i);
+    });
+
     it("should return undefined for invalid inputs", () => {
       const date = new Date(0);
 
-      let claims = computeJwtTimeClaims({}, undefined, date);
-      expect(claims).toBeUndefined();
+      expect(computeJwtTimeClaims({}, { currentDate: date })).toBeUndefined();
+      expect(
+        computeJwtTimeClaims({ exp: 2000 }, { expiresIn: "1m", currentDate: date }),
+      ).toBeUndefined();
+      expect(
+        computeJwtTimeClaims(textEncoder.encode("bytes"), {
+          expiresIn: "1m",
+          currentDate: date,
+        }),
+      ).toBeUndefined();
+    });
 
-      claims = computeJwtTimeClaims({ exp: 2000 }, "1m", date);
-      expect(claims).toBeUndefined();
+    it("throws when both expiresIn and expiresAt are provided", () => {
+      expect(() => computeJwtTimeClaims({}, { expiresIn: "1m", expiresAt: new Date() })).toThrow(
+        /mutually exclusive/i,
+      );
+    });
 
-      claims = computeJwtTimeClaims(textEncoder.encode("bytes"), "1m", date);
-      expect(claims).toBeUndefined();
+    it("throws on invalid expiresAt / notBeforeAt Dates", () => {
+      expect(() => computeJwtTimeClaims({}, { expiresAt: new Date("not-a-date") })).toThrow(
+        /valid Date/i,
+      );
+      expect(() => computeJwtTimeClaims({}, { notBeforeAt: new Date("not-a-date") })).toThrow(
+        /valid Date/i,
+      );
     });
   });
 });
@@ -384,7 +439,12 @@ describe("validateCriticalHeadersJWE (direct)", () => {
 describe("computeExpiresInSeconds additional cases", () => {
   it("throws when expiresIn is neither number nor string", () => {
     // @ts-expect-error intentional invalid type
-    expect(() => computeExpiresInSeconds(true)).toThrow("'expiresIn' must be a number or a string");
+    expect(() => computeExpiresInSeconds(true)).toThrow("Duration must be a number or a string");
+  });
+
+  it("throws on zero and negative expiresIn (must be positive)", () => {
+    expect(() => computeExpiresInSeconds(0)).toThrow(/positive integer/);
+    expect(() => computeExpiresInSeconds(-5)).toThrow(/positive integer/);
   });
 });
 

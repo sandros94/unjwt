@@ -152,11 +152,7 @@ export async function encrypt(
     payload,
   );
 
-  const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
-    payload,
-    options.expiresIn,
-    options.currentDate,
-  );
+  const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
 
   const plaintextBytes = getPlaintextBytes(computedPayload || payload);
 
