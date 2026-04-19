@@ -11,18 +11,12 @@ export default defineBuildConfig({
         "./src/core/jwe",
         "./src/core/jwk",
         "./src/core/utils/index",
-        "./src/core/_crypto/index",
+        "./src/adapters/h3v1/index",
+        "./src/adapters/h3v2/index",
       ],
       rolldown: {
         platform: "neutral",
-      },
-    },
-    {
-      type: "bundle",
-      input: ["./src/adapters/h3v1/index", "./src/adapters/h3v2/index"],
-      rolldown: {
-        platform: "neutral",
-        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv3", "rou3"],
+        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv3"],
         plugins: [
           replacePlugin(
             {
