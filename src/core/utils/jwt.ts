@@ -1,5 +1,5 @@
 import type { JWTClaims, JWTClaimValidationOptions, ExpiresIn } from "../types";
-import { base64UrlDecode, textDecoder, textEncoder, maybeArray, sanitizeObject } from "./index";
+import { base64UrlDecode, textDecoder, textEncoder, maybeArray, safeJsonParse } from "./index";
 import { JWTError } from "../error";
 
 /**
@@ -37,8 +37,7 @@ export function decodeMaybeJWTString<T = unknown>(decodedString: string): T | st
     (decodedString.startsWith("[") && decodedString.endsWith("]"));
   if (looksLikeJson) {
     try {
-      const obj = JSON.parse(decodedString);
-      return sanitizeObject(obj as any) as unknown as T;
+      return safeJsonParse<T>(decodedString);
     } catch {
       // fallthrough to return string if malformed
     }

@@ -25,6 +25,7 @@ import {
   isJWK,
   isJWKSet,
   sanitizeObject,
+  safeJsonParse,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromB64UrlSegment,
@@ -173,7 +174,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   let protectedHeader: JWSProtectedHeader;
   try {
     const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = sanitizeObject<JWSProtectedHeader>(JSON.parse(protectedHeaderString));
+    protectedHeader = safeJsonParse<JWSProtectedHeader>(protectedHeaderString);
   } catch {
     throw new JWTError("Invalid JWS: Protected header could not be decoded.", "ERR_JWS_INVALID");
   }

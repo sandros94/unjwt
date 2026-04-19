@@ -1,4 +1,19 @@
 /**
+ * `JSON.parse` wrapper that strips prototype-pollution vectors during parse.
+ *
+ * The reviver returns `undefined` for `__proto__` / `prototype` / `constructor`,
+ * which deletes those keys from the enclosing object — equivalent to parsing
+ * then running {@link sanitizeObject} on the result, but without the follow-up
+ * deep-clone walk. Safe for any JSON input (trees only, no cycles).
+ */
+export function safeJsonParse<T = unknown>(json: string): T {
+  return JSON.parse(json, _jsonReviver) as T;
+}
+
+const _jsonReviver = (key: string, value: unknown): unknown =>
+  key === "__proto__" || key === "prototype" || key === "constructor" ? undefined : value;
+
+/**
  * Originally derived from unsecure@0.0.4
  * Licensed under the MIT License.
  *
