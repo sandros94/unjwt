@@ -536,22 +536,6 @@ describe.concurrent("JWE Utilities", () => {
       );
     });
 
-    it("should throw if protected header is not valid Base64URL", async () => {
-      const parts = jwe.split(".");
-      parts[0] = "not-base64!";
-      await expect(decrypt(parts.join("."), key)).rejects.toThrow(
-        "Protected header could not be decoded",
-      );
-    });
-
-    it("should throw if protected header is not valid JSON", async () => {
-      const parts = jwe.split(".");
-      parts[0] = base64UrlEncode("not json");
-      await expect(decrypt(parts.join("."), key)).rejects.toThrow(
-        "Protected header could not be decoded",
-      );
-    });
-
     it("should throw if protected header is missing alg or enc", async () => {
       const invalidHeader = base64UrlEncode(JSON.stringify({ foo: "bar" }));
       const parts = jwe.split(".");

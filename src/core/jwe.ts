@@ -3,8 +3,6 @@ import type {
   JWKSet,
   JWK_Symmetric,
   JWK_Private,
-  JWK_EC_Public,
-  JWK_EC_Private,
   JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
@@ -31,17 +29,21 @@ import {
   isJWK,
   isJWKSet,
   isCryptoKey,
-  isCryptoKeyPair,
   sanitizeObject,
-  safeJsonParse,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
   getPlaintextBytes,
-  inferJWEAllowedAlgorithms,
   validateCriticalHeadersJWE,
-  validateJwtClaims,
 } from "./utils";
+import {
+  JWE_ALG_CTX,
+  buildJWKSetFilter,
+  checkAlgAllowed,
+  decodeProtectedHeader,
+  parseEphemeralKey,
+  validateJwtClaimsIfJsonPayload,
+} from "./_internal";
 
 export type * from "./types/jwe";
 export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
@@ -131,9 +133,9 @@ export async function encrypt(
   if (ecdh?.partyUInfo) jweKeyManagementParams.apu = ecdh.partyUInfo;
   if (ecdh?.partyVInfo) jweKeyManagementParams.apv = ecdh.partyVInfo;
   if (ecdh?.ephemeralKey) {
-    const { epk, epkPrivateKey } = parseEphemeralKey(ecdh.ephemeralKey);
-    jweKeyManagementParams.epk = epk;
-    jweKeyManagementParams.epkPrivateKey = epkPrivateKey;
+    const parsed = parseEphemeralKey(ecdh.ephemeralKey);
+    jweKeyManagementParams.epk = parsed.epk;
+    jweKeyManagementParams.epkPrivateKey = parsed.epkPrivateKey;
   }
 
   const wrappingKeyMaterial = await importKey(key, { alg, expect: "public" });
@@ -255,20 +257,9 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     authTagEncoded,
   ] = parts;
 
-  let protectedHeader: JWEHeaderParameters;
-  try {
-    const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = safeJsonParse<JWEHeaderParameters>(protectedHeaderJson);
-  } catch {
-    throw new JWTError("Invalid JWE: Protected header could not be decoded.", "ERR_JWE_INVALID");
-  }
+  const protectedHeader = decodeProtectedHeader<JWEHeaderParameters>(protectedHeaderEncoded, "JWE");
 
-  if (
-    !protectedHeader ||
-    typeof protectedHeader !== "object" ||
-    !protectedHeader.alg ||
-    !protectedHeader.enc
-  ) {
+  if (!protectedHeader.alg || !protectedHeader.enc) {
     throw new JWTError(
       'Invalid JWE: Protected header must be an object with "alg" and "enc" properties.',
       "ERR_JWE_INVALID",
@@ -278,9 +269,6 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   const alg = protectedHeader.alg as KeyManagementAlgorithm;
   const enc = protectedHeader.enc as ContentEncryptionAlgorithm;
 
-  if (options?.algorithms && !options.algorithms.includes(alg)) {
-    throw new JWTError(`Key management algorithm not allowed: ${alg}`, "ERR_JWE_ALG_NOT_ALLOWED");
-  }
   if (options?.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
     throw new JWTError(
       `Content encryption algorithm not allowed: ${enc}`,
@@ -290,38 +278,8 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
 
   const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
 
-  // Without an explicit allowlist, infer from the key shape — prevents
-  // sender-controlled `alg` from dictating key management.
-  if (!options?.algorithms) {
-    // Fast-path: non-oct JWK with `alg` names the only allowed algorithm.
-    // `oct` is excluded because its `alg` aliases to `dir` / A*GCMKW variants.
-    if (
-      isJWK(rawKeyMaterial) &&
-      rawKeyMaterial.kty !== "oct" &&
-      typeof rawKeyMaterial.alg === "string"
-    ) {
-      if (rawKeyMaterial.alg !== alg) {
-        throw new JWTError(
-          `Key management algorithm not allowed: ${alg}`,
-          "ERR_JWE_ALG_NOT_ALLOWED",
-        );
-      }
-    } else {
-      const inferred = inferJWEAllowedAlgorithms(rawKeyMaterial);
-      if (!inferred) {
-        throw new JWTError(
-          'Cannot infer allowed key management algorithms from this key; pass "options.algorithms" explicitly.',
-          "ERR_JWE_ALG_NOT_ALLOWED",
-        );
-      }
-      if (!inferred.includes(alg)) {
-        throw new JWTError(
-          `Key management algorithm not allowed: ${alg}`,
-          "ERR_JWE_ALG_NOT_ALLOWED",
-        );
-      }
-    }
-  }
+  const algError = checkAlgAllowed(alg, rawKeyMaterial, options?.algorithms, JWE_ALG_CTX);
+  if (algError) throw algError;
 
   const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
   const contentIVBytes = base64UrlDecode(ivEncoded, false);
@@ -352,7 +310,7 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   let plaintextBytes!: Uint8Array<ArrayBuffer>;
 
   if (isJWKSet(rawKeyMaterial)) {
-    const candidates = getJWKsFromSet(rawKeyMaterial, _buildJWESetFilter(protectedHeader));
+    const candidates = getJWKsFromSet(rawKeyMaterial, buildJWKSetFilter(protectedHeader));
     if (candidates.length === 0) {
       throw new JWTError(
         `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
@@ -408,16 +366,7 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
   }
 
-  // RFC 7519 JWT claim validation runs for any JSON-object payload; opt out via `validateClaims: false`.
-  if (
-    payload &&
-    typeof payload === "object" &&
-    !(payload instanceof Uint8Array) &&
-    !options.forceUint8Array &&
-    options.validateClaims !== false
-  ) {
-    validateJwtClaims(payload as JWTClaims, options);
-  }
+  validateJwtClaimsIfJsonPayload(payload, options);
 
   const result: JWEDecryptResult<T> = {
     payload,
@@ -430,63 +379,6 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   }
 
   return result;
-}
-
-function parseEphemeralKey(ephemeralKey: Required<JWEEncryptOptions>["ecdh"]["ephemeralKey"]) {
-  let epk: CryptoKey | JWK_EC_Public;
-  let epkPrivateKey: CryptoKey | JWK_EC_Private;
-  if (isCryptoKeyPair(ephemeralKey)) {
-    epk = ephemeralKey.publicKey;
-    epkPrivateKey = ephemeralKey.privateKey;
-  } else if (
-    typeof ephemeralKey === "object" &&
-    ephemeralKey !== null &&
-    "publicKey" in ephemeralKey &&
-    "privateKey" in ephemeralKey
-  ) {
-    const candidate = ephemeralKey;
-    if (!candidate.publicKey || !candidate.privateKey) {
-      throw new JWTError(
-        "ECDH-ES custom ephemeral key must include both publicKey and privateKey.",
-        "ERR_JWK_INVALID",
-      );
-    }
-    epk = candidate.publicKey;
-    epkPrivateKey = candidate.privateKey;
-  } else if (isCryptoKey(ephemeralKey)) {
-    if (ephemeralKey.type !== "private") {
-      throw new JWTError(
-        "ECDH-ES custom ephemeral CryptoKey must include private key material.",
-        "ERR_JWK_INVALID",
-      );
-    }
-    epk = ephemeralKey;
-    epkPrivateKey = ephemeralKey;
-  } else if (isJWK(ephemeralKey)) {
-    if (!("d" in ephemeralKey) || typeof ephemeralKey.d !== "string") {
-      throw new JWTError(
-        'ECDH-ES custom ephemeral JWK must include private parameter "d".',
-        "ERR_JWK_INVALID",
-      );
-    }
-    epk = ephemeralKey;
-    epkPrivateKey = ephemeralKey;
-  } else {
-    throw new JWTError(
-      "Unsupported ECDH-ES ephemeral key material provided in options.",
-      "ERR_JWK_INVALID",
-    );
-  }
-
-  return {
-    epk,
-    epkPrivateKey,
-  };
-}
-
-function _buildJWESetFilter(header: JWEHeaderParameters): (k: JWK) => boolean {
-  const { kid, alg } = header;
-  return (k: JWK) => (!kid || k.kid === kid) && (!k.alg || k.alg === alg);
 }
 
 function _buildJWEHeader(

@@ -3,8 +3,6 @@ import type {
   JWKSet,
   JWK_Private,
   JWK_Symmetric,
-  JWK_EC_Public,
-  JWK_EC_Private,
   JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
@@ -12,7 +10,6 @@ import type {
 } from "./types/jwk";
 import type { JOSEPayload, JWTClaims } from "./types/jwt";
 import type {
-  JWEEncryptOptions,
   JWEHeaderParameters,
   JWEProtectedHeader,
   JWEKeyManagementHeaderParameters,
@@ -42,17 +39,21 @@ import {
   isJWK,
   isJWKSet,
   isCryptoKey,
-  isCryptoKeyPair,
   sanitizeObject,
-  safeJsonParse,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
   getPlaintextBytes,
-  inferJWEAllowedAlgorithms,
   validateCriticalHeadersJWE,
-  validateJwtClaims,
 } from "./utils";
+import {
+  JWE_ALG_CTX,
+  buildJWKSetFilter,
+  checkAlgAllowed,
+  decodeProtectedHeader,
+  parseEphemeralKey,
+  validateJwtClaimsIfJsonPayload,
+} from "./_internal";
 
 const DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);
 
@@ -210,18 +211,10 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   }
 
   const protectedHeaderEncoded = general.protected ?? "";
-  let protectedHeader: JWEHeaderParameters = {};
-  if (protectedHeaderEncoded) {
-    try {
-      protectedHeader = safeJsonParse<JWEHeaderParameters>(base64UrlDecode(protectedHeaderEncoded));
-    } catch {
-      throw new JWTError("Invalid JWE: Protected header could not be decoded.", "ERR_JWE_INVALID");
-    }
-  }
-
-  if (!protectedHeader || typeof protectedHeader !== "object") {
-    throw new JWTError("Invalid JWE: Protected header must be an object.", "ERR_JWE_INVALID");
-  }
+  const protectedHeader = decodeProtectedHeader<JWEHeaderParameters>(
+    protectedHeaderEncoded || undefined,
+    "JWE",
+  );
 
   const enc = protectedHeader.enc as ContentEncryptionAlgorithm | undefined;
   if (!enc) {
@@ -262,14 +255,6 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    if (options.algorithms && !options.algorithms.includes(alg)) {
-      lastError = new JWTError(
-        `Key management algorithm not allowed: ${alg}`,
-        "ERR_JWE_ALG_NOT_ALLOWED",
-      );
-      continue;
-    }
-
     const rawKeyMaterial =
       typeof keyOrLookup === "function"
         ? await (keyOrLookup as JWKLookupFunction)(
@@ -278,40 +263,10 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
           )
         : keyOrLookup;
 
-    // Without an explicit allowlist, infer from the resolved key — prevents
-    // a sender-controlled `alg` from dictating key management. oct JWKs with
-    // `alg` are excluded from the fast path because their alg aliases to
-    // both `dir` and A*GCMKW variants (see inferJWEAllowedAlgorithms).
-    if (!options.algorithms) {
-      if (
-        isJWK(rawKeyMaterial) &&
-        rawKeyMaterial.kty !== "oct" &&
-        typeof rawKeyMaterial.alg === "string"
-      ) {
-        if (rawKeyMaterial.alg !== alg) {
-          lastError = new JWTError(
-            `Key management algorithm not allowed: ${alg}`,
-            "ERR_JWE_ALG_NOT_ALLOWED",
-          );
-          continue;
-        }
-      } else {
-        const inferred = inferJWEAllowedAlgorithms(rawKeyMaterial);
-        if (!inferred) {
-          lastError = new JWTError(
-            'Cannot infer allowed key management algorithms from this key; pass "options.algorithms" explicitly.',
-            "ERR_JWE_ALG_NOT_ALLOWED",
-          );
-          continue;
-        }
-        if (!inferred.includes(alg)) {
-          lastError = new JWTError(
-            `Key management algorithm not allowed: ${alg}`,
-            "ERR_JWE_ALG_NOT_ALLOWED",
-          );
-          continue;
-        }
-      }
+    const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWE_ALG_CTX);
+    if (algError) {
+      lastError = algError;
+      continue;
     }
 
     if (options.strictRecipientMatch && !_recipientKeyMatches(effective, rawKeyMaterial)) {
@@ -342,15 +297,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
         validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
       }
 
-      if (
-        payload &&
-        typeof payload === "object" &&
-        !(payload instanceof Uint8Array) &&
-        !options.forceUint8Array &&
-        options.validateClaims !== false
-      ) {
-        validateJwtClaims(payload as JWTClaims, options);
-      }
+      validateJwtClaimsIfJsonPayload(payload, options);
 
       const result: JWEMultiDecryptResult<T> = {
         payload,
@@ -454,7 +401,7 @@ function _buildRecipientKeyMgmtParams(
   if (recipient.ecdh?.partyUInfo) params.apu = recipient.ecdh.partyUInfo;
   if (recipient.ecdh?.partyVInfo) params.apv = recipient.ecdh.partyVInfo;
   if (recipient.ecdh?.ephemeralKey) {
-    const { epk, epkPrivateKey } = _parseEphemeralKey(recipient.ecdh.ephemeralKey);
+    const { epk, epkPrivateKey } = parseEphemeralKey(recipient.ecdh.ephemeralKey);
     params.epk = epk;
     params.epkPrivateKey = epkPrivateKey;
   }
@@ -604,10 +551,7 @@ async function _unwrapAndDecrypt(
   plaintextBytes: Uint8Array<ArrayBuffer>;
 }> {
   if (isJWKSet(rawKeyMaterial)) {
-    const candidates = getJWKsFromSet(
-      rawKeyMaterial,
-      (k) => (!headerKid || k.kid === headerKid) && (!k.alg || k.alg === alg),
-    );
+    const candidates = getJWKsFromSet(rawKeyMaterial, buildJWKSetFilter({ kid: headerKid, alg }));
     if (candidates.length === 0) {
       throw new JWTError("No key found in JWK Set.", "ERR_JWK_KEY_NOT_FOUND");
     }
@@ -649,49 +593,4 @@ async function _unwrapAndDecrypt(
     if (err instanceof JWTError) throw err;
     throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", err);
   }
-}
-
-function _parseEphemeralKey(ephemeralKey: NonNullable<JWEEncryptOptions["ecdh"]>["ephemeralKey"]): {
-  epk: CryptoKey | JWK_EC_Public;
-  epkPrivateKey: CryptoKey | JWK_EC_Private;
-} {
-  if (isCryptoKeyPair(ephemeralKey)) {
-    return { epk: ephemeralKey.publicKey, epkPrivateKey: ephemeralKey.privateKey };
-  }
-  if (
-    typeof ephemeralKey === "object" &&
-    ephemeralKey !== null &&
-    "publicKey" in ephemeralKey &&
-    "privateKey" in ephemeralKey
-  ) {
-    if (!ephemeralKey.publicKey || !ephemeralKey.privateKey) {
-      throw new JWTError(
-        "ECDH-ES custom ephemeral key must include both publicKey and privateKey.",
-        "ERR_JWK_INVALID",
-      );
-    }
-    return { epk: ephemeralKey.publicKey, epkPrivateKey: ephemeralKey.privateKey };
-  }
-  if (isCryptoKey(ephemeralKey)) {
-    if (ephemeralKey.type !== "private") {
-      throw new JWTError(
-        "ECDH-ES custom ephemeral CryptoKey must include private key material.",
-        "ERR_JWK_INVALID",
-      );
-    }
-    return { epk: ephemeralKey, epkPrivateKey: ephemeralKey };
-  }
-  if (isJWK(ephemeralKey)) {
-    if (!("d" in ephemeralKey) || typeof ephemeralKey.d !== "string") {
-      throw new JWTError(
-        'ECDH-ES custom ephemeral JWK must include private parameter "d".',
-        "ERR_JWK_INVALID",
-      );
-    }
-    return {
-      epk: ephemeralKey as JWK_EC_Public,
-      epkPrivateKey: ephemeralKey as JWK_EC_Private,
-    };
-  }
-  throw new JWTError("Unsupported ECDH-ES ephemeral key material provided.", "ERR_JWK_INVALID");
 }

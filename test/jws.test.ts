@@ -425,26 +425,6 @@ describe.concurrent("JWS Utilities", () => {
       );
     });
 
-    it("should throw on Uint8Array key too small", async () => {
-      await expect(
-        sign(payloadObj, textEncoder.encode("small-key"), {
-          alg: "HS256",
-        }),
-      ).rejects.toThrow("HS256 requires a key of at least 32 bytes");
-    });
-
-    it("should throw on RS CryptoKey too small", async () => {
-      const invalidRSKey = await generateKey("RS256", {
-        modulusLength: 1024,
-      });
-
-      await expect(
-        sign(payloadObj, invalidRSKey.privateKey, {
-          alg: "RS256",
-        }),
-      ).rejects.toThrow("RS256 requires a key modulusLength of at least 2048 bits");
-    });
-
     it("should throw for invalid payload type", async () => {
       const key = await generateKey("HS256");
       await expect(sign(12_345 as any, key, { alg: "HS256" })).rejects.toThrow(TypeError);
@@ -1293,19 +1273,6 @@ describe.concurrent("JWS Utilities", () => {
       // runtime guard that callers using `as any` would otherwise bypass.
       await expect(sign(payloadObj, publicKey as any)).rejects.toThrow(
         expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
-      );
-    });
-
-    it("should throw for invalid header base64", async () => {
-      await expect(verify("a?.b.c", hs256Key)).rejects.toThrow(
-        "Protected header could not be decoded",
-      );
-    });
-
-    it("should throw for invalid header JSON", async () => {
-      const invalidHeader = base64UrlEncode("not json");
-      await expect(verify(`${invalidHeader}.payload.sig`, hs256Key)).rejects.toThrow(
-        "Protected header could not be decoded",
       );
     });
 

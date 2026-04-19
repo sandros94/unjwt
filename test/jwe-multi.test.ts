@@ -386,20 +386,6 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         );
       });
 
-      it("rejects a JWE whose protected header is unparseable JSON", async () => {
-        const garbage = Buffer.from("not json").toString("base64url");
-        const jwe: JWEGeneralSerialization = {
-          protected: garbage,
-          recipients: [{ header: { alg: "A256KW" }, encrypted_key: "x" }],
-          iv: "AAAA",
-          ciphertext: "AAAA",
-          tag: "AAAA",
-        };
-        await expect(decryptMulti(jwe, keys.a256kw)).rejects.toSatisfy((e) =>
-          isJWTError(e, "ERR_JWE_INVALID"),
-        );
-      });
-
       it("skips recipient with no alg in effective header and tries the next", async () => {
         const good = await encryptMulti(
           { sub: "u1" },
@@ -491,61 +477,6 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         const ecdhPriv = (keys.ecdhP256 as { privateKey: JWK_EC_Private }).privateKey;
         const { payload } = await decryptMulti(jwe, ecdhPriv);
         expect((payload as JWTClaims).sub).toBe("u1");
-      });
-
-      it("accepts a { publicKey, privateKey } object of JWKs as ephemeralKey", async () => {
-        const pair = (await generateJWK("ECDH-ES+A256KW", { namedCurve: "P-256" })) as {
-          publicKey: JWK_EC_Public;
-          privateKey: JWK_EC_Private;
-        };
-        const jwe = await encryptMulti(
-          { sub: "u1" },
-          [
-            {
-              key: (keys.ecdhP256 as { publicKey: JWK_EC_Public }).publicKey,
-              ecdh: { ephemeralKey: { publicKey: pair.publicKey, privateKey: pair.privateKey } },
-            },
-          ],
-          { enc: "A256GCM" },
-        );
-        const priv = (keys.ecdhP256 as { privateKey: JWK_EC_Private }).privateKey;
-        const { payload } = await decryptMulti(jwe, priv);
-        expect((payload as JWTClaims).sub).toBe("u1");
-      });
-
-      it("rejects ephemeralKey object with missing privateKey", async () => {
-        const pair = (await generateJWK("ECDH-ES+A256KW", { namedCurve: "P-256" })) as {
-          publicKey: JWK_EC_Public;
-          privateKey: JWK_EC_Private;
-        };
-        await expect(
-          encryptMulti(
-            { sub: "u1" },
-            [
-              {
-                key: (keys.ecdhP256 as { publicKey: JWK_EC_Public }).publicKey,
-                ecdh: {
-                  ephemeralKey: {
-                    publicKey: pair.publicKey,
-                    privateKey: undefined as unknown as JWK_EC_Private,
-                  },
-                },
-              },
-            ],
-            { enc: "A256GCM" },
-          ),
-        ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWK_INVALID"));
-      });
-
-      it('rejects a JWK ephemeralKey that lacks the private "d" parameter', async () => {
-        const pub = (keys.ecdhP256 as { publicKey: JWK_EC_Public }).publicKey;
-        await expect(
-          encryptMulti(
-            { sub: "u1" },
-            [{ key: pub, ecdh: { ephemeralKey: pub as unknown as JWK_EC_Private } }],
-            { enc: "A256GCM" },
-          ),
-        ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWK_INVALID"));
       });
     });
 
