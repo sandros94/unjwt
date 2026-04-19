@@ -33,6 +33,7 @@ import {
   isCryptoKey,
   isCryptoKeyPair,
   sanitizeObject,
+  safeJsonParse,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
@@ -260,7 +261,7 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   let protectedHeader: JWEHeaderParameters;
   try {
     const protectedHeaderJson = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = sanitizeObject<JWEHeaderParameters>(JSON.parse(protectedHeaderJson));
+    protectedHeader = safeJsonParse<JWEHeaderParameters>(protectedHeaderJson);
   } catch {
     throw new JWTError("Invalid JWE: Protected header could not be decoded.", "ERR_JWE_INVALID");
   }
