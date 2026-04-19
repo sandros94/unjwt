@@ -22,14 +22,14 @@ export default defineBuildConfig({
       input: ["./src/adapters/h3v1/index", "./src/adapters/h3v2/index"],
       rolldown: {
         platform: "neutral",
-        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv2", "rou3"],
+        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv3", "rou3"],
         plugins: [
           replacePlugin(
             {
               'h3v1"': 'h3"',
               'h3v2"': 'h3"',
               "cookie-esv1": "cookie-es",
-              "cookie-esv2": "cookie-es",
+              "cookie-esv3": "cookie-es",
             },
             {
               delimiters: ["", ""],

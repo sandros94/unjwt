@@ -7,9 +7,9 @@ import {
   setChunkedCookie,
 } from "h3v2";
 
-import type { CookieSerializeOptions } from "cookie-esv2";
-import { NullProtoObj } from "rou3";
+import type { CookieSerializeOptions } from "cookie-esv3";
 
+import { NullProtoObj } from "./rou3";
 import type {
   ExpiresIn,
   JWKSet,
