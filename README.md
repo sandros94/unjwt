@@ -409,8 +409,7 @@ const accessConfig = {
 
 ## Credits
 
-Originally developed by [Johann Schopplich](https://github.com/johannschopplich/unjwt).
-Heavily inspired by [Filip Skokan's work](https://github.com/panva/jose).
+Originally visioned by [Johann Schopplich](https://github.com/johannschopplich/unjwt), heavily inspired by [Filip Skokan's `jose`](https://github.com/panva/jose) internal cryptographic primitives, and initially sponsored by [JAMflow](https://jamflow.cloud) — thanks to all three for making this project possible.
 
 ## License
 
