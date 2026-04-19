@@ -211,15 +211,23 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   // Without an explicit allowlist, infer from the key shape — prevents
   // signer-controlled `alg` from dictating verification.
   if (!options.algorithms) {
-    const inferred = inferJWSAllowedAlgorithms(keyInput);
-    if (!inferred) {
-      throw new JWTError(
-        'Cannot infer allowed algorithms from this key; pass "options.algorithms" explicitly.',
-        "ERR_JWS_ALG_NOT_ALLOWED",
-      );
-    }
-    if (!inferred.includes(alg)) {
-      throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
+    // Fast-path: a JWK with `alg` already names the only allowed algorithm
+    // (JWS algs map 1:1 to their JWK, unlike JWE's oct alias dance).
+    if (isJWK(keyInput) && typeof keyInput.alg === "string") {
+      if (keyInput.alg !== alg) {
+        throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
+      }
+    } else {
+      const inferred = inferJWSAllowedAlgorithms(keyInput);
+      if (!inferred) {
+        throw new JWTError(
+          'Cannot infer allowed algorithms from this key; pass "options.algorithms" explicitly.',
+          "ERR_JWS_ALG_NOT_ALLOWED",
+        );
+      }
+      if (!inferred.includes(alg)) {
+        throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
+      }
     }
   }
 

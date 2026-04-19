@@ -475,13 +475,12 @@ export async function importKey(
       }
       assertIntentOnJWK(key, expect);
       const effectiveAlg = (key.alg || alg)!;
-      const cacheKey = expect ? `${effectiveAlg}:${expect}` : effectiveAlg;
       if (_activeCache) {
-        const cached = _activeCache.get(key, cacheKey);
+        const cached = _activeCache.get(key, effectiveAlg);
         if (cached) return cached;
       }
       const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg });
-      if (_activeCache) _activeCache.set(key, cacheKey, cryptoKey);
+      if (_activeCache) _activeCache.set(key, effectiveAlg, cryptoKey);
       return cryptoKey;
     }
   }

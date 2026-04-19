@@ -295,15 +295,33 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   // Without an explicit allowlist, infer from the key shape — prevents
   // sender-controlled `alg` from dictating key management.
   if (!options?.algorithms) {
-    const inferred = inferJWEAllowedAlgorithms(rawKeyMaterial);
-    if (!inferred) {
-      throw new JWTError(
-        'Cannot infer allowed key management algorithms from this key; pass "options.algorithms" explicitly.',
-        "ERR_JWE_ALG_NOT_ALLOWED",
-      );
-    }
-    if (!inferred.includes(alg)) {
-      throw new JWTError(`Key management algorithm not allowed: ${alg}`, "ERR_JWE_ALG_NOT_ALLOWED");
+    // Fast-path: non-oct JWK with `alg` names the only allowed algorithm.
+    // `oct` is excluded because its `alg` aliases to `dir` / A*GCMKW variants.
+    if (
+      isJWK(rawKeyMaterial) &&
+      rawKeyMaterial.kty !== "oct" &&
+      typeof rawKeyMaterial.alg === "string"
+    ) {
+      if (rawKeyMaterial.alg !== alg) {
+        throw new JWTError(
+          `Key management algorithm not allowed: ${alg}`,
+          "ERR_JWE_ALG_NOT_ALLOWED",
+        );
+      }
+    } else {
+      const inferred = inferJWEAllowedAlgorithms(rawKeyMaterial);
+      if (!inferred) {
+        throw new JWTError(
+          'Cannot infer allowed key management algorithms from this key; pass "options.algorithms" explicitly.',
+          "ERR_JWE_ALG_NOT_ALLOWED",
+        );
+      }
+      if (!inferred.includes(alg)) {
+        throw new JWTError(
+          `Key management algorithm not allowed: ${alg}`,
+          "ERR_JWE_ALG_NOT_ALLOWED",
+        );
+      }
     }
   }
 
