@@ -61,6 +61,7 @@
     "fmt": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",
     "release": "pnpm test && pnpm prepack && changelogen --release --push",
+    "stub": "obuild --stub",
     "test": "vitest run --slowTestThreshold=1000",
     "test:coverage": "vitest run --coverage --slowTestThreshold=1000",
     "typecheck": "tsgo --noEmit",
