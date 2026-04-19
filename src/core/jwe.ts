@@ -45,6 +45,7 @@ import {
 
 export type * from "./types/jwe";
 export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
+export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi";
 
 /**
  * Encrypts a payload to produce a JWE Compact Serialization string.

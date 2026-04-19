@@ -20,10 +20,15 @@ export type JWTErrorCode =
   | "ERR_JWS_ALG_MISSING" // required `alg` option absent on sign
   // JWE (RFC 7516)
   | "ERR_JWE_INVALID" // structural / format / option error
+  | "ERR_JWE_INVALID_SERIALIZATION" // JSON not a valid General / Flattened shape
   | "ERR_JWE_DECRYPTION_FAILED" // content decryption or key unwrap failed
   | "ERR_JWE_ALG_NOT_ALLOWED" // algorithm rejected by caller policy
   | "ERR_JWE_ALG_MISSING" // required `alg` option absent on encrypt
+  | "ERR_JWE_ALG_FORBIDDEN_IN_MULTI" // `dir` or bare `ECDH-ES` passed to encryptMulti
   | "ERR_JWE_ENC_MISSING" // required `enc` option absent on encrypt
+  | "ERR_JWE_RECIPIENT_ALG_INFERENCE" // cannot infer `alg` for a recipient's JWK
+  | "ERR_JWE_NO_MATCHING_RECIPIENT" // no recipient matched the provided key
+  | "ERR_JWE_HEADER_PARAMS_NOT_DISJOINT" // protected/unprotected/per-recipient header overlap
   // JWK (RFC 7517)
   | "ERR_JWK_INVALID" // malformed or unsupported key material
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set

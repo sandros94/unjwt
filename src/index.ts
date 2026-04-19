@@ -4,7 +4,7 @@ export { JWTError, isJWTError } from "./core/error";
 export type { JWTErrorCode, JWTErrorCauseMap } from "./core/error";
 
 export { sign, verify } from "./core/jws";
-export { encrypt, decrypt } from "./core/jwe";
+export { encrypt, decrypt, encryptMulti, decryptMulti, generalToFlattened } from "./core/jwe";
 export {
   generateKey,
   generateJWK,

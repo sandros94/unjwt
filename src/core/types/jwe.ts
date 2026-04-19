@@ -1,5 +1,6 @@
 import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
 import type {
+  JWK,
   JWK_EC_Public,
   JWK_EC_Private,
   KeyManagementAlgorithm,
@@ -223,4 +224,124 @@ export interface JWEDecryptResult<T extends JOSEPayload = JOSEPayload> {
   cek?: Uint8Array<ArrayBuffer>;
   /** The Additional Authenticated Data (AAD) used, as Uint8Array. Only present when `returnCek` is true. */
   aad?: Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * JWE Flattened JSON Serialization, RFC 7516 §7.2.2.
+ */
+export interface JWEFlattenedSerialization {
+  header?: JWEHeaderParameters;
+  encrypted_key?: string;
+  /** Base64URL-encoded JWE Protected Header (part of AAD). */
+  protected?: string;
+  /** Shared JWE Unprotected Header (JSON, not part of AAD). */
+  unprotected?: JWEHeaderParameters;
+  /** Base64URL-encoded external Additional Authenticated Data. */
+  aad?: string;
+  /** Base64URL-encoded IV (Initialization Vector). */
+  iv?: string;
+  /** Base64URL-encoded ciphertext. */
+  ciphertext: string;
+  /** Base64URL-encoded authentication tag. */
+  tag?: string;
+}
+
+/**
+ * JWE General JSON Serialization, RFC 7516 §7.2.1. The canonical
+ * multi-recipient output shape of {@link encryptMulti}.
+ */
+export interface JWEGeneralSerialization extends Omit<
+  JWEFlattenedSerialization,
+  "encrypted_key" | "header"
+> {
+  /** One entry per recipient. */
+  recipients: JWEGeneralRecipient[];
+}
+
+/** A single recipient entry within {@link JWEGeneralSerialization.recipients}. */
+export interface JWEGeneralRecipient {
+  /** Per-recipient JWE Unprotected Header (JSON, not part of AAD). */
+  header?: JWEHeaderParameters;
+  /** Base64URL-encoded encrypted CEK for this recipient. */
+  encrypted_key?: string;
+}
+
+/**
+ * Input shape for a single recipient passed to {@link encryptMulti}.
+ *
+ * `alg` is inferred from `key.alg` or from the JWK's kty/curve/length using
+ * the same rules as {@link encrypt}. `kid` is pulled from `key.kid` when
+ * present. To override either, spread or set via {@link JWEMultiRecipient.header}.
+ */
+export interface JWEMultiRecipient {
+  /** Recipient key (JWK-first; `alg` inferred if absent from JWK). */
+  key: JWK;
+  /**
+   * Extra per-recipient JWE Unprotected Header parameters (RFC 7516 §7.2.1).
+   * Excludes fields the library writes automatically: `alg`, `enc`, `iv`,
+   * `tag`, `p2s`, `p2c`, `epk`, `apu`, `apv`.
+   *
+   * Typical use: `x5c`, `x5t`, custom routing metadata.
+   */
+  header?: StrictOmit<
+    JWEHeaderParameters,
+    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
+  >;
+  /** ECDH-ES ephemeral key / party info for this recipient. */
+  ecdh?: JWEEncryptOptions["ecdh"];
+  /** PBES2 salt for this recipient. Randomized (16 bytes) when omitted. */
+  p2s?: Uint8Array<ArrayBuffer>;
+  /** PBES2 iteration count for this recipient. Defaults to 600_000. */
+  p2c?: number;
+  /** Initialization vector for AES-GCMKW key wrapping for this recipient. */
+  keyManagementIV?: Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * Options for {@link encryptMulti}. Extends {@link JWEEncryptOptions} and drops
+ * the fields that are per-recipient in multi-recipient mode (`alg`, `ecdh`,
+ * `p2s`, `p2c`, `keyManagementIV` — set those on each {@link JWEMultiRecipient}
+ * instead).
+ */
+export interface JWEMultiEncryptOptions extends StrictOmit<
+  JWEEncryptOptions,
+  "alg" | "ecdh" | "p2s" | "p2c" | "keyManagementIV"
+> {
+  /** Shared JWE Unprotected Header (surfaces as `unprotected` in the output). */
+  sharedUnprotectedHeader?: Record<string, unknown>;
+  /**
+   * External Additional Authenticated Data (RFC 7516 §5.1). Encoded as
+   * base64url and written to the `aad` field; the content cipher AAD becomes
+   * `BASE64URL(protected) || '.' || BASE64URL(aad)`.
+   */
+  aad?: Uint8Array<ArrayBuffer> | string;
+}
+
+/**
+ * Options for {@link decryptMulti}. Extends {@link JWEDecryptOptions}.
+ */
+export interface JWEMultiDecryptOptions extends JWEDecryptOptions {
+  /**
+   * When `false` (default) decryption trials recipients in order — mirrors the
+   * multi-key retry behaviour of {@link decrypt} against a JWK Set. When
+   * `true`, only recipients whose header unambiguously matches the provided
+   * key (by `kid`, then by `kty`/`crv`/length) are attempted, and any mismatch
+   * throws `ERR_JWE_NO_MATCHING_RECIPIENT` before any crypto work.
+   */
+  strictRecipientMatch?: boolean;
+}
+
+/**
+ * Result of a {@link decryptMulti} operation. Extends {@link JWEDecryptResult}
+ * with the per-recipient header tier surfaced on the matching recipient.
+ */
+export interface JWEMultiDecryptResult<
+  T extends JOSEPayload = JOSEPayload,
+> extends JWEDecryptResult<T> {
+  /** Parsed shared unprotected header, when present on the serialization. */
+  sharedUnprotectedHeader?: JWEHeaderParameters;
+  /** Parsed per-recipient unprotected header of the recipient that decrypted. */
+  recipientHeader?: JWEHeaderParameters;
+  /** Index into `jwe.recipients` of the recipient that successfully decrypted. */
+  recipientIndex: number;
 }
