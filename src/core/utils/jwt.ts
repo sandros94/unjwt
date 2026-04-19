@@ -13,10 +13,14 @@ export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
 ): T {
   const isObjectPayload =
     typeof payload === "object" && payload !== null && !(payload instanceof Uint8Array);
-  if (header.typ === undefined && isObjectPayload) {
-    header.typ = "JWT";
+  if (!isObjectPayload) return header;
+
+  let typ = header.typ;
+  if (typ === undefined) {
+    header.typ = typ = "JWT";
   }
-  if (header.typ?.toLowerCase().includes("jwt") && isObjectPayload) {
+  // Skip the `toLowerCase` allocation for the literal `"JWT"` / `"jwt"` fast path.
+  if (typ === "JWT" || typ === "jwt" || typ.toLowerCase().includes("jwt")) {
     header.cty ||= "application/json";
   }
   return header;
@@ -132,7 +136,7 @@ export const computeMaxTokenAgeSeconds: (expiresIn: ExpiresIn) => number = compu
 export function computeJwtTimeClaims(
   payload: unknown,
   expiresIn?: ExpiresIn,
-  currentDate: Date = new Date(),
+  currentDate?: Date,
 ): JWTClaims | undefined {
   if (
     expiresIn === undefined ||
@@ -143,7 +147,7 @@ export function computeJwtTimeClaims(
     return undefined;
   }
 
-  const now = Math.round(currentDate.getTime() / 1000);
+  const now = Math.round((currentDate ?? new Date()).getTime() / 1000);
   const claims: JWTClaims = { ...(payload as JWTClaims) };
   claims.iat ||= now;
   claims.exp = claims.iat + computeExpiresInSeconds(expiresIn);
@@ -158,21 +162,30 @@ export function validateJwtClaims(
   const clockTolerance = options.clockTolerance ?? 0;
   const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
 
-  const allRequiredClaims = new Set<string>(options.requiredClaims || []);
-  const missingClaims = new Set<string>();
-  if (options.issuer) allRequiredClaims.add("iss");
-  if (options.audience) allRequiredClaims.add("aud");
-  if (options.subject) allRequiredClaims.add("sub");
-  if (options.maxTokenAge) allRequiredClaims.add("iat");
+  // Skip the Set allocations for the common "no required claims" path.
+  if (
+    options.requiredClaims ||
+    options.issuer ||
+    options.audience ||
+    options.subject ||
+    options.maxTokenAge
+  ) {
+    const allRequiredClaims = new Set<string>(options.requiredClaims || []);
+    if (options.issuer) allRequiredClaims.add("iss");
+    if (options.audience) allRequiredClaims.add("aud");
+    if (options.subject) allRequiredClaims.add("sub");
+    if (options.maxTokenAge) allRequiredClaims.add("iat");
 
-  for (const claimName of allRequiredClaims) {
-    if (!(claimName in jwtClaims)) missingClaims.add(claimName);
-  }
-  if (missingClaims.size > 0) {
-    throw new JWTError(
-      `Missing required JWT Claims: ${[...missingClaims].join(", ")}`,
-      "ERR_JWT_CLAIM_MISSING",
-    );
+    const missingClaims: string[] = [];
+    for (const claimName of allRequiredClaims) {
+      if (!(claimName in jwtClaims)) missingClaims.push(claimName);
+    }
+    if (missingClaims.length > 0) {
+      throw new JWTError(
+        `Missing required JWT Claims: ${missingClaims.join(", ")}`,
+        "ERR_JWT_CLAIM_MISSING",
+      );
+    }
   }
 
   // RFC 7519 §4.1 — `exp`, `nbf`, `iat` are NumericDate and must be finite numbers if present.

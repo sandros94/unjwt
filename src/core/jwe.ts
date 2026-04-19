@@ -503,12 +503,13 @@ function _buildJWEHeader(
   const safeHeader = sanitizeObject<JWEHeaderParameters | undefined>(
     userHeader as JWEHeaderParameters | undefined,
   );
-  const header: JWEHeaderParameters = {
-    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
-    ...safeHeader,
-    ...keyManagementParams,
-    alg,
-    enc,
-  };
+  // Precedence: top-level `alg`/`enc` > key management params > user header > JWK `kid`.
+  // Build imperatively to avoid the intermediate `{ kid }` / spread-output allocations.
+  const header = {} as JWEHeaderParameters;
+  if (isJWK(key) && key.kid) header.kid = key.kid;
+  if (safeHeader) Object.assign(header, safeHeader);
+  if (keyManagementParams) Object.assign(header, keyManagementParams);
+  header.alg = alg;
+  header.enc = enc;
   return applyTypCtyDefaults(header, payload);
 }
