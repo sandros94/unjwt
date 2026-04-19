@@ -1,11 +1,11 @@
 import { bench, describe } from "vitest";
 import * as jose from "jose";
 
-import { generateKey } from "../../src/core/jwk";
+import { generateJWK } from "../../src/core/jwk";
 import { sign, verify } from "../../src/core/jws";
 
 describe("Library comparison signing", async () => {
-  const okpKeys = await generateKey("Ed25519");
+  const okpKeys = await generateJWK("Ed25519");
 
   bench("[sign] unjwt", async () => {
     await sign({ sub: "test" }, okpKeys.privateKey, { alg: "Ed25519" });
@@ -19,7 +19,7 @@ describe("Library comparison signing", async () => {
 });
 
 describe("Library comparison verifying", async () => {
-  const okpKeys = await generateKey("Ed25519");
+  const okpKeys = await generateJWK("Ed25519");
   const jws = await sign({ sub: "test" }, okpKeys.privateKey, {
     alg: "Ed25519",
   });

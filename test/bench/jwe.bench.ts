@@ -1,11 +1,11 @@
 import { bench, describe } from "vitest";
 import * as jose from "jose";
 
-import { generateKey } from "../../src/core/jwk";
+import { generateJWK } from "../../src/core/jwk";
 import { encrypt, decrypt } from "../../src/core/jwe";
 
 describe("Library comparison encryption", async () => {
-  const keys = await generateKey("RSA-OAEP-256", { toJWK: true });
+  const keys = await generateJWK("RSA-OAEP-256");
 
   bench("[encrypt] unjwt", async () => {
     await encrypt({ sub: "test" }, keys.publicKey);
@@ -19,7 +19,7 @@ describe("Library comparison encryption", async () => {
 });
 
 describe("Library comparison decryption", async () => {
-  const keys = await generateKey("RSA-OAEP-256", { toJWK: true });
+  const keys = await generateJWK("RSA-OAEP-256");
   const jws = await encrypt({ sub: "test" }, keys.publicKey);
 
   bench("[decrypt] unjwt", async () => {
