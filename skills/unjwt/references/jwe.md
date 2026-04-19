@@ -204,6 +204,16 @@ const flattened = generalToFlattened(general); // JWEFlattenedSerialization
 
 Throws `ERR_JWE_INVALID_SERIALIZATION` when the input has zero or multiple recipients — Flattened is strictly single-recipient. `decryptMulti` accepts both shapes as input.
 
+### Differences from JWS's multi-signature model
+
+JWE's multi-recipient model has one more moving part than JWS's multi-signature model:
+
+- **Shared protected header, per-recipient key management.** Opposite of JWS — JWE has one shared `protected` header (contains `enc`, `typ`, etc., part of AAD) and per-recipient `header` fields (contains `alg`, `kid`, `epk`, etc.). JWS has no shared protected header: each signer has its own.
+- **Three header tiers: protected / shared unprotected / per-recipient.** RFC 7516 §7.2.1 defines all three; `jwe.unprotected` (shared across all recipients, not part of AAD) is the middle tier that JWS lacks entirely. Every parameter name must appear in at most one tier per recipient (RFC-mandated disjointness).
+- **Shared CEK tied to the content ciphertext.** One random CEK encrypts the payload once; each recipient wraps the same CEK with its own alg. This is why `dir` and bare `ECDH-ES` are forbidden in multi — those algs make the recipient's key _be_ the CEK, which can't be shared across recipients without collapsing security. `ERR_JWE_ALG_FORBIDDEN_IN_MULTI` surfaces that.
+- **External AAD support (RFC 7516 §5.1).** The `aad` field binds the ciphertext to out-of-band context (document hash, request URL). JWS has no analog — signatures already cover the whole payload.
+- **"First recipient that decrypts" semantics.** One recipient's key unlocks the ciphertext; the others are invisible to that recipient. By contrast, JWS signatures are independently verifiable — any verifier can check any subset (see `verifyMulti` in the JWS reference).
+
 ## Types
 
 ```ts

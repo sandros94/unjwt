@@ -1,5 +1,5 @@
 import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
-import type { JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA, JWK_OKP_SIGN } from "./jwk";
+import type { JWK, JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA, JWK_OKP_SIGN } from "./jwk";
 import type { StrictOmit } from "../utils/types";
 import type { ExpiresIn } from ".";
 
@@ -85,8 +85,6 @@ export interface JWSVerifyResult<T extends JOSEPayload = JOSEPayload> {
   protectedHeader: JWSProtectedHeader;
 }
 
-// TODO: add unprotected header for JWS JSON Serialization
-
 /** Options for JWS verification */
 export interface JWSVerifyOptions extends JWTClaimValidationOptions {
   /** List of allowed algorithms. If provided, the JWS `alg` must be in this list. */
@@ -102,3 +100,139 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
    */
   validateClaims?: boolean;
 }
+
+/**
+ * JWS Flattened JSON Serialization, RFC 7515 §7.2.2. Accepted as input by
+ * {@link verifyMulti} and normalized to {@link JWSGeneralSerialization}
+ * internally. Emitted by {@link generalToFlattenedJWS} on a single-signature
+ * General serialization.
+ */
+export interface JWSFlattenedSerialization {
+  /** The JWS Payload. base64url-encoded when `b64 !== false`. */
+  payload: string;
+  /** Base64URL-encoded JWS Protected Header (part of the signing input). */
+  protected?: string;
+  /** JWS Unprotected Header (not part of the signing input). */
+  header?: JWSHeaderParameters;
+  /** Base64URL-encoded signature bytes. */
+  signature: string;
+}
+
+/**
+ * JWS General JSON Serialization, RFC 7515 §7.2.1. Canonical multi-signature
+ * output shape of {@link signMulti}.
+ *
+ * `payload` is shared across all signatures and carries base64url-encoded
+ * bytes by default. When the consistent `b64: false` signing mode is used
+ * (RFC 7797), `payload` holds the raw UTF-8 payload string instead.
+ */
+export interface JWSGeneralSerialization extends Omit<
+  JWSFlattenedSerialization,
+  "protected" | "header" | "signature"
+> {
+  /** One entry per signer. */
+  signatures: JWSGeneralSignature[];
+}
+
+/** A single signature entry within {@link JWSGeneralSerialization.signatures}. */
+export type JWSGeneralSignature = Pick<
+  JWSFlattenedSerialization,
+  "protected" | "header" | "signature"
+>;
+
+/**
+ * Input shape for a single signer passed to {@link signMulti}.
+ *
+ * `alg` is inferred from `key.alg`; throws `ERR_JWS_SIGNER_ALG_INFERENCE`
+ * when absent. `kid` is pulled from `key.kid` when present.
+ */
+export interface JWSMultiSigner {
+  /** Signing key (JWK-first; `alg` inferred from `key.alg`). */
+  key: JWK;
+  /**
+   * Extra per-signer JWS Protected Header parameters (RFC 7515 §7.2.1).
+   * `alg` is always derived from the JWK and cannot be set here. `b64`
+   * MUST be consistent across every signer (RFC 7797 §3) — if set on one
+   * signer it must match on all.
+   */
+  protectedHeader?: StrictOmit<JWSHeaderParameters, "alg"> & { alg?: never };
+  /** Per-signer JWS Unprotected Header (not part of signing input). */
+  unprotectedHeader?: JWSHeaderParameters;
+}
+
+/**
+ * Options for {@link signMulti}. Mirrors {@link JWSSignOptions} minus the
+ * per-signer fields (`alg`, `protectedHeader` — set those on each
+ * {@link JWSMultiSigner} instead).
+ */
+export interface JWSMultiSignOptions extends StrictOmit<
+  JWSSignOptions,
+  "alg" | "protectedHeader"
+> {}
+
+/** Options for {@link verifyMulti}. Extends {@link JWSVerifyOptions}. */
+export interface JWSMultiVerifyOptions extends JWSVerifyOptions {
+  /**
+   * When `false` (default), verification trials signatures in order — mirrors
+   * the multi-key retry behaviour of {@link verify} against a JWK Set. When
+   * `true`, only signatures whose header unambiguously matches the provided
+   * key (by `kid`, then by `kty`/`crv`/length) are attempted, and any
+   * mismatch throws `ERR_JWS_NO_MATCHING_SIGNER` before any crypto work.
+   */
+  strictSignerMatch?: boolean;
+}
+
+/**
+ * Result of a {@link verifyMulti} operation. Extends {@link JWSVerifyResult}
+ * with the per-signer header and matched signature index.
+ */
+export interface JWSMultiVerifyResult<
+  T extends JOSEPayload = JOSEPayload,
+> extends JWSVerifyResult<T> {
+  /** Parsed per-signer unprotected header of the signature that verified. */
+  signerHeader?: JWSHeaderParameters;
+  /** Index into `jws.signatures` of the signature that successfully verified. */
+  signerIndex: number;
+}
+
+/**
+ * Options for {@link verifyMultiAll}. Inherits the same validation knobs as
+ * {@link JWSMultiVerifyOptions} minus `strictSignerMatch` (not meaningful when
+ * every signature is independently reported).
+ */
+export interface JWSMultiVerifyAllOptions extends StrictOmit<
+  JWSMultiVerifyOptions,
+  "strictSignerMatch"
+> {}
+
+/**
+ * Per-signature outcome collected by {@link verifyMultiAll}. Discriminated by
+ * `verified`:
+ *
+ *   - `verified: true` — the signature cryptographically verified and any
+ *     claim/`crit` validation the caller asked for also passed. `payload` is
+ *     provided.
+ *   - `verified: false` — verification could not be completed for this
+ *     signature. `error` carries the {@link JWTError} reason (signature
+ *     invalid, disallowed alg, `typ` mismatch, key-resolver failure, malformed
+ *     protected header, expired claim, etc.). `protectedHeader` / `signerHeader`
+ *     are populated when they were successfully parsed before failure.
+ *
+ * Callers apply their own policy over the returned array — e.g. "all must
+ * verify", "quorum of N", "signed by these specific kids".
+ */
+export type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
+  | {
+      signerIndex: number;
+      verified: true;
+      payload: T;
+      protectedHeader: JWSProtectedHeader;
+      signerHeader?: JWSHeaderParameters;
+    }
+  | {
+      signerIndex: number;
+      verified: false;
+      error: import("./../error").JWTError;
+      protectedHeader?: JWSProtectedHeader;
+      signerHeader?: JWSHeaderParameters;
+    };

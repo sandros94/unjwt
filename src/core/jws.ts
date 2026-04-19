@@ -40,6 +40,7 @@ import {
 
 export type * from "./types/jws";
 export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
+export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi";
 
 /**
  * Creates a JWS (JSON Web Signature) in Compact Serialization format.

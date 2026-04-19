@@ -3,7 +3,14 @@ export type * from "./core/types";
 export { JWTError, isJWTError } from "./core/error";
 export type { JWTErrorCode, JWTErrorCauseMap } from "./core/error";
 
-export { sign, verify } from "./core/jws";
+export {
+  sign,
+  verify,
+  signMulti,
+  verifyMulti,
+  verifyMultiAll,
+  generalToFlattenedJWS,
+} from "./core/jws";
 export { encrypt, decrypt, encryptMulti, decryptMulti, generalToFlattened } from "./core/jwe";
 export {
   generateKey,

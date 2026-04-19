@@ -21,7 +21,7 @@ Implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517).
 
 The following is a list of reference files:
 
-- `references/jws.md`: `sign()`, `verify()`, `JWSSignOptions`, `JWSVerifyOptions`
+- `references/jws.md`: `sign()`, `verify()`, `signMulti()`, `verifyMulti()`, `verifyMultiAll()`, `generalToFlattenedJWS()`, `JWSSignOptions`, `JWSVerifyOptions`, `JWSMultiSignOptions`, `JWSMultiVerifyOptions`, `JWSMultiVerifyAllOptions`, `JWSMultiVerifyOutcome`, `JWSGeneralSerialization`, `JWSFlattenedSerialization`, `JWSMultiSigner`
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `encryptMulti()`, `decryptMulti()`, `generalToFlattened()`, `JWEEncryptOptions`, `JWEDecryptOptions`, `JWEMultiEncryptOptions`, `JWEMultiDecryptOptions`, `JWEGeneralSerialization`, `JWEFlattenedSerialization`, `JWEMultiRecipient`
 - `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`; `importFromPEM`, `exportToPEM` are deprecated aliases), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`, `getJWKFromSet` — deprecated), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
 - `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `randomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`, `sanitizeObject`
@@ -32,7 +32,7 @@ The following is a list of reference files:
 | Path                  | Purpose                                                                                              |
 | --------------------- | ---------------------------------------------------------------------------------------------------- |
 | `unjwt`               | Flat barrel: all public functions and types from `jws`, `jwe`, `jwk`, `utils`                        |
-| `unjwt/jws`           | `sign()`, `verify()` — JWS Compact Serialization                                                     |
+| `unjwt/jws`           | `sign()`, `verify()` (Compact) — `signMulti()`, `verifyMulti()` (General JSON Serialization)         |
 | `unjwt/jwe`           | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
 | `unjwt/jwk`           | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                       |
 | `unjwt/utils`         | Base64URL encode/decode, type guards, JWT claim validation, `randomBytes`                            |
@@ -71,6 +71,7 @@ await session.update({ userId: "123" });
 - **Algorithm inference**: `sign`/`encrypt` infer `alg`/`enc` from JWK properties when not explicitly provided; password strings default to PBES2
 - **`dir` (direct encryption)**: pass a `CryptoKey | JWK_oct | Uint8Array` directly as the CEK; `enc` must always be specified
 - **Multi-recipient JWE**: `encryptMulti()` emits General JSON Serialization (RFC 7516 §7.2.1). One shared CEK, one ciphertext, per-recipient wraps. `dir` and bare `ECDH-ES` are rejected in multi (throw `ERR_JWE_ALG_FORBIDDEN_IN_MULTI`). `decryptMulti()` accepts General + Flattened (auto-normalized); compact tokens stay with `decrypt()`
+- **Multi-signature JWS**: `signMulti()` emits General JSON Serialization (RFC 7515 §7.2.1). Shared payload, per-signer protected header. `b64: false` (RFC 7797) must be consistent across all signers. `verifyMulti()` returns the first valid signature; `verifyMultiAll()` returns per-signer outcomes for policy-driven verification (all-must-verify, M-of-N quorum, named signers). Both accept General + Flattened (auto-normalized); compact tokens stay with `verify()`
 - **ExpiresIn**: time durations accept numbers (seconds) or strings: `"30s"`, `"10m"`, `"2h"`, `"7D"`, `"1W"`, `"3M"`, `"1Y"` (also long forms: `"minutes"`, `"hours"`, `"days"`, `"weeks"`, `"months"`, `"years"`)
 - **H3 Session Adapters**: store JWTs in chunked cookies; sessions are lazy (`id` is `undefined` until `update()` is called)
 - **PBES2 security**: default `p2c` (iteration count) is `600_000` per OWASP cookbook; only lower it for legacy interoperability
