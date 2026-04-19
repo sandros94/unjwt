@@ -351,11 +351,12 @@ function _buildJWSHeader(
   payload: unknown,
 ): JWSProtectedHeader {
   const safeHeader = sanitizeObject<JWSHeaderParameters | undefined>(userHeader);
-  const header: JWSProtectedHeader = {
-    ...(isJWK(key) && key.kid ? { kid: key.kid } : {}),
-    ...safeHeader,
-    alg,
-  };
+  // Precedence: top-level `alg` > user header > JWK `kid`. Build imperatively to
+  // avoid the intermediate `{ kid }` / spread-output allocations.
+  const header = {} as JWSProtectedHeader;
+  if (isJWK(key) && key.kid) header.kid = key.kid;
+  if (safeHeader) Object.assign(header, safeHeader);
+  header.alg = alg;
   applyTypCtyDefaults(header, payload);
   if (header.b64 === true) delete header.b64;
   return header;
