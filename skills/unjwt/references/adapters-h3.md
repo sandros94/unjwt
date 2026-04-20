@@ -26,21 +26,69 @@ Peer dep: `h3`
 Both `useJWESession` and `useJWSSession` return a `SessionManager`:
 
 ```ts
-interface SessionManager<T, ConfigMaxAge extends ExpiresIn | undefined = ExpiresIn | undefined> {
+interface SessionManager<
+  T extends Record<string, any> = SessionClaims,
+  ConfigMaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+> {
   readonly id: string | undefined; // from jti — undefined until update() is called
   readonly createdAt: number; // from iat, in ms
-  readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined; // from exp, in ms
+  // If ConfigMaxAge is set, exp is guaranteed → number.
+  // Otherwise fall back to T["exp"] when T declares one, else number | undefined.
+  readonly expiresAt: ConfigMaxAge extends ExpiresIn
+    ? number
+    : "exp" extends keyof T
+      ? T["exp"]
+      : number | undefined;
   readonly data: SessionData<T>; // session payload (excludes jti/iat/exp)
   readonly token: string | undefined; // current raw JWT token
-  update(data: SessionUpdate<T>): Promise<SessionManager<T, ConfigMaxAge>>;
-  clear(): Promise<SessionManager<T, ConfigMaxAge>>;
+  update: (update?: SessionUpdate<T>) => Promise<SessionManager<T, ConfigMaxAge>>;
+  clear: () => Promise<SessionManager<T, ConfigMaxAge>>;
 }
 
 // SessionUpdate can be a partial object (which gets merged) or an updater function
-type SessionUpdate<T> =
+type SessionUpdate<T extends Record<string, any> = SessionClaims> =
   | Partial<SessionData<T>>
-  | ((old: SessionData<T>) => Partial<SessionData<T>> | undefined);
+  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
+
+interface SessionClaims {
+  jti: string; // required
+  iat: number; // required
+  iss?: string;
+  sub?: string;
+  aud?: string | string[];
+  exp?: number;
+  nbf?: number;
+  [propName: string]: unknown;
+}
+
+type SessionData<T extends Record<string, any> = SessionClaims> = {
+  [K in keyof T as K extends "jti" | "iat" | "exp" ? never : K]: T[K];
+};
+
+interface SessionJWS<
+  T extends Record<string, any> = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+> {
+  id: string | undefined;
+  createdAt: number;
+  expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
+  data: SessionData<T>;
+  token: string | undefined;
+}
+
+interface SessionJWE<
+  T extends Record<string, any> = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+> {
+  id: string | undefined;
+  createdAt: number;
+  expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
+  data: SessionData<T>;
+  token: string | undefined;
+}
 ```
+
+> The `TEvent` generic differs by h3 version. The blocks above (and below) show the v2 bound `TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event`. For h3v1 the bound is `TEvent extends CompatEvent | H3Event = CompatEvent | H3Event`.
 
 **Key behavior:** Sessions are lazy — `id` is `undefined` until `session.update()` is called.
 
@@ -57,9 +105,9 @@ const session = await useJWSSession<MyData>(event, config);
 
 ```ts
 interface SessionConfigJWE<
-  T,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent = HTTPEvent,
+  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
 > {
   key:
     | string // password for PBES2
@@ -71,7 +119,9 @@ interface SessionConfigJWE<
   sessionHeader?: false | string; // header to read token from
   generateId?: () => string; // default: crypto.randomUUID()
   jwe?: {
-    encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
+    // Options passed through to `encrypt()`; `expiresIn` is managed via `maxAge`
+    // and cannot be overridden here.
+    encryptOptions?: JWEEncryptOptions;
     decryptOptions?: JWTClaimValidationOptions;
   };
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
@@ -82,17 +132,22 @@ interface SessionConfigJWE<
 
 ```ts
 interface SessionConfigJWS<
-  T = SessionClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent = HTTPEvent,
+  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
 > {
   key: JWK_Symmetric | { privateKey: JWK_Private; publicKey: JWK_Public | JWK_Public[] | JWKSet };
   maxAge?: MaxAge;
-  name?: string;                 // default: "h3-jws"
-  cookie?: false | CookieSerializeOptions & { chunkMaxLength?: number };
+  name?: string; // default: "h3-jws"
+  cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
   sessionHeader?: false | string;
   generateId?: () => string;
-  jws?: { signOptions?: ...; verifyOptions?: ... };
+  jws?: {
+    // Options passed through to `sign()`; `expiresIn` is managed via `maxAge`
+    // and cannot be overridden here.
+    signOptions?: JWSSignOptions;
+    verifyOptions?: JWTClaimValidationOptions;
+  };
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 ```
@@ -103,74 +158,112 @@ interface SessionConfigJWS<
 
 ```ts
 interface SessionHooksJWS<
-  T = SessionClaims,
+  T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent = HTTPEvent,
+  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
 > {
   /** Fires once per request when a valid session token was decoded and loaded. */
-  onRead?(args: {
+  onRead?: (args: {
+    // `id` and `token` are narrowed to `string` — they are guaranteed present
+    // once the token has been successfully read.
     session: SessionJWS<T, MaxAge> & { id: string; token: string };
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }): void | Promise<void>;
+  }) => void | Promise<void>;
 
   /** Fires after a successful sign — receives the new session and a snapshot of the old one. */
-  onUpdate?(args: {
+  onUpdate?: (args: {
     session: SessionJWS<T, MaxAge> & { id: string; token: string };
     oldSession: SessionJWS<T, MaxAge>;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }): void | Promise<void>;
+  }) => void | Promise<void>;
 
   /** Fires after explicit session termination (session.clear()). */
-  onClear?(args: {
+  onClear?: (args: {
     oldSession: SessionJWS<T, MaxAge> | undefined;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }): void | Promise<void>;
+  }) => void | Promise<void>;
 
   /** Fires when a token's exp has passed. Mutually exclusive with onRead and onClear. */
-  onExpire?(args: {
+  onExpire?: (args: {
     session: {
-      id: string | undefined;        // jti from the expired token (if decodable)
+      id: string | undefined; // jti from the expired token (if decodable)
       createdAt: number | undefined; // iat × 1000 ms
       expiresAt: number | undefined; // exp × 1000 ms
-      token: string;                 // the raw expired token
+      token: string; // the raw expired token
     };
     event: TEvent;
-    error: JWTError;
+    error: Error;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }): void | Promise<void>;
+  }) => void | Promise<void>;
 
   /** Fires when token verification fails for a non-expiry reason. Mutually exclusive with onRead. */
-  onError?(args: {
+  onError?: (args: {
     session: SessionJWS<T, MaxAge>;
     event: TEvent;
     error: any;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }): void | Promise<void>;
+  }) => void | Promise<void>;
 
   /** Override key lookup during verification (e.g. for key rotation). */
-  onVerifyKeyLookup?(args: {
-    header: JWSProtectedHeader;
+  onVerifyKeyLookup?: (args: {
+    header: JWKLookupFunctionHeader;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }): JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
+  }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
 }
 
-interface SessionHooksJWE<T, MaxAge, TEvent> {
-  // identical shape — replace JWS-specific types with their JWE equivalents:
-  onRead?(...):   // session: SessionJWE
-  onUpdate?(...): // session/oldSession: SessionJWE
-  onClear?(...):  // oldSession: SessionJWE | undefined
-  onExpire?(...): // same { id, createdAt, expiresAt, token } snapshot + JWTError
-  onError?(...):  // session: SessionJWE
+interface SessionHooksJWE<
+  T extends Record<string, any> = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
+> {
+  onRead?: (args: {
+    session: SessionJWE<T, MaxAge> & { id: string; token: string };
+    event: TEvent;
+    config: SessionConfigJWE<T, MaxAge, TEvent>;
+  }) => void | Promise<void>;
+
+  onUpdate?: (args: {
+    session: SessionJWE<T, MaxAge> & { id: string; token: string };
+    oldSession: SessionJWE<T, MaxAge>;
+    event: TEvent;
+    config: SessionConfigJWE<T, MaxAge, TEvent>;
+  }) => void | Promise<void>;
+
+  onClear?: (args: {
+    oldSession: SessionJWE<T, MaxAge> | undefined;
+    event: TEvent;
+    config: SessionConfigJWE<T, MaxAge, TEvent>;
+  }) => void | Promise<void>;
+
+  onExpire?: (args: {
+    session: {
+      id: string | undefined;
+      createdAt: number | undefined;
+      expiresAt: number | undefined;
+      token: string;
+    };
+    event: TEvent;
+    error: Error;
+    config: SessionConfigJWE<T, MaxAge, TEvent>;
+  }) => void | Promise<void>;
+
+  onError?: (args: {
+    session: SessionJWE<T, MaxAge>;
+    event: TEvent;
+    error: any;
+    config: SessionConfigJWE<T, MaxAge, TEvent>;
+  }) => void | Promise<void>;
+
   /** Override key lookup during decryption. */
-  onUnsealKeyLookup?(args: {
+  onUnsealKeyLookup?: (args: {
     header: JWEHeaderParameters;
     event: TEvent;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
-  }): JWK_Symmetric | JWK_Private | Promise<JWK_Symmetric | JWK_Private>;
+  }) => JWK_Symmetric | JWK_Private | Promise<JWK_Symmetric | JWK_Private>;
 }
 ```
 
@@ -208,7 +301,6 @@ For advanced control over the session lifecycle:
 | Function                                   | Purpose                                       |
 | ------------------------------------------ | --------------------------------------------- |
 | `getJWSSession(event, config)`             | Read/initialize session from cookie/header    |
-| `getJWSSessionToken(event, config)`        | Get raw token string from cookie/header       |
 | `updateJWSSession(event, config, update?)` | Update data, re-sign, set cookie              |
 | `signJWSSession(event, config)`            | Sign current session to JWS token string      |
 | `verifyJWSSession(event, config, token)`   | Verify a JWS token to session data            |

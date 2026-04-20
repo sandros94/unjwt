@@ -287,7 +287,13 @@ type JWKLookupFunctionHeader = {
 type JWKLookupFunction = (
   header: JWKLookupFunctionHeader,
   token: string,
-) => MaybePromise<CryptoKey | JWK | JWKSet | string | Uint8Array>;
+) =>
+  | CryptoKey
+  | JWK
+  | JWKSet
+  | string
+  | Uint8Array<ArrayBuffer>
+  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
 ```
 
 When a `JWKLookupFunction` returns a `JWKSet`, the same multi-key retry logic applies as when passing a `JWKSet` directly — see `getJWKsFromSet` for the selection behaviour.
@@ -350,64 +356,190 @@ interface JWKCacheAdapter {
 interface JWKParameters {
   kty: string;
   alg?: string;
-  kid?: string;
-  use?: string;
   key_ops?: KeyUsage[];
   ext?: boolean;
-  enc?: ContentEncryptionAlgorithm; // non-standard hint for "dir" algorithm
-  // ...x5c, x5t, x5u, x5t#S256
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm; // non-standard hint for `alg: "dir"`
 }
 
 // Symmetric
-interface JWK_oct extends JWKParameters {
+interface JWK_oct {
   kty: "oct";
   k: string;
+  alg?: string;
+  key_ops?: KeyUsage[];
+  ext?: boolean;
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm;
 }
+
 type JWK_Symmetric = JWK_oct;
 
 // EC
-interface JWK_EC_Public extends JWKParameters {
+interface JWK_EC_Public {
   kty: "EC";
   crv: string;
   x: string;
   y: string;
-}
-interface JWK_EC_Private extends JWK_EC_Public {
-  d: string;
+  alg?: string;
+  key_ops?: KeyUsage[];
+  ext?: boolean;
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm;
 }
 
+interface JWK_EC_Private {
+  kty: "EC";
+  crv: string;
+  x: string;
+  y: string;
+  d: string;
+  alg?: string;
+  key_ops?: KeyUsage[];
+  ext?: boolean;
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm;
+}
+
+type JWK_EC = JWK_EC_Public | JWK_EC_Private;
+
 // RSA
-interface JWK_RSA_Public extends JWKParameters {
+interface JWK_RSA_Public {
   kty: "RSA";
   e: string;
   n: string;
-}
-interface JWK_RSA_Private extends JWK_RSA_Public {
-  d;
-  dp;
-  dq;
-  p;
-  q;
-  qi: string;
+  oth?: RsaOtherPrimesInfo[];
+  alg?: string;
+  key_ops?: KeyUsage[];
+  ext?: boolean;
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm;
 }
 
+interface JWK_RSA_Private {
+  kty: "RSA";
+  e: string;
+  n: string;
+  oth?: RsaOtherPrimesInfo[];
+  d: string;
+  dp: string;
+  dq: string;
+  p: string;
+  q: string;
+  qi: string;
+  alg?: string;
+  key_ops?: KeyUsage[];
+  ext?: boolean;
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm;
+}
+
+type JWK_RSA = JWK_RSA_Public | JWK_RSA_Private;
+
 // OKP (EdDSA, X25519)
-interface JWK_OKP_Public extends JWKParameters {
+interface JWK_OKP_Public {
   kty: "OKP";
   crv: string;
   x: string;
+  alg?: string;
+  key_ops?: KeyUsage[];
+  ext?: boolean;
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm;
 }
-interface JWK_OKP_Private extends JWK_OKP_Public {
+
+interface JWK_OKP_Private {
+  kty: "OKP";
+  crv: string;
+  x: string;
   d: string;
+  alg?: string;
+  key_ops?: KeyUsage[];
+  ext?: boolean;
+  use?: string;
+  x5c?: string[];
+  x5t?: string;
+  "x5t#S256"?: string;
+  x5u?: string;
+  kid?: string;
+  enc?: ContentEncryptionAlgorithm;
 }
+
+type JWK_OKP = JWK_OKP_Public | JWK_OKP_Private;
 
 // Unions
 type JWK_Public = JWK_RSA_Public | JWK_EC_Public | JWK_OKP_Public;
 type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_OKP_Private;
+type JWK_Asymmetric = JWK_RSA | JWK_EC | JWK_OKP;
 type JWK = JWK_oct | JWK_RSA | JWK_EC | JWK_OKP;
+
+type JWK_Pair =
+  | { publicKey: JWK_RSA_Public; privateKey: JWK_RSA_Private }
+  | { publicKey: JWK_EC_Public; privateKey: JWK_EC_Private }
+  | { publicKey: JWK_OKP_Public; privateKey: JWK_OKP_Private };
 
 interface JWKSet {
   keys: JWK[];
-  [key: string]: unknown;
+  [parameter: string]: unknown;
 }
+
+interface JWKCacheAdapter {
+  get(jwk: JWK, alg: string): CryptoKey | undefined;
+  set(jwk: JWK, alg: string, key: CryptoKey): void;
+}
+
+type JWKLookupFunctionHeader = {
+  kid?: string;
+  alg?: string;
+  enc?: string;
+  typ?: string;
+  crit?: string[];
+  [propName: string]: unknown;
+};
+
+type JWKLookupFunction = (
+  header: JWKLookupFunctionHeader,
+  token: string,
+) =>
+  | CryptoKey
+  | JWK
+  | JWKSet
+  | string
+  | Uint8Array<ArrayBuffer>
+  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
 ```

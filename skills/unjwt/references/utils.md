@@ -4,27 +4,41 @@ Encoding, type guards, JWT claim validation, and sanitization utilities.
 
 Import: `import { ... } from "unjwt/utils"`
 
+These primitives are re-exported from the [`unsecure`](https://github.com/sandros94/unsecure) package. Typings and options listed here match the current re-exports.
+
 ## Encoding / Decoding
 
 ### `base64UrlEncode(data)`
 
-Encodes `Uint8Array | string` to Base64URL (no padding). Returns `string`.
+Encodes `Uint8Array<ArrayBuffer> | string` to Base64URL (no padding). Returns `string`. Empty inputs return `""`. Throws `TypeError` on `null` / `undefined`.
 
-### `base64UrlDecode(str?, toString?)`
+### `base64UrlDecode(data, options?)`
 
-Decodes Base64URL string. Returns `string` by default, `Uint8Array` if `toString: false`.
+Decodes a Base64URL string (or raw bytes). The second argument is an options object, **not** a boolean.
 
-### `base64Encode(data)` / `base64Decode(str?, toString?)`
+- When `options` is omitted the return type **mirrors the input**: `string` input decodes to `string`, `Uint8Array<ArrayBuffer>` input decodes to `Uint8Array<ArrayBuffer>`.
+- Pass `{ returnAs: "uint8array" }` (or `"bytes"`) to always get raw bytes, or `{ returnAs: "string" }` to always get a UTF-8 string.
 
-Standard Base64 variants of the above.
+```ts
+base64UrlDecode("SGVsbG8"); // → "Hello"
+base64UrlDecode("SGVsbG8", { returnAs: "uint8array" }); // → Uint8Array<ArrayBuffer>
+base64UrlDecode(bytesInput); // → Uint8Array<ArrayBuffer>
+base64UrlDecode(bytesInput, { returnAs: "string" }); // → "Hello"
+```
 
-### `randomBytes(length)`
+### `base64Encode(data)` / `base64Decode(data, options?)`
 
-Returns a cryptographically secure `Uint8Array` of the specified length via `crypto.getRandomValues`.
+Standard (non-URL-safe) Base64 variants. Same shape as the URL-safe versions above.
+
+### `secureRandomBytes(length)`
+
+Returns a cryptographically secure `Uint8Array<ArrayBuffer>` of the specified length via `crypto.getRandomValues`.
+
+> Re-exported from `unsecure/random`. There is no `randomBytes` alias — use `secureRandomBytes`.
 
 ### `concatUint8Arrays(...arrays)`
 
-Concatenates multiple `Uint8Array` instances into one.
+Concatenates multiple `Uint8Array<ArrayBuffer>` instances into one contiguous buffer.
 
 ## Constants
 
@@ -64,13 +78,24 @@ Validates JWT claims against `JWTClaimValidationOptions`. Throws `JWTError` on f
 
 ```ts
 interface JWTClaimValidationOptions {
+  /** Expected `aud` value(s). Presence becomes required. */
   audience?: string | string[];
+  /** Expected `iss` value(s). Presence becomes required. */
   issuer?: string | string[];
+  /** Expected `sub` value. Presence becomes required. */
   subject?: string;
-  maxTokenAge?: MaxTokenAge; // ExpiresIn
-  clockTolerance?: number; // seconds
+  /** Maximum token age, measured from the `iat` claim. Accepts `Duration`. */
+  maxTokenAge?:
+    | number
+    | `${number}`
+    | `${number}${"s" | "second" | "seconds" | "m" | "minute" | "minutes" | "h" | "hour" | "hours" | "D" | "day" | "days" | "W" | "week" | "weeks" | "M" | "month" | "months" | "Y" | "year" | "years"}`;
+  /** Clock skew tolerance (seconds) for `nbf` / `exp` / `iat`. Defaults to 0. */
+  clockTolerance?: number;
+  /** Expected `typ` header value. */
   typ?: string;
+  /** Reference moment for NumericDate comparisons. Defaults to `new Date()`. */
   currentDate?: Date;
+  /** Additional required claim names beyond those implied by the options above. */
   requiredClaims?: string[];
   /**
    * Critical header parameters this caller understands and has processed.
@@ -110,6 +135,9 @@ Converts `string | Uint8Array | Record<string, unknown>` to `Uint8Array` bytes.
 ## Utility Types
 
 ```ts
-// Strict version of Omit that constrains K to actual keys of T
-type StrictOmit<T, K extends keyof T> = { [P in keyof T as P extends K ? never : P]: T[P] };
+// Strict version of Omit. `K` accepts real keys of `T` plus arbitrary string /
+// number / symbol literals so future-proofing against renames stays type-safe.
+type StrictOmit<T, K extends keyof T | (string & {}) | (number & {}) | (symbol & {})> = {
+  [P in keyof T as P extends K ? never : P]: T[P];
+};
 ```

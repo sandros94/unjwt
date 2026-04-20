@@ -217,107 +217,283 @@ JWE's multi-recipient model has one more moving part than JWS's multi-signature 
 ## Types
 
 ```ts
+type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
+
+type Duration =
+  | number
+  | `${number}`
+  | `${number}${"s" | "second" | "seconds" | "m" | "minute" | "minutes" | "h" | "hour" | "hours" | "D" | "day" | "days" | "W" | "week" | "weeks" | "M" | "month" | "months" | "Y" | "year" | "years"}`;
+
+type ExpiresIn = Duration;
+
+interface JWEHeaderParameters {
+  // JOSE header parameters (shared with JWS)
+  kid?: string;
+  x5t?: string;
+  x5c?: string[];
+  x5u?: string;
+  jku?: string;
+  jwk?: JWK_Public;
+  typ?: string;
+  cty?: string;
+  crit?: string[];
+  // JWE-specific header parameters
+  alg?: KeyManagementAlgorithm | (string & {});
+  enc?: ContentEncryptionAlgorithm | (string & {});
+  p2c?: number;
+  p2s?: string;
+  iv?: string;
+  tag?: string;
+  epk?: JWK_EC_Public;
+  apu?: string;
+  apv?: string;
+  [propName: string]: unknown;
+}
+
+interface JWEProtectedHeader {
+  // JOSE header parameters (shared with JWS)
+  kid?: string;
+  x5t?: string;
+  x5c?: string[];
+  x5u?: string;
+  jku?: string;
+  jwk?: JWK_Public;
+  typ?: string;
+  cty?: string;
+  crit?: string[];
+  // JWE-specific — alg and enc are required in a protected header
+  alg: KeyManagementAlgorithm;
+  enc: ContentEncryptionAlgorithm;
+  p2c?: number;
+  p2s?: string;
+  iv?: string;
+  tag?: string;
+  epk?: JWK_EC_Public;
+  apu?: string;
+  apv?: string;
+  [propName: string]: unknown;
+}
+
 interface JWEEncryptOptions {
   alg?: KeyManagementAlgorithm;
   enc?: ContentEncryptionAlgorithm;
   currentDate?: Date;
   expiresIn?: ExpiresIn;
-  protectedHeader?: StrictOmit<
-    JWEHeaderParameters,
-    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
-  >;
-  cek?: Uint8Array;
-  contentEncryptionIV?: Uint8Array;
-  keyManagementIV?: Uint8Array;
-  p2s?: Uint8Array;
+  expiresAt?: Date;
+  notBeforeIn?: ExpiresIn;
+  notBeforeAt?: Date;
+  // Additional header params — alg/enc/iv/tag/p2s/p2c/epk/apu/apv are reserved
+  // and typed as `never` to signal they cannot be set here.
+  protectedHeader?: {
+    alg?: never;
+    enc?: never;
+    iv?: never;
+    tag?: never;
+    p2s?: never;
+    p2c?: never;
+    epk?: never;
+    apu?: never;
+    apv?: never;
+    kid?: string;
+    x5t?: string;
+    x5c?: string[];
+    x5u?: string;
+    jku?: string;
+    jwk?: JWK_Public;
+    typ?: string;
+    cty?: string;
+    crit?: string[];
+    [propName: string]: unknown;
+  };
+  keyManagementIV?: Uint8Array<ArrayBuffer>;
+  p2s?: Uint8Array<ArrayBuffer>;
   p2c?: number; // default: 600_000 for PBES2
   ecdh?: {
-    ephemeralKey?: CryptoKey | JWK_EC_Private | CryptoKeyPair | { publicKey; privateKey };
-    partyUInfo?: Uint8Array;
-    partyVInfo?: Uint8Array;
-    enc?: ContentEncryptionAlgorithm; // required for bare "ECDH-ES"
+    ephemeralKey?:
+      | CryptoKey
+      | JWK_EC_Private
+      | CryptoKeyPair
+      | {
+          publicKey: CryptoKey | JWK_EC_Public;
+          privateKey: CryptoKey | JWK_EC_Private;
+        };
+    partyUInfo?: Uint8Array<ArrayBuffer>;
+    partyVInfo?: Uint8Array<ArrayBuffer>;
   };
+  cek?: Uint8Array<ArrayBuffer>;
+  contentEncryptionIV?: Uint8Array<ArrayBuffer>;
 }
 
-interface JWEDecryptOptions extends JWTClaimValidationOptions {
+interface JWEDecryptOptions {
+  // JWT claim validation options (inlined from JWTClaimValidationOptions)
+  audience?: string | string[];
+  issuer?: string | string[];
+  subject?: string;
+  maxTokenAge?: Duration;
+  clockTolerance?: number; // seconds
+  typ?: string;
+  currentDate?: Date;
+  requiredClaims?: string[];
+  recognizedHeaders?: string[];
+  // JWE-specific decrypt options
   algorithms?: KeyManagementAlgorithm[];
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
+  unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
+  keyUsage?: KeyUsage[];
+  extractable?: boolean;
   forceUint8Array?: boolean;
   validateClaims?: boolean;
   returnCek?: boolean;
+  minIterations?: number; // default: 1000
+  maxIterations?: number; // default: 1_000_000
 }
-
-type JOSEPayload = string | Uint8Array | Record<string, unknown>;
 
 interface JWEDecryptResult<T extends JOSEPayload = JOSEPayload> {
   payload: T;
   protectedHeader: JWEProtectedHeader; // alg and enc are required and strongly typed
-  cek?: Uint8Array; // only when returnCek: true
-  aad?: Uint8Array; // only when returnCek: true
+  cek?: Uint8Array<ArrayBuffer>; // only when returnCek: true
+  aad?: Uint8Array<ArrayBuffer>; // only when returnCek: true
 }
 
 // --- Multi-recipient (RFC 7516 §7.2) ---
 
+interface JWEFlattenedSerialization {
+  header?: JWEHeaderParameters;
+  encrypted_key?: string;
+  protected?: string;
+  unprotected?: JWEHeaderParameters;
+  aad?: string;
+  iv?: string;
+  ciphertext: string;
+  tag?: string;
+}
+
 interface JWEGeneralSerialization {
   protected?: string;
-  unprotected?: Record<string, unknown>;
+  unprotected?: JWEHeaderParameters;
   recipients: JWEGeneralRecipient[];
   aad?: string;
-  iv: string;
+  iv?: string;
   ciphertext: string;
-  tag: string;
+  tag?: string;
 }
 
 interface JWEGeneralRecipient {
-  header?: Record<string, unknown>;
+  header?: JWEHeaderParameters;
   encrypted_key?: string;
-}
-
-interface JWEFlattenedSerialization {
-  protected?: string;
-  unprotected?: Record<string, unknown>;
-  header?: Record<string, unknown>;
-  encrypted_key?: string;
-  aad?: string;
-  iv: string;
-  ciphertext: string;
-  tag: string;
 }
 
 interface JWEMultiRecipient {
   key: JWK;
-  header?: StrictOmit<
-    JWEHeaderParameters,
-    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
-  >;
-  ecdh?: JWEEncryptOptions["ecdh"];
-  p2s?: Uint8Array;
+  // Per-recipient header — alg/enc/iv/tag/p2s/p2c/epk/apu/apv are reserved.
+  header?: {
+    alg?: never;
+    enc?: never;
+    iv?: never;
+    tag?: never;
+    p2s?: never;
+    p2c?: never;
+    epk?: never;
+    apu?: never;
+    apv?: never;
+    kid?: string;
+    x5t?: string;
+    x5c?: string[];
+    x5u?: string;
+    jku?: string;
+    jwk?: JWK_Public;
+    typ?: string;
+    cty?: string;
+    crit?: string[];
+    [propName: string]: unknown;
+  };
+  ecdh?: {
+    ephemeralKey?:
+      | CryptoKey
+      | JWK_EC_Private
+      | CryptoKeyPair
+      | {
+          publicKey: CryptoKey | JWK_EC_Public;
+          privateKey: CryptoKey | JWK_EC_Private;
+        };
+    partyUInfo?: Uint8Array<ArrayBuffer>;
+    partyVInfo?: Uint8Array<ArrayBuffer>;
+  };
+  p2s?: Uint8Array<ArrayBuffer>;
   p2c?: number;
-  keyManagementIV?: Uint8Array;
+  keyManagementIV?: Uint8Array<ArrayBuffer>;
 }
 
-interface JWEMultiEncryptOptions extends StrictOmit<
-  JWEEncryptOptions,
-  "alg" | "ecdh" | "p2s" | "p2c" | "keyManagementIV"
-> {
+interface JWEMultiEncryptOptions {
+  // Inherited from JWEEncryptOptions (minus alg, ecdh, p2s, p2c, keyManagementIV)
+  enc?: ContentEncryptionAlgorithm;
+  currentDate?: Date;
+  expiresIn?: ExpiresIn;
+  expiresAt?: Date;
+  notBeforeIn?: ExpiresIn;
+  notBeforeAt?: Date;
+  protectedHeader?: {
+    alg?: never;
+    enc?: never;
+    iv?: never;
+    tag?: never;
+    p2s?: never;
+    p2c?: never;
+    epk?: never;
+    apu?: never;
+    apv?: never;
+    kid?: string;
+    x5t?: string;
+    x5c?: string[];
+    x5u?: string;
+    jku?: string;
+    jwk?: JWK_Public;
+    typ?: string;
+    cty?: string;
+    crit?: string[];
+    [propName: string]: unknown;
+  };
+  cek?: Uint8Array<ArrayBuffer>;
+  contentEncryptionIV?: Uint8Array<ArrayBuffer>;
+  // Multi-recipient additions
   sharedUnprotectedHeader?: Record<string, unknown>;
-  aad?: Uint8Array | string;
+  aad?: Uint8Array<ArrayBuffer> | string;
 }
 
-interface JWEMultiDecryptOptions extends JWEDecryptOptions {
+interface JWEMultiDecryptOptions {
+  // JWT claim validation options (inlined from JWTClaimValidationOptions)
+  audience?: string | string[];
+  issuer?: string | string[];
+  subject?: string;
+  maxTokenAge?: Duration;
+  clockTolerance?: number; // seconds
+  typ?: string;
+  currentDate?: Date;
+  requiredClaims?: string[];
+  recognizedHeaders?: string[];
+  // JWE decrypt options (inlined from JWEDecryptOptions)
+  algorithms?: KeyManagementAlgorithm[];
+  encryptionAlgorithms?: ContentEncryptionAlgorithm[];
+  unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
+  keyUsage?: KeyUsage[];
+  extractable?: boolean;
+  forceUint8Array?: boolean;
+  validateClaims?: boolean;
+  returnCek?: boolean;
+  minIterations?: number;
+  maxIterations?: number;
+  // Multi-recipient addition
   strictRecipientMatch?: boolean;
 }
 
-interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> extends JWEDecryptResult<T> {
+interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> {
+  payload: T;
+  protectedHeader: JWEProtectedHeader;
+  cek?: Uint8Array<ArrayBuffer>;
+  aad?: Uint8Array<ArrayBuffer>;
   sharedUnprotectedHeader?: JWEHeaderParameters;
   recipientHeader?: JWEHeaderParameters;
   recipientIndex: number;
-}
-
-// JWEProtectedHeader extends JWEHeaderParameters with alg and enc required
-interface JWEProtectedHeader extends JWEHeaderParameters {
-  alg: KeyManagementAlgorithm;
-  enc: ContentEncryptionAlgorithm;
 }
 
 // JWKLookupFunction is shared with JWS verify — imported from unjwt/jwk or unjwt
@@ -331,5 +507,11 @@ type JWKLookupFunction = (
     [key: string]: unknown;
   },
   token: string,
-) => MaybePromise<CryptoKey | JWK | JWKSet | string | Uint8Array>;
+) =>
+  | CryptoKey
+  | JWK
+  | JWKSet
+  | string
+  | Uint8Array<ArrayBuffer>
+  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
 ```

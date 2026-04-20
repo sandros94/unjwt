@@ -227,64 +227,172 @@ JWS JSON Serialization is structurally simpler than JWE's:
 ## Types
 
 ```ts
-interface JWSSignOptions {
+type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
+
+type ExpiresIn = Duration;
+
+type Duration =
+  | number
+  | `${number}`
+  | `${number}${"s" | "second" | "seconds" | "m" | "minute" | "minutes" | "h" | "hour" | "hours" | "D" | "day" | "days" | "W" | "week" | "weeks" | "M" | "month" | "months" | "Y" | "year" | "years"}`;
+
+interface JWSHeaderParameters {
   alg?: JWSAlgorithm;
-  protectedHeader?: JWSHeaderParameters;
-  currentDate?: Date;
-  expiresIn?: ExpiresIn;
+  b64?: boolean; // RFC 7797 unencoded payload
+  kid?: string;
+  x5t?: string;
+  x5c?: string[];
+  x5u?: string;
+  jku?: string;
+  jwk?: JWK_Public;
+  typ?: string;
+  cty?: string;
+  crit?: string[];
+  [propName: string]: unknown;
 }
 
-interface JWSVerifyOptions extends JWTClaimValidationOptions {
+interface JWSProtectedHeader {
+  alg: JWSAlgorithm;
+  b64?: boolean;
+  kid?: string;
+  x5t?: string;
+  x5c?: string[];
+  x5u?: string;
+  jku?: string;
+  jwk?: JWK_Public;
+  typ?: string;
+  cty?: string;
+  crit?: string[];
+  [propName: string]: unknown;
+}
+
+interface JWSSignOptions {
+  alg?: JWSAlgorithm;
+  protectedHeader?: {
+    alg?: never;
+    b64?: boolean;
+    kid?: string;
+    x5t?: string;
+    x5c?: string[];
+    x5u?: string;
+    jku?: string;
+    jwk?: JWK_Public;
+    typ?: string;
+    cty?: string;
+    crit?: string[];
+    [propName: string]: unknown;
+  };
+  currentDate?: Date;
+  expiresIn?: ExpiresIn;
+  expiresAt?: Date;
+  notBeforeIn?: ExpiresIn;
+  notBeforeAt?: Date;
+}
+
+interface JWSVerifyOptions {
   algorithms?: JWSAlgorithm[];
   forceUint8Array?: boolean;
   validateClaims?: boolean;
+  audience?: string | string[];
+  issuer?: string | string[];
+  subject?: string;
+  maxTokenAge?: Duration;
+  clockTolerance?: number;
+  typ?: string;
+  currentDate?: Date;
+  requiredClaims?: string[];
+  recognizedHeaders?: string[];
 }
-
-type JOSEPayload = string | Uint8Array | Record<string, unknown>;
 
 interface JWSVerifyResult<T extends JOSEPayload = JOSEPayload> {
   payload: T;
-  protectedHeader: JWSProtectedHeader; // alg is required
+  protectedHeader: JWSProtectedHeader;
 }
 
 // --- Multi-signature (RFC 7515 §7.2) ---
+
+interface JWSFlattenedSerialization {
+  payload: string;
+  protected?: string;
+  header?: JWSHeaderParameters;
+  signature: string;
+}
+
+interface JWSGeneralSignature {
+  protected?: string;
+  header?: JWSHeaderParameters;
+  signature: string;
+}
 
 interface JWSGeneralSerialization {
   payload: string;
   signatures: JWSGeneralSignature[];
 }
 
-interface JWSGeneralSignature {
-  protected?: string;
-  header?: Record<string, unknown>;
-  signature: string;
-}
-
-interface JWSFlattenedSerialization {
-  payload: string;
-  protected?: string;
-  header?: Record<string, unknown>;
-  signature: string;
-}
-
 interface JWSMultiSigner {
   key: JWK;
-  protectedHeader?: StrictOmit<JWSHeaderParameters, "alg"> & { alg?: never };
-  unprotectedHeader?: Record<string, unknown>;
+  protectedHeader?: {
+    alg?: never;
+    b64?: boolean;
+    kid?: string;
+    x5t?: string;
+    x5c?: string[];
+    x5u?: string;
+    jku?: string;
+    jwk?: JWK_Public;
+    typ?: string;
+    cty?: string;
+    crit?: string[];
+    [propName: string]: unknown;
+  };
+  unprotectedHeader?: JWSHeaderParameters;
 }
 
-interface JWSMultiSignOptions extends StrictOmit<JWSSignOptions, "alg" | "protectedHeader"> {}
+interface JWSMultiSignOptions {
+  currentDate?: Date;
+  expiresIn?: ExpiresIn;
+  expiresAt?: Date;
+  notBeforeIn?: ExpiresIn;
+  notBeforeAt?: Date;
+}
 
-interface JWSMultiVerifyOptions extends JWSVerifyOptions {
+interface JWSMultiVerifyOptions {
+  algorithms?: JWSAlgorithm[];
+  forceUint8Array?: boolean;
+  validateClaims?: boolean;
+  audience?: string | string[];
+  issuer?: string | string[];
+  subject?: string;
+  maxTokenAge?: Duration;
+  clockTolerance?: number;
+  typ?: string;
+  currentDate?: Date;
+  requiredClaims?: string[];
+  recognizedHeaders?: string[];
   strictSignerMatch?: boolean;
 }
 
-interface JWSMultiVerifyResult<T extends JOSEPayload = JOSEPayload> extends JWSVerifyResult<T> {
-  signerHeader?: JWSHeaderParameters;
-  signerIndex: number;
+interface JWSMultiVerifyAllOptions {
+  algorithms?: JWSAlgorithm[];
+  forceUint8Array?: boolean;
+  validateClaims?: boolean;
+  audience?: string | string[];
+  issuer?: string | string[];
+  subject?: string;
+  maxTokenAge?: Duration;
+  clockTolerance?: number;
+  typ?: string;
+  currentDate?: Date;
+  requiredClaims?: string[];
+  recognizedHeaders?: string[];
 }
 
-interface JWSMultiVerifyAllOptions extends StrictOmit<JWSMultiVerifyOptions, "strictSignerMatch"> {}
+interface JWSMultiVerifyResult<T extends JOSEPayload = JOSEPayload> {
+  payload: T;
+  protectedHeader: JWSProtectedHeader;
+  signerIndex: number;
+  signerHeader?: JWSHeaderParameters;
+}
 
 type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
   | {
@@ -302,13 +410,6 @@ type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
       signerHeader?: JWSHeaderParameters;
     };
 
-interface JWSHeaderParameters extends JoseHeaderParameters {
-  alg?: JWSAlgorithm;
-  b64?: boolean; // RFC 7797 unencoded payload
-}
-
-// JWSProtectedHeader is JWSHeaderParameters with alg required
-
 // JWKLookupFunction is shared with JWE decrypt — imported from unjwt/jwk or unjwt
 type JWKLookupFunction = (
   header: {
@@ -320,5 +421,11 @@ type JWKLookupFunction = (
     [key: string]: unknown;
   },
   token: string,
-) => MaybePromise<CryptoKey | JWK | JWKSet | string | Uint8Array>;
+) =>
+  | CryptoKey
+  | JWK
+  | JWKSet
+  | string
+  | Uint8Array<ArrayBuffer>
+  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
 ```

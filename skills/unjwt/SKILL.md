@@ -4,7 +4,7 @@ description: "Expert knowledge for working with unjwt — a low-level, zero-dep,
 metadata:
   version: 0.1.0
   library: unjwt
-  library-version: 0.6.0
+  library-version: 0.7.0
   org: sandros94
   documentation: https://github.com/sandros94/unjwt
 ---
@@ -24,7 +24,7 @@ The following is a list of reference files:
 - `references/jws.md`: `sign()`, `verify()`, `signMulti()`, `verifyMulti()`, `verifyMultiAll()`, `generalToFlattenedJWS()`, `JWSSignOptions`, `JWSVerifyOptions`, `JWSMultiSignOptions`, `JWSMultiVerifyOptions`, `JWSMultiVerifyAllOptions`, `JWSMultiVerifyOutcome`, `JWSGeneralSerialization`, `JWSFlattenedSerialization`, `JWSMultiSigner`
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `encryptMulti()`, `decryptMulti()`, `generalToFlattened()`, `JWEEncryptOptions`, `JWEDecryptOptions`, `JWEMultiEncryptOptions`, `JWEMultiDecryptOptions`, `JWEGeneralSerialization`, `JWEFlattenedSerialization`, `JWEMultiRecipient`
 - `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`; `importFromPEM`, `exportToPEM` are deprecated aliases), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`, `getJWKFromSet` — deprecated), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
-- `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `randomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
+- `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `secureRandomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
 - `references/adapters-h3.md`: H3 session adapters (v1 and v2), `useJWESession`, `useJWSSession`, `SessionManager` interface, `SessionConfigJWE`, `SessionConfigJWS`, lifecycle hooks (`onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`), key lookup hooks (`onUnsealKeyLookup`, `onVerifyKeyLookup`), lower-level functions, cookie chunking (v2), header-based tokens, refresh token pattern
 
 ## Export Paths
@@ -35,7 +35,7 @@ The following is a list of reference files:
 | `unjwt/jws`           | `sign()`, `verify()` (Compact) — `signMulti()`, `verifyMulti()` (General JSON Serialization)         |
 | `unjwt/jwe`           | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
 | `unjwt/jwk`           | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                       |
-| `unjwt/utils`         | Base64URL encode/decode, type guards, JWT claim validation, `randomBytes`                            |
+| `unjwt/utils`         | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`                      |
 | `unjwt/adapters/h3`   | H3 session adapter (aliases h3v1)                                                                    |
 | `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2)                                                            |
 | `unjwt/adapters/h3v2` | H3 v2 session adapter (Nuxt v5, Nitro v3)                                                            |
