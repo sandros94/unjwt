@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.7.0
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.6.1...v0.7.0)
+
+### 🚀 Enhancements
+
+- JWE multi-recipients and JWS multi-signers ([#12](https://github.com/sandros94/unjwt/pull/12))
+
+### 🔥 Performance
+
+- **jws,jwe:** JWK fast-path + revert `importKey` cache key ([8af03fe](https://github.com/sandros94/unjwt/commit/8af03fe))
+- **jws,jwe:** Strip prototype-pollution vectors directly via JSON.parse reviver ([6f7de97](https://github.com/sandros94/unjwt/commit/6f7de97))
+- **jws,jwe,utils:** Shave allocations from `validateJwtClaims` + header builders ([6d3df52](https://github.com/sandros94/unjwt/commit/6d3df52))
+
+### 💅 Refactors
+
+- ⚠️ Security & DX hardening ([#10](https://github.com/sandros94/unjwt/pull/10))
+
+### 🏡 Chore
+
+- Update gitignore for local files ([8fb972f](https://github.com/sandros94/unjwt/commit/8fb972f))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️ Security & DX hardening ([#10](https://github.com/sandros94/unjwt/pull/10))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.6.1
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.6.0...v0.6.1)
