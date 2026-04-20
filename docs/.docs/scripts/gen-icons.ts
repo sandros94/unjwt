@@ -7,9 +7,7 @@ import { Buffer } from "node:buffer";
 // resvg-wasm rasterizes the SVG. `@img/png` can only encode raw pixel
 // buffers — it doesn't know how to read SVG markup — so we need a real
 // renderer in between.
-await initWasm(
-  await fetch("https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm"),
-);
+await initWasm(await fetch("https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm"));
 
 const DIR = ".docs/public";
 const svg = await Deno.readTextFile(`${DIR}/icon.svg`);
