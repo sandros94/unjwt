@@ -19,6 +19,8 @@ import {
   computeJwtTimeClaims,
   validateJwtClaims,
   validateCriticalHeadersJWE,
+  inferJWSAllowedAlgorithms,
+  inferJWEAllowedAlgorithms,
 } from "../src/core/utils";
 import { generateKey } from "../src/core/jwk";
 import type {
@@ -158,13 +160,13 @@ describe.concurrent("Utility Functions", () => {
       const date = new Date(0); // epoch
       const now = date.getTime(); // 0 seconds
 
-      let claims = computeJwtTimeClaims({}, "JWT", "1m", date)!;
+      let claims = computeJwtTimeClaims({}, "1m", date)!;
       expect(claims).toHaveProperty("iat");
       expect(claims.iat).toBe(now);
       expect(claims).toHaveProperty("exp");
       expect(claims.exp).toBe(now + 60);
 
-      claims = computeJwtTimeClaims({ iat: 1000 }, "JWT", "1m", date)!;
+      claims = computeJwtTimeClaims({ iat: 1000 }, "1m", date)!;
       expect(claims).toHaveProperty("iat");
       expect(claims.iat).toBe(1000);
       expect(claims).toHaveProperty("exp");
@@ -172,18 +174,15 @@ describe.concurrent("Utility Functions", () => {
     });
 
     it("should return undefined for invalid inputs", () => {
-      const date = new Date(0); // epoch
+      const date = new Date(0);
 
-      // no expiresIn
-      let claims = computeJwtTimeClaims({}, "JWT", undefined, date);
+      let claims = computeJwtTimeClaims({}, undefined, date);
       expect(claims).toBeUndefined();
 
-      // `exp` already present
-      claims = computeJwtTimeClaims({ exp: 2000 }, "JWT", "1m", date);
+      claims = computeJwtTimeClaims({ exp: 2000 }, "1m", date);
       expect(claims).toBeUndefined();
 
-      // invalid `typ`
-      claims = computeJwtTimeClaims({}, "invalid", "1m", date);
+      claims = computeJwtTimeClaims(textEncoder.encode("bytes"), "1m", date);
       expect(claims).toBeUndefined();
     });
   });
@@ -351,9 +350,8 @@ describe("sanitizeObject", () => {
 
   it("skips already-seen nested objects (WeakSet seen.has() === true branch)", () => {
     const shared = { val: "ok" };
-    const obj: any = { a: shared, b: shared }; // same object referenced twice
+    const obj: any = { a: shared, b: shared };
     sanitizeObject(obj);
-    // No infinite loop and the shared object is untouched
     expect(obj.a).toBe(shared);
     expect(obj.b).toBe(shared);
   });
@@ -403,23 +401,142 @@ describe("validateJwtClaims additional cases", () => {
 
   it("throws 'Token is too old' for maxTokenAge violation", () => {
     const oldIat = Math.floor(Date.now() / 1000) - 300; // 300s ago
-    expect(
-      () => validateJwtClaims({ iat: oldIat }, { maxTokenAge: 60 }), // max age 60s
-    ).toThrow("Token is too old");
+    expect(() => validateJwtClaims({ iat: oldIat }, { maxTokenAge: 60 })).toThrow(
+      "Token is too old",
+    );
   });
 
   it("throws when maxTokenAge is set but iat is not a number", () => {
-    // iat must be present (otherwise line 189 fires first); here it's a string
+    // `iat` must be present — otherwise the missing-claim check fires first and
+    // this branch never runs.
     expect(() =>
       // @ts-expect-error intentional non-number iat
       validateJwtClaims({ iat: "not-a-number" }, { maxTokenAge: 60 }),
     ).toThrow('"iat" (Issued At) Claim must be a number');
   });
 
+  // RFC 7519 §4.1: exp/nbf/iat are NumericDate and must be finite numbers.
+  it("throws on non-finite exp / nbf", () => {
+    // @ts-expect-error intentional non-number exp
+    expect(() => validateJwtClaims({ exp: "never" })).toThrow(
+      '"exp" (Expiration Time) Claim must be a number',
+    );
+    // @ts-expect-error intentional non-number nbf
+    expect(() => validateJwtClaims({ nbf: "later" })).toThrow(
+      '"nbf" (Not Before) Claim must be a number',
+    );
+    expect(() => validateJwtClaims({ exp: Number.NaN })).toThrow(
+      '"exp" (Expiration Time) Claim must be a number',
+    );
+  });
+
   it("throws for subject mismatch", () => {
     expect(() =>
       validateJwtClaims({ sub: "actual-subject" }, { subject: "expected-subject" }),
     ).toThrow('"sub" (Subject) Claim');
+  });
+});
+
+describe("inferJWSAllowedAlgorithms", () => {
+  it("returns undefined for raw bytes and lookup functions", () => {
+    expect(inferJWSAllowedAlgorithms(new Uint8Array(32))).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms("password")).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms(() => undefined)).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms(null)).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms(42)).toBeUndefined();
+  });
+
+  it("infers from EC / OKP JWKs that lack alg (WebCrypto export case)", () => {
+    expect(inferJWSAllowedAlgorithms({ kty: "EC", crv: "P-256", x: "", y: "" })).toEqual(["ES256"]);
+    expect(inferJWSAllowedAlgorithms({ kty: "EC", crv: "P-384", x: "", y: "" })).toEqual(["ES384"]);
+    expect(inferJWSAllowedAlgorithms({ kty: "EC", crv: "P-521", x: "", y: "" })).toEqual(["ES512"]);
+    expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed25519", x: "" })).toEqual([
+      "Ed25519",
+      "EdDSA",
+    ]);
+    expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed448", x: "" })).toEqual(["EdDSA"]);
+  });
+
+  it("infers from CryptoKeys across JWS alg families", async () => {
+    const hmac = (await generateKey("HS384")) as CryptoKey;
+    expect(inferJWSAllowedAlgorithms(hmac)).toEqual(["HS384"]);
+
+    const rsa = await generateKey("RS512", { modulusLength: 2048 });
+    expect(inferJWSAllowedAlgorithms(rsa.publicKey)).toEqual(["RS512"]);
+    expect(inferJWSAllowedAlgorithms(rsa)).toEqual(["RS512"]);
+
+    const pss = await generateKey("PS256", { modulusLength: 2048 });
+    expect(inferJWSAllowedAlgorithms(pss.publicKey)).toEqual(["PS256"]);
+
+    const ec = await generateKey("ES384");
+    expect(inferJWSAllowedAlgorithms(ec.publicKey)).toEqual(["ES384"]);
+
+    const ed = await generateKey("Ed25519");
+    expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["Ed25519", "EdDSA"]);
+  });
+
+  it("returns undefined for a JWKSet where any key lacks alg and kty-based inference fails", () => {
+    const incomplete = { keys: [{ kty: "oct", k: "abc" }] };
+    expect(inferJWSAllowedAlgorithms(incomplete)).toBeUndefined();
+  });
+});
+
+describe("inferJWEAllowedAlgorithms", () => {
+  it("infers password-like material to PBES2 + dir", () => {
+    expect(inferJWEAllowedAlgorithms("pw")).toEqual([
+      "PBES2-HS256+A128KW",
+      "PBES2-HS384+A192KW",
+      "PBES2-HS512+A256KW",
+      "dir",
+    ]);
+    expect(inferJWEAllowedAlgorithms(new Uint8Array(16))).toHaveLength(4);
+  });
+
+  it("returns undefined for lookup functions and non-object primitives", () => {
+    expect(inferJWEAllowedAlgorithms(() => undefined)).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms(null)).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms(true)).toBeUndefined();
+  });
+
+  it("infers from EC / OKP ECDH-capable JWKs without alg", () => {
+    expect(inferJWEAllowedAlgorithms({ kty: "EC", crv: "P-256", x: "", y: "" })).toContain(
+      "ECDH-ES+A128KW",
+    );
+    expect(inferJWEAllowedAlgorithms({ kty: "OKP", crv: "X25519", x: "" })).toContain("ECDH-ES");
+  });
+
+  it("infers from oct JWK alg variants", () => {
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A128GCM" })).toEqual([
+      "A128GCMKW",
+      "dir",
+    ]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256KW" })).toEqual([
+      "A256KW",
+      "dir",
+    ]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256CBC-HS512" })).toEqual([
+      "dir",
+    ]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "dir" })).toEqual(["dir"]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x" })).toBeUndefined();
+  });
+
+  it("infers from CryptoKeys across JWE alg families (delegates to privateKey on pairs)", async () => {
+    const kw = (await generateKey("A128KW")) as CryptoKey;
+    expect(inferJWEAllowedAlgorithms(kw)).toEqual(["A128KW", "dir"]);
+
+    const gcm = (await generateKey("A192GCM")) as CryptoKey;
+    expect(inferJWEAllowedAlgorithms(gcm)).toEqual(["A192GCMKW", "dir"]);
+
+    const rsaOaep = await generateKey("RSA-OAEP-384", { modulusLength: 2048 });
+    expect(inferJWEAllowedAlgorithms(rsaOaep.privateKey)).toEqual(["RSA-OAEP-384"]);
+    expect(inferJWEAllowedAlgorithms(rsaOaep)).toEqual(["RSA-OAEP-384"]);
+
+    // A bare ECDH CryptoKey carries no wrap-variant hint, so inference returns the
+    // full ECDH-ES family and the caller selects the specific wrap alg.
+    const ecdh = await generateKey("ECDH-ES+A128KW", { namedCurve: "P-256" });
+    expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES");
+    expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES+A128KW");
   });
 });
 

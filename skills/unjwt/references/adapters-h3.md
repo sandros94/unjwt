@@ -8,7 +8,7 @@ Import paths:
 - `unjwt/adapters/h3v1` — H3 v1 (Nuxt v4, Nitro v2)
 - `unjwt/adapters/h3v2` — H3 v2 (Nuxt v5, Nitro v3)
 
-All three export the same API. Each also re-exports: `generateJWK`, `importFromPEM`, `exportToPEM`, `deriveJWKFromPassword`.
+All three export the same API. Each also re-exports: `generateJWK`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`.
 
 Peer dep: `h3`
 

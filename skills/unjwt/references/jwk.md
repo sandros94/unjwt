@@ -2,7 +2,7 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, PEM conversion, and cache control.
 
-Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importFromPEM, exportToPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
+Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
 
 Key lookup types (also from `unjwt/jwk`): `JWKLookupFunction`, `JWKLookupFunctionHeader` — or `from "unjwt"`
 
@@ -12,25 +12,38 @@ Unless specific control over the output format is required, prefer `generateJWK(
 
 ### `generateKey(alg, options?)`
 
-Generates a cryptographic key as `CryptoKey`, `CryptoKeyPair`, or `Uint8Array` depending on algorithm.
+Generates a cryptographic key. The return type is narrowed by `alg` and `options.toJWK`:
+
+| Algorithm family                                  | `toJWK: false` (default)                               | `toJWK: true`                                                |
+| ------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------ |
+| `HS*`, `A*KW`, `A*GCM`, `A*GCMKW`                 | `CryptoKey`                                            | `JWK_oct`                                                    |
+| `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512` | `Uint8Array<ArrayBuffer>` (composite AES + HMAC bytes) | `JWK_oct` (composite bytes serialised as one `oct` key)      |
+| `RS*`, `PS*`, `RSA-OAEP*`                         | `CryptoKeyPair`                                        | `{ privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }` |
+| `ES*`                                             | `CryptoKeyPair`                                        | `{ privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }`   |
+| `Ed25519`, `EdDSA`                                | `CryptoKeyPair`                                        | `{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }` |
+| `ECDH-ES*`                                        | `CryptoKeyPair`                                        | `JWK_EC` **or** `JWK_OKP` pair, depending on `namedCurve`    |
 
 - `alg: GenerateKeyAlgorithm` — any JWS or JWE algorithm except `"dir"` and PBES2
 - `options?: GenerateKeyOptions`
-  - `toJWK?: boolean` — when `true`, returns JWK format instead of CryptoKey
+  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`
   - `extractable?: boolean` — default `true`
   - `keyUsage?: KeyUsage[]`
-  - `modulusLength?: number` — RSA modulus length (default `2048`)
-  - `namedCurve?` — `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`
+  - `modulusLength?: number` — RSA only, default `2048`
+  - `publicExponent?: Uint8Array` — RSA only, default `0x010001`
+  - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`
+
+PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriveJWKFromPassword`.
 
 To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` instead of `toJWK: true`.
 
-### `generateJWK(alg, jwkParams?, options?)`
+### `generateJWK(alg, options?)`
 
-Always returns JWK format with a generated `kid`.
+Always returns JWK format with a `kid` (auto-generated via `crypto.randomUUID()` when not supplied).
 
 - `alg: GenerateKeyAlgorithm`
-- `jwkParams?` — extra JWK fields (`kid`, `use`, etc.); `kid` is generated via `crypto.randomUUID()` if omitted
-- `options?: GenerateJWKOptions` — same as `GenerateKeyOptions` minus `toJWK`
+- `options?` — combined `GenerateKeyOptions` (minus `toJWK`) and JWK metadata (`kid`, `use`,
+  `x5c`, etc.). `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot be
+  overridden here.
 
 ```ts
 import { generateKey, generateJWK } from "unjwt/jwk";
@@ -40,6 +53,8 @@ const rsaKeyPair = await generateKey("RS256", { modulusLength: 4096 });
 
 const ecKeys = await generateJWK("ES256", { kid: "ec-1" });
 // → { privateKey: JWK_EC_Private, publicKey: JWK_EC_Public }
+
+const rsaJwk = await generateJWK("RS256", { modulusLength: 2048, kid: "rsa-1", use: "sig" });
 ```
 
 ## Key Import/Export
@@ -50,10 +65,20 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 
 - `string` → encoded to `Uint8Array`
 - `Uint8Array` → returned as-is
-- `CryptoKey` → returned as-is
+- `CryptoKey` → returned as-is (subject to `expect` validation if supplied)
 - `JWK_oct` → `k` decoded to `Uint8Array` (default)
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
 - Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`)
+
+#### `expect` option
+
+Pass `{ expect: "public" | "private" }` to validate the caller's intent against the key's
+shape **before** the import. A private JWK or CryptoKey passed with `expect: "public"` throws
+`ERR_JWK_INVALID` instead of silently importing the private material — and vice versa.
+`expect` is a no-op for symmetric (`oct`) JWKs and `"secret"`-type CryptoKeys.
+
+`verify` / `decrypt` pin `expect: "public"` and `expect: "private"` respectively, so the
+common paths are correct by default. Callers using `importKey` directly opt in explicitly.
 
 ```ts
 // Default: JWK_oct returns raw bytes
@@ -65,11 +90,16 @@ const key = await importKey(symJwk, {
   algorithm: { name: "AES-GCM", length: 256 },
   usage: ["encrypt", "decrypt"],
 }); // CryptoKey, extractable: false by default
+
+// Assert intent on an asymmetric JWK before import
+const recipientPub = await importKey(recipientJwk, { alg: "RSA-OAEP-256", expect: "public" });
 ```
 
-### `exportKey(key, jwk?)`
+### `exportKey(key, jwkParams?)`
 
-Exports a `CryptoKey` to JWK format. Optional `jwk` param merges additional properties.
+Exports a `CryptoKey` to JWK format. `jwkParams` optionally merges metadata fields
+(`kid`, `use`, `x5c`, etc.) onto the result. `alg`, `kty`, `key_ops`, and `ext` are
+preserved from Web Crypto's authoritative export and cannot be overridden here.
 
 Returns `Promise<JWK>`.
 
@@ -90,7 +120,14 @@ Wraps a Content Encryption Key using the specified key management algorithm.
     - `partyUInfo?`, `partyVInfo?` — agreement party info
     - `enc?` — content encryption algorithm, **required** for bare `"ECDH-ES"` (direct key agreement)
 
-Returns `Promise<WrapKeyResult>` — `{ encryptedKey, iv?, tag?, p2s?, p2c?, epk?, apu?, apv? }`
+Returns `Promise<WrapKeyResult<TAlg>>`, narrowed by `alg`:
+
+| `alg` family                     | Result shape                        |
+| -------------------------------- | ----------------------------------- |
+| `"dir"`, `"A*KW"`, `"RSA-OAEP*"` | `{ encryptedKey }`                  |
+| `"PBES2-*"`                      | `{ encryptedKey, p2s, p2c }`        |
+| `"A*GCMKW"`                      | `{ encryptedKey, iv, tag }`         |
+| `"ECDH-ES"`, `"ECDH-ES+A*KW"`    | `{ encryptedKey, epk, apu?, apv? }` |
 
 For `"ECDH-ES"` (direct), `encryptedKey` is an empty `Uint8Array` per RFC 7516 §4.6.
 
@@ -116,6 +153,7 @@ Unwraps a CEK.
   - `unwrappedKeyAlgorithm?`, `keyUsage?`, `extractable?` — for CryptoKey import
   - `iv?`, `tag?` — AES-GCMKW
   - `p2s?`, `p2c?` — PBES2
+  - `minIterations?`, `maxIterations?` — PBES2 `p2c` bounds. Default floor `1000` (RFC 7518 §4.8.1.2), default ceiling `1_000_000`
   - `epk?`, `apu?`, `apv?`, `enc?` — ECDH-ES
 
 ```ts
@@ -165,33 +203,44 @@ for (const recipient of recipients) {
 
 ## PEM Conversion
 
-### `importFromPEM(pem, pemType, alg, options?)`
+### `importPEM(pem, alg, options?)`
 
-Imports a PEM-encoded key and returns it as a JWK.
+Imports a PEM-encoded key and returns it as a JWK. The PEM type is inferred from the
+`-----BEGIN <X>-----` label (`PRIVATE KEY` → `pkcs8`, `PUBLIC KEY` → `spki`, `CERTIFICATE` → `x509`).
 
-- `pemType: "pkcs8" | "spki" | "x509"`
 - `alg: JWKPEMAlgorithm`
 - `options?`
+  - `pemType?: "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
   - `extractable?: boolean` — default `false` for private keys, `true` for public keys
   - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`)
 
+Throws `ERR_JWK_INVALID` when the PEM has no recognisable label and `pemType` is not supplied,
+or when the label does not match the requested/inferred type.
+
 Returns `Promise<JWK>`.
 
-### `exportToPEM(jwk, pemFormat, alg?)`
+### `exportPEM(jwk, options?)`
 
-Exports a JWK to PEM-encoded string.
+Exports a JWK to a PEM-encoded string. The PEM format is inferred from the JWK shape
+(presence of `d` → `pkcs8`, otherwise `spki`). X.509 certificate export is intentionally not
+supported: a certificate requires metadata and a CA signature that a JWK cannot provide.
 
-- `pemFormat: "pkcs8" | "spki"`
-- `alg?` — required if `jwk.alg` is undefined
+- `options?`
+  - `pemFormat?: "pkcs8" | "spki"` — inferred from the JWK shape when omitted
+  - `alg?: JWKPEMAlgorithm` — algorithm hint used when `jwk.alg` is absent
 
 Returns `Promise<string>`.
 
 ```ts
-import { importFromPEM, exportToPEM } from "unjwt/jwk";
+import { importPEM, exportPEM } from "unjwt/jwk";
 
-const jwk = await importFromPEM(pemString, "spki", "RS256", { jwkParams: { kid: "rsa-1" } });
-const pem = await exportToPEM(jwk, "spki");
+const jwk = await importPEM(pemString, "RS256", { jwkParams: { kid: "rsa-1" } });
+const pem = await exportPEM(jwk);
 ```
+
+`importFromPEM(pem, pemType, alg, options?)` and `exportToPEM(jwk, pemFormat, alg?)` are retained
+as `@deprecated` aliases with their original positional signatures — existing callers compile
+unchanged and will see an IDE deprecation hint until they migrate.
 
 ## Password-Based Key Derivation
 
@@ -207,20 +256,18 @@ PBKDF2 derivation for PBES2 algorithms.
 
 Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
 
-### `deriveJWKFromPassword(password, alg, options, jwkParams?)`
+### `deriveJWKFromPassword(password, alg, options)`
 
-Convenience wrapper that always returns `JWK_oct`. Pass extra JWK fields (e.g. `kid`) via `jwkParams`.
+Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 derivation
+knobs (`salt`, `iterations`, `extractable`, `keyUsage`) with JWK metadata fields (`kid`, `use`, …).
+`alg`, `kty`, `key_ops`, and `ext` are managed by the library.
 
 ```ts
-const jwk = await deriveJWKFromPassword(
-  "my-password",
-  "PBES2-HS256+A128KW",
-  {
-    salt: crypto.getRandomValues(new Uint8Array(16)),
-    iterations: 600_000,
-  },
-  { kid: "derived-key" },
-);
+const jwk = await deriveJWKFromPassword("my-password", "PBES2-HS256+A128KW", {
+  salt: crypto.getRandomValues(new Uint8Array(16)),
+  iterations: 600_000,
+  kid: "derived-key",
+});
 ```
 
 ## Key Lookup Function

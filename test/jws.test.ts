@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
-import { generateKey, exportKey } from "../src/core/jwk";
+import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
 import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src/core/utils";
 import type { JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
 
@@ -138,9 +138,7 @@ describe.concurrent("JWS Utilities", () => {
       const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.b64).toBe(false);
-      expect(payloadRaw).toBe(payloadString); // Payload is not base64 encoded
-
-      // jose library doesn't support `b64: false`
+      expect(payloadRaw).toBe(payloadString);
     });
 
     it("should include custom protected headers", async () => {
@@ -160,6 +158,24 @@ describe.concurrent("JWS Utilities", () => {
       expect(joseHeader.typ).toBe("custom");
     });
 
+    // `alg` must come from the top-level `options.alg`; allowing it inside
+    // `protectedHeader` would let it be silently overwritten. The compile-time
+    // assertion below fails the typecheck run if the StrictOmit guard regresses.
+    it("rejects `alg` inside protectedHeader at the type level", async () => {
+      const key = await generateKey("HS256");
+
+      const jwsOptions = {
+        alg: "HS256",
+        protectedHeader: { alg: "HS512" },
+      };
+
+      // @ts-expect-error `alg` is forbidden inside protectedHeader.
+      const jws = await sign(payloadObj, key, jwsOptions);
+
+      const header = JSON.parse(base64UrlDecode(jws.split(".")[0]));
+      expect(header.alg).toBe("HS256");
+    });
+
     it("should include computed `exp`", async () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign({ ...payloadObj, iat: undefined }, key, {
@@ -176,7 +192,6 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should include computed `exp` and throw because it is expired", async () => {
-      // setting `currentDate` 2 minutes in the past for testing purposes
       const date = new Date();
       const creationDate = new Date(date.getTime() - 60 * 2 * 1000);
       const key = await generateKey("HS256", { toJWK: true });
@@ -189,12 +204,12 @@ describe.concurrent("JWS Utilities", () => {
         key,
         {
           currentDate: creationDate,
-          expiresIn: 60, // 1 minute expiration
+          expiresIn: 60,
         },
       );
       const [_headerEncoded, payloadEncoded] = jws.split(".");
       const payload = JSON.parse(base64UrlDecode(payloadEncoded));
-      expect(payload.exp).toEqual(Math.round(creationDate.getTime() / 1000) + 60); // expired 1 minute ago
+      expect(payload.exp).toEqual(Math.round(creationDate.getTime() / 1000) + 60);
 
       await expect(
         jose.jwtVerify(jws, key, {
@@ -236,9 +251,9 @@ describe.concurrent("JWS Utilities", () => {
     it("should throw JWTError with ERR_JWT_EXPIRED code and cause for exceeded maxTokenAge", async () => {
       const key = await generateKey("HS256", { toJWK: true });
       const date = new Date();
-      // token issued 2 minutes ago; maxTokenAge of 60s will reject it
       const creationDate = new Date(date.getTime() - 60 * 2 * 1000);
-      // expiresIn must be provided so that computeJwtTimeClaims populates iat
+      // `expiresIn` is required so `computeJwtTimeClaims` populates `iat` — without
+      // an `iat` the `maxTokenAge` check below has nothing to compare against.
       const jws = await sign({ sub: "test-subject", jti: "test-jti-age" }, key, {
         currentDate: creationDate,
         expiresIn: 3600,
@@ -312,7 +327,6 @@ describe.concurrent("JWS Utilities", () => {
     let ps256KeyPair: CryptoKeyPair;
     let jwkSet: JWKSet;
 
-    // Keys for jose
     let joseJwkSet: (
       protectedHeader?: jose.JWSHeaderParameters,
       token?: jose.FlattenedJWSInput,
@@ -424,22 +438,18 @@ describe.concurrent("JWS Utilities", () => {
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
+    // jose (the cross-check library) does not support RFC 7797 `b64: false`, so these
+    // tests only assert unjwt's own roundtrip behaviour.
     it("should verify with b64: false", async () => {
       const jws = await sign(payloadString, hs256Key, {
         alg: "HS256",
         protectedHeader: { b64: false },
       });
-      // When b64 is false, and forceUint8Array is not true,
-      // and typ is not JWT, the payload is treated as a raw string.
-      // If typ were JWT, it would attempt to JSON.parse it.
-      // If forceUint8Array were true, it would be Uint8Array.
       const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
       expect(protectedHeader.b64).toBe(false);
       expect(protectedHeader.alg).toBe("HS256");
       expect(typeof payload).toBe("string");
       expect(payload).toBe(payloadString);
-
-      // jose library doesn't support `b64: false`
     });
 
     it("should verify with b64: false and forceUint8Array", async () => {
@@ -453,8 +463,6 @@ describe.concurrent("JWS Utilities", () => {
       expect(protectedHeader.b64).toBe(false);
       expect(payload).toBeInstanceOf(Uint8Array);
       expect(textDecoder.decode(payload)).toBe(payloadString);
-
-      // jose library doesn't support `b64: false`
     });
 
     it("should verify with keyset", async () => {
@@ -540,14 +548,25 @@ describe.concurrent("JWS Utilities", () => {
     it("should verify with JWKSet by trying multiple keys when no kid is present", async () => {
       // Two HMAC keys without kid — sign with key2, set has key1 first so retry is exercised
       const [raw1, raw2] = await Promise.all([generateKey("HS256"), generateKey("HS256")]);
-      const [jwk1, jwk2] = await Promise.all([
-        exportKey(raw1, { alg: "HS256" }),
-        exportKey(raw2, { alg: "HS256" }),
-      ]);
+      const [jwk1, jwk2] = await Promise.all([exportKey(raw1), exportKey(raw2)]);
       const jws = await sign(payloadObj, raw2, { alg: "HS256" });
       const set: JWKSet = { keys: [jwk1, jwk2] };
       const { payload } = await verify(jws, set);
       expect(payload).toEqual(payloadObj);
+    });
+
+    // The loop's "try next" contract only covers cryptographic signature mismatch
+    // (which `joseVerify` returns as `false`). Malformed JWKs must surface instead
+    // of being silently skipped to the next candidate.
+    it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
+      const rawValid = await generateKey("HS256");
+      const validJwk = await exportKey(rawValid);
+      // kty=RSA with alg=HS256 is nonsensical — `subtleMapping` rejects the combination.
+      const malformedJwk = { kty: "RSA", alg: "HS256" } as unknown as JWK;
+      const jws = await sign(payloadObj, rawValid, { alg: "HS256" });
+
+      const set: JWKSet = { keys: [malformedJwk, validJwk] };
+      await expect(verify(jws, set)).rejects.toThrow(/Invalid or unsupported JWK "alg"/);
     });
 
     it("should verify with algorithms option (success)", async () => {
@@ -596,19 +615,33 @@ describe.concurrent("JWS Utilities", () => {
         );
       });
 
+      // RFC 7515 §4.1.11 — registered params the library does not process must not be treated as
+      // implicitly understood. `jwk`/`jku`/`x5c`/`x5t`/`x5u` require explicit `recognizedHeaders`.
+      it.each(["jwk", "jku", "x5c", "x5t", "x5u"])(
+        "rejects '%s' in crit without explicit recognizedHeaders",
+        async (param) => {
+          const jws = await sign(payloadString, hs256Key, {
+            alg: "HS256",
+            protectedHeader: { crit: [param], [param]: "irrelevant" },
+          });
+          await expect(verify(jws, hs256Key)).rejects.toThrow(
+            `Missing critical header parameters: ${param}`,
+          );
+          await expect(
+            verify(jws, hs256Key, { recognizedHeaders: [param] }),
+          ).resolves.toBeDefined();
+        },
+      );
+
       it("should throw if a header listed in 'crit' is not present", async () => {
-        // We'll use 'kid' as an example of a known header that might be critical
-        // but isn't provided in this specific JWS.
         const jwsNoKid = await sign(payloadString, hs256Key, {
           alg: "HS256",
-          // 'kid' is listed as critical, but not included in the protected header
           protectedHeader: { crit: ["kid"] },
         });
         await expect(verify(jwsNoKid, hs256Key)).rejects.toThrow(
           "Missing critical header parameters: kid",
         );
 
-        // Verify with jose - it also fails because 'kid' is critical but absent.
         await expect(
           jose.compactVerify(jwsNoKid, hs256Key as any, {
             crit: { kid: true },
@@ -619,7 +652,7 @@ describe.concurrent("JWS Utilities", () => {
       it("should succeed if 'crit' is present and all params are known, even if options.critical is not set", async () => {
         const jws = await sign(payloadString, hs256Key, {
           alg: "HS256",
-          protectedHeader: { crit: ["b64"], b64: false }, // b64 is known
+          protectedHeader: { crit: ["b64"], b64: false },
         });
         await expect(verify(jws, hs256Key)).resolves.toBeDefined();
 
@@ -972,11 +1005,10 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it("should use currentDate for maxTokenAge validation", async () => {
-        const iat = Math.floor(Date.now() / 1000); // issued now
+        const iat = Math.floor(Date.now() / 1000);
         const payload = { ...basicJwtPayload, iat };
         const jws = await sign(payload, hs256Key, { alg: "HS256" });
 
-        // Token is 60s old relative to currentDate
         const currentDateForward = new Date(Date.now() + 60 * 1000);
         await expect(
           verify(jws, hs256Key, {
@@ -997,14 +1029,56 @@ describe.concurrent("JWS Utilities", () => {
         const jws = await sign({ sub: "abc" }, hs256Key, {
           alg: "HS256",
           expiresIn: 60,
-          currentDate: new Date(0), // epoch
+          currentDate: new Date(0),
         });
 
         const { payload } = await verify<JWTClaims>(jws, hs256Key, {
-          currentDate: new Date(61_000), // 61 seconds after epoch
+          currentDate: new Date(61_000),
           validateClaims: false,
         });
         expect(payload.exp).toBe(60);
+      });
+
+      it("rejects expired token even when signer omitted the typ header", async () => {
+        // Hand-crafted JWS without `typ` — exercises the path where claim validation
+        // runs on any JSON-object payload, not only when `typ` is JWT.
+        const header = { alg: "HS256" };
+        const payload = {
+          sub: "abc",
+          exp: Math.floor(Date.now() / 1000) - 60,
+        };
+        const headerEncoded = base64UrlEncode(JSON.stringify(header));
+        const payloadEncoded = base64UrlEncode(JSON.stringify(payload));
+        const signingInput = textEncoder.encode(`${headerEncoded}.${payloadEncoded}`);
+        const rawKey = await crypto.subtle.exportKey("raw", hs256Key as CryptoKey);
+        const macKey = await crypto.subtle.importKey(
+          "raw",
+          rawKey,
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"],
+        );
+        const signatureBytes = new Uint8Array(
+          await crypto.subtle.sign("HMAC", macKey, signingInput),
+        );
+        const jws = `${headerEncoded}.${payloadEncoded}.${base64UrlEncode(signatureBytes)}`;
+
+        await expect(verify(jws, hs256Key)).rejects.toThrow("Token has expired");
+      });
+
+      it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
+        const jws = await sign({ sub: "abc", exp: "never" }, hs256Key, { alg: "HS256" });
+
+        try {
+          await verify(jws, hs256Key);
+          expect.fail("verify should have thrown");
+        } catch (err) {
+          expect(isJWTError(err)).toBe(true);
+          if (isJWTError(err)) expect(err.code).toBe("ERR_JWT_CLAIM_INVALID");
+          expect((err as Error).message).toContain(
+            '"exp" (Expiration Time) Claim must be a number',
+          );
+        }
       });
     });
 
@@ -1022,12 +1096,36 @@ describe.concurrent("JWS Utilities", () => {
       ).rejects.toThrow('"alg" (Algorithm) Header Parameter value not allowed');
     });
 
+    // Without an explicit `options.algorithms`, verify falls back to inference from
+    // the key shape — a forged `alg` that's outside the inferred set must be rejected.
+    it("infers the algorithm allowlist from a CryptoKey when options.algorithms is absent", async () => {
+      const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
+      await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+      const [, payloadPart, sigPart] = jws.split(".");
+      const forgedHeader = base64UrlEncode(JSON.stringify({ alg: "HS512", typ: "JWT" }));
+      await expect(verify(`${forgedHeader}.${payloadPart}.${sigPart}`, hs256Key)).rejects.toThrow(
+        "Algorithm not allowed: HS512",
+      );
+    });
+
+    // Raw `Uint8Array` keys carry no metadata, so inference cannot pick an alg and
+    // verify must demand an explicit `options.algorithms`.
+    it("requires explicit options.algorithms when the key shape is ambiguous", async () => {
+      const rawKey = await crypto.subtle.exportKey("raw", hs256Key as CryptoKey);
+      const jws = await sign(payloadObj, new Uint8Array(rawKey), { alg: "HS256" });
+      await expect(verify(jws, new Uint8Array(rawKey))).rejects.toThrow(
+        /Cannot infer allowed algorithms/,
+      );
+      await expect(
+        verify(jws, new Uint8Array(rawKey), { algorithms: ["HS256"] }),
+      ).resolves.toBeDefined();
+    });
+
     it("should handle critical headers (success)", async () => {
       const jws = await sign(payloadString, hs256Key, {
         alg: "HS256",
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
-      // We "understand" 'exp' because it's in the options.critical array
       await expect(verify(jws, hs256Key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
     });
 
@@ -1036,7 +1134,6 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
-      // No critical option passed to verify
       await expect(verify(jws, hs256Key)).rejects.toThrow(
         "Missing critical header parameters: exp",
       );
@@ -1045,6 +1142,26 @@ describe.concurrent("JWS Utilities", () => {
     it("should throw for invalid JWS format", async () => {
       await expect(verify("a.b", hs256Key)).rejects.toThrow(
         "Invalid JWS: Must contain three parts",
+      );
+    });
+
+    // `verify` pins `expect: "public"` on import, so a private JWK passed in place
+    // of the public key is rejected rather than silently accepted.
+    it("rejects a private JWK passed to verify()", async () => {
+      const { privateKey, publicKey } = await generateJWK("ES256");
+      const jws = await sign(payloadObj, privateKey);
+      await expect(verify(jws, publicKey)).resolves.toBeDefined();
+      await expect(verify(jws, privateKey)).rejects.toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
+      );
+    });
+
+    it("rejects a public JWK passed to sign()", async () => {
+      const { publicKey } = await generateJWK("ES256");
+      // `sign`'s type union excludes `JWK_Public`; cast past it to exercise the
+      // runtime guard that callers using `as any` would otherwise bypass.
+      await expect(sign(payloadObj, publicKey as any)).rejects.toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
       );
     });
 
@@ -1171,6 +1288,18 @@ describe.concurrent("JWS Utilities", () => {
       const error = await verify(jws, hs256Key, { issuer: "https://b.example" }).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWT_CLAIM_INVALID")).toBe(true);
+    });
+
+    it("ERR_JWS_ALG_MISSING — sign without inferable alg", async () => {
+      // Raw Uint8Array carries no `alg`; the second positional overload requires a TS `alg`
+      // option, so we deliberately cast to bypass and exercise the runtime guard.
+      const key = textEncoder.encode("raw-hmac-key-bytes");
+      const error = await (sign as (p: unknown, k: unknown) => Promise<string>)(
+        "payload",
+        key,
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_ALG_MISSING")).toBe(true);
     });
   });
 });

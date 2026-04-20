@@ -30,53 +30,38 @@ export function isJWTContent(header: { typ?: string; cty?: string } | undefined)
   return cty === "json" || cty === "application/json" || (!!cty && cty.endsWith("+json"));
 }
 
-/**
- * Given a decoded string and JOSE headers, return an object if JSON, otherwise the string.
- */
-export function decodeMaybeJWTString<T = unknown>(
-  decodedString: string,
-  header: { typ?: string; cty?: string } | undefined,
-): T | string {
-  if (isJWTContent(header)) {
-    const looksLikeJson =
-      (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
-      (decodedString.startsWith("[") && decodedString.endsWith("]"));
-    if (looksLikeJson) {
-      try {
-        const obj = JSON.parse(decodedString);
-        return sanitizeObject(obj as any) as unknown as T;
-      } catch {
-        // fallthrough to return string if malformed
-      }
+/** Parse a decoded string as JSON when it looks like a JSON object or array, otherwise return the string verbatim. */
+export function decodeMaybeJWTString<T = unknown>(decodedString: string): T | string {
+  const looksLikeJson =
+    (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
+    (decodedString.startsWith("[") && decodedString.endsWith("]"));
+  if (looksLikeJson) {
+    try {
+      const obj = JSON.parse(decodedString);
+      return sanitizeObject(obj as any) as unknown as T;
+    } catch {
+      // fallthrough to return string if malformed
     }
   }
   return decodedString;
 }
 
-/**
- * Decode a payload that is represented as raw bytes into T | string, honoring forceUint8Array and headers.
- */
+/** Decode raw payload bytes honoring `forceUint8Array`. */
 export function decodePayloadFromBytes<T = unknown>(
   bytes: Uint8Array<ArrayBuffer>,
-  header: { typ?: string; cty?: string } | undefined,
   forceUint8Array?: boolean,
 ): T | Uint8Array<ArrayBuffer> | string {
   if (forceUint8Array) return bytes;
-  const decodedString = textDecoder.decode(bytes);
-  return decodeMaybeJWTString<T>(decodedString, header);
+  return decodeMaybeJWTString<T>(textDecoder.decode(bytes));
 }
 
-/**
- * Decode a payload that is a Base64URL segment into T | string | Uint8Array based on flags and headers.
- */
+/** Decode a Base64URL-encoded payload segment honoring `forceUint8Array`. */
 export function decodePayloadFromB64UrlSegment<T = unknown>(
   payloadEncoded: string,
-  header: { typ?: string; cty?: string } | undefined,
   forceUint8Array?: boolean,
 ): T | Uint8Array<ArrayBuffer> | string {
   if (forceUint8Array) return base64UrlDecode(payloadEncoded, false);
-  const decodedString = base64UrlDecode(payloadEncoded);
-  return decodeMaybeJWTString<T>(decodedString, header);
+  return decodeMaybeJWTString<T>(base64UrlDecode(payloadEncoded));
 }
 
 /** Convert plaintext input to bytes, shared by JWS & JWE when preparing payload. */
@@ -144,16 +129,14 @@ export function computeExpiresInSeconds(expiresIn: ExpiresIn): number {
 }
 export const computeMaxTokenAgeSeconds: (expiresIn: ExpiresIn) => number = computeExpiresInSeconds;
 
-/** Optionally compute iat/exp when signing JWTs. */
+/** Compute iat/exp for any JSON-object payload when `expiresIn` is set and `exp` is not already present. */
 export function computeJwtTimeClaims(
   payload: unknown,
-  headerTyp: string | undefined,
   expiresIn?: ExpiresIn,
   currentDate: Date = new Date(),
 ): JWTClaims | undefined {
   if (
     expiresIn === undefined ||
-    !headerTyp?.toLowerCase().includes("jwt") ||
     !(payload && typeof payload === "object") ||
     payload instanceof Uint8Array ||
     (payload as any).exp
@@ -173,7 +156,7 @@ export function validateJwtClaims(
   jwtClaims: JWTClaims,
   options: JWTClaimValidationOptions = {},
 ): void {
-  const clockTolerance = options.clockTolerance ?? 0; // seconds
+  const clockTolerance = options.clockTolerance ?? 0;
   const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
 
   const allRequiredClaims = new Set<string>(options.requiredClaims || []);
@@ -191,6 +174,20 @@ export function validateJwtClaims(
       `Missing required JWT Claims: ${[...missingClaims].join(", ")}`,
       "ERR_JWT_CLAIM_MISSING",
     );
+  }
+
+  // RFC 7519 §4.1 — `exp`, `nbf`, `iat` are NumericDate and must be finite numbers if present.
+  if (jwtClaims.exp !== undefined && !Number.isFinite(jwtClaims.exp)) {
+    throw new JWTError(
+      'JWT "exp" (Expiration Time) Claim must be a number.',
+      "ERR_JWT_CLAIM_INVALID",
+    );
+  }
+  if (jwtClaims.nbf !== undefined && !Number.isFinite(jwtClaims.nbf)) {
+    throw new JWTError('JWT "nbf" (Not Before) Claim must be a number.', "ERR_JWT_CLAIM_INVALID");
+  }
+  if (jwtClaims.iat !== undefined && !Number.isFinite(jwtClaims.iat)) {
+    throw new JWTError('JWT "iat" (Issued At) Claim must be a number.', "ERR_JWT_CLAIM_INVALID");
   }
 
   if (options.issuer) {
@@ -243,7 +240,6 @@ export function validateJwtClaims(
         "ERR_JWT_CLAIM_INVALID",
       );
     }
-    // iat must not be in the future (beyond clock tolerance)
     if (jwtClaims.iat > currentTime + clockTolerance) {
       throw new JWTError(
         `JWT "iat" (Issued At) Claim validation failed: Token was issued in the future (iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
@@ -263,7 +259,23 @@ export function validateJwtClaims(
   }
 }
 
-const BASE_HEADER_PARAMS = ["alg", "typ", "cty", "kid", "jwk", "jku", "x5c", "x5t", "x5u"];
+// RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` entries must be parameters the recipient actively
+// processes. Registered-but-unprocessed params (`jwk`, `jku`, `x5c`, `x5t`, `x5u`) are excluded.
+const BASE_PROCESSED_JWS = ["alg", "typ", "cty", "kid", "b64"];
+const BASE_PROCESSED_JWE = [
+  "alg",
+  "enc",
+  "typ",
+  "cty",
+  "kid",
+  "iv",
+  "tag",
+  "p2s",
+  "p2c",
+  "epk",
+  "apu",
+  "apv",
+];
 
 /** Validate critical headers in JWS semantics. */
 export function validateCriticalHeadersJWS(
@@ -272,10 +284,10 @@ export function validateCriticalHeadersJWS(
 ): void {
   if (!protectedHeader.crit) return;
   const missingHeaderParams = new Set<string>();
-  const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_HEADER_PARAMS, "b64"]);
+  const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_PROCESSED_JWS]);
 
   for (const param of protectedHeader.crit) {
-    // `b64` is special: its absence should still be considered valid
+    // `b64` (RFC 7797) is special: its absence defaults to `true` and is still valid.
     if (recognizedParams.has(param) && (param in protectedHeader || param === "b64")) {
       continue;
     }
@@ -295,29 +307,10 @@ export function validateCriticalHeadersJWE(
   protectedHeader: { crit?: string[] } & Record<string, any>,
   recognizedHeaders?: string[],
 ): void {
-  if (protectedHeader.crit && !recognizedHeaders) {
-    throw new JWTError(
-      `Unprocessed critical header parameters: ${protectedHeader.crit.join(", ")}`,
-      "ERR_JWE_INVALID",
-    );
-  }
   if (!protectedHeader.crit) return;
-
-  const understoodParams = new Set<string>([
-    ...(recognizedHeaders || []),
-    ...BASE_HEADER_PARAMS,
-    "enc",
-    "iv",
-    "tag",
-    "p2s",
-    "p2c",
-    "epk",
-    "apu",
-    "apv",
-  ]);
+  const understoodParams = new Set<string>([...(recognizedHeaders || []), ...BASE_PROCESSED_JWE]);
 
   for (const critParam of protectedHeader.crit) {
-    // Parameter must also be present in the protected header
     if (!Object.prototype.hasOwnProperty.call(protectedHeader, critParam)) {
       throw new JWTError(
         `Critical header parameter "${critParam}" listed in "crit" but not present in the protected header.`,

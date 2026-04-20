@@ -1,5 +1,9 @@
 import { concatUint8Arrays, textEncoder, base64UrlEncode } from "../utils";
+import { JWTError } from "../error";
 import { aesKwWrap, aesKwUnwrap } from "./_aes";
+
+export const DEFAULT_PBES2_MIN_ITERATIONS = 1000;
+export const DEFAULT_PBES2_MAX_ITERATIONS = 1_000_000;
 
 export async function pbes2Wrap(
   alg: string,
@@ -19,7 +23,21 @@ export async function pbes2Unwrap(
   encryptedKey: Uint8Array<ArrayBuffer>,
   p2c: number,
   p2s: Uint8Array<ArrayBuffer>,
+  minIterations: number = DEFAULT_PBES2_MIN_ITERATIONS,
+  maxIterations: number = DEFAULT_PBES2_MAX_ITERATIONS,
 ): Promise<Uint8Array<ArrayBuffer>> {
+  if (p2c < minIterations) {
+    throw new JWTError(
+      `PBES2 "p2c" below the minimum of ${minIterations} iterations (got ${p2c}).`,
+      "ERR_JWE_INVALID",
+    );
+  }
+  if (p2c > maxIterations) {
+    throw new JWTError(
+      `PBES2 "p2c" above the maximum of ${maxIterations} iterations (got ${p2c}).`,
+      "ERR_JWE_INVALID",
+    );
+  }
   const derived = await deriveKey(p2s, alg, p2c, key);
   return aesKwUnwrap(alg.slice(-6), derived, encryptedKey);
 }

@@ -36,11 +36,11 @@ export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
-  // Mapped from payload.jti
+  /** Session ID — mirrors the JWT `jti` claim. `undefined` until the session is persisted. */
   id: string | undefined;
-  // Mapped from payload.iat (in ms)
+  /** Session creation time in ms — mirrors the JWT `iat` claim (seconds). */
   createdAt: number;
-  // Mapped from payload.exp (in ms)
+  /** Session expiry time in ms — mirrors the JWT `exp` claim (seconds). */
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
   data: SessionData<T>;
   token: string | undefined;
@@ -192,11 +192,9 @@ export async function getJWESession<
 
   const context = getEventContext<H3EventContext>(event);
 
-  // Initialize sessions container if not present
   if (!context.sessions) {
     context.sessions = new NullProtoObj();
   }
-  // Return existing session if available and valid
   const existingSession = context.sessions![sessionName] as SessionJWE<T, MaxAge> | undefined;
   if (existingSession) {
     const session = existingSession[kGetSessionPromise]
@@ -268,9 +266,8 @@ export async function getJWESession<
     return session;
   }
 
-  // Placeholder session object
   const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-  const createdAt = now - (now % 1000); // round to seconds
+  const createdAt = now - (now % 1000);
   const session: SessionJWE<T, MaxAge> = {
     id: undefined,
     createdAt,
@@ -287,7 +284,6 @@ export async function getJWESession<
 
   const token = getJWESessionToken(event, config);
 
-  // If we have a token, cache it and try to unseal and load into session context
   let exclusiveHookFired = false;
   if (token) {
     session.token = token;
@@ -344,10 +340,8 @@ export function getJWESessionToken<
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): string | undefined {
   const sessionName = config.name || DEFAULT_NAME;
 
-  // Load session from cookie or header
   let token: string | undefined;
 
-  // Check header first
   if (config.sessionHeader !== false) {
     const headerName =
       typeof config.sessionHeader === "string"
@@ -359,7 +353,7 @@ export function getJWESessionToken<
     }
   }
 
-  // Check Set-Cookie (eg. in case of redirects)
+  // Set-Cookie header may carry a freshly-minted session on redirect responses.
   if (config.cookie !== false && hasWritableResponse(event)) {
     const setCookie = event.res.headers.get("set-cookie");
     if (typeof setCookie === "string") {
@@ -367,7 +361,6 @@ export function getJWESessionToken<
     }
   }
 
-  // Fallback to cookie if not found earlier
   if (!token) {
     token = getChunkedCookie(event, sessionName);
   }
@@ -394,13 +387,11 @@ export async function updateJWESession<
 
   const sessionName = config.name || DEFAULT_NAME;
 
-  // Access current session
   const context = getEventContext<H3EventContext>(event);
   const session: SessionJWE<T, MaxAge> & { id: string; token: string } =
     (context.sessions?.[sessionName] as SessionJWE<T, MaxAge> & { id: string; token: string }) ||
     (await getJWESession(event, config));
 
-  // Update session data if provided
   if (typeof update === "function") {
     update = update(session.data);
   }
@@ -412,7 +403,7 @@ export async function updateJWESession<
   }
 
   const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-  const createdAt = now - (now % 1000); // round to seconds
+  const createdAt = now - (now % 1000);
   Object.assign(session, {
     id: config.generateId?.() || crypto.randomUUID(),
     createdAt,
@@ -422,8 +413,8 @@ export async function updateJWESession<
         : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
   });
 
-  // Always seal into a token and cache it so session.token is accurate
-  // even when cookies are disabled or the response is not writable.
+  // Always seal into a token and cache it so `session.token` stays accurate even
+  // when cookies are disabled or the response is not writable.
   let sealed: string;
   try {
     sealed = await sealJWESession(event, config);
@@ -450,8 +441,8 @@ export async function updateJWESession<
     });
   }
 
-  // Fire after sealing so the hook receives the definitive new token, jti, and timestamps.
-  // Also fires when update is undefined (pure token refresh with no payload change).
+  // Fires after sealing so the hook receives the definitive new token, jti, and
+  // timestamps. Also fires on pure token refresh (update is undefined).
   await config.hooks?.onUpdate?.({
     session,
     oldSession,
@@ -473,7 +464,6 @@ export async function sealJWESession<
   const key = getEncryptKey(config.key);
   const sessionName = config.name || DEFAULT_NAME;
 
-  // Access current session
   const context = getEventContext<H3EventContext>(event);
   const session: SessionJWE<T, MaxAge> =
     (context.sessions?.[sessionName] as SessionJWE<T, MaxAge>) ||
@@ -501,7 +491,8 @@ export async function sealJWESession<
   }
   const token = await encrypt(payload, key, {
     ...config.jwe?.encryptOptions,
-    expiresIn: undefined, // controlled via 'exp' claim
+    // `exp` is computed from `maxAge` and carried via the `exp` claim above.
+    expiresIn: undefined,
     protectedHeader: {
       ...config.jwe?.encryptOptions?.protectedHeader,
       typ: typ || "JWT",
@@ -590,7 +581,6 @@ export async function clearJWESession<
   const context = getEventContext<H3EventContext>(event);
   const sessionName = config.name || DEFAULT_NAME;
 
-  // If session exists in context store for hook and delete it
   let session = context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];

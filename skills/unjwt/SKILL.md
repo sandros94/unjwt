@@ -17,14 +17,14 @@ Implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517).
 
 ## Quick orientation
 
-> **Skill written against `unjwt@0.6.0`.** APIs are stable within v0.6 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
+> **Skill written against `unjwt@0.7.0`.** APIs are stable within v0.7 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
 
 The following is a list of reference files:
 
 - `references/jws.md`: `sign()`, `verify()`, `JWSSignOptions`, `JWSVerifyOptions`
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `JWEEncryptOptions`, `JWEDecryptOptions`
-- `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importFromPEM`, `exportToPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`, `getJWKFromSet` — deprecated), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
-- `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `randomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`), `validateJwtClaims`, `computeExpiresInSeconds`, `ExpiresIn` format, `JWTClaimValidationOptions`, `sanitizeObject`
+- `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`; `importFromPEM`, `exportToPEM` are deprecated aliases), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`, `getJWKFromSet` — deprecated), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
+- `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `randomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeExpiresInSeconds`, `ExpiresIn` format, `JWTClaimValidationOptions`, `sanitizeObject`
 - `references/adapters-h3.md`: H3 session adapters (v1 and v2), `useJWESession`, `useJWSSession`, `SessionManager` interface, `SessionConfigJWE`, `SessionConfigJWS`, lifecycle hooks (`onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`), key lookup hooks (`onUnsealKeyLookup`, `onVerifyKeyLookup`), lower-level functions, cookie chunking (v2), header-based tokens, refresh token pattern
 
 ## Export Paths

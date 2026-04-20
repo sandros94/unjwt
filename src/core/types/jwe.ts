@@ -96,7 +96,6 @@ export interface JWEEncryptOptions {
     "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
   >;
 
-  // Key Wrapping specific options (passed to jwk.wrapKey)
   /** Initialization Vector for AES-GCMKW key wrapping. Generated if not provided. */
   keyManagementIV?: Uint8Array<ArrayBuffer>;
   /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
@@ -163,6 +162,10 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   validateClaims?: boolean;
   /** If true, include the Content Encryption Key (CEK) and Additional Authenticated Data (AAD) in the result. */
   returnCek?: boolean;
+  /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
+  minIterations?: number;
+  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  maxIterations?: number;
 }
 
 /**

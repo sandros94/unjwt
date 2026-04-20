@@ -1,5 +1,6 @@
 import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
 import type { JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA, JWK_OKP_SIGN } from "./jwk";
+import type { StrictOmit } from "../utils/types";
 import type { ExpiresIn } from ".";
 
 /** JWS Signing Algorithm Identifier. */
@@ -32,10 +33,11 @@ export interface JWSSignOptions {
   alg?: JWSAlgorithm;
 
   /**
-   * Additional protected header parameters. `alg` is automatically included.
-   * `typ` defaults to "JWT" if not provided and payload is an object.
+   * Additional protected header parameters. `alg` is always derived from the top-level `alg`
+   * option (or inferred from the key) and cannot be overridden. `typ` defaults to `"JWT"`
+   * when the payload is a JSON object.
    */
-  protectedHeader?: JWSHeaderParameters;
+  protectedHeader?: StrictOmit<JWSHeaderParameters, "alg"> & { alg?: never };
 
   /** Date to use when comparing NumericDate claims, defaults to `new Date()`. */
   currentDate?: Date;

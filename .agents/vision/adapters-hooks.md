@@ -145,7 +145,7 @@ adapter files.
 
 ---
 
-### O-2 — `session.data` not rolled back on sign/seal failure · `deferred`
+### O-2 — `session.data` not rolled back on sign/seal failure · `planned`
 
 In `updateJWSSession`, `Object.assign(session.data, update)` runs before the try-catch that wraps
 `signJWSSession`/`sealJWESession`. If signing fails, `id`/`createdAt`/`expiresAt`/`token` are
@@ -158,10 +158,10 @@ state (new data, old metadata). Consequences:
 - Accumulative mutations (array push, counter increment) applied before a sign failure remain
   visible even though the token that would have encoded them was never issued.
 
-**Fix approach:** snapshot `session.data` before mutations and restore it in the catch block.
-The exact cloning mechanism requires a dedicated investigation session — this library is
-runtime-agnostic (browser, Deno, Bun, Node, edge runtimes) so the clone strategy must not
-assume any runtime-specific API.
+**Fix approach:** snapshot `session.data` with `structuredClone(session.data)` before mutations and
+restore it in the catch block. `structuredClone` is part of the HTML spec and is available in all
+target runtimes: Node ≥17, Deno, Bun, modern browsers, and Cloudflare Workers. Earlier concerns
+about runtime-agnosticism that deferred this fix are no longer constraints as of 2026.
 
 **File:** all four adapter files.
 **Severity:** medium — split state is self-healing on the next request; harmful mainly for
@@ -169,7 +169,7 @@ in-request retry patterns and accumulative mutation payloads.
 
 ---
 
-### O-3 — `oldSession.data` snapshot is shallow — nested objects are shared references · `deferred`
+### O-3 — `oldSession.data` snapshot is shallow — nested objects are shared references · `planned`
 
 `const oldSession = { ...session, data: { ...session.data } }` copies only one level.
 If `session.data` contains nested objects and the update modifies a property on one of them,
@@ -177,10 +177,10 @@ If `session.data` contains nested objects and the update modifies a property on 
 that deep-compare `session.data` vs `oldSession.data` to compute a diff receive a wrong "before"
 snapshot for any nested field.
 
-**Fix approach:** replace the one-level spread with a deep clone. The exact mechanism requires a
-dedicated investigation session — must work across all runtimes (browser, Deno, Bun, Node, edge)
-without runtime-specific assumptions. Severity is low given that typical JWT session payloads are
-flat key-value objects.
+**Fix approach:** replace the one-level spread with `structuredClone(session.data)`.
+`structuredClone` is part of the HTML spec and is available in all target runtimes (Node ≥17,
+Deno, Bun, modern browsers, Cloudflare Workers) — the prior runtime-agnosticism concern no
+longer applies. Implement alongside O-2 so the two snapshot strategies stay aligned.
 
 **File:** all four adapter files.
 **Severity:** low-medium — only affects hooks that deep-compare `session.data` vs `oldSession.data`.
@@ -439,19 +439,19 @@ No code change required.
 
 ## Summary table
 
-| ID  | Hook               | Adapter | Severity    | Status      | Blocked by / Linked to              |
-| --- | ------------------ | ------- | ----------- | ----------- | ----------------------------------- |
-| D-1 | all                | all     | —           | planned     | —                                   |
-| D-2 | onUpdate, onClear  | h3v2    | —           | planned     | D-1                                 |
-| D-3 | onExpire, onError  | all     | —           | planned     | core: jws.ts, jwe.ts                |
-| O-1 | onUpdate           | h3v2    | high        | open        | D-1, D-2                            |
-| O-2 | onError            | all     | medium      | deferred    | runtime-agnostic clone strategy TBD |
-| O-3 | onUpdate           | all     | low-medium  | deferred    | runtime-agnostic clone strategy TBD |
-| O-4 | onRead/onExpire    | all     | high+medium | open        | —                                   |
-| O-5 | onExpire           | all     | medium      | open        | D-3                                 |
-| O-6 | onExpire / onError | all     | low-medium  | open        | D-3                                 |
-| O-7 | onClear            | h3v2    | high        | open        | D-1, D-2                            |
-| O-8 | onClear            | all     | low         | planned     | —                                   |
-| I-A | all                | h3v1    | low         | open        | D-1                                 |
-| I-B | onRead             | all     | low         | open (docs) | —                                   |
-| I-C | onExpire           | h3v1    | medium      | open        | D-1                                 |
+| ID  | Hook               | Adapter | Severity    | Status      | Blocked by / Linked to                             |
+| --- | ------------------ | ------- | ----------- | ----------- | -------------------------------------------------- |
+| D-1 | all                | all     | —           | planned     | —                                                  |
+| D-2 | onUpdate, onClear  | h3v2    | —           | planned     | D-1                                                |
+| D-3 | onExpire, onError  | all     | —           | planned     | core: jws.ts, jwe.ts                               |
+| O-1 | onUpdate           | h3v2    | high        | open        | D-1, D-2                                           |
+| O-2 | onError            | all     | medium      | planned     | `structuredClone` (Node ≥17 / all target runtimes) |
+| O-3 | onUpdate           | all     | low-medium  | planned     | `structuredClone`; implement with O-2              |
+| O-4 | onRead/onExpire    | all     | high+medium | open        | —                                                  |
+| O-5 | onExpire           | all     | medium      | open        | D-3                                                |
+| O-6 | onExpire / onError | all     | low-medium  | open        | D-3                                                |
+| O-7 | onClear            | h3v2    | high        | open        | D-1, D-2                                           |
+| O-8 | onClear            | all     | low         | planned     | —                                                  |
+| I-A | all                | h3v1    | low         | open        | D-1                                                |
+| I-B | onRead             | all     | low         | open (docs) | —                                                  |
+| I-C | onExpire           | h3v1    | medium      | open        | D-1                                                |
