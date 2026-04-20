@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="unjwt">
+  <title>unjwt</title>
+  <defs>
+    <linearGradient id="unjwt-bg" x1="0" y1="0" x2="0" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fcd34d"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#unjwt-bg)"/>
+
+  <!-- J · W · T drawn as stroke paths so rendering is font-independent. -->
+  <!-- The two interpuncts echo the `.` separators of the JWT compact form. -->
+  <g stroke="#1c1917" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- J -->
+    <path d="M53 94 V140 Q53 162 33 162"/>
+    <!-- W -->
+    <path d="M96 94 L112 162 L128 122 L144 162 L160 94"/>
+    <!-- T -->
+    <path d="M200 94 H226 M213 94 V162"/>
+  </g>
+  <g fill="#1c1917">
+    <circle cx="76" cy="128" r="6"/>
+    <circle cx="180" cy="128" r="6"/>
+  </g>
+</svg>

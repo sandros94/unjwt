@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=https://unpkg.com/undocs/schema/config.json
+name: unjwt
+url: https://unjwt.s94.dev
+shortDescription: Low-level JWT toolkit on Web Crypto API
+description: Sign, verify, encrypt, and decrypt JSON Web Tokens with Web Crypto APIs. JWS, JWE, and JWK in a single zero-dependency package.
+
+themeColor: amber
+automd: true
+
+github: sandros94/unjwt
+
+socials:
+  bluesky: "https://bsky.app/profile/sandros94.com"
+
+# undocs ships /blog and /guide routes that we don't use. Redirect them so
+# the prerender crawler doesn't 404 on the auto-discovered pages.
+redirects:
+  /guide: /getting-started
+  /blog: /
+
+landing:
+  heroLinks:
+    primary:
+      label: "Get Started"
+      icon: "i-heroicons-rocket-launch"
+      to: "/getting-started"
+    playOnline:
+      label: "Try Online"
+      icon: "simple-icons:stackblitz"
+      to: "https://stackblitz.com/github/sandros94/unjwt/tree/main/playground?file=server.mjs"
+  heroCode:
+    lang: "ts"
+    title: "app.ts"
+    content: |
+      // Sign a JWT (JWS)
+      import { sign, verify } from "unjwt/jws";
+      import { generateJWK } from "unjwt/jwk";
+
+      const key = await generateJWK("HS256");
+      const token = await sign({ sub: "user_1" }, key, { expiresIn: "1h" });
+      const { payload } = await verify(token, key);
+
+      // Encrypt a JWT (JWE)
+      import { encrypt, decrypt } from "unjwt/jwe";
+
+      const jwe = await encrypt({ secret: "data" }, "my-password");
+      const { payload: p } = await decrypt(jwe, "my-password");
+  contributors: false
+  features:
+    - title: "Web Crypto, zero dependencies"
+      description: "Core is built entirely on the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) — no Node-specific imports, no runtime dependencies. Install once, run anywhere."
+      icon: "carbon:locked"
+
+    - title: "JWS, JWE, and JWK — under one roof"
+      description: "A single package covers signing ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)), encryption ([RFC 7516](https://www.rfc-editor.org/rfc/rfc7516)), and key management ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517))."
+      icon: "carbon:nominal"
+
+    - title: "Runtime-agnostic, with framework adapters"
+      description: "Works in Node 22+, Deno, Bun, Cloudflare Workers, browsers — anywhere Web Crypto runs. Ships H3 v1 and v2 adapters for cookie-based JWT sessions."
+      icon: "carbon:cloud-services"
+
+    - title: "Typed and ergonomic"
+      description: "Strongly-typed JWK-first key model, algorithm inference from keys, and clear error codes. The easy path stays short; the advanced path stays available."
+      icon: "carbon:rocket"

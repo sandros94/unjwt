@@ -1,9 +1,6 @@
 import { H3, HTTPError, serve } from "h3";
 
 import {
-  type JWTClaims,
-  type SessionConfigJWE,
-  type SessionConfigJWS,
   useJWESession,
   useJWSSession,
   getJWESession,
@@ -17,7 +14,7 @@ const jweOptions = {
   key: "refresh_token_secret",
   name: "refresh_token",
   maxAge: 7 * 24 * 60 * 60, // 7 days
-} satisfies SessionConfigJWE;
+};
 
 const jwsOptions = {
   key: atJwk,
@@ -40,7 +37,7 @@ const jwsOptions = {
       });
     },
   },
-} satisfies SessionConfigJWS<JWTClaims, number>;
+};
 
 const app = new H3();
 
@@ -66,10 +63,7 @@ app.post("/login", async (event) => {
     };
   }
 
-  const data = (await event.req.json()) as {
-    username?: string;
-    password?: string;
-  };
+  const data = await event.req.json();
 
   if (!data.username || !data.password) {
     throw new HTTPError("Username and password are required", { status: 400 });
