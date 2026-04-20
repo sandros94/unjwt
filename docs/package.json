@@ -3,7 +3,8 @@
   "type": "module",
   "scripts": {
     "build": "undocs build",
-    "dev": "undocs dev"
+    "dev": "undocs dev",
+    "gen:icons": "deno run --no-lock --allow-read --allow-write --allow-net --allow-env --allow-sys .docs/scripts/gen-icons.ts"
   },
   "devDependencies": {
     "undocs": "^0.4.16"
