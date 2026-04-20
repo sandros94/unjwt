@@ -98,6 +98,132 @@ const result2 = await verify(token, key, {
 });
 ```
 
+## Multi-signature (JSON Serialization)
+
+`unjwt` exposes `signMulti` / `verifyMulti` for JWS General JSON Serialization (RFC 7515 §7.2.1). Use them whenever you need more than one signer on a single payload — multi-party attestation, quorum approvals, key-rotation overlap, algorithm agility, hybrid signing. For single-signer tokens, compact `sign()`/`verify()` remains the right tool.
+
+### `signMulti(payload, signers, options?)`
+
+Produces a `JWSGeneralSerialization` object. The payload is shared; each signer independently signs `BASE64URL(its own protected header) . BASE64URL(payload)` using its own `alg`.
+
+**Parameters:**
+
+- `payload` — `string | Uint8Array | Record<string, any>`
+- `signers: JWSMultiSigner[]` — non-empty. Each signer is `{ key: JWK, protectedHeader?, unprotectedHeader? }`. `key.alg` is required (throws `ERR_JWS_SIGNER_ALG_INFERENCE` when absent).
+- `options?: JWSMultiSignOptions` — mirrors `JWSSignOptions` minus the per-signer fields (`alg`, `protectedHeader`). Keeps: `currentDate`, `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt`.
+
+Throws `ERR_JWS_B64_INCONSISTENT` when signers disagree on `b64` (RFC 7797 §3 mandates consistency). Throws `ERR_JWS_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in both the protected and unprotected header of the same signer.
+
+```ts
+import { signMulti } from "unjwt/jws";
+
+const jws = await signMulti(
+  { sub: "u1", role: "admin" },
+  [
+    { key: aliceRsaPrivateJwk }, // alg=RS256 from JWK
+    { key: bobEdPrivateJwk, protectedHeader: { typ: "vc+jwt" } }, // alg=Ed25519, custom typ
+    { key: witnessHmacJwk, unprotectedHeader: { "x-role": "witness" } },
+  ],
+  { expiresIn: "1h" },
+);
+```
+
+### `verifyMulti(jws, keyOrLookup, options?)`
+
+Accepts an already-parsed General or Flattened JWS and returns the first signature that verifies. Parse the JSON yourself before calling — `verifyMulti` does not accept strings. Compact tokens go through `verify()`.
+
+**Parameters:**
+
+- `jws` — `JWSGeneralSerialization | JWSFlattenedSerialization`. Flattened input is auto-normalized to General in memory.
+- `keyOrLookup` — same shape as `verify()` (`JWK | JWKSet | CryptoKey | Uint8Array | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per signature until one verifies.
+- `options?: JWSMultiVerifyOptions` — extends `JWSVerifyOptions`. Adds:
+  - `strictSignerMatch?: boolean` — when `true`, skip any signature whose header does not unambiguously match the provided key (by `kid`, then by `kty`/`crv`/length). Throws `ERR_JWS_NO_MATCHING_SIGNER` if nothing matches; no trial verification fallback.
+
+**Returns:** `JWSMultiVerifyResult<T>` — extends `JWSVerifyResult` with:
+
+- `signerIndex: number` — index into `jws.signatures` that verified.
+- `signerHeader?: JWSHeaderParameters` — per-signer unprotected header.
+
+```ts
+import { verifyMulti } from "unjwt/jws";
+
+const { payload, signerIndex, signerHeader } = await verifyMulti(jws, alicePublicJwk);
+
+// Or via JWKSet / lookup function
+const { payload: p } = await verifyMulti(jws, myJwkSet);
+const { payload: q } = await verifyMulti(jws, (header) => fetchKeyByKid(header.kid));
+
+// Strict — fail fast when no signature matches
+const { payload: r } = await verifyMulti(jws, key, { strictSignerMatch: true });
+```
+
+### `verifyMultiAll(jws, keyResolver, options?)`
+
+Verify every signature in a JWS **independently** and return a per-signature outcome array — the caller applies their own policy (all-must-verify, M-of-N quorum, specific-signer checks, audit logs).
+
+Unlike `verifyMulti`, this function **never throws** on an individual signature's failure. Malformed protected headers, disallowed `alg`s, `typ` mismatches, key-resolver errors, bad signatures, critical-header violations, and JWT-claim failures are all collected into `JWSMultiVerifyOutcome` entries with `verified: false`.
+
+Structural errors in the envelope itself (non-object input, missing `payload` / `signatures[]`) still throw `ERR_JWS_INVALID_SERIALIZATION` — there's no per-signature outcome to return in that case.
+
+**Parameters:**
+
+- `jws` — `JWSGeneralSerialization | JWSFlattenedSerialization` (Flattened is auto-normalised).
+- `keyResolver` — **required** `JWKLookupFunction`. Per-signature keys are typically different, so the function form is mandatory. Wrap a static `JWKSet` as `(header) => mySet` if that's all you have.
+- `options?: JWSMultiVerifyAllOptions` — inherits `JWSMultiVerifyOptions` minus `strictSignerMatch` (not meaningful when every signature is independently reported). Keeps `algorithms`, `typ`, `forceUint8Array`, `validateClaims`, `recognizedHeaders`, and all `JWTClaimValidationOptions`.
+
+**Returns:** `Promise<JWSMultiVerifyOutcome<T>[]>` — one entry per signature. Each is a discriminated union:
+
+- `{ signerIndex, verified: true, payload, protectedHeader, signerHeader? }` — verified cryptographically, `typ` matched (if required), JWT claims passed (if enabled).
+- `{ signerIndex, verified: false, error, protectedHeader?, signerHeader? }` — failure at some step. `protectedHeader` / `signerHeader` are populated when they were successfully parsed before failure; they're missing when the signature was structurally malformed.
+
+```ts
+import { verifyMultiAll } from "unjwt/jws";
+
+// All signatures must verify
+const outcomes = await verifyMultiAll(jws, myKeyResolver);
+if (!outcomes.every((o) => o.verified)) {
+  throw new Error("not all signatures verified");
+}
+
+// M-of-N quorum by distinct kid
+const validKids = outcomes.filter((o) => o.verified).map((o) => o.protectedHeader.kid);
+if (new Set(validKids).size < 2) {
+  throw new Error("quorum of 2 not met");
+}
+
+// Specific required signers
+const signedBy = new Set(outcomes.filter((o) => o.verified).map((o) => o.protectedHeader.kid));
+if (!signedBy.has("alice") || !signedBy.has("notary")) {
+  throw new Error("missing required signers");
+}
+
+// Audit log — record every outcome regardless of overall policy
+for (const o of outcomes) {
+  log(o.signerIndex, o.verified ? "ok" : o.error.code);
+}
+```
+
+### `generalToFlattenedJWS(jws)`
+
+`signMulti` always emits General, even for a single signer — keeps the return shape stable if you later add signers. For strict Flattened-only consumers, post-process:
+
+```ts
+import { signMulti, generalToFlattenedJWS } from "unjwt/jws";
+
+const general = await signMulti(payload, [signer], opts);
+const flattened = generalToFlattenedJWS(general); // JWSFlattenedSerialization
+```
+
+Throws `ERR_JWS_INVALID_SERIALIZATION` when the input has zero or multiple signatures.
+
+### Differences from JWE's multi-recipient model
+
+JWS JSON Serialization is structurally simpler than JWE's:
+
+- **Payload is shared, protected header is per-signer.** Opposite of JWE, where the protected header is shared and the per-recipient state is in `recipients[]`.
+- **No shared unprotected header at the top level** — only per-signature `header` fields (RFC 7515 §7.2.1).
+- **RFC 7797 `b64: false` constraint** — all signers must agree on `b64`; inconsistency throws `ERR_JWS_B64_INCONSISTENT`.
+
 ## Types
 
 ```ts
@@ -120,6 +246,61 @@ interface JWSVerifyResult<T extends JOSEPayload = JOSEPayload> {
   payload: T;
   protectedHeader: JWSProtectedHeader; // alg is required
 }
+
+// --- Multi-signature (RFC 7515 §7.2) ---
+
+interface JWSGeneralSerialization {
+  payload: string;
+  signatures: JWSGeneralSignature[];
+}
+
+interface JWSGeneralSignature {
+  protected?: string;
+  header?: Record<string, unknown>;
+  signature: string;
+}
+
+interface JWSFlattenedSerialization {
+  payload: string;
+  protected?: string;
+  header?: Record<string, unknown>;
+  signature: string;
+}
+
+interface JWSMultiSigner {
+  key: JWK;
+  protectedHeader?: StrictOmit<JWSHeaderParameters, "alg"> & { alg?: never };
+  unprotectedHeader?: Record<string, unknown>;
+}
+
+interface JWSMultiSignOptions extends StrictOmit<JWSSignOptions, "alg" | "protectedHeader"> {}
+
+interface JWSMultiVerifyOptions extends JWSVerifyOptions {
+  strictSignerMatch?: boolean;
+}
+
+interface JWSMultiVerifyResult<T extends JOSEPayload = JOSEPayload> extends JWSVerifyResult<T> {
+  signerHeader?: JWSHeaderParameters;
+  signerIndex: number;
+}
+
+interface JWSMultiVerifyAllOptions extends StrictOmit<JWSMultiVerifyOptions, "strictSignerMatch"> {}
+
+type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
+  | {
+      signerIndex: number;
+      verified: true;
+      payload: T;
+      protectedHeader: JWSProtectedHeader;
+      signerHeader?: JWSHeaderParameters;
+    }
+  | {
+      signerIndex: number;
+      verified: false;
+      error: JWTError;
+      protectedHeader?: JWSProtectedHeader;
+      signerHeader?: JWSHeaderParameters;
+    };
 
 interface JWSHeaderParameters extends JoseHeaderParameters {
   alg?: JWSAlgorithm;

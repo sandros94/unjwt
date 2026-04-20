@@ -1,5 +1,7 @@
+import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { textEncoder, textDecoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+
 import type {
-  JWK,
   JWK_Symmetric,
   JWK_Public,
   JWK_Private,
@@ -18,24 +20,25 @@ import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import { JWTError } from "./error";
 import {
-  base64UrlEncode,
-  base64UrlDecode,
-  textEncoder,
-  textDecoder,
   isJWK,
   isJWKSet,
-  sanitizeObject,
-  safeJsonParse,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
-  decodePayloadFromB64UrlSegment,
-  inferJWSAllowedAlgorithms,
   validateCriticalHeadersJWS,
-  validateJwtClaims,
 } from "./utils";
+import {
+  JWS_ALG_CTX,
+  buildJWKSetFilter,
+  checkAlgAllowed,
+  decodeJWSPayload,
+  decodeProtectedHeader,
+  resolveSigningKey,
+  validateJwtClaimsIfJsonPayload,
+} from "./_internal";
 
 export type * from "./types/jws";
 export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
+export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi";
 
 /**
  * Creates a JWS (JSON Web Signature) in Compact Serialization format.
@@ -79,7 +82,7 @@ export async function sign(
     throw new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
   }
 
-  const signingKey = await _resolveSigningKey(
+  const signingKey = await resolveSigningKey(
     alg,
     await importKey(key, { alg, expect: "private" }),
     "sign",
@@ -87,11 +90,7 @@ export async function sign(
 
   const protectedHeader = _buildJWSHeader(alg, key, userHeader, payload);
 
-  const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(
-    payload,
-    options.expiresIn,
-    options.currentDate,
-  );
+  const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
 
   const protectedHeaderString = JSON.stringify(protectedHeader);
   const protectedHeaderEncoded = base64UrlEncode(protectedHeaderString);
@@ -171,15 +170,9 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   }
   const [protectedHeaderEncoded, payloadEncoded, signatureEncoded] = parts;
 
-  let protectedHeader: JWSProtectedHeader;
-  try {
-    const protectedHeaderString = base64UrlDecode(protectedHeaderEncoded);
-    protectedHeader = safeJsonParse<JWSProtectedHeader>(protectedHeaderString);
-  } catch {
-    throw new JWTError("Invalid JWS: Protected header could not be decoded.", "ERR_JWS_INVALID");
-  }
+  const protectedHeader = decodeProtectedHeader<JWSProtectedHeader>(protectedHeaderEncoded, "JWS");
 
-  if (!protectedHeader || typeof protectedHeader !== "object" || !protectedHeader.alg) {
+  if (!protectedHeader.alg) {
     throw new JWTError(
       'Invalid JWS: Protected header must be an object with an "alg" property.',
       "ERR_JWS_INVALID",
@@ -187,11 +180,6 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   }
 
   const alg = protectedHeader.alg;
-
-  // Explicit allowlist check runs before key resolution (fast path).
-  if (options.algorithms && !options.algorithms.includes(alg)) {
-    throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
-  }
 
   if (options.typ && protectedHeader.typ !== options.typ) {
     throw new JWTError(
@@ -202,40 +190,20 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   let signatureBytes: Uint8Array<ArrayBuffer>;
   try {
-    signatureBytes = base64UrlDecode(signatureEncoded, false);
+    signatureBytes = base64UrlDecode(signatureEncoded, { returnAs: "uint8array" });
   } catch {
     throw new JWTError("Invalid JWS: Signature could not be decoded.", "ERR_JWS_INVALID");
   }
 
   const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
 
-  // Without an explicit allowlist, infer from the key shape — prevents
-  // signer-controlled `alg` from dictating verification.
-  if (!options.algorithms) {
-    // Fast-path: a JWK with `alg` already names the only allowed algorithm
-    // (JWS algs map 1:1 to their JWK, unlike JWE's oct alias dance).
-    if (isJWK(keyInput) && typeof keyInput.alg === "string") {
-      if (keyInput.alg !== alg) {
-        throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
-      }
-    } else {
-      const inferred = inferJWSAllowedAlgorithms(keyInput);
-      if (!inferred) {
-        throw new JWTError(
-          'Cannot infer allowed algorithms from this key; pass "options.algorithms" explicitly.',
-          "ERR_JWS_ALG_NOT_ALLOWED",
-        );
-      }
-      if (!inferred.includes(alg)) {
-        throw new JWTError(`Algorithm not allowed: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
-      }
-    }
-  }
+  const algError = checkAlgAllowed(alg, keyInput, options.algorithms, JWS_ALG_CTX);
+  if (algError) throw algError;
 
   const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
 
   if (isJWKSet(keyInput)) {
-    const candidates = getJWKsFromSet(keyInput, _buildJWSSetFilter(protectedHeader));
+    const candidates = getJWKsFromSet(keyInput, buildJWKSetFilter(protectedHeader));
     if (candidates.length === 0) {
       throw new JWTError(
         `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
@@ -247,7 +215,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     // `joseVerify` reports as `false` rather than throwing.
     let verified = false;
     for (const candidate of candidates) {
-      const verificationKey = await _resolveSigningKey(
+      const verificationKey = await resolveSigningKey(
         alg,
         await importKey(candidate, { alg, expect: "public" }),
         "verify",
@@ -261,7 +229,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
       throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
     }
   } else {
-    const verificationKey = await _resolveSigningKey(
+    const verificationKey = await resolveSigningKey(
       alg,
       await importKey(keyInput, { alg, expect: "public" }),
       "verify",
@@ -276,13 +244,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   const useB64 = protectedHeader.b64 !== false;
   let payload: T;
   try {
-    payload = (
-      useB64
-        ? decodePayloadFromB64UrlSegment<T>(payloadEncoded as string, options.forceUint8Array)
-        : options.forceUint8Array
-          ? textEncoder.encode(payloadEncoded)
-          : payloadEncoded
-    ) as T;
+    payload = decodeJWSPayload<T>(payloadEncoded as string, useB64, options.forceUint8Array);
   } catch (error_) {
     throw new JWTError(
       `Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : error_})`,
@@ -292,56 +254,12 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
 
-  // RFC 7519 JWT claim validation runs for any JSON-object payload; opt out via `validateClaims: false`.
-  if (
-    payload &&
-    typeof payload === "object" &&
-    !(payload instanceof Uint8Array) &&
-    !options.forceUint8Array &&
-    options.validateClaims !== false
-  ) {
-    validateJwtClaims(payload as JWTClaims, options);
-  }
+  validateJwtClaimsIfJsonPayload(payload, options);
 
   return {
     payload,
     protectedHeader,
   };
-}
-
-async function _resolveSigningKey(
-  alg: string,
-  key: CryptoKey | Uint8Array<ArrayBuffer>,
-  usage: "sign" | "verify",
-): Promise<CryptoKey> {
-  if (key instanceof Uint8Array) {
-    const minBytes = Number.parseInt(alg.slice(2), 10) / 8;
-    if (key.length < minBytes) {
-      throw new JWTError(`${alg} requires a key of at least ${minBytes} bytes`, "ERR_JWK_INVALID");
-    }
-    return crypto.subtle.importKey(
-      "raw",
-      key,
-      { name: "HMAC", hash: `SHA-${alg.slice(-3)}` },
-      false,
-      [usage],
-    );
-  }
-  if (alg.startsWith("RS") || alg.startsWith("PS")) {
-    const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
-    if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new JWTError(
-        `${alg} requires a key modulusLength of at least 2048 bits`,
-        "ERR_JWK_INVALID",
-      );
-    }
-  }
-  return key;
-}
-
-function _buildJWSSetFilter(header: JWSProtectedHeader): (k: JWK) => boolean {
-  const { kid, alg } = header;
-  return (k: JWK) => (!kid || k.kid === kid) && (!k.alg || k.alg === alg);
 }
 
 function _buildJWSHeader(
@@ -350,7 +268,7 @@ function _buildJWSHeader(
   userHeader: JWSHeaderParameters | undefined,
   payload: unknown,
 ): JWSProtectedHeader {
-  const safeHeader = sanitizeObject<JWSHeaderParameters | undefined>(userHeader);
+  const safeHeader = sanitizeObjectCopy<JWSHeaderParameters | undefined>(userHeader);
   // Precedence: top-level `alg` > user header > JWK `kid`. Build imperatively to
   // avoid the intermediate `{ kid }` / spread-output allocations.
   const header = {} as JWSProtectedHeader;

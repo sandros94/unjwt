@@ -1,6 +1,8 @@
 import supertest from "supertest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { type App, createApp, createRouter, toNodeListener, eventHandler, readBody } from "h3v1";
+import { base64UrlDecode } from "unsecure/utils";
+
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
@@ -12,7 +14,6 @@ import {
   updateJWSSession,
   generateJWK,
 } from "../src/adapters/h3v1";
-import { base64UrlDecode } from "../src/core/utils";
 import { encrypt } from "../src/core/jwe";
 import { sign } from "../src/core/jws";
 

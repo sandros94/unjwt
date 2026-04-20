@@ -60,7 +60,7 @@ src/
 
 ### Key design patterns
 
-- **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. Cookie-es similarly as `cookie-esv1`/`cookie-esv2`. The build config (`build.config.ts`) replaces these aliases with the real package names (`h3`, `cookie-es`) in dist output.
+- **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. Cookie-es similarly as `cookie-esv1`/`cookie-esv3`. The build config (`build.config.ts`) replaces these aliases with the real package names (`h3`, `cookie-es`) in dist output.
 - **`src/core/jose/`** is an internal fork of [`panva/jose`](https://github.com/panva/jose) primitives — excluded from test coverage. Do not add tests for files in this directory.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.

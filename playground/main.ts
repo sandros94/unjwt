@@ -1,4 +1,4 @@
-import { H3, HTTPError, serve } from "h3v2";
+import { H3, HTTPError, serve } from "h3";
 
 import {
   type JWTClaims,
@@ -9,7 +9,7 @@ import {
   getJWESession,
   updateJWSSession,
   generateJWK,
-} from "../src/adapters/h3v2";
+} from "unjwt/adapters/h3v2";
 
 const atJwk = await generateJWK("RS256");
 

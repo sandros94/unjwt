@@ -15,15 +15,25 @@ export type JWTErrorCode =
   | "ERR_JWT_CLAIM_MISSING" // required claim absent
   // JWS (RFC 7515)
   | "ERR_JWS_INVALID" // structural / format error
+  | "ERR_JWS_INVALID_SERIALIZATION" // JSON not a valid General / Flattened shape
   | "ERR_JWS_SIGNATURE_INVALID" // cryptographic signature verification failed
   | "ERR_JWS_ALG_NOT_ALLOWED" // algorithm rejected by caller policy
   | "ERR_JWS_ALG_MISSING" // required `alg` option absent on sign
+  | "ERR_JWS_SIGNER_ALG_INFERENCE" // cannot infer `alg` for a signer's JWK
+  | "ERR_JWS_NO_MATCHING_SIGNER" // no signature matched the provided key
+  | "ERR_JWS_HEADER_PARAMS_NOT_DISJOINT" // protected / unprotected header overlap on a signer
+  | "ERR_JWS_B64_INCONSISTENT" // RFC 7797 §3 — `b64` must be identical across all signers
   // JWE (RFC 7516)
   | "ERR_JWE_INVALID" // structural / format / option error
+  | "ERR_JWE_INVALID_SERIALIZATION" // JSON not a valid General / Flattened shape
   | "ERR_JWE_DECRYPTION_FAILED" // content decryption or key unwrap failed
   | "ERR_JWE_ALG_NOT_ALLOWED" // algorithm rejected by caller policy
   | "ERR_JWE_ALG_MISSING" // required `alg` option absent on encrypt
+  | "ERR_JWE_ALG_FORBIDDEN_IN_MULTI" // `dir` or bare `ECDH-ES` passed to encryptMulti
   | "ERR_JWE_ENC_MISSING" // required `enc` option absent on encrypt
+  | "ERR_JWE_RECIPIENT_ALG_INFERENCE" // cannot infer `alg` for a recipient's JWK
+  | "ERR_JWE_NO_MATCHING_RECIPIENT" // no recipient matched the provided key
+  | "ERR_JWE_HEADER_PARAMS_NOT_DISJOINT" // protected/unprotected/per-recipient header overlap
   // JWK (RFC 7517)
   | "ERR_JWK_INVALID" // malformed or unsupported key material
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set

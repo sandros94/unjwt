@@ -61,6 +61,7 @@
     "fmt": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",
     "release": "pnpm test && pnpm prepack && changelogen --release --push",
+    "stub": "obuild --stub",
     "test": "vitest run --slowTestThreshold=1000",
     "test:coverage": "vitest run --coverage --slowTestThreshold=1000",
     "typecheck": "tsgo --noEmit",
@@ -68,30 +69,31 @@
   },
   "devDependencies": {
     "@types/node": "^24",
-    "@types/supertest": "^6.0.3",
-    "@typescript/native-preview": "7.0.0-dev.20260306.1",
-    "@vitest/coverage-v8": "^4.0.15",
+    "@types/supertest": "^7.2.0",
+    "@typescript/native-preview": "7.0.0-dev.20260419.1",
+    "@vitest/coverage-v8": "^4.1.4",
     "automd": "^0.4.3",
     "changelogen": "^0.6.2",
-    "cookie-esv1": "npm:cookie-es@^1.2.2",
-    "cookie-esv2": "npm:cookie-es@^2.0.0",
-    "h3v1": "npm:h3@^1.15.10",
-    "h3v2": "npm:h3@^2.0.1-rc.19",
-    "jose": "^6.2.0",
-    "nano-staged": "^0.9.0",
-    "obuild": "^0.4.32",
-    "oxfmt": "^0.43.0",
-    "oxlint": "^1.51.0",
-    "rolldown": "1.0.0-rc.12",
+    "cookie-esv1": "npm:cookie-es@^1.2.3",
+    "cookie-esv3": "npm:cookie-es@^3.1.1",
+    "h3v1": "npm:h3@^1.15.11",
+    "h3v2": "npm:h3@^2.0.1-rc.20",
+    "jose": "^6.2.2",
+    "nano-staged": "^1.0.2",
+    "obuild": "^0.4.33",
+    "oxfmt": "^0.45.0",
+    "oxlint": "^1.60.0",
+    "rolldown": "1.0.0-rc.16",
+    "rou3": "^0.8.1",
     "simple-git-hooks": "^2.13.1",
     "supertest": "^7.2.2",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "typescript": "^6.0.3",
+    "unsecure": "^0.2.1",
+    "vitest": "^4.1.4"
   },
   "peerDependencies": {
-    "cookie-es": "^1.2.2 || ^2.0.0",
-    "h3": "^1.15.4 || >=2.0.1-rc.18 || ^2.0.1",
-    "rou3": "^0.7.10"
+    "cookie-es": "^1.2.3 || ^3.1.1",
+    "h3": "^1.15.4 || >=2.0.1-rc.20 || ^2.0.1"
   },
   "peerDependenciesMeta": {
     "cookie-es": {
@@ -99,10 +101,10 @@
     },
     "h3": {
       "optional": true
-    },
-    "rou3": {
-      "optional": true
     }
+  },
+  "resolutions": {
+    "unjwt": "link:."
   },
   "simple-git-hooks": {
     "pre-commit": "./node_modules/.bin/nano-staged"

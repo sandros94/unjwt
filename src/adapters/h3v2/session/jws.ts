@@ -7,9 +7,9 @@ import {
   setChunkedCookie,
 } from "h3v2";
 
-import type { CookieSerializeOptions } from "cookie-esv2";
-import { NullProtoObj } from "rou3";
+import type { CookieSerializeOptions } from "cookie-esv3";
 
+import { NullProtoObj } from "rou3";
 import type {
   ExpiresIn,
   JWKSet,
@@ -25,7 +25,7 @@ import {
   isSymmetricJWK,
   isPrivateJWK,
   isPublicJWK,
-  computeExpiresInSeconds,
+  computeDurationInSeconds,
 } from "../../../core/utils";
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
 
@@ -224,7 +224,7 @@ export async function getJWSSession<
         expiresAt: (config.maxAge === undefined
           ? undefined
           : freshCreatedAt +
-            computeExpiresInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
+            computeDurationInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
           ? number
           : T["exp"],
         data: new NullProtoObj(),
@@ -252,7 +252,7 @@ export async function getJWSSession<
     createdAt,
     expiresAt: (config.maxAge === undefined
       ? undefined
-      : createdAt + computeExpiresInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
+      : createdAt + computeDurationInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
       ? number
       : T["exp"],
     data: new NullProtoObj(),
@@ -386,7 +386,7 @@ export async function updateJWSSession<
     expiresAt:
       config.maxAge === undefined
         ? undefined
-        : createdAt + computeExpiresInSeconds(config.maxAge) * 1000,
+        : createdAt + computeDurationInSeconds(config.maxAge) * 1000,
   });
 
   let token: string;
@@ -410,7 +410,7 @@ export async function updateJWSSession<
       expires:
         config.maxAge === undefined
           ? undefined
-          : new Date(session.createdAt + computeExpiresInSeconds(config.maxAge) * 1000),
+          : new Date(session.createdAt + computeDurationInSeconds(config.maxAge) * 1000),
       ...config.cookie,
     });
   }

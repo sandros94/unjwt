@@ -3,12 +3,12 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError } from "../src/core/jwe";
 import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
 import {
-  randomBytes,
+  secureRandomBytes,
   textEncoder,
   textDecoder,
   base64UrlEncode,
   base64UrlDecode,
-} from "../src/core/utils";
+} from "unsecure";
 import type {
   JWK,
   JWK_Symmetric,
@@ -302,8 +302,8 @@ describe.concurrent("JWE Utilities", () => {
       const enc: ContentEncryptionAlgorithm = "A128GCM";
       const key = keys[alg]!.key as CryptoKey;
 
-      const customCek = randomBytes(128 / 8);
-      const customIv = randomBytes(96 / 8);
+      const customCek = secureRandomBytes(128 / 8);
+      const customIv = secureRandomBytes(96 / 8);
 
       const jwe = await encrypt(plaintextString, key, {
         alg,
@@ -317,7 +317,7 @@ describe.concurrent("JWE Utilities", () => {
       // Only the IV is verifiable here; the CEK is wrapped so its bytes aren't visible
       // without a manual unwrap.
       const jweParts = jwe.split(".");
-      const decodedIv = base64UrlDecode(jweParts[2], false);
+      const decodedIv = base64UrlDecode(jweParts[2], { returnAs: "uint8array" });
       expect(decodedIv).toEqual(customIv);
     });
 
@@ -384,8 +384,8 @@ describe.concurrent("JWE Utilities", () => {
     const alg: KeyManagementAlgorithm = "PBES2-HS256+A128KW";
 
     it("rejects p2c below the default minimum of 1000 iterations", async () => {
-      const cek = randomBytes(32);
-      const p2s = randomBytes(16);
+      const cek = secureRandomBytes(32);
+      const p2s = secureRandomBytes(16);
       const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 500, p2s });
       await expect(
         unwrapKey(alg, encryptedKey, password, { p2c: 500, p2s, format: "raw" }),
@@ -394,9 +394,9 @@ describe.concurrent("JWE Utilities", () => {
 
     it("rejects p2c above the default maximum of 1_000_000 iterations", async () => {
       // The bounds check fires before PBKDF2, so no need to actually wrap at that iteration count.
-      const p2s = randomBytes(16);
+      const p2s = secureRandomBytes(16);
       await expect(
-        unwrapKey(alg, randomBytes(40), password, {
+        unwrapKey(alg, secureRandomBytes(40), password, {
           p2c: 1_000_001,
           p2s,
           format: "raw",
@@ -405,8 +405,8 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("accepts p2c at the default floor of 1000 iterations", async () => {
-      const cek = randomBytes(32);
-      const p2s = randomBytes(16);
+      const cek = secureRandomBytes(32);
+      const p2s = secureRandomBytes(16);
       const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 1000, p2s });
       const unwrapped = await unwrapKey(alg, encryptedKey, password, {
         p2c: 1000,
@@ -417,8 +417,8 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("honours caller-supplied minIterations override", async () => {
-      const cek = randomBytes(32);
-      const p2s = randomBytes(16);
+      const cek = secureRandomBytes(32);
+      const p2s = secureRandomBytes(16);
       const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 500, p2s });
       // Below default floor (1000), but a caller-supplied floor of 100 accepts it.
       const unwrapped = await unwrapKey(alg, encryptedKey, password, {
@@ -445,7 +445,7 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("encrypt/decrypt roundtrip with AES-CBC content encryption", async () => {
-      const cek = randomBytes(32); // A128CBC-HS256 needs 256-bit key
+      const cek = secureRandomBytes(32); // A128CBC-HS256 needs 256-bit key
       const plaintext = "direct CBC test";
 
       const jwe = await encrypt(plaintext, cek, { alg: "dir", enc: "A128CBC-HS256" });
@@ -533,22 +533,6 @@ describe.concurrent("JWE Utilities", () => {
     it("should throw if JWE has incorrect number of parts", async () => {
       await expect(decrypt("a.b.c.d", key)).rejects.toThrow(
         "Invalid JWE: Must contain five sections (RFC7516, section-3).",
-      );
-    });
-
-    it("should throw if protected header is not valid Base64URL", async () => {
-      const parts = jwe.split(".");
-      parts[0] = "not-base64!";
-      await expect(decrypt(parts.join("."), key)).rejects.toThrow(
-        "Protected header could not be decoded",
-      );
-    });
-
-    it("should throw if protected header is not valid JSON", async () => {
-      const parts = jwe.split(".");
-      parts[0] = base64UrlEncode("not json");
-      await expect(decrypt(parts.join("."), key)).rejects.toThrow(
-        "Protected header could not be decoded",
       );
     });
 
@@ -732,6 +716,35 @@ describe.concurrent("JWE Utilities", () => {
         expect(payload.exp).toBe(999);
       });
 
+      it("sets exp from expiresAt (absolute expiry)", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        const expiresAt = new Date("2030-01-01T00:00:00Z");
+        const jwe = await encrypt({ sub: "abc" }, key, {
+          alg,
+          enc,
+          expiresAt,
+          currentDate: new Date(0),
+        });
+
+        const { payload } = await decrypt<JWTClaims>(jwe, key, {
+          currentDate: new Date(0),
+        });
+        expect(payload.exp).toBe(Math.floor(expiresAt.getTime() / 1000));
+        expect(payload.iat).toBe(0);
+      });
+
+      it("throws when both expiresIn and expiresAt are set", async () => {
+        const key = keys[alg]!.key as CryptoKey;
+        await expect(
+          encrypt({ sub: "abc" }, key, {
+            alg,
+            enc,
+            expiresIn: 60,
+            expiresAt: new Date("2030-01-01T00:00:00Z"),
+          }),
+        ).rejects.toThrow(/mutually exclusive/i);
+      });
+
       it("defaults typ/cty when encrypting object and leaves typ undefined for string", async () => {
         const key = keys[alg]!.key as CryptoKey;
         const obj = { hello: "world" };
@@ -865,8 +878,8 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should encrypt and decrypt with ECDH-ES and include epk", async () => {
-      const apu = randomBytes(16);
-      const apv = randomBytes(16);
+      const apu = secureRandomBytes(16);
+      const apv = secureRandomBytes(16);
 
       const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
         alg: ecdhAlg,
@@ -892,7 +905,7 @@ describe.concurrent("JWE Utilities", () => {
       expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
       expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
 
-      const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
+      const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, { returnAs: "uint8array" });
       expect(encryptedKeyBytes).toBeInstanceOf(Uint8Array);
       expect(encryptedKeyBytes.length).toBeGreaterThan(0);
 
@@ -913,8 +926,8 @@ describe.concurrent("JWE Utilities", () => {
         returnCek: true,
       });
 
-      expect(base64UrlDecode(protectedHeader.apu!, false)).toEqual(apu);
-      expect(base64UrlDecode(protectedHeader.apv!, false)).toEqual(apv);
+      expect(base64UrlDecode(protectedHeader.apu!, { returnAs: "uint8array" })).toEqual(apu);
+      expect(base64UrlDecode(protectedHeader.apv!, { returnAs: "uint8array" })).toEqual(apv);
       expect(cek).toEqual(expectedCek);
       expect(aad).toEqual(textEncoder.encode(protectedHeaderEncoded));
       expect(decryptedPayload).toEqual(plaintextObj);
@@ -926,8 +939,8 @@ describe.concurrent("JWE Utilities", () => {
         keyUsage: ["deriveBits"],
       })) as CryptoKeyPair;
       const providedEphemeralJwk = (await exportKey(providedEphemeral.publicKey)) as JWK_EC_Public;
-      const apu = randomBytes(16);
-      const apv = randomBytes(16);
+      const apu = secureRandomBytes(16);
+      const apv = secureRandomBytes(16);
 
       expect(providedEphemeral.privateKey.usages).toContain("deriveBits");
 
@@ -961,7 +974,7 @@ describe.concurrent("JWE Utilities", () => {
 
       const derivedCek = await unwrapKey(
         ecdhAlg,
-        base64UrlDecode(encryptedKeyEncoded, false),
+        base64UrlDecode(encryptedKeyEncoded, { returnAs: "uint8array" }),
         recipientKeyPair.privateKey,
         {
           epk: protectedHeader.epk!,

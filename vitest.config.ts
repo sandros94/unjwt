@@ -5,6 +5,7 @@ export default defineConfig({
     coverage: {
       exclude: [
         "dist/**",
+        "docs/**",
         "test/**",
         "src/core/_crypto/**",
         "build.config.ts",

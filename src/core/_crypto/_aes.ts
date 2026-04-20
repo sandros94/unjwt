@@ -1,4 +1,6 @@
-import { concatUint8Arrays, isCryptoKey, base64UrlEncode } from "../utils";
+import { base64UrlEncode } from "unsecure/utils";
+
+import { concatUint8Arrays, isCryptoKey } from "../utils";
 
 // --- CEK / IV generation ---
 

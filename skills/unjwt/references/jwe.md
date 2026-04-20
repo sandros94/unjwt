@@ -124,6 +124,96 @@ const result = await decrypt(token, privateKey, {
 const { payload, cek, aad } = await decrypt(token, key, { returnCek: true });
 ```
 
+## Multi-recipient (JSON Serialization)
+
+`unjwt` exposes `encryptMulti` / `decryptMulti` for JWE General JSON Serialization (RFC 7516 §7.2.1). Use them whenever you need more than one recipient on a single ciphertext; for the single-recipient case compact `encrypt()`/`decrypt()` remains the right tool.
+
+### `encryptMulti(payload, recipients, options?)`
+
+Produces a `JWEGeneralSerialization` object — one shared CEK encrypts the payload once; the CEK is wrapped independently per recipient using each recipient's `alg`.
+
+**Parameters:**
+
+- `payload` — `string | Uint8Array | Record<string, any>`
+- `recipients: JWEMultiRecipient[]` — non-empty. Each recipient is `{ key: JWK, header?, ecdh?, p2s?, p2c?, keyManagementIV? }`. `key.alg` is required (inferred per-recipient; throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent).
+- `options?: JWEMultiEncryptOptions` — extends `JWEEncryptOptions` minus the per-recipient fields (`alg`, `ecdh`, `p2s`, `p2c`, `keyManagementIV`). Adds:
+  - `sharedUnprotectedHeader?: Record<string, unknown>` — surfaces as top-level `unprotected`.
+  - `aad?: Uint8Array | string` — external AAD (RFC 7516 §5.1); content cipher AAD becomes `BASE64URL(protected) || '.' || BASE64URL(aad)`.
+
+Throws `ERR_JWE_ALG_FORBIDDEN_IN_MULTI` when any recipient resolves to `dir` or bare `ECDH-ES` (these algorithms require exactly one recipient — use `encrypt()`). Throws `ERR_JWE_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in more than one header tier.
+
+```ts
+import { encryptMulti } from "unjwt/jwe";
+
+const jwe = await encryptMulti(
+  { sub: "u1", role: "admin" },
+  [
+    { key: aliceRsaPublicJwk }, // alg from JWK → RSA-OAEP-256
+    { key: bobEcdhPublicJwk }, // alg from JWK → ECDH-ES+A256KW
+    { key: sharedAesKwJwk, header: { "x-route": "eu" } },
+  ],
+  { enc: "A256GCM", expiresIn: "1h" },
+);
+```
+
+### `decryptMulti(jwe, keyOrLookup, options?)`
+
+Accepts a General or Flattened serialization object and returns the first recipient whose wrap can be unwrapped with the supplied key. Compact tokens go through `decrypt()`.
+
+**Parameters:**
+
+- `jwe` — `JWEGeneralSerialization | JWEFlattenedSerialization`. Flattened input is auto-normalized to General in memory.
+- `keyOrLookup` — same shape as `decrypt()` (`JWK | JWKSet | CryptoKey | Uint8Array | string | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per recipient until one succeeds.
+- `options?: JWEMultiDecryptOptions` — extends `JWEDecryptOptions`. Adds:
+  - `strictRecipientMatch?: boolean` — when `true`, skip any recipient whose header does not unambiguously match the provided key (by `kid` or kty/curve/length). Throws `ERR_JWE_NO_MATCHING_RECIPIENT` if nothing matches; no trial decryption fallback.
+
+**Returns:** `JWEMultiDecryptResult<T>` — extends `JWEDecryptResult` with:
+
+- `recipientIndex: number` — index into `jwe.recipients` that decrypted.
+- `recipientHeader?: JWEHeaderParameters` — per-recipient unprotected header.
+- `sharedUnprotectedHeader?: JWEHeaderParameters` — shared unprotected header, when present.
+
+```ts
+import { decryptMulti } from "unjwt/jwe";
+
+// Receiver with their own private key
+const { payload, recipientIndex, recipientHeader } = await decryptMulti(
+  jweFromWire,
+  bobEcdhPrivateJwk,
+);
+
+// Or via JWKSet / lookup function (same API as decrypt())
+const jwe = JSON.parse(jweString);
+const { payload } = await decryptMulti(jwe, myJwkSet);
+const { payload } = await decryptMulti(jwe, (header) => fetchKeyByKid(header.kid));
+
+// Strict — fail fast when no recipient matches
+const { payload } = await decryptMulti(jwe, key, { strictRecipientMatch: true });
+```
+
+### `generalToFlattened(jwe)`
+
+`encryptMulti` always emits General, even for a single recipient — which keeps the return shape stable if you later add recipients. For strict Flattened-only consumers, post-process with this helper:
+
+```ts
+import { encryptMulti, generalToFlattened } from "unjwt/jwe";
+
+const general = await encryptMulti(payload, [recipient], opts);
+const flattened = generalToFlattened(general); // JWEFlattenedSerialization
+```
+
+Throws `ERR_JWE_INVALID_SERIALIZATION` when the input has zero or multiple recipients — Flattened is strictly single-recipient. `decryptMulti` accepts both shapes as input.
+
+### Differences from JWS's multi-signature model
+
+JWE's multi-recipient model has one more moving part than JWS's multi-signature model:
+
+- **Shared protected header, per-recipient key management.** Opposite of JWS — JWE has one shared `protected` header (contains `enc`, `typ`, etc., part of AAD) and per-recipient `header` fields (contains `alg`, `kid`, `epk`, etc.). JWS has no shared protected header: each signer has its own.
+- **Three header tiers: protected / shared unprotected / per-recipient.** RFC 7516 §7.2.1 defines all three; `jwe.unprotected` (shared across all recipients, not part of AAD) is the middle tier that JWS lacks entirely. Every parameter name must appear in at most one tier per recipient (RFC-mandated disjointness).
+- **Shared CEK tied to the content ciphertext.** One random CEK encrypts the payload once; each recipient wraps the same CEK with its own alg. This is why `dir` and bare `ECDH-ES` are forbidden in multi — those algs make the recipient's key _be_ the CEK, which can't be shared across recipients without collapsing security. `ERR_JWE_ALG_FORBIDDEN_IN_MULTI` surfaces that.
+- **External AAD support (RFC 7516 §5.1).** The `aad` field binds the ciphertext to out-of-band context (document hash, request URL). JWS has no analog — signatures already cover the whole payload.
+- **"First recipient that decrypts" semantics.** One recipient's key unlocks the ciphertext; the others are invisible to that recipient. By contrast, JWS signatures are independently verifiable — any verifier can check any subset (see `verifyMulti` in the JWS reference).
+
 ## Types
 
 ```ts
@@ -164,6 +254,64 @@ interface JWEDecryptResult<T extends JOSEPayload = JOSEPayload> {
   protectedHeader: JWEProtectedHeader; // alg and enc are required and strongly typed
   cek?: Uint8Array; // only when returnCek: true
   aad?: Uint8Array; // only when returnCek: true
+}
+
+// --- Multi-recipient (RFC 7516 §7.2) ---
+
+interface JWEGeneralSerialization {
+  protected?: string;
+  unprotected?: Record<string, unknown>;
+  recipients: JWEGeneralRecipient[];
+  aad?: string;
+  iv: string;
+  ciphertext: string;
+  tag: string;
+}
+
+interface JWEGeneralRecipient {
+  header?: Record<string, unknown>;
+  encrypted_key?: string;
+}
+
+interface JWEFlattenedSerialization {
+  protected?: string;
+  unprotected?: Record<string, unknown>;
+  header?: Record<string, unknown>;
+  encrypted_key?: string;
+  aad?: string;
+  iv: string;
+  ciphertext: string;
+  tag: string;
+}
+
+interface JWEMultiRecipient {
+  key: JWK;
+  header?: StrictOmit<
+    JWEHeaderParameters,
+    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
+  >;
+  ecdh?: JWEEncryptOptions["ecdh"];
+  p2s?: Uint8Array;
+  p2c?: number;
+  keyManagementIV?: Uint8Array;
+}
+
+interface JWEMultiEncryptOptions extends StrictOmit<
+  JWEEncryptOptions,
+  "alg" | "ecdh" | "p2s" | "p2c" | "keyManagementIV"
+> {
+  sharedUnprotectedHeader?: Record<string, unknown>;
+  aad?: Uint8Array | string;
+}
+
+interface JWEMultiDecryptOptions extends JWEDecryptOptions {
+  strictRecipientMatch?: boolean;
+}
+
+interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> extends JWEDecryptResult<T> {
+  sharedUnprotectedHeader?: JWEHeaderParameters;
+  recipientHeader?: JWEHeaderParameters;
+  recipientIndex: number;
 }
 
 // JWEProtectedHeader extends JWEHeaderParameters with alg and enc required

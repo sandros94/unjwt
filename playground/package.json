@@ -1,13 +1,13 @@
 {
-  "name": "unauth-playground",
-  "version": "0.0.0",
+  "name": "unjwt-playground",
+  "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --experimental-strip-types --watch ./main.ts",
-    "bun": "bun --watch main.ts",
-    "deno": "deno --watch -A main.ts"
+    "dev": "h3 serve",
+    "start": "h3 serve --prod"
   },
   "devDependencies": {
-    "unjwt": "workspace:"
+    "h3": "^2.0.1-rc.20",
+    "unjwt": "^0.7.0"
   }
 }

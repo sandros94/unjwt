@@ -1,5 +1,7 @@
+import { base64UrlEncode } from "unsecure/utils";
+
 import type { JWK, JWK_RSA_Private, JWK_EC_Private, JWK_OKP_Private } from "../types";
-import { base64UrlEncode, isCryptoKey } from "../utils";
+import { isCryptoKey } from "../utils";
 
 export async function jwkTokey(jwk: JWK): Promise<CryptoKey> {
   if (!jwk.alg) {

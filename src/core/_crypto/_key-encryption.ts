@@ -1,3 +1,6 @@
+import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+
 import type {
   JWEKeyManagementHeaderParameters,
   JWEHeaderParameters,
@@ -5,15 +8,7 @@ import type {
   JWK_EC,
   JWK_EC_Public,
 } from "../types";
-import {
-  base64UrlEncode,
-  base64UrlDecode,
-  isJWK,
-  isAsymmetricJWK,
-  assertCryptoKey,
-  isCryptoKey,
-  sanitizeObject,
-} from "../utils";
+import { isJWK, isAsymmetricJWK, assertCryptoKey, isCryptoKey } from "../utils";
 import { bitLengthCEK, generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes";
 import { jwkTokey, keyToJWK } from "./_key-codec";
 import { encryptRSAES } from "./_rsa";
@@ -180,7 +175,7 @@ export async function normalizeKey(
 
   if (isJWK(key)) {
     if ("k" in key && key.k) {
-      return base64UrlDecode(key.k as string, false);
+      return base64UrlDecode(key.k as string, { returnAs: "uint8array" });
     }
     return jwkTokey(key.alg ? key : { ...key, alg });
   }
@@ -226,7 +221,7 @@ function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
     delete publicJwk.y;
   }
 
-  return sanitizeObject(publicJwk) as unknown as JWK_EC_Public;
+  return sanitizeObjectCopy(publicJwk) as unknown as JWK_EC_Public;
 }
 
 async function ensurePrivateKey(alg: string, value: CryptoKey | JWK_EC): Promise<CryptoKey> {
