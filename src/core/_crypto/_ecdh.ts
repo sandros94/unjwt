@@ -1,4 +1,6 @@
-import { textEncoder, concatUint8Arrays } from "../utils";
+import { textEncoder } from "unsecure/utils";
+
+import { concatUint8Arrays } from "../utils";
 
 export async function deriveECDHESKey(
   publicKey: CryptoKey,

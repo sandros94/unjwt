@@ -9,7 +9,7 @@ import {
 
 import type { CookieSerializeOptions } from "cookie-esv3";
 
-import { NullProtoObj } from "./rou3";
+import { NullProtoObj } from "rou3";
 import type {
   ExpiresIn,
   JWK,

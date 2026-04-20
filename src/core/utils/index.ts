@@ -12,142 +12,20 @@ import type {
   JWK_RSA_Private,
 } from "../types";
 
+export { secureRandomBytes } from "unsecure/random";
+export { safeJsonParse, sanitizeObject, sanitizeObjectCopy } from "unsecure/sanitize";
+export {
+  textEncoder,
+  textDecoder,
+  base64Encode,
+  base64Decode,
+  base64UrlEncode,
+  base64UrlDecode,
+} from "unsecure/utils";
+
 export * from "./algorithms";
 export * from "./jwt";
-export * from "./sanitize";
 export type * from "./types";
-
-export const textEncoder: TextEncoder = /* @__PURE__ */ new TextEncoder();
-export const textDecoder: TextDecoder = /* @__PURE__ */ new TextDecoder();
-
-// Prefer Node.js Buffer (fastest), then Uint8Array.toBase64/fromBase64, then atob/btoa fallback.
-// Benchmarked on Node 22/24, Deno 2.x, and Bun 1.3: the Buffer path is substantially faster
-// than `Uint8Array.toBase64` on every tested runtime that ships Buffer. Do NOT "clean up" the
-// fastpath in favour of the Web-native API without re-running `pnpm bench` first.
-const _Buffer = /* @__PURE__ */ (() => {
-  try {
-    return globalThis.Buffer;
-  } catch {
-    return undefined;
-  }
-})();
-const _hasBuffer = typeof _Buffer?.from === "function";
-const _hasToBase64 = !_hasBuffer && typeof (Uint8Array.prototype as any).toBase64 === "function";
-const _hasFromBase64 = !_hasBuffer && typeof (Uint8Array as any).fromBase64 === "function";
-const _b64UrlEncOpts = /* @__PURE__ */ Object.freeze({ alphabet: "base64url", omitPadding: true });
-const _b64UrlDecOpts = /* @__PURE__ */ Object.freeze({ alphabet: "base64url" });
-
-function _toBuffer(data: Uint8Array<ArrayBuffer> | string): InstanceType<typeof Buffer> {
-  return data instanceof Uint8Array
-    ? _Buffer!.from(data.buffer, data.byteOffset, data.byteLength)
-    : _Buffer!.from(data);
-}
-
-/** Base64-encode bytes (or a UTF-8 string) to a standard base64 string with padding. */
-export function base64Encode(data: Uint8Array<ArrayBuffer> | string): string {
-  if (_hasBuffer) {
-    return _toBuffer(data).toString("base64");
-  }
-  const encodedData = data instanceof Uint8Array ? data : textEncoder.encode(data);
-  if (_hasToBase64) {
-    return (encodedData as any).toBase64();
-  }
-  return btoa(String.fromCodePoint(...encodedData));
-}
-
-/** Base64url-encode bytes (or a UTF-8 string) per RFC 4648 §5, without padding. */
-export function base64UrlEncode(data: Uint8Array<ArrayBuffer> | string): string {
-  if (_hasBuffer) {
-    return _toBuffer(data).toString("base64url");
-  }
-  const encodedData = data instanceof Uint8Array ? data : textEncoder.encode(data);
-  if (_hasToBase64) {
-    return (encodedData as any).toBase64(_b64UrlEncOpts);
-  }
-  return btoa(String.fromCodePoint(...encodedData))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=/g, "");
-}
-
-/**
- * Decode a standard base64 string. Returns a UTF-8 decoded string by default,
- * or raw `Uint8Array` bytes when `toString` is `false`. Empty / undefined input
- * returns `""` (or an empty `Uint8Array`).
- */
-export function base64Decode(str: string | undefined): string;
-export function base64Decode<T extends boolean | undefined>(
-  str?: string | undefined,
-  toString?: T,
-): T extends false ? Uint8Array<ArrayBuffer> : string;
-export function base64Decode(
-  str?: string | undefined,
-  toString?: boolean | undefined,
-): Uint8Array<ArrayBuffer> | string {
-  const decodeToString = toString !== false;
-
-  if (!str) {
-    return decodeToString ? "" : new Uint8Array(0);
-  }
-
-  if (_hasBuffer) {
-    const buf = _Buffer!.from(str, "base64");
-    return decodeToString
-      ? buf.toString("utf8")
-      : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-  }
-
-  const data: Uint8Array<ArrayBuffer> = _hasFromBase64
-    ? (Uint8Array as any).fromBase64(str)
-    : Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
-
-  return decodeToString ? textDecoder.decode(data) : data;
-}
-
-/**
- * Decode a base64url string per RFC 4648 §5 (padding optional). Returns a UTF-8
- * decoded string by default, or raw `Uint8Array` bytes when `toString` is `false`.
- * Empty / undefined input returns `""` (or an empty `Uint8Array`).
- */
-export function base64UrlDecode(str: string | undefined): string;
-export function base64UrlDecode<T extends boolean | undefined>(
-  str?: string | undefined,
-  toString?: T,
-): T extends false ? Uint8Array<ArrayBuffer> : string;
-export function base64UrlDecode(
-  str?: string | undefined,
-  toString?: boolean | undefined,
-): Uint8Array<ArrayBuffer> | string {
-  const decodeToString = toString !== false;
-
-  if (!str) {
-    return decodeToString ? "" : new Uint8Array(0);
-  }
-
-  if (_hasBuffer) {
-    const buf = _Buffer!.from(str, "base64url");
-    return decodeToString
-      ? buf.toString("utf8")
-      : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-  }
-
-  let data: Uint8Array<ArrayBuffer>;
-
-  if (_hasFromBase64) {
-    data = (Uint8Array as any).fromBase64(str, _b64UrlDecOpts);
-  } else {
-    str = str.replace(/-/g, "+").replace(/_/g, "/");
-    while (str.length % 4) str += "=";
-    data = Uint8Array.from(atob(str), (b) => b.codePointAt(0)!);
-  }
-
-  return decodeToString ? textDecoder.decode(data) : data;
-}
-
-/** Generate `length` cryptographically-random bytes via `crypto.getRandomValues`. */
-export function randomBytes(length: Readonly<number>): Uint8Array<ArrayBuffer> {
-  return crypto.getRandomValues(new Uint8Array(length));
-}
 
 /** Concatenate multiple `Uint8Array`s into a single contiguous buffer. */
 export function concatUint8Arrays(

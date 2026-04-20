@@ -1,5 +1,6 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
+import { textEncoder, textDecoder } from "unsecure";
 import {
   signMulti,
   verifyMulti,
@@ -8,7 +9,6 @@ import {
   isJWTError,
 } from "../src/core/jws";
 import { generateJWK } from "../src/core/jwk";
-import { textEncoder, textDecoder } from "../src/core/utils";
 import type {
   JWK,
   JWK_RSA_Public,

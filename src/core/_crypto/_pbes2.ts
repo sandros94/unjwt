@@ -1,4 +1,6 @@
-import { concatUint8Arrays, textEncoder, base64UrlEncode } from "../utils";
+import { textEncoder, base64UrlEncode } from "unsecure/utils";
+
+import { concatUint8Arrays } from "../utils";
 import { JWTError } from "../error";
 import { aesKwWrap, aesKwUnwrap } from "./_aes";
 

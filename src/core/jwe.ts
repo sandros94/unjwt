@@ -1,3 +1,7 @@
+import { secureRandomBytes } from "unsecure/random";
+import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { textEncoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+
 import type {
   JWK,
   JWKSet,
@@ -22,14 +26,9 @@ import { importKey, unwrapKey, getJWKsFromSet } from "./jwk";
 import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./_crypto";
 import { JWTError } from "./error";
 import {
-  base64UrlEncode,
-  base64UrlDecode,
-  randomBytes,
-  textEncoder,
   isJWK,
   isJWKSet,
   isCryptoKey,
-  sanitizeObject,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
@@ -127,7 +126,7 @@ export async function encrypt(
   const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
   if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
   if (p2s) jweKeyManagementParams.p2s = p2s;
-  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2s = randomBytes(16);
+  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2s = secureRandomBytes(16);
   if (p2c) jweKeyManagementParams.p2c = p2c;
   else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2c = 600_000;
   if (ecdh?.partyUInfo) jweKeyManagementParams.apu = ecdh.partyUInfo;
@@ -281,10 +280,10 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   const algError = checkAlgAllowed(alg, rawKeyMaterial, options?.algorithms, JWE_ALG_CTX);
   if (algError) throw algError;
 
-  const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, false);
-  const contentIVBytes = base64UrlDecode(ivEncoded, false);
-  const contentAuthTagBytes = base64UrlDecode(authTagEncoded, false);
-  const ciphertextBytes = base64UrlDecode(ciphertextEncoded, false);
+  const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, { returnAs: "uint8array" });
+  const contentIVBytes = base64UrlDecode(ivEncoded, { returnAs: "uint8array" });
+  const contentAuthTagBytes = base64UrlDecode(authTagEncoded, { returnAs: "uint8array" });
+  const ciphertextBytes = base64UrlDecode(ciphertextEncoded, { returnAs: "uint8array" });
 
   const unwrapKeyOpts: UnwrapKeyOptions = {
     enc,
@@ -389,7 +388,7 @@ function _buildJWEHeader(
   keyManagementParams: JWEHeaderParameters | undefined,
   payload: unknown,
 ): JWEHeaderParameters {
-  const safeHeader = sanitizeObject<JWEHeaderParameters | undefined>(
+  const safeHeader = sanitizeObjectCopy<JWEHeaderParameters | undefined>(
     userHeader as JWEHeaderParameters | undefined,
   );
   // Precedence: top-level `alg`/`enc` > key management params > user header > JWK `kid`.

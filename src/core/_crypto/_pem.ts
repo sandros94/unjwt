@@ -1,4 +1,6 @@
-import { base64Encode, base64Decode, isCryptoKey } from "../utils";
+import { base64Encode, base64Decode } from "unsecure/utils";
+
+import { isCryptoKey } from "../utils";
 import { JWTError } from "../error";
 
 /** Key Import Function options. */
@@ -115,7 +117,7 @@ const genericImport = async (
 
   assertPEMLabel(pem, descriptor);
   const cleanedPem = pem.replace(replace, "");
-  const keyData = base64Decode(cleanedPem, false);
+  const keyData = base64Decode(cleanedPem, { returnAs: "uint8array" });
 
   const isPublic = keyFormat === "spki";
 
@@ -304,6 +306,6 @@ const getSPKI = (x509: string): string => {
     } catch {}
   }
   const pem = x509.replace(/(?:-----(?:BEGIN|END) CERTIFICATE-----|\s)/g, "");
-  const raw = base64Decode(pem, false);
+  const raw = base64Decode(pem, { returnAs: "uint8array" });
   return formatPEM(spkiFromX509(raw), "PUBLIC KEY");
 };

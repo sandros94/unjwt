@@ -1,3 +1,6 @@
+import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { textEncoder, textDecoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+
 import type {
   JWK_Symmetric,
   JWK_Public,
@@ -17,13 +20,8 @@ import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import { JWTError } from "./error";
 import {
-  base64UrlEncode,
-  base64UrlDecode,
-  textEncoder,
-  textDecoder,
   isJWK,
   isJWKSet,
-  sanitizeObject,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   validateCriticalHeadersJWS,
@@ -192,7 +190,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   let signatureBytes: Uint8Array<ArrayBuffer>;
   try {
-    signatureBytes = base64UrlDecode(signatureEncoded, false);
+    signatureBytes = base64UrlDecode(signatureEncoded, { returnAs: "uint8array" });
   } catch {
     throw new JWTError("Invalid JWS: Signature could not be decoded.", "ERR_JWS_INVALID");
   }
@@ -270,7 +268,7 @@ function _buildJWSHeader(
   userHeader: JWSHeaderParameters | undefined,
   payload: unknown,
 ): JWSProtectedHeader {
-  const safeHeader = sanitizeObject<JWSHeaderParameters | undefined>(userHeader);
+  const safeHeader = sanitizeObjectCopy<JWSHeaderParameters | undefined>(userHeader);
   // Precedence: top-level `alg` > user header > JWK `kid`. Build imperatively to
   // avoid the intermediate `{ kid }` / spread-output allocations.
   const header = {} as JWSProtectedHeader;

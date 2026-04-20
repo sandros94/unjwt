@@ -1,5 +1,8 @@
+import { base64UrlDecode, textDecoder, textEncoder } from "unsecure/utils";
+import { safeJsonParse } from "unsecure/sanitize";
+
 import type { JWTClaims, JWTClaimValidationOptions, Duration, ExpiresIn } from "../types";
-import { base64UrlDecode, textDecoder, textEncoder, maybeArray, safeJsonParse } from "./index";
+import { maybeArray } from "./index";
 import { JWTError } from "../error";
 
 /**
@@ -63,7 +66,7 @@ export function decodePayloadFromB64UrlSegment<T = unknown>(
   payloadEncoded: string,
   forceUint8Array?: boolean,
 ): T | Uint8Array<ArrayBuffer> | string {
-  if (forceUint8Array) return base64UrlDecode(payloadEncoded, false);
+  if (forceUint8Array) return base64UrlDecode(payloadEncoded, { returnAs: "uint8array" });
   return decodeMaybeJWTString<T>(base64UrlDecode(payloadEncoded));
 }
 

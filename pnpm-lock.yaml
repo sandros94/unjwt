@@ -66,6 +66,9 @@ importers:
       rolldown:
         specifier: 1.0.0-rc.16
         version: 1.0.0-rc.16
+      rou3:
+        specifier: ^0.8.1
+        version: 0.8.1
       simple-git-hooks:
         specifier: ^2.13.1
         version: 2.13.1
@@ -75,6 +78,9 @@ importers:
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      unsecure:
+        specifier: ^0.2.1
+        version: 0.2.1
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@24.12.0)(@vitest/coverage-v8@4.1.4)(vite@7.2.6(@types/node@24.12.0)(jiti@2.6.1))
@@ -1754,6 +1760,9 @@ packages:
   undici-types@7.16.0:
     resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
 
+  unsecure@0.2.1:
+    resolution: {integrity: sha512-JyvySAX3U4Az72TmLqo8EGu2e/1D7oTcSkqsI3axa4wwCnN3QeEBVb5tKA3wqfunnhmwX+hlOUt7uB5IoUW3Pw==}
+
   untyped@2.0.0:
     resolution: {integrity: sha512-nwNCjxJTjNuLCgFr42fEak5OcLuB3ecca+9ksPFNvtfYSLpjf+iJqSIaSnIile6ZPbKYxI5k2AfXqeopGudK/g==}
     hasBin: true
@@ -3305,6 +3314,8 @@ snapshots:
   uncrypto@0.1.3: {}
 
   undici-types@7.16.0: {}
+
+  unsecure@0.2.1: {}
 
   untyped@2.0.0:
     dependencies:

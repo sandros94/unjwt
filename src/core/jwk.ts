@@ -1,3 +1,7 @@
+import { secureRandomBytes } from "unsecure/random";
+import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { textEncoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+
 import type {
   JWK,
   JWKSet,
@@ -25,17 +29,7 @@ import type {
   UnwrapKeyOptions,
   JoseHeaderParameters,
 } from "./types";
-import {
-  base64UrlDecode,
-  base64UrlEncode,
-  isCryptoKey,
-  isCryptoKeyPair,
-  isJWK,
-  isJWKSet,
-  sanitizeObject,
-  textEncoder,
-  randomBytes,
-} from "./utils";
+import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./utils";
 import { JWTError } from "./error";
 import {
   jwkTokey,
@@ -128,7 +122,7 @@ export async function generateKey(
   // so we generate and export raw bytes.
   if (alg === "A128CBC-HS256" || alg === "A192CBC-HS384" || alg === "A256CBC-HS512") {
     const keyLength = bitLengthCEK(alg);
-    const keyBytes = randomBytes(keyLength >> 3);
+    const keyBytes = secureRandomBytes(keyLength >> 3);
 
     if (exportToJWK) {
       return keyToJWK(keyBytes);
@@ -454,7 +448,7 @@ export async function importKey(
 
   if (isJWK(key)) {
     if ("k" in key && typeof key.k === "string") {
-      const rawBytes = base64UrlDecode(key.k as string, false);
+      const rawBytes = base64UrlDecode(key.k as string, { returnAs: "uint8array" });
       if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
         const { algorithm, usage, extractable = false } = algOrOptions;
         if (!algorithm || !usage) {
@@ -531,7 +525,7 @@ export async function exportKey<T extends JWK>(
 ): Promise<T> {
   const exportedJwk = await keyToJWK<T>(key);
   if (jwkParams) {
-    return { ...exportedJwk, ...sanitizeObject(jwkParams) };
+    return { ...exportedJwk, ...sanitizeObjectCopy(jwkParams) };
   }
   return exportedJwk;
 }
@@ -772,7 +766,8 @@ export async function unwrapKey(
           "ERR_JWE_INVALID",
         );
       }
-      const p2sBytes = typeof p2s === "string" ? base64UrlDecode(p2s, false) : p2s;
+      const p2sBytes =
+        typeof p2s === "string" ? base64UrlDecode(p2s, { returnAs: "uint8array" }) : p2s;
       unwrappedCekBytes = await pbes2Unwrap(
         alg,
         importedUnwrappingKey,
@@ -795,9 +790,13 @@ export async function unwrapKey(
         );
       }
       const ivBytes =
-        typeof options.iv === "string" ? base64UrlDecode(options.iv, false) : options.iv;
+        typeof options.iv === "string"
+          ? base64UrlDecode(options.iv, { returnAs: "uint8array" })
+          : options.iv;
       const tagBytes =
-        typeof options.tag === "string" ? base64UrlDecode(options.tag, false) : options.tag;
+        typeof options.tag === "string"
+          ? base64UrlDecode(options.tag, { returnAs: "uint8array" })
+          : options.tag;
       unwrappedCekBytes = await gcmkwDecrypt(
         alg,
         importedUnwrappingKey,
@@ -875,11 +874,11 @@ export async function unwrapKey(
 
       const apuBytes =
         typeof options.apu === "string"
-          ? base64UrlDecode(options.apu, false)
+          ? base64UrlDecode(options.apu, { returnAs: "uint8array" })
           : (options.apu ?? new Uint8Array(0));
       const apvBytes =
         typeof options.apv === "string"
-          ? base64UrlDecode(options.apv, false)
+          ? base64UrlDecode(options.apv, { returnAs: "uint8array" })
           : (options.apv ?? new Uint8Array(0));
 
       const infoAlg = alg === "ECDH-ES" ? options.enc : alg;

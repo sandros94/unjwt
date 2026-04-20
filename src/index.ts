@@ -33,15 +33,6 @@ export {
   clearJWKCache,
 } from "./core/jwk";
 export {
-  textEncoder,
-  textDecoder,
-  base64Encode,
-  base64UrlEncode,
-  base64Decode,
-  base64UrlDecode,
-  randomBytes,
-  concatUint8Arrays,
-  maybeArray,
   isJWK,
   isJWKSet,
   assertCryptoKey,
@@ -51,7 +42,6 @@ export {
   isAsymmetricJWK,
   isPrivateJWK,
   isPublicJWK,
-  sanitizeObject,
   validateJwtClaims,
   computeDurationInSeconds,
   computeExpiresInSeconds,

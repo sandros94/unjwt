@@ -1,8 +1,5 @@
-/**
- * Internal helpers shared across `jws.ts`, `jws-multi.ts`, `jwe.ts`, `jwe-multi.ts`.
- * Not part of the public API — do not re-export from `src/core/{jws,jwe}.ts`
- * or add to the `utils/` barrel.
- */
+import { safeJsonParse } from "unsecure/sanitize";
+import { textEncoder, base64UrlDecode } from "unsecure/utils";
 
 import type {
   JWK,
@@ -15,15 +12,12 @@ import type {
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
 import {
-  base64UrlDecode,
   decodePayloadFromB64UrlSegment,
   inferJWEAllowedAlgorithms,
   inferJWSAllowedAlgorithms,
   isCryptoKey,
   isCryptoKeyPair,
   isJWK,
-  safeJsonParse,
-  textEncoder,
   validateJwtClaims,
 } from "./utils";
 

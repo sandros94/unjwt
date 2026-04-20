@@ -1,8 +1,9 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
+import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "unsecure";
+
 import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
-import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "../src/core/utils";
 import type { JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
 
 describe.concurrent("JWS Utilities", () => {
@@ -54,7 +55,7 @@ describe.concurrent("JWS Utilities", () => {
       const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBeUndefined(); // No default typ for bytes
-      expect(base64UrlDecode(payloadEncoded, false)).toEqual(payloadBytes);
+      expect(base64UrlDecode(payloadEncoded, { returnAs: "uint8array" })).toEqual(payloadBytes);
 
       const { payload: josePayload } = await jose.compactVerify(jws, key);
       expect(josePayload).toEqual(payloadBytes);
@@ -68,7 +69,7 @@ describe.concurrent("JWS Utilities", () => {
       const header = JSON.parse(base64UrlDecode(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBeUndefined(); // No default typ for string
-      expect(base64UrlDecode(payloadEncoded, true)).toEqual(payloadString);
+      expect(base64UrlDecode(payloadEncoded, { returnAs: "string" })).toEqual(payloadString);
 
       const { payload: josePayload } = await jose.compactVerify(jws, key);
       expect(textDecoder.decode(josePayload)).toEqual(payloadString);

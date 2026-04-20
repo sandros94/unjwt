@@ -1,21 +1,14 @@
 import { describe, it, expect } from "vitest";
+import { secureRandomBytes, textEncoder } from "unsecure";
 import {
-  base64UrlEncode,
-  base64UrlDecode,
-  base64Encode,
-  base64Decode,
-  randomBytes,
   concatUint8Arrays,
   maybeArray,
-  textEncoder,
-  textDecoder,
   isPublicJWK,
   isPrivateJWK,
   isSymmetricJWK,
   assertCryptoKey,
   isCryptoKeyPair,
-  sanitizeObject,
-  computeExpiresInSeconds,
+  computeDurationInSeconds,
   computeJwtTimeClaims,
   validateJwtClaims,
   validateCriticalHeadersJWE,
@@ -32,33 +25,10 @@ import type {
 } from "../src/core/types";
 
 describe.concurrent("Utility Functions", () => {
-  describe("textEncoder and textDecoder", () => {
-    it("should be defined", () => {
-      expect(textEncoder).toBeDefined();
-      expect(textDecoder).toBeDefined();
-    });
-
-    it("should encode strings correctly", () => {
-      const str = "hello world";
-      const encoded = textEncoder.encode(str);
-
-      expect(encoded).toBeInstanceOf(Uint8Array);
-      expect(encoded).toEqual(new TextEncoder().encode(str));
-    });
-
-    it("should decode Uint8Array correctly", () => {
-      const uint8Array = new Uint8Array([104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100]);
-      const decoded = textDecoder.decode(uint8Array);
-
-      expect(decoded).toBe("hello world");
-      expect(decoded).toEqual(new TextDecoder().decode(uint8Array));
-    });
-  });
-
-  describe("randomBytes and concatUint8Arrays", () => {
+  describe("concatUint8Arrays", () => {
     it("should ganarate random bytes and successfully concatenate them", () => {
       const base = new Uint8Array([1, 2, 3]);
-      const random = randomBytes(3);
+      const random = secureRandomBytes(3);
       const concatenated = concatUint8Arrays(base, random);
 
       expect(concatenated).toBeInstanceOf(Uint8Array);
@@ -67,80 +37,24 @@ describe.concurrent("Utility Functions", () => {
     });
   });
 
-  describe("base64UrlEncode and base64UrlDecode", () => {
-    const vectors: string[] = [
-      "",
-      "f",
-      "fo",
-      "foo",
-      "foob",
-      "fooba",
-      "foobar",
-      "a Ā 𐀀 文 🦄",
-      "Man is distinguished, not only by his reason, but by this singular passion from other animals, which is a lust of the mind, that by a perseverance of delight in the continued and indefatigable generation of knowledge, exceeds the short vehemence of any carnal pleasure.",
-    ];
-
-    for (const input of vectors) {
-      it(`should correctly encode and decode: "${input.slice(0, 10)}..."`, () => {
-        const uint8Array = new TextEncoder().encode(input);
-
-        const encoded = base64UrlEncode(uint8Array);
-        expect(encoded).toBeTypeOf("string");
-        const localEncoded = b64Encode(uint8Array);
-        expect(encoded).toEqual(localEncoded);
-
-        const decodedUint8Array = base64UrlDecode(encoded, false);
-        expect(decodedUint8Array).toBeInstanceOf(Uint8Array);
-        expect(decodedUint8Array).toEqual(b64Decode(localEncoded));
-
-        const decodedString = base64UrlDecode(encoded);
-        expect(decodedString).toBeTypeOf("string");
-        expect(decodedString).toEqual(input);
-      });
-    }
-  });
-
-  describe("computeExpiresInSeconds", () => {
+  describe("computeDurationInSeconds", () => {
     it("should compute expiresIn correctly", () => {
-      expect(computeExpiresInSeconds("1s")).toBe(1);
-      expect(computeExpiresInSeconds("1m")).toBe(60);
-      expect(computeExpiresInSeconds("1h")).toBe(3600);
-      expect(computeExpiresInSeconds("1D")).toBe(86_400);
-      expect(computeExpiresInSeconds("2D")).toBe(172_800);
-      expect(computeExpiresInSeconds(10)).toBe(10);
+      expect(computeDurationInSeconds("1s")).toBe(1);
+      expect(computeDurationInSeconds("1m")).toBe(60);
+      expect(computeDurationInSeconds("1h")).toBe(3600);
+      expect(computeDurationInSeconds("1D")).toBe(86_400);
+      expect(computeDurationInSeconds("2D")).toBe(172_800);
+      expect(computeDurationInSeconds(10)).toBe(10);
     });
 
     it("should throw on invalid input", () => {
       // @ts-expect-error intentional invalid input
-      expect(() => computeExpiresInSeconds("")).toThrow();
+      expect(() => computeDurationInSeconds("")).toThrow();
       // @ts-expect-error intentional invalid input
-      expect(() => computeExpiresInSeconds("5x")).toThrow();
-      expect(() => computeExpiresInSeconds(-10)).toThrow();
-      expect(() => computeExpiresInSeconds(0)).toThrow();
-      expect(() => computeExpiresInSeconds(Number.NaN)).toThrow();
-    });
-  });
-
-  describe("base64Encode and base64Decode", () => {
-    it("should correctly encode and decode binary data", () => {
-      const data = new Uint8Array([0, 1, 2, 3, 255, 254]);
-      const encoded = base64Encode(data);
-      expect(encoded).toBeTypeOf("string");
-      const decoded = base64Decode(encoded, false);
-      expect(decoded).toBeInstanceOf(Uint8Array);
-      expect(decoded).toEqual(data);
-    });
-
-    it("should return empty string/Uint8Array for undefined input", () => {
-      expect(base64Decode(undefined)).toBe("");
-      expect(base64Decode(undefined, false)).toEqual(new Uint8Array(0));
-    });
-
-    it("should encode/decode a string", () => {
-      const str = "Hello, World!";
-      const encoded = base64Encode(str);
-      const decoded = base64Decode(encoded);
-      expect(decoded).toBe(str);
+      expect(() => computeDurationInSeconds("5x")).toThrow();
+      expect(() => computeDurationInSeconds(-10)).toThrow();
+      expect(() => computeDurationInSeconds(0)).toThrow();
+      expect(() => computeDurationInSeconds(Number.NaN)).toThrow();
     });
   });
 
@@ -352,66 +266,6 @@ describe("type guards", () => {
   });
 });
 
-describe("sanitizeObject", () => {
-  it("removes __proto__ own-property from the returned copy", () => {
-    // JSON.parse creates an object with __proto__ as a plain own-property
-    const obj = JSON.parse('{"__proto__": {"polluted": true}, "safe": 1}');
-    const result = sanitizeObject(obj);
-    expect(Object.prototype.hasOwnProperty.call(result, "__proto__")).toBe(false);
-    expect((result as any).safe).toBe(1);
-  });
-
-  it("removes prototype own-property from the returned copy", () => {
-    const obj = JSON.parse('{"prototype": "danger", "ok": true}');
-    const result = sanitizeObject(obj);
-    expect(Object.prototype.hasOwnProperty.call(result, "prototype")).toBe(false);
-  });
-
-  it("removes constructor own-property from the returned copy", () => {
-    const obj = JSON.parse('{"constructor": {"name": "pwned"}, "value": 42}');
-    const result = sanitizeObject(obj);
-    expect(Object.prototype.hasOwnProperty.call(result, "constructor")).toBe(false);
-    expect((result as any).value).toBe(42);
-  });
-
-  it("does not mutate the original object", () => {
-    const obj = JSON.parse('{"__proto__": "bad", "safe": 1}');
-    sanitizeObject(obj);
-    expect(Object.prototype.hasOwnProperty.call(obj, "__proto__")).toBe(true);
-    expect((obj as any).safe).toBe(1);
-  });
-
-  it("sanitizes nested dangerous keys in the returned copy", () => {
-    const inner = JSON.parse('{"__proto__": "bad", "normal": "good"}');
-    const outer: any = { nested: inner };
-    const result = sanitizeObject(outer) as any;
-    expect(Object.prototype.hasOwnProperty.call(result.nested, "__proto__")).toBe(false);
-    expect(result.nested.normal).toBe("good");
-  });
-
-  it("does not mutate nested objects in the original", () => {
-    const inner = JSON.parse('{"__proto__": "bad", "normal": "good"}');
-    const outer: any = { nested: inner };
-    sanitizeObject(outer);
-    expect(Object.prototype.hasOwnProperty.call(inner, "__proto__")).toBe(true);
-    expect(inner.normal).toBe("good");
-  });
-
-  it("handles non-object values (fast-path)", () => {
-    expect(sanitizeObject(undefined as any)).toBeUndefined();
-    expect(sanitizeObject(null as any)).toBeNull();
-    expect(sanitizeObject("string" as any)).toBe("string");
-  });
-
-  it("skips already-seen nested objects (WeakSet seen.has() === true branch)", () => {
-    const shared = { val: "ok" };
-    const obj: any = { a: shared, b: shared };
-    sanitizeObject(obj);
-    expect(obj.a).toBe(shared);
-    expect(obj.b).toBe(shared);
-  });
-});
-
 describe("validateCriticalHeadersJWE (direct)", () => {
   it("throws when crit is present but understoodFromOptions is undefined", () => {
     expect(() => validateCriticalHeadersJWE({ crit: ["someParam"], someParam: "value" })).toThrow(
@@ -436,15 +290,15 @@ describe("validateCriticalHeadersJWE (direct)", () => {
   });
 });
 
-describe("computeExpiresInSeconds additional cases", () => {
+describe("computeDurationInSeconds additional cases", () => {
   it("throws when expiresIn is neither number nor string", () => {
     // @ts-expect-error intentional invalid type
-    expect(() => computeExpiresInSeconds(true)).toThrow("Duration must be a number or a string");
+    expect(() => computeDurationInSeconds(true)).toThrow("Duration must be a number or a string");
   });
 
   it("throws on zero and negative expiresIn (must be positive)", () => {
-    expect(() => computeExpiresInSeconds(0)).toThrow(/positive integer/);
-    expect(() => computeExpiresInSeconds(-5)).toThrow(/positive integer/);
+    expect(() => computeDurationInSeconds(0)).toThrow(/positive integer/);
+    expect(() => computeDurationInSeconds(-5)).toThrow(/positive integer/);
   });
 });
 
@@ -599,20 +453,3 @@ describe("inferJWEAllowedAlgorithms", () => {
     expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES+A128KW");
   });
 });
-
-function b64Encode(data: Uint8Array<ArrayBuffer>): string {
-  return Buffer.from(data)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-}
-
-function b64Decode(str: string): Uint8Array<ArrayBuffer> {
-  str = str.replace(/-/g, "+").replace(/_/g, "/");
-  while (str.length % 4) str += "=";
-
-  const { buffer, byteLength, byteOffset } = Buffer.from(str, "base64");
-
-  return new Uint8Array(buffer, byteOffset, byteLength);
-}

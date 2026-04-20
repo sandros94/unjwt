@@ -1,3 +1,7 @@
+import { secureRandomBytes } from "unsecure/random";
+import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { textEncoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+
 import type {
   JWK,
   JWKSet,
@@ -32,14 +36,9 @@ import {
 } from "./_crypto";
 import { JWTError } from "./error";
 import {
-  base64UrlEncode,
-  base64UrlDecode,
-  randomBytes,
-  textEncoder,
   isJWK,
   isJWKSet,
   isCryptoKey,
-  sanitizeObject,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
@@ -91,8 +90,10 @@ export async function encryptMulti(
 
   const enc: ContentEncryptionAlgorithm = options.enc ?? "A256GCM";
 
-  const userProtected = sanitizeObject(options.protectedHeader) as JWEHeaderParameters | undefined;
-  const sharedUnprotected = sanitizeObject(options.sharedUnprotectedHeader) as
+  const userProtected = sanitizeObjectCopy(options.protectedHeader) as
+    | JWEHeaderParameters
+    | undefined;
+  const sharedUnprotected = sanitizeObjectCopy(options.sharedUnprotectedHeader) as
     | Record<string, unknown>
     | undefined;
 
@@ -228,11 +229,13 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     );
   }
 
-  const sharedUnprotected = sanitizeObject(general.unprotected) as JWEHeaderParameters | undefined;
+  const sharedUnprotected = sanitizeObjectCopy(general.unprotected) as
+    | JWEHeaderParameters
+    | undefined;
 
-  const ivBytes = base64UrlDecode(general.iv, false);
-  const ciphertextBytes = base64UrlDecode(general.ciphertext, false);
-  const tagBytes = base64UrlDecode(general.tag, false);
+  const ivBytes = base64UrlDecode(general.iv, { returnAs: "uint8array" });
+  const ciphertextBytes = base64UrlDecode(general.ciphertext, { returnAs: "uint8array" });
+  const tagBytes = base64UrlDecode(general.tag, { returnAs: "uint8array" });
   const contentAadBytes = textEncoder.encode(
     general.aad ? `${protectedHeaderEncoded}.${general.aad}` : protectedHeaderEncoded,
   );
@@ -241,7 +244,9 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   let cryptoAttempted = false;
   for (let i = 0; i < general.recipients.length; i++) {
     const wireRecipient = general.recipients[i]!;
-    const recipientHeader = sanitizeObject(wireRecipient.header) as JWEHeaderParameters | undefined;
+    const recipientHeader = sanitizeObjectCopy(wireRecipient.header) as
+      | JWEHeaderParameters
+      | undefined;
 
     _assertDisjointHeaders(protectedHeader, sharedUnprotected, recipientHeader);
 
@@ -273,7 +278,9 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const encryptedKeyBytes = base64UrlDecode(wireRecipient.encrypted_key, false);
+    const encryptedKeyBytes = base64UrlDecode(wireRecipient.encrypted_key ?? "", {
+      returnAs: "uint8array",
+    });
     const unwrapKeyOpts = _buildUnwrapKeyOptions(effective, enc, options);
 
     cryptoAttempted = true;
@@ -395,7 +402,7 @@ function _buildRecipientKeyMgmtParams(
   const params: JWEKeyManagementHeaderParameters = {};
   if (recipient.keyManagementIV) params.iv = recipient.keyManagementIV;
   if (recipient.p2s) params.p2s = recipient.p2s;
-  else if (alg.startsWith("PBES2")) params.p2s = randomBytes(16);
+  else if (alg.startsWith("PBES2")) params.p2s = secureRandomBytes(16);
   if (recipient.p2c) params.p2c = recipient.p2c;
   else if (alg.startsWith("PBES2")) params.p2c = 600_000;
   if (recipient.ecdh?.partyUInfo) params.apu = recipient.ecdh.partyUInfo;
@@ -415,7 +422,7 @@ function _buildPerRecipientHeader(
 ): JWEHeaderParameters {
   const header = {} as JWEHeaderParameters;
   if (recipient.key.kid) header.kid = recipient.key.kid;
-  const userHeader = sanitizeObject(recipient.header as JWEHeaderParameters | undefined);
+  const userHeader = sanitizeObjectCopy(recipient.header as JWEHeaderParameters | undefined);
   if (userHeader) Object.assign(header, userHeader);
   if (keyMgmtOut) Object.assign(header, keyMgmtOut);
   header.alg = alg;

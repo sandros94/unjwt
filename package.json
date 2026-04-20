@@ -84,9 +84,11 @@
     "oxfmt": "^0.45.0",
     "oxlint": "^1.60.0",
     "rolldown": "1.0.0-rc.16",
+    "rou3": "^0.8.1",
     "simple-git-hooks": "^2.13.1",
     "supertest": "^7.2.2",
     "typescript": "^6.0.3",
+    "unsecure": "^0.2.1",
     "vitest": "^4.1.4"
   },
   "peerDependencies": {

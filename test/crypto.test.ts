@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { textEncoder } from "unsecure/utils";
 
 import { sign, verify } from "../src/core/_crypto/_sign-verify";
 import {
@@ -17,7 +18,6 @@ import { deriveECDHESKey } from "../src/core/_crypto/_ecdh";
 import { deriveKey as deriveKeyPBES2 } from "../src/core/_crypto/_pbes2";
 import { jwkTokey, keyToJWK } from "../src/core/_crypto/_key-codec";
 import { fromSPKI, fromPKCS8, toPKCS8, toSPKI } from "../src/core/_crypto/_pem";
-import { textEncoder } from "../src/core/utils";
 import { rsa, ec } from "./keys";
 
 describe.concurrent("_crypto primitives", () => {

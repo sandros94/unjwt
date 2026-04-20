@@ -1,3 +1,6 @@
+import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { textEncoder, textDecoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+
 import type {
   JWK,
   JWKSet,
@@ -25,13 +28,8 @@ import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
 import {
-  base64UrlEncode,
-  base64UrlDecode,
-  textEncoder,
-  textDecoder,
   isJWK,
   isJWKSet,
-  sanitizeObject,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   getPlaintextBytes,
@@ -90,7 +88,7 @@ export async function signMulti(
     const alg = resolvedAlgs[i]!;
 
     const protectedHeader = _buildSignerProtectedHeader(signer, alg, payload, b64);
-    const unprotectedHeader = sanitizeObject(signer.unprotectedHeader) as
+    const unprotectedHeader = sanitizeObjectCopy(signer.unprotectedHeader) as
       | Record<string, unknown>
       | undefined;
 
@@ -185,7 +183,7 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const unprotectedHeader = sanitizeObject(wireSig.header) as JWSHeaderParameters | undefined;
+    const unprotectedHeader = sanitizeObjectCopy(wireSig.header) as JWSHeaderParameters | undefined;
     _assertDisjointHeaders(protectedHeader, unprotectedHeader);
 
     const effective = _mergeHeaders(protectedHeader, unprotectedHeader);
@@ -217,7 +215,7 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const signatureBytes = base64UrlDecode(wireSig.signature, false);
+    const signatureBytes = base64UrlDecode(wireSig.signature, { returnAs: "uint8array" });
     const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${general.payload}`);
 
     cryptoAttempted = true;
@@ -415,7 +413,7 @@ function _buildSignerProtectedHeader(
   payload: unknown,
   b64: boolean,
 ): JWSProtectedHeader {
-  const userHeader = sanitizeObject<JWSHeaderParameters | undefined>(
+  const userHeader = sanitizeObjectCopy<JWSHeaderParameters | undefined>(
     signer.protectedHeader as JWSHeaderParameters | undefined,
   );
   const header = {} as JWSProtectedHeader;
@@ -571,7 +569,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
     );
   }
 
-  const unprotectedHeader = sanitizeObject(wireSig.header) as JWSHeaderParameters | undefined;
+  const unprotectedHeader = sanitizeObjectCopy(wireSig.header) as JWSHeaderParameters | undefined;
   try {
     _assertDisjointHeaders(protectedHeader, unprotectedHeader);
   } catch (err) {
@@ -609,7 +607,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWS_ALG_CTX);
   if (algError) return fail(algError, protectedHeader, unprotectedHeader);
 
-  const signatureBytes = base64UrlDecode(wireSig.signature, false);
+  const signatureBytes = base64UrlDecode(wireSig.signature, { returnAs: "uint8array" });
   const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${payload}`);
 
   let verified: boolean;

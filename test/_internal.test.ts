@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import { base64UrlEncode, textDecoder, textEncoder } from "unsecure/utils";
+
 import {
   JWS_ALG_CTX,
   JWE_ALG_CTX,
@@ -11,7 +13,6 @@ import {
   validateJwtClaimsIfJsonPayload,
 } from "../src/core/_internal";
 import { generateKey, generateJWK } from "../src/core/jwk";
-import { base64UrlEncode, textDecoder, textEncoder } from "../src/core/utils";
 import { isJWTError } from "../src/core/error";
 import type {
   JWK,
