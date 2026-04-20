@@ -24,6 +24,10 @@ landing:
       label: "Get Started"
       icon: "i-heroicons-rocket-launch"
       to: "/getting-started"
+    playOnline:
+      label: "Try Online"
+      icon: "simple-icons:stackblitz"
+      to: "https://stackblitz.com/github/sandros94/unjwt/tree/main/playground?file=server.mjs"
   heroCode:
     lang: "ts"
     title: "app.ts"
