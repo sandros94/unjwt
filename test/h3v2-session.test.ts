@@ -12,6 +12,36 @@ import {
 import { encrypt } from "../src/core/jwe";
 import { sign } from "../src/core/jws";
 
+// Pre-generate every JWK once per file. Keygen (especially RSA) and PBES2
+// password-based key derivation (600k PBKDF2 iterations) dominate the test
+// time otherwise — doing them in beforeEach/it blocks multiplies the cost.
+// Symmetric JWKs (A128KW, HS256, A256GCMKW) are also used to replace password
+// keys in session configs that don't specifically exercise PBES2; PBES2 is
+// covered by the dedicated jwe tests.
+const [
+  jweOctKey, // generic symmetric JWE key (replaces password strings throughout)
+  jwsOctKey, // generic symmetric JWS key for hook-args tests
+  jwsRsaPair, // RS256 pair for the main "jws session" describe
+  jweLookupA, // A256GCMKW kid=test-key-1 for onUnsealKeyLookup
+  jweLookupB, // A256GCMKW kid=test-key-2
+  jwsLookupA, // RS256 kid=test-key-1 for onVerifyKeyLookup
+  jwsLookupB, // RS256 kid=test-key-2
+  jweOaepPair, // RSA-OAEP-256 pair for "asymmetric key pair" variant test
+  jwsArrayRsa, // RS256 kid=array-key for "array of public JWKs" variant
+  jwsJwksetRsa, // RS256 kid=jwkset-key for "JWKSet as publicKey" variant
+] = await Promise.all([
+  generateJWK("A128KW"),
+  generateJWK("HS256"),
+  generateJWK("RS256"),
+  generateJWK("A256GCMKW", { kid: "test-key-1" }),
+  generateJWK("A256GCMKW", { kid: "test-key-2" }),
+  generateJWK("RS256", { kid: "test-key-1" }),
+  generateJWK("RS256", { kid: "test-key-2" }),
+  generateJWK("RSA-OAEP-256"),
+  generateJWK("RS256", { kid: "array-key" }),
+  generateJWK("RS256", { kid: "jwkset-key" }),
+]);
+
 describe("adapter h3 v2", () => {
   let app: H3;
 
@@ -20,7 +50,7 @@ describe("adapter h3 v2", () => {
     let sessionIdCtr = 0;
     const sessionConfig = {
       name: "h3-jwe-test",
-      key: "jwe-secret",
+      key: jweOctKey,
       generateId: () => String(++sessionIdCtr),
       sessionHeader: "Authorization",
     } as const satisfies SessionConfigJWE;
@@ -254,13 +284,12 @@ describe("adapter h3 v2", () => {
     });
   });
 
-  describe("jws session", async () => {
+  describe("jws session", () => {
     let cookie = "";
     let sessionIdCtr = 0;
-    const keys = await generateJWK("RS256");
     const sessionConfig = {
       name: "h3-jws-test",
-      key: keys,
+      key: jwsRsaPair,
       generateId: () => String(++sessionIdCtr),
       sessionHeader: "Authorization",
     } as const satisfies SessionConfigJWS;
@@ -497,14 +526,8 @@ describe("adapter h3 v2", () => {
   describe("hooks", () => {
     describe("jwe session hooks", () => {
       it("uses onUnsealKeyLookup to find the correct key", async () => {
-        const [key, otherKey] = await Promise.all([
-          generateJWK("A256GCMKW", {
-            kid: "test-key-1",
-          }),
-          generateJWK("A256GCMKW", {
-            kid: "test-key-2",
-          }),
-        ]);
+        const key = jweLookupA;
+        const otherKey = jweLookupB;
 
         const lookupSpy = vi.fn((args) => {
           if (args.header.kid === "test-key-1") {
@@ -547,14 +570,8 @@ describe("adapter h3 v2", () => {
 
     describe("jws session hooks", () => {
       it("uses onVerifyKeyLookup to find the correct key", async () => {
-        const [key, otherKey] = await Promise.all([
-          generateJWK("RS256", {
-            kid: "test-key-1",
-          }),
-          generateJWK("RS256", {
-            kid: "test-key-2",
-          }),
-        ]);
+        const key = jwsLookupA;
+        const otherKey = jwsLookupB;
 
         const lookupSpy = vi.fn((args) => {
           if (args.header.kid === "test-key-1") {
@@ -607,7 +624,7 @@ describe("adapter h3 v2", () => {
 
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-args",
-        key: "hook-secret",
+        key: jweOctKey,
         generateId: () => String(++idCtr),
         hooks: {
           onUpdate: vi.fn(({ session, oldSession }) => {
@@ -640,7 +657,7 @@ describe("adapter h3 v2", () => {
       const onUpdate = vi.fn();
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-no-data",
-        key: "hook-secret-2",
+        key: jweOctKey,
         hooks: { onUpdate },
       };
 
@@ -662,7 +679,7 @@ describe("adapter h3 v2", () => {
       });
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-clear-nocookie",
-        key: "hook-secret-3",
+        key: jweOctKey,
         cookie: false,
         hooks: { onClear },
       };
@@ -699,7 +716,7 @@ describe("adapter h3 v2", () => {
 
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-token-args",
-        key: "hook-secret-4",
+        key: jweOctKey,
         maxAge: 1, // 1 second
         generateId: () => String(++idCtr),
         hooks: {
@@ -746,11 +763,10 @@ describe("adapter h3 v2", () => {
         id: string | undefined;
       }> = [];
       let idCtr = 0;
-      const keys = await generateJWK("HS256");
 
       const config: SessionConfigJWS = {
         name: "h3-jws-hook-args",
-        key: keys,
+        key: jwsOctKey,
         generateId: () => String(++idCtr),
         hooks: {
           onUpdate: vi.fn(({ session, oldSession }) => {
@@ -781,11 +797,10 @@ describe("adapter h3 v2", () => {
 
     it("JWS onClear receives the token and fires even with cookie:false", async () => {
       let clearedToken: string | undefined;
-      const keys = await generateJWK("HS256");
 
       const config: SessionConfigJWS = {
         name: "h3-jws-hook-clear-nocookie",
-        key: keys,
+        key: jwsOctKey,
         cookie: false,
         hooks: {
           onClear: vi.fn(({ oldSession }) => {
@@ -884,10 +899,9 @@ describe("adapter h3 v2", () => {
 
   describe("key variants", () => {
     it("JWE session works with symmetric JWK key (oct)", async () => {
-      const symKey = await generateJWK("A128KW");
       const config: SessionConfigJWE = {
         name: "h3-jwe-symjwk",
-        key: symKey,
+        key: jweOctKey,
       };
 
       const app = new H3({ debug: true });
@@ -917,10 +931,9 @@ describe("adapter h3 v2", () => {
     });
 
     it("JWE session works with asymmetric key pair (privateKey/publicKey)", async () => {
-      const keys = await generateJWK("RSA-OAEP-256");
       const config: SessionConfigJWE = {
         name: "h3-jwe-keypair",
-        key: { privateKey: keys.privateKey, publicKey: keys.publicKey },
+        key: { privateKey: jweOaepPair.privateKey, publicKey: jweOaepPair.publicKey },
       };
 
       const app = new H3({ debug: true });
@@ -950,10 +963,9 @@ describe("adapter h3 v2", () => {
     });
 
     it("JWS session works with symmetric JWK key", async () => {
-      const symKey = await generateJWK("HS256");
       const config: SessionConfigJWS = {
         name: "h3-jws-symjwk",
-        key: symKey, // isSymmetricJWK branch in getVerifyKey
+        key: jwsOctKey, // isSymmetricJWK branch in getVerifyKey
       };
 
       const app = new H3({ debug: true });
@@ -982,12 +994,11 @@ describe("adapter h3 v2", () => {
     });
 
     it("JWS session works with array of public JWKs", async () => {
-      const keys = await generateJWK("RS256", { kid: "array-key" });
       const config: SessionConfigJWS = {
         name: "h3-jws-array",
         key: {
-          privateKey: keys.privateKey,
-          publicKey: [keys.publicKey], // array branch in getVerifyKey
+          privateKey: jwsArrayRsa.privateKey,
+          publicKey: [jwsArrayRsa.publicKey], // array branch in getVerifyKey
         },
       };
 
@@ -1017,12 +1028,11 @@ describe("adapter h3 v2", () => {
     });
 
     it("JWS session works with JWKSet as publicKey", async () => {
-      const keys = await generateJWK("RS256", { kid: "jwkset-key" });
       const config: SessionConfigJWS = {
         name: "h3-jws-jwkset",
         key: {
-          privateKey: keys.privateKey,
-          publicKey: { keys: [keys.publicKey] }, // JWKSet branch in getVerifyKey
+          privateKey: jwsJwksetRsa.privateKey,
+          publicKey: { keys: [jwsJwksetRsa.publicKey] }, // JWKSet branch in getVerifyKey
         },
       };
 
