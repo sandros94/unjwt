@@ -12,7 +12,18 @@ github: sandros94/unjwt
 socials:
   bluesky: "https://bsky.app/profile/sandros94.com"
 
+# undocs ships /blog and /guide routes that we don't use. Redirect them so
+# the prerender crawler doesn't 404 on the auto-discovered pages.
+redirects:
+  /guide: /getting-started
+  /blog: /
+
 landing:
+  heroLinks:
+    primary:
+      label: "Get Started"
+      icon: "i-heroicons-rocket-launch"
+      to: "/getting-started"
   heroCode:
     lang: "ts"
     title: "app.ts"
@@ -30,11 +41,11 @@ landing:
 
       const jwe = await encrypt({ secret: "data" }, "my-password");
       const { payload: p } = await decrypt(jwe, "my-password");
-  contributors: true
+  contributors: false
   features:
     - title: "Web Crypto, zero dependencies"
       description: "Core is built entirely on the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) — no Node-specific imports, no runtime dependencies. Install once, run anywhere."
-      icon: "carbon:lock"
+      icon: "carbon:locked"
 
     - title: "JWS, JWE, and JWK — under one roof"
       description: "A single package covers signing ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)), encryption ([RFC 7516](https://www.rfc-editor.org/rfc/rfc7516)), and key management ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517))."
