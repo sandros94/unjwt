@@ -17,6 +17,9 @@ importers:
       h3:
         specifier: ^1.15.4 || >=2.0.1-rc.20 || ^2.0.1
         version: 2.0.1-rc.20
+      rou3:
+        specifier: ^0.8.1
+        version: 0.8.1
     devDependencies:
       '@types/node':
         specifier: ^24
@@ -66,9 +69,6 @@ importers:
       rolldown:
         specifier: 1.0.0-rc.16
         version: 1.0.0-rc.16
-      rou3:
-        specifier: ^0.8.1
-        version: 0.8.1
       simple-git-hooks:
         specifier: ^2.13.1
         version: 2.13.1

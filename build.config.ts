@@ -16,7 +16,7 @@ export default defineBuildConfig({
       ],
       rolldown: {
         platform: "neutral",
-        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv3"],
+        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv3", "rou3"],
         plugins: [
           replacePlugin(
             {
