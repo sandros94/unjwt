@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.7.1
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.7.0...v0.7.1)
+
+### 🩹 Fixes
+
+- Harden JWK types to properly specify which `alg` family they are part of ([887ec62](https://github.com/sandros94/unjwt/commit/887ec62))
+
+### 📖 Documentation
+
+- Update skill ([a99a364](https://github.com/sandros94/unjwt/commit/a99a364))
+- Init ([#13](https://github.com/sandros94/unjwt/pull/13))
+
+### 📦 Build
+
+- Remove my own license from `unsecure` ([25eb4cb](https://github.com/sandros94/unjwt/commit/25eb4cb))
+
+### 🏡 Chore
+
+- Approve git hooks builds ([54bb2eb](https://github.com/sandros94/unjwt/commit/54bb2eb))
+- Update deps ([a43db85](https://github.com/sandros94/unjwt/commit/a43db85))
+
+### ✅ Tests
+
+- Preper crypto heavy operations before h3 tests start ([6a29aa1](https://github.com/sandros94/unjwt/commit/6a29aa1))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.7.0
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.6.1...v0.7.0)
