@@ -1,7 +1,17 @@
 import { defineBuildConfig } from "obuild/config";
 import { replacePlugin } from "rolldown/plugins";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 
 export default defineBuildConfig({
+  hooks: {
+    async end(ctx) {
+      const distDir = join(ctx.pkgDir, "dist");
+
+      // Removing license from my own other library (`unsecure`)
+      await rm(join(distDir, "THIRD-PARTY-LICENSES.md"), { force: true }).catch(() => void 0);
+    },
+  },
   entries: [
     {
       type: "bundle",
