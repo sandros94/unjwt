@@ -11,10 +11,9 @@ import {
 } from "unsecure";
 import type {
   JWK,
-  JWK_Symmetric,
-  JWK_Public,
-  JWK_Private,
   JWK_EC_Public,
+  JWEEncryptJWK,
+  JWEDecryptJWK,
   JWTClaims,
   JWKLookupFunction,
   JWEHeaderParameters,
@@ -33,8 +32,8 @@ describe.concurrent("JWE Utilities", () => {
 
   interface TestKeySet {
     key?: CryptoKey | CryptoKeyPair | string; // string for password
-    publicKey?: CryptoKey | JWK_Symmetric | JWK_Public;
-    privateKey?: CryptoKey | JWK_Symmetric | JWK_Private;
+    publicKey?: CryptoKey | JWEEncryptJWK;
+    privateKey?: CryptoKey | JWEDecryptJWK;
     password?: string;
   }
   const keys: Record<string, TestKeySet> = {};
@@ -181,11 +180,10 @@ describe.concurrent("JWE Utilities", () => {
   for (const { alg, enc, plaintext, desc } of testScenarios) {
     describe(desc, () => {
       it(`should encrypt and decrypt successfully`, async () => {
-        let encryptionKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>;
+        let encryptionKey: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>;
         let decryptionKey:
           | CryptoKey
-          | JWK_Symmetric
-          | JWK_Private
+          | JWEDecryptJWK
           | string
           | Uint8Array<ArrayBuffer>
           | JWKLookupFunction;
@@ -257,13 +255,13 @@ describe.concurrent("JWE Utilities", () => {
 
     it("should encrypt and decrypt while only providing a JWK", async () => {
       const t = "Hello, World!";
-      const jwk: JWK = {
+      const jwk = {
         key_ops: ["wrapKey", "unwrapKey", "encrypt", "decrypt"],
         ext: true,
         kty: "oct",
         k: "mzR5rkgr41d-4e_fVMYQ1g",
         alg: "A128KW",
-      };
+      } as const satisfies JWK;
 
       const jwe = await encrypt(t, jwk);
       const { payload } = await decrypt(jwe, jwk);
@@ -560,7 +558,7 @@ describe.concurrent("JWE Utilities", () => {
     // Absent `options.algorithms` falls back to inference from the key shape.
     // The token's declared `alg` must be in the inferred set or decryption fails closed.
     it("infers the algorithm allowlist from a JWK when options.algorithms is absent", async () => {
-      const kwJwk = await exportKey<JWK_Symmetric>(await generateKey("A128KW"));
+      const kwJwk = await generateJWK("A128KW");
       const token = await encrypt(plaintextObj, kwJwk, { alg: "A128KW", enc: "A128GCM" });
       // JWK with alg: "A128KW" infers to ["A128KW", "dir"].
       await expect(decrypt(token, kwJwk)).resolves.toBeDefined();

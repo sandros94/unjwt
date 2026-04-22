@@ -23,7 +23,9 @@ Creates a JWS Compact Serialization token.
 **Parameters:**
 
 - `payload` — `JOSEPayload` = `string | Uint8Array | Record<string, unknown>` (objects are JSON-serialized)
-- `key` — `CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array`
+- `key` — `CryptoKey | JWSSignJWK | Uint8Array`
+  - `JWSSignJWK` narrows by family: `JWK_oct<JWK_HMAC>` | asymmetric private JWK with a signing `alg`.
+    A JWK whose `alg` points at a non-signing family (`"RSA-OAEP"`, `"A256KW"`, …) is rejected at the type level.
   - JWK keys infer `alg` automatically; CryptoKey/Uint8Array require `options.alg`
 - `options?: JWSSignOptions`
   - `alg?: JWSAlgorithm` — required when key is CryptoKey or Uint8Array
@@ -63,7 +65,9 @@ Verifies a JWS token and returns its payload.
 **Parameters:**
 
 - `jws` — `string` — the JWS compact token
-- `key` — `CryptoKey | JWK_Symmetric | JWK_Public | JWKSet | Uint8Array | JWKLookupFunction`
+- `key` — `CryptoKey | JWSVerifyJWK | JWKSet | Uint8Array | JWKLookupFunction`
+  - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`.
+  - `JWKSet` stays fully permissive (`JWK[]`) because JWKS from the wire are heterogeneous; runtime filters candidates per header.
   - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
   - `JWKSet`: multi-key selection with automatic retry
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
@@ -109,7 +113,7 @@ Produces a `JWSGeneralSerialization` object. The payload is shared; each signer 
 **Parameters:**
 
 - `payload` — `string | Uint8Array | Record<string, any>`
-- `signers: JWSMultiSigner[]` — non-empty. Each signer is `{ key: JWK, protectedHeader?, unprotectedHeader? }`. `key.alg` is required (throws `ERR_JWS_SIGNER_ALG_INFERENCE` when absent).
+- `signers: JWSMultiSigner[]` — non-empty. Each signer is `{ key: JWSSignJWK, protectedHeader?, unprotectedHeader? }`. `key.alg` is required (throws `ERR_JWS_SIGNER_ALG_INFERENCE` when absent).
 - `options?: JWSMultiSignOptions` — mirrors `JWSSignOptions` minus the per-signer fields (`alg`, `protectedHeader`). Keeps: `currentDate`, `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt`.
 
 Throws `ERR_JWS_B64_INCONSISTENT` when signers disagree on `b64` (RFC 7797 §3 mandates consistency). Throws `ERR_JWS_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in both the protected and unprotected header of the same signer.
@@ -227,6 +231,21 @@ JWS JSON Serialization is structurally simpler than JWE's:
 ## Types
 
 ```ts
+// Narrow key-type aliases enforced at the sign/verify boundary. Each one combines:
+// - the symmetric branch with the signing alg family, and
+// - asymmetric branches whose `_Public` / `_Private` interfaces restrict `alg` to
+//   their respective signing family (RSA sign, ECDSA, Ed*).
+type JWSAsymmetricPrivateJWK =
+  | JWK_RSA_Private<JWK_RSA_SIGN | JWK_RSA_PSS>
+  | JWK_EC_Private<JWK_ECDSA>
+  | JWK_OKP_Private<JWK_OKP_SIGN>;
+type JWSAsymmetricPublicJWK =
+  | JWK_RSA_Public<JWK_RSA_SIGN | JWK_RSA_PSS>
+  | JWK_EC_Public<JWK_ECDSA>
+  | JWK_OKP_Public<JWK_OKP_SIGN>;
+type JWSSignJWK = JWK_oct<JWK_HMAC> | JWSAsymmetricPrivateJWK;
+type JWSVerifyJWK = JWK_oct<JWK_HMAC> | JWSAsymmetricPublicJWK;
+
 type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
 
 type ExpiresIn = Duration;
@@ -330,7 +349,7 @@ interface JWSGeneralSerialization {
 }
 
 interface JWSMultiSigner {
-  key: JWK;
+  key: JWSSignJWK;
   protectedHeader?: {
     alg?: never;
     b64?: boolean;
@@ -411,7 +430,8 @@ type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
     };
 
 // JWKLookupFunction is shared with JWE decrypt — imported from unjwt/jwk or unjwt
-type JWKLookupFunction = (
+// Optional `TReturn` generic narrows the return type; defaults fully permissive.
+type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
   header: {
     kid?: string;
     alg?: string;
@@ -421,11 +441,5 @@ type JWKLookupFunction = (
     [key: string]: unknown;
   },
   token: string,
-) =>
-  | CryptoKey
-  | JWK
-  | JWKSet
-  | string
-  | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
+) => TReturn | Promise<TReturn>;
 ```

@@ -352,10 +352,17 @@ interface JWKCacheAdapter {
 
 ## JWK Types
 
+Every concrete JWK interface takes an optional `Alg` type parameter that constrains the JWK's
+`alg` field to the algorithm family legal for that key type — `(string & {})` preserves
+autocomplete without blocking custom / forward-compat algorithm names. The default `string`
+keeps existing `JWK_oct`, `JWK_RSA_Public`, etc. usages unchanged. Sign/verify/encrypt/decrypt
+accept the narrowed union aliases (`JWSSignJWK`, `JWEEncryptJWK`, …) — see the JWS/JWE
+references for those.
+
 ```ts
-interface JWKParameters {
+interface JWKParameters<Alg extends string = string> {
   kty: string;
-  alg?: string;
+  alg?: Alg;
   key_ops?: KeyUsage[];
   ext?: boolean;
   use?: string;
@@ -367,154 +374,127 @@ interface JWKParameters {
   enc?: ContentEncryptionAlgorithm; // non-standard hint for `alg: "dir"`
 }
 
-// Symmetric
-interface JWK_oct {
+// Symmetric — admits every symmetric / password alg + "dir"
+interface JWK_oct<
+  Alg extends
+    | JWK_HMAC
+    | JWK_AES_KW
+    | JWK_AES_GCM
+    | JWK_AES_GCM_KW
+    | JWK_AES_CBC_HMAC
+    | JWK_PBES2
+    | "dir"
+    | (string & {}) = string,
+> extends JWKParameters<Alg> {
   kty: "oct";
   k: string;
-  alg?: string;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
-  "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm;
 }
 
-type JWK_Symmetric = JWK_oct;
+type JWK_Symmetric<Alg extends string = string> = JWK_oct<Alg>;
 
-// EC
-interface JWK_EC_Public {
+// EC — ECDSA (sign) or ECDH-ES (encrypt)
+interface JWK_EC_Public<
+  Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string,
+> extends JWKParameters<Alg> {
   kty: "EC";
   crv: string;
   x: string;
   y: string;
-  alg?: string;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
-  "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm;
 }
 
-interface JWK_EC_Private {
-  kty: "EC";
-  crv: string;
-  x: string;
-  y: string;
+interface JWK_EC_Private<
+  Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string,
+> extends JWK_EC_Public<Alg> {
   d: string;
-  alg?: string;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
-  "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm;
 }
 
-type JWK_EC = JWK_EC_Public | JWK_EC_Private;
+type JWK_EC<Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string> =
+  | JWK_EC_Public<Alg>
+  | JWK_EC_Private<Alg>;
 
-// RSA
-interface JWK_RSA_Public {
+// RSA — RS*, PS*, RSA-OAEP*
+interface JWK_RSA_Public<
+  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
+> extends JWKParameters<Alg> {
   kty: "RSA";
   e: string;
   n: string;
   oth?: RsaOtherPrimesInfo[];
-  alg?: string;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
-  "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm;
 }
 
-interface JWK_RSA_Private {
-  kty: "RSA";
-  e: string;
-  n: string;
-  oth?: RsaOtherPrimesInfo[];
+interface JWK_RSA_Private<
+  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
+> extends JWK_RSA_Public<Alg> {
   d: string;
   dp: string;
   dq: string;
   p: string;
   q: string;
   qi: string;
-  alg?: string;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
-  "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm;
 }
 
-type JWK_RSA = JWK_RSA_Public | JWK_RSA_Private;
+type JWK_RSA<Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string> =
+  | JWK_RSA_Public<Alg>
+  | JWK_RSA_Private<Alg>;
 
-// OKP (EdDSA, X25519)
-interface JWK_OKP_Public {
+// OKP — Ed signing or ECDH-ES (X25519 / X448)
+interface JWK_OKP_Public<
+  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
+> extends JWKParameters<Alg> {
   kty: "OKP";
   crv: string;
   x: string;
-  alg?: string;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
-  "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm;
 }
 
-interface JWK_OKP_Private {
-  kty: "OKP";
-  crv: string;
-  x: string;
+interface JWK_OKP_Private<
+  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
+> extends JWK_OKP_Public<Alg> {
   d: string;
-  alg?: string;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
-  "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm;
 }
 
-type JWK_OKP = JWK_OKP_Public | JWK_OKP_Private;
+type JWK_OKP<Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string> =
+  | JWK_OKP_Public<Alg>
+  | JWK_OKP_Private<Alg>;
 
 // Unions
-type JWK_Public = JWK_RSA_Public | JWK_EC_Public | JWK_OKP_Public;
-type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_OKP_Private;
-type JWK_Asymmetric = JWK_RSA | JWK_EC | JWK_OKP;
-type JWK = JWK_oct | JWK_RSA | JWK_EC | JWK_OKP;
+type JWK_Public<Alg extends string = string> =
+  | JWK_RSA_Public<Alg>
+  | JWK_EC_Public<Alg>
+  | JWK_OKP_Public<Alg>;
+type JWK_Private<Alg extends string = string> =
+  | JWK_RSA_Private<Alg>
+  | JWK_EC_Private<Alg>
+  | JWK_OKP_Private<Alg>;
+type JWK_Asymmetric<Alg extends string = string> = JWK_RSA<Alg> | JWK_EC<Alg> | JWK_OKP<Alg>;
+type JWK<Alg extends string = string> = JWK_oct<Alg> | JWK_RSA<Alg> | JWK_EC<Alg> | JWK_OKP<Alg>;
 
-type JWK_Pair =
-  | { publicKey: JWK_RSA_Public; privateKey: JWK_RSA_Private }
-  | { publicKey: JWK_EC_Public; privateKey: JWK_EC_Private }
-  | { publicKey: JWK_OKP_Public; privateKey: JWK_OKP_Private };
+// Narrowed by `Alg` when that uniquely identifies the family:
+//   JWK_Pair<"RS256">           → RSA pair only
+//   JWK_Pair<"ES256">           → EC pair only
+//   JWK_Pair<"ECDH-ES+A256KW">  → EC pair | OKP pair (curve decides at runtime)
+//   JWK_Pair<"Ed25519">         → OKP pair only
+// `Alg = string` (default) and unknown/custom algs fall through to the full three-branch union,
+// preserving the permissive behavior of the original `JWK_Pair`.
+type JWK_Pair<Alg extends string = string> = Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
+  ? { publicKey: JWK_RSA_Public<Alg>; privateKey: JWK_RSA_Private<Alg> }
+  : Alg extends JWK_ECDSA
+    ? { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+    : Alg extends JWK_ECDH_ES
+      ?
+          | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+          | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> }
+      : Alg extends JWK_OKP_SIGN
+        ? { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> }
+        :
+            | { publicKey: JWK_RSA_Public<Alg>; privateKey: JWK_RSA_Private<Alg> }
+            | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+            | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> };
 
-interface JWKSet {
-  keys: JWK[];
+// `T` preserves the precise key tuple when constructed in TS
+// — e.g. JWKSet<[JWK_oct<"HS256">, JWK_EC_Public<"ES256">]>
+// — while the default `JWK[]` keeps permissive semantics for JWKS wires.
+interface JWKSet<T extends readonly JWK[] = JWK[]> {
+  keys: T;
   [parameter: string]: unknown;
 }
 
@@ -532,14 +512,34 @@ type JWKLookupFunctionHeader = {
   [propName: string]: unknown;
 };
 
-type JWKLookupFunction = (
+// Optional TReturn lets callers who always hand back a specific shape
+// preserve narrowing; the default stays fully permissive.
+type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
   header: JWKLookupFunctionHeader,
   token: string,
-) =>
-  | CryptoKey
-  | JWK
-  | JWKSet
-  | string
-  | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
+) => TReturn | Promise<TReturn>;
+```
+
+### Algorithm mapped types
+
+Used by `wrapKey` / `unwrapKey` to narrow their `wrappingKey` / `unwrappingKey` parameter
+against the selected `alg`:
+
+```ts
+type WrappingKeyFor<Alg extends KeyManagementAlgorithm> = Alg extends JWK_RSA_ENC
+  ? CryptoKey | JWK_RSA_Public<Alg>
+  : Alg extends JWK_ECDH_ES
+    ? CryptoKey | JWK_EC_Public<Alg> | JWK_OKP_Public<Alg>
+    : Alg extends JWK_PBES2
+      ? string | Uint8Array<ArrayBuffer> | JWK_oct<Alg>
+      : Alg extends JWK_AES_KW
+        ? CryptoKey | JWK_oct<Alg>
+        : Alg extends JWK_AES_GCM_KW
+          ? CryptoKey | JWK_oct<Alg | `A${"128" | "192" | "256"}GCM`>
+          : Alg extends "dir"
+            ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
+            : never;
+
+// `UnwrappingKeyFor<Alg>` has the same shape with the `_Private` counterparts
+// on asymmetric branches.
 ```

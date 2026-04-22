@@ -26,7 +26,9 @@ import type {
   ContentEncryptionAlgorithm,
   WrapKeyOptions,
   WrapKeyResult,
+  WrappingKeyFor,
   UnwrapKeyOptions,
+  UnwrappingKeyFor,
   JoseHeaderParameters,
 } from "./types";
 import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./utils";
@@ -561,7 +563,7 @@ async function resolveWrappingKey(
 export async function wrapKey<TAlg extends KeyManagementAlgorithm>(
   alg: TAlg,
   keyToWrap: CryptoKey | Uint8Array<ArrayBuffer>,
-  wrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  wrappingKey: WrappingKeyFor<TAlg>,
   options?: WrapKeyOptions,
 ): Promise<WrapKeyResult<TAlg>>;
 export async function wrapKey(
@@ -703,22 +705,22 @@ export async function wrapKey(
  * @param options Additional options required by certain algorithms (e.g., iv, tag, p2s, p2c, epk).
  * @returns A Promise resolving to the unwrapped key (CEK) as a CryptoKey or Uint8Array.
  */
-export async function unwrapKey(
-  alg: KeyManagementAlgorithm,
+export async function unwrapKey<TAlg extends KeyManagementAlgorithm>(
+  alg: TAlg,
   wrappedKey: Uint8Array<ArrayBuffer>,
-  unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  unwrappingKey: UnwrappingKeyFor<TAlg>,
   options: UnwrapKeyOptions & { format: "raw" },
 ): Promise<Uint8Array<ArrayBuffer>>;
-export async function unwrapKey(
-  alg: KeyManagementAlgorithm,
+export async function unwrapKey<TAlg extends KeyManagementAlgorithm>(
+  alg: TAlg,
   wrappedKey: Uint8Array<ArrayBuffer>,
-  unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  unwrappingKey: UnwrappingKeyFor<TAlg>,
   options?: UnwrapKeyOptions & { format?: "cryptokey" },
 ): Promise<CryptoKey>;
-export async function unwrapKey(
-  alg: KeyManagementAlgorithm,
+export async function unwrapKey<TAlg extends KeyManagementAlgorithm>(
+  alg: TAlg,
   wrappedKey: Uint8Array<ArrayBuffer>,
-  unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  unwrappingKey: UnwrappingKeyFor<TAlg>,
   options: UnwrapKeyOptions,
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
 export async function unwrapKey(

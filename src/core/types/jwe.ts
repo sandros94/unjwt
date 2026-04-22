@@ -1,13 +1,62 @@
 import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
 import type {
-  JWK,
+  JWK_oct,
   JWK_EC_Public,
   JWK_EC_Private,
+  JWK_OKP_Public,
+  JWK_OKP_Private,
+  JWK_RSA_Public,
+  JWK_RSA_Private,
+  JWK_AES_KW,
+  JWK_AES_GCM,
+  JWK_AES_GCM_KW,
+  JWK_AES_CBC_HMAC,
+  JWK_PBES2,
+  JWK_RSA_ENC,
+  JWK_ECDH_ES,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
 } from "./jwk";
 import type { ExpiresIn } from ".";
 import type { StrictOmit } from "../utils/types";
+
+/**
+ * Algorithms admissible on an `oct` JWK used for JWE key management. Mirrors
+ * the runtime aliasing table in `jweAlgsFromOctJWK` — HMAC algs intentionally
+ * excluded (they don't resolve to any JWE `alg`).
+ */
+type _JWEOctAlg = JWK_AES_KW | JWK_AES_GCM | JWK_AES_GCM_KW | JWK_AES_CBC_HMAC | JWK_PBES2 | "dir";
+
+/**
+ * Asymmetric public JWKs admissible for JWE encryption. RSA keys carry an
+ * RSA-OAEP alg; EC/OKP keys carry an ECDH-ES alg.
+ */
+export type JWEAsymmetricPublicJWK =
+  | JWK_RSA_Public<JWK_RSA_ENC>
+  | JWK_EC_Public<JWK_ECDH_ES>
+  | JWK_OKP_Public<JWK_ECDH_ES>;
+
+/**
+ * Asymmetric private JWKs admissible for JWE decryption. RSA keys carry an
+ * RSA-OAEP alg; EC/OKP keys carry an ECDH-ES alg.
+ */
+export type JWEAsymmetricPrivateJWK =
+  | JWK_RSA_Private<JWK_RSA_ENC>
+  | JWK_EC_Private<JWK_ECDH_ES>
+  | JWK_OKP_Private<JWK_ECDH_ES>;
+
+/**
+ * JWKs admissible as the `key` argument of {@link encrypt}. A JWK whose `alg`
+ * points at a non-JWE family (e.g. `"HS256"`, `"RS256"`) is rejected at the
+ * type level.
+ */
+export type JWEEncryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPublicJWK;
+
+/**
+ * JWKs admissible as a `key` for {@link decrypt}. A JWK whose `alg` points at
+ * a non-JWE family (e.g. `"HS256"`, `"RS256"`) is rejected at the type level.
+ */
+export type JWEDecryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPrivateJWK;
 
 /** Recognized JWE Header Parameters, any other Header Members may also be present. */
 export interface JWEHeaderParameters extends JoseHeaderParameters {
@@ -275,7 +324,7 @@ export interface JWEGeneralRecipient {
  */
 export interface JWEMultiRecipient {
   /** Recipient key (JWK-first; `alg` inferred if absent from JWK). */
-  key: JWK;
+  key: JWEEncryptJWK;
   /**
    * Extra per-recipient JWE Unprotected Header parameters (RFC 7516 §7.2.1).
    * Excludes fields the library writes automatically: `alg`, `enc`, `iv`,

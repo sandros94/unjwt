@@ -13,9 +13,12 @@ import { NullProtoObj } from "rou3";
 import type {
   ExpiresIn,
   JWKSet,
-  JWK_Public,
-  JWK_Private,
-  JWK_Symmetric,
+  JWK_HMAC,
+  JWK_oct,
+  JWSSignJWK,
+  JWSVerifyJWK,
+  JWSAsymmetricPrivateJWK,
+  JWSAsymmetricPublicJWK,
   JWSSignOptions,
   JWKLookupFunctionHeader,
   JWTClaimValidationOptions,
@@ -93,7 +96,7 @@ export interface SessionHooksJWS<
     header: JWKLookupFunctionHeader;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
+  }) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
 }
 
 export interface SessionConfigJWS<
@@ -102,10 +105,10 @@ export interface SessionConfigJWS<
   TEvent extends HTTPEvent = HTTPEvent,
 > {
   key:
-    | JWK_Symmetric
+    | JWK_oct<JWK_HMAC>
     | {
-        privateKey: JWK_Private;
-        publicKey: JWK_Public | JWK_Public[] | JWKSet;
+        privateKey: JWSAsymmetricPrivateJWK;
+        publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet;
       };
   maxAge?: MaxAge;
   name?: string;
@@ -580,12 +583,12 @@ function hasWritableResponse(event: HTTPEvent): event is H3Event {
   return Boolean((event as H3Event).res);
 }
 
-function getSignKey(key: SessionConfigJWS["key"] | undefined): JWK_Symmetric | JWK_Private {
+function getSignKey(key: SessionConfigJWS["key"] | undefined): JWSSignJWK {
   if (!key) {
     throw new Error("Session: JWS key is required.");
   }
 
-  let _key: JWK_Symmetric | JWK_Private | undefined;
+  let _key: JWSSignJWK | undefined;
   if (isSymmetricJWK(key)) {
     _key = key;
   } else if ("privateKey" in key && isPrivateJWK(key.privateKey)) {
@@ -601,14 +604,12 @@ function getSignKey(key: SessionConfigJWS["key"] | undefined): JWK_Symmetric | J
   return _key;
 }
 
-function getVerifyKey(
-  key: SessionConfigJWS["key"] | undefined,
-): JWK_Symmetric | JWK_Public | JWKSet {
+function getVerifyKey(key: SessionConfigJWS["key"] | undefined): JWSVerifyJWK | JWKSet {
   if (!key) {
     throw new Error("Session: JWS key is required.");
   }
 
-  let _key: JWK_Symmetric | JWK_Public | JWKSet | undefined;
+  let _key: JWSVerifyJWK | JWKSet | undefined;
   if (isSymmetricJWK(key)) {
     _key = key;
   } else if ("publicKey" in key) {
@@ -616,7 +617,7 @@ function getVerifyKey(
     if (isPublicJWK(publicKey)) {
       _key = publicKey;
     } else if (Array.isArray(publicKey)) {
-      const keys = publicKey.filter((candidate): candidate is JWK_Public => isPublicJWK(candidate));
+      const keys = publicKey.filter((candidate) => isPublicJWK(candidate));
       if (keys.length > 0) {
         _key = { keys };
       }

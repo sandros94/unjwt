@@ -3,10 +3,7 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
 
 import type {
-  JWK,
   JWKSet,
-  JWK_Symmetric,
-  JWK_Private,
   JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
@@ -14,6 +11,8 @@ import type {
 } from "./types/jwk";
 import type { JOSEPayload, JWTClaims } from "./types/jwt";
 import type {
+  JWEEncryptJWK,
+  JWEDecryptJWK,
   JWEEncryptOptions,
   JWEDecryptOptions,
   JWEDecryptResult,
@@ -58,12 +57,12 @@ export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi";
  */
 export async function encrypt(
   payload: JOSEPayload,
-  key: JWK | string | Uint8Array<ArrayBuffer>,
+  key: JWEEncryptJWK | string | Uint8Array<ArrayBuffer>,
   options?: JWEEncryptOptions,
 ): Promise<string>;
 export async function encrypt(
   payload: JOSEPayload,
-  key: CryptoKey | JWK_Symmetric | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions & { alg: "dir"; enc: ContentEncryptionAlgorithm },
 ): Promise<string>;
 export async function encrypt(
@@ -76,7 +75,7 @@ export async function encrypt(
 ): Promise<string>;
 export async function encrypt(
   payload: JOSEPayload,
-  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions & {
     alg: KeyManagementAlgorithm;
     enc: ContentEncryptionAlgorithm;
@@ -84,7 +83,7 @@ export async function encrypt(
 ): Promise<string>;
 export async function encrypt(
   payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
-  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions = {},
 ): Promise<string> {
   const {
@@ -205,40 +204,19 @@ export async function encrypt(
  */
 export async function decrypt<T extends JOSEPayload>(
   jwe: string,
-  key:
-    | CryptoKey
-    | JWKSet
-    | JWK_Private
-    | JWK_Symmetric
-    | string
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options?: JWEDecryptOptions,
 ): Promise<JWEDecryptResult<T>>;
 export async function decrypt(
   jwe: string,
-  key:
-    | CryptoKey
-    | JWKSet
-    | JWK_Private
-    | JWK_Symmetric
-    | string
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWEDecryptOptions & {
     forceUint8Array: true;
   },
 ): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
 export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Record<string, unknown>>(
   jwe: string,
-  key:
-    | CryptoKey
-    | JWKSet
-    | JWK_Private
-    | JWK_Symmetric
-    | string
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult<T>> {
   const parts = jwe.split(".");
@@ -383,7 +361,7 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
 function _buildJWEHeader(
   alg: KeyManagementAlgorithm,
   enc: ContentEncryptionAlgorithm,
-  key: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>,
   userHeader: JWEEncryptOptions["protectedHeader"],
   keyManagementParams: JWEHeaderParameters | undefined,
   payload: unknown,

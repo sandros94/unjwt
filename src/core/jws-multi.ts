@@ -2,10 +2,9 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, textDecoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
 
 import type {
-  JWK,
   JWKSet,
-  JWK_Public,
-  JWK_Symmetric,
+  JWSSignJWK,
+  JWSVerifyJWK,
   JWKLookupFunction,
   JWSAlgorithm,
   JWSHeaderParameters,
@@ -133,13 +132,7 @@ export async function signMulti(
  */
 export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup:
-    | CryptoKey
-    | JWKSet
-    | JWK_Public
-    | JWK_Symmetric
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSMultiVerifyOptions = {},
 ): Promise<JWSMultiVerifyResult<T>> {
   const general = _normalizeSerialization(jws);
@@ -374,7 +367,7 @@ export function generalToFlattenedJWS(jws: JWSGeneralSerialization): JWSFlattene
 
 // --- Internal helpers ---
 
-function _resolveSignerAlg(key: JWK, index: number): JWSAlgorithm {
+function _resolveSignerAlg(key: JWSSignJWK, index: number): JWSAlgorithm {
   if (!isJWK(key)) {
     throw new JWTError(`Signer[${index}] key is not a JWK.`, "ERR_JWS_SIGNER_ALG_INFERENCE");
   }

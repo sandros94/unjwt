@@ -2,10 +2,9 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, textDecoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
 
 import type {
-  JWK_Symmetric,
-  JWK_Public,
-  JWK_Private,
   JWKSet,
+  JWSSignJWK,
+  JWSVerifyJWK,
   JWSAlgorithm,
   JWSSignOptions,
   JWSHeaderParameters,
@@ -50,7 +49,7 @@ export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from ".
  */
 export async function sign(
   payload: JOSEPayload,
-  key: JWK_Symmetric | JWK_Private,
+  key: JWSSignJWK,
   options?: JWSSignOptions,
 ): Promise<string>;
 export async function sign(
@@ -60,7 +59,7 @@ export async function sign(
 ): Promise<string>;
 export async function sign(
   payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
-  key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | JWSSignJWK | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
   const { protectedHeader: userHeader } = options;
@@ -130,35 +129,17 @@ export async function sign(
  */
 export async function verify<T extends JOSEPayload>(
   jws: string,
-  key:
-    | CryptoKey
-    | JWKSet
-    | JWK_Public
-    | JWK_Symmetric
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options?: JWSVerifyOptions,
 ): Promise<JWSVerifyResult<T>>;
 export async function verify(
   jws: string,
-  key:
-    | CryptoKey
-    | JWKSet
-    | JWK_Public
-    | JWK_Symmetric
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record<string, unknown>>(
   jws: string,
-  key:
-    | CryptoKey
-    | JWKSet
-    | JWK_Public
-    | JWK_Symmetric
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   const parts = jws.split(".");
@@ -264,7 +245,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
 function _buildJWSHeader(
   alg: JWSAlgorithm,
-  key: CryptoKey | JWK_Symmetric | JWK_Private | Uint8Array<ArrayBuffer>,
+  key: CryptoKey | JWSSignJWK | Uint8Array<ArrayBuffer>,
   userHeader: JWSHeaderParameters | undefined,
   payload: unknown,
 ): JWSProtectedHeader {

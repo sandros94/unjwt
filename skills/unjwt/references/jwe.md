@@ -37,8 +37,8 @@ Produces a JWE Compact Serialization token.
 - `payload` — `string | Uint8Array | Record<string, any>`
 - `key`
   - `string` → password for PBES2 (infers `alg = "PBES2-HS256+A128KW"`)
-  - `JWK` → infers `alg`/`enc` from key properties
-  - `CryptoKey | JWK_oct | Uint8Array` with `alg: "dir"` → used directly as the CEK (`enc` required)
+  - `JWEEncryptJWK` → infers `alg`/`enc` from key properties. Narrows by family: `JWK_oct` with a JWE symmetric `alg` (AES-KW, AES-GCM, AES-GCM-KW, AES-CBC-HMAC, PBES2, `"dir"`) or an asymmetric _public_ JWK whose `alg` is RSA-OAEP or ECDH-ES. HMAC / signing-family JWKs are rejected at the type level.
+  - `CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array` with `alg: "dir"` → used directly as the CEK (`enc` required)
   - `CryptoKey` with other algorithms → requires explicit `alg` and `enc`
 - `options?: JWEEncryptOptions`
   - `alg?: KeyManagementAlgorithm`
@@ -89,7 +89,9 @@ Decrypts a JWE token.
 **Parameters:**
 
 - `jwe` — `string` — the JWE compact token
-- `key` — `CryptoKey | JWK_Symmetric | JWK_Private | JWKSet | string | Uint8Array | JWKLookupFunction`
+- `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWKLookupFunction`
+  - `JWEDecryptJWK` is the private-side counterpart of `JWEEncryptJWK`.
+  - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
   - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, no retry)
@@ -135,7 +137,7 @@ Produces a `JWEGeneralSerialization` object — one shared CEK encrypts the payl
 **Parameters:**
 
 - `payload` — `string | Uint8Array | Record<string, any>`
-- `recipients: JWEMultiRecipient[]` — non-empty. Each recipient is `{ key: JWK, header?, ecdh?, p2s?, p2c?, keyManagementIV? }`. `key.alg` is required (inferred per-recipient; throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent).
+- `recipients: JWEMultiRecipient[]` — non-empty. Each recipient is `{ key: JWEEncryptJWK, header?, ecdh?, p2s?, p2c?, keyManagementIV? }`. `key.alg` is required (inferred per-recipient; throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent).
 - `options?: JWEMultiEncryptOptions` — extends `JWEEncryptOptions` minus the per-recipient fields (`alg`, `ecdh`, `p2s`, `p2c`, `keyManagementIV`). Adds:
   - `sharedUnprotectedHeader?: Record<string, unknown>` — surfaces as top-level `unprotected`.
   - `aad?: Uint8Array | string` — external AAD (RFC 7516 §5.1); content cipher AAD becomes `BASE64URL(protected) || '.' || BASE64URL(aad)`.
@@ -217,6 +219,21 @@ JWE's multi-recipient model has one more moving part than JWS's multi-signature 
 ## Types
 
 ```ts
+// Narrow key-type aliases enforced at the encrypt/decrypt boundary.
+// `_JWEOctAlg` lists symmetric algs usable as a JWE key-management key — HMAC is intentionally
+// excluded because it has no JWE use.
+type _JWEOctAlg = JWK_AES_KW | JWK_AES_GCM | JWK_AES_GCM_KW | JWK_AES_CBC_HMAC | JWK_PBES2 | "dir";
+type JWEAsymmetricPublicJWK =
+  | JWK_RSA_Public<JWK_RSA_ENC>
+  | JWK_EC_Public<JWK_ECDH_ES>
+  | JWK_OKP_Public<JWK_ECDH_ES>;
+type JWEAsymmetricPrivateJWK =
+  | JWK_RSA_Private<JWK_RSA_ENC>
+  | JWK_EC_Private<JWK_ECDH_ES>
+  | JWK_OKP_Private<JWK_ECDH_ES>;
+type JWEEncryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPublicJWK;
+type JWEDecryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPrivateJWK;
+
 type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
 
 type Duration =
@@ -384,7 +401,7 @@ interface JWEGeneralRecipient {
 }
 
 interface JWEMultiRecipient {
-  key: JWK;
+  key: JWEEncryptJWK;
   // Per-recipient header — alg/enc/iv/tag/p2s/p2c/epk/apu/apv are reserved.
   header?: {
     alg?: never;
@@ -497,7 +514,8 @@ interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> {
 }
 
 // JWKLookupFunction is shared with JWS verify — imported from unjwt/jwk or unjwt
-type JWKLookupFunction = (
+// Optional `TReturn` generic narrows the return type; defaults fully permissive.
+type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
   header: {
     kid?: string;
     alg?: string;
@@ -507,11 +525,5 @@ type JWKLookupFunction = (
     [key: string]: unknown;
   },
   token: string,
-) =>
-  | CryptoKey
-  | JWK
-  | JWKSet
-  | string
-  | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
+) => TReturn | Promise<TReturn>;
 ```

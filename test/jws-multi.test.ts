@@ -11,13 +11,8 @@ import {
 import { generateJWK } from "../src/core/jwk";
 import type {
   JWK,
-  JWK_RSA_Public,
-  JWK_RSA_Private,
-  JWK_EC_Public,
-  JWK_EC_Private,
-  JWK_OKP_Public,
-  JWK_OKP_Private,
-  JWK_Symmetric,
+  JWK_oct,
+  JWK_Pair,
   JWKSet,
   JWSGeneralSerialization,
   JWSFlattenedSerialization,
@@ -27,12 +22,12 @@ import type {
 
 describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
   const keys: {
-    rs256: { publicKey: JWK_RSA_Public; privateKey: JWK_RSA_Private };
-    ps256: { publicKey: JWK_RSA_Public; privateKey: JWK_RSA_Private };
-    es256: { publicKey: JWK_EC_Public; privateKey: JWK_EC_Private };
-    ed25519: { publicKey: JWK_OKP_Public; privateKey: JWK_OKP_Private };
-    hs256: JWK_Symmetric;
-    hs384: JWK_Symmetric;
+    rs256: JWK_Pair<"RS256">;
+    ps256: JWK_Pair<"PS256">;
+    es256: JWK_Pair<"ES256">;
+    ed25519: JWK_Pair<"Ed25519">;
+    hs256: JWK_oct<"HS256">;
+    hs384: JWK_oct<"HS384">;
   } = {} as any;
 
   beforeAll(async () => {
@@ -44,12 +39,12 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       generateJWK("HS256"),
       generateJWK("HS384"),
     ]);
-    keys.rs256 = rs256 as typeof keys.rs256;
-    keys.ps256 = ps256 as typeof keys.ps256;
-    keys.es256 = es256 as typeof keys.es256;
-    keys.ed25519 = ed25519 as typeof keys.ed25519;
-    keys.hs256 = hs256 as JWK_Symmetric;
-    keys.hs384 = hs384 as JWK_Symmetric;
+    keys.rs256 = rs256;
+    keys.ps256 = ps256;
+    keys.es256 = es256;
+    keys.ed25519 = ed25519;
+    keys.hs256 = hs256;
+    keys.hs384 = hs384;
   });
 
   describe("signMulti", () => {
@@ -124,14 +119,18 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
     it("throws ERR_JWS_SIGNER_ALG_INFERENCE when JWK has no alg", async () => {
       const noAlg: JWK = { ...keys.hs256 };
       delete (noAlg as { alg?: string }).alg;
-      await expect(signMulti({ x: 1 }, [{ key: noAlg }])).rejects.toSatisfy((e) =>
-        isJWTError(e, "ERR_JWS_SIGNER_ALG_INFERENCE"),
-      );
+      await expect(
+        // @ts-expect-error intentionally passing an alg-less JWK to exercise runtime guard
+        signMulti({ x: 1 }, [{ key: noAlg }]),
+      ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_SIGNER_ALG_INFERENCE"));
     });
 
     it('throws on "none" alg', async () => {
       await expect(
-        signMulti({ x: 1 }, [{ key: { ...keys.hs256, alg: "none" } as JWK }]),
+        signMulti({ x: 1 }, [
+          // @ts-expect-error "none" is rejected by JWSSignJWK at the type level; runtime re-checks
+          { key: { ...keys.hs256, alg: "none" } },
+        ]),
       ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_ALG_NOT_ALLOWED"));
     });
 
@@ -213,7 +212,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         { key: keys.rs256.privateKey },
         { key: keys.hs256 },
       ]);
-      const otherHmac = (await generateJWK("HS256")) as JWK_Symmetric;
+      const otherHmac = await generateJWK("HS256");
       const set: JWKSet = { keys: [otherHmac, keys.hs256] };
       const { payload, signerIndex } = await verifyMulti(jws, set);
       expect((payload as JWTClaims).sub).toBe("u1");
@@ -287,7 +286,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
       it("throws ERR_JWS_NO_MATCHING_SIGNER when no kid matches", async () => {
         const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
-        const unrelated: JWK_Symmetric = { ...keys.hs384, kid: "unrelated" };
+        const unrelated: JWK_oct<"HS384"> = { ...keys.hs384, kid: "unrelated" };
         await expect(verifyMulti(jws, unrelated, { strictSignerMatch: true })).rejects.toSatisfy(
           (e) => isJWTError(e, "ERR_JWS_NO_MATCHING_SIGNER"),
         );
@@ -356,7 +355,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       ]);
 
       // Return the *wrong* HMAC key for signature[1] to force a crypto failure.
-      const wrongHmac = (await generateJWK("HS256")) as JWK_Symmetric;
+      const wrongHmac = await generateJWK("HS256");
       const outcomes = await verifyMultiAll(jws, (header) => {
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         return wrongHmac;

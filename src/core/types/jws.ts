@@ -1,10 +1,59 @@
 import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
-import type { JWK, JWK_HMAC, JWK_RSA_SIGN, JWK_RSA_PSS, JWK_ECDSA, JWK_OKP_SIGN } from "./jwk";
+import type {
+  JWK_oct,
+  JWK_EC_Public,
+  JWK_EC_Private,
+  JWK_OKP_Public,
+  JWK_OKP_Private,
+  JWK_RSA_Public,
+  JWK_RSA_Private,
+  JWK_HMAC,
+  JWK_RSA_SIGN,
+  JWK_RSA_PSS,
+  JWK_ECDSA,
+  JWK_OKP_SIGN,
+} from "./jwk";
 import type { StrictOmit } from "../utils/types";
 import type { ExpiresIn } from ".";
 
 /** JWS Signing Algorithm Identifier. */
 export type JWSAlgorithm = JWK_HMAC | JWK_RSA_SIGN | JWK_RSA_PSS | JWK_ECDSA | JWK_OKP_SIGN;
+
+/**
+ * Asymmetric private JWKs admissible as a signing key. RSA keys carry a
+ * signing `alg` (RS* or PS*); EC keys carry an ECDSA alg; OKP keys carry an Ed
+ * signing alg.
+ */
+export type JWSAsymmetricPrivateJWK =
+  | JWK_RSA_Private<JWK_RSA_SIGN | JWK_RSA_PSS>
+  | JWK_EC_Private<JWK_ECDSA>
+  | JWK_OKP_Private<JWK_OKP_SIGN>;
+
+/**
+ * Asymmetric public JWKs admissible as a verification key. RSA keys carry a
+ * signing `alg` (RS* or PS*); EC keys carry an ECDSA alg; OKP keys carry an Ed
+ * signing alg.
+ */
+export type JWSAsymmetricPublicJWK =
+  | JWK_RSA_Public<JWK_RSA_SIGN | JWK_RSA_PSS>
+  | JWK_EC_Public<JWK_ECDSA>
+  | JWK_OKP_Public<JWK_OKP_SIGN>;
+
+/**
+ * JWKs admissible as the `key` argument of {@link sign}. HMAC oct keys carry a
+ * {@link JWK_HMAC} alg; asymmetric private keys carry their family's signing alg.
+ * A JWK whose `alg` points at a non-signing family (e.g. `"RSA-OAEP"`) is
+ * rejected at the type level.
+ */
+export type JWSSignJWK = JWK_oct<JWK_HMAC> | JWSAsymmetricPrivateJWK;
+
+/**
+ * JWKs admissible as a `key` for {@link verify}. HMAC oct keys carry a
+ * {@link JWK_HMAC} alg; asymmetric public keys carry their family's signing alg.
+ * A JWK whose `alg` points at a non-signing family (e.g. `"RSA-OAEP"`) is
+ * rejected at the type level.
+ */
+export type JWSVerifyJWK = JWK_oct<JWK_HMAC> | JWSAsymmetricPublicJWK;
 
 /** Recognized JWS Header Parameters, any other Header Members may also be present. */
 export interface JWSHeaderParameters extends JoseHeaderParameters {
@@ -148,7 +197,7 @@ export type JWSGeneralSignature = Pick<
  */
 export interface JWSMultiSigner {
   /** Signing key (JWK-first; `alg` inferred from `key.alg`). */
-  key: JWK;
+  key: JWSSignJWK;
   /**
    * Extra per-signer JWS Protected Header parameters (RFC 7515 §7.2.1).
    * `alg` is always derived from the JWK and cannot be set here. `b64`

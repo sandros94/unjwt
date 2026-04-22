@@ -3,10 +3,7 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, base64UrlEncode, base64UrlDecode } from "unsecure/utils";
 
 import type {
-  JWK,
   JWKSet,
-  JWK_Private,
-  JWK_Symmetric,
   JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
@@ -14,6 +11,8 @@ import type {
 } from "./types/jwk";
 import type { JOSEPayload, JWTClaims } from "./types/jwt";
 import type {
+  JWEEncryptJWK,
+  JWEDecryptJWK,
   JWEHeaderParameters,
   JWEProtectedHeader,
   JWEKeyManagementHeaderParameters,
@@ -189,8 +188,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   keyOrLookup:
     | CryptoKey
     | JWKSet
-    | JWK_Private
-    | JWK_Symmetric
+    | JWEDecryptJWK
     | string
     | Uint8Array<ArrayBuffer>
     | JWKLookupFunction,
@@ -375,7 +373,7 @@ export function generalToFlattened(jwe: JWEGeneralSerialization): JWEFlattenedSe
 
 // --- Internal helpers ---
 
-function _resolveRecipientAlg(key: JWK, index: number): KeyManagementAlgorithm {
+function _resolveRecipientAlg(key: JWEEncryptJWK, index: number): KeyManagementAlgorithm {
   if (!isJWK(key)) {
     throw new JWTError(`Recipient[${index}] key is not a JWK.`, "ERR_JWE_RECIPIENT_ALG_INFERENCE");
   }

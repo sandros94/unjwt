@@ -28,17 +28,14 @@ export type JWKLookupFunctionHeader = {
  *
  * Returning a `string` is meaningful for JWE only (PBES2 password); for JWS
  * a string return is encoded to bytes and used as a raw symmetric key.
+ *
+ * The optional `TReturn` generic lets callers who always hand back a specific
+ * key shape (e.g. a `JWK_EC_Public<"ES256">`) preserve that narrowing all the
+ * way into the `verify` / `decrypt` key resolution path.
  */
-export type JWKLookupFunction = (
-  header: JWKLookupFunctionHeader,
-  token: string,
-) =>
-  | CryptoKey
-  | JWK
-  | JWKSet
-  | string
-  | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
+export type JWKLookupFunction<
+  TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>,
+> = (header: JWKLookupFunctionHeader, token: string) => TReturn | Promise<TReturn>;
 
 /**
  * Interface for custom JWK import cache implementations.
@@ -94,22 +91,10 @@ export interface GenerateKeyOptions {
   toJWK?: boolean;
 }
 
-// JWK_ECDH_ES resolves to EC (P-256/P-384/P-521) or OKP (X25519/X448) at runtime
-// depending on `namedCurve`, so its branch returns the union of both shapes.
 type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_Asymmetric_Algorithm
-  ? TAlg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC
-    ? { privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }
-    : TAlg extends JWK_ECDSA
-      ? { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
-      : TAlg extends JWK_ECDH_ES
-        ?
-            | { privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }
-            | { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
-        : TAlg extends JWK_OKP_SIGN
-          ? { privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }
-          : never
+  ? JWK_Pair<TAlg>
   : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-    ? JWK_oct
+    ? JWK_oct<TAlg>
     : never;
 
 // AES-CBC+HMAC returns raw bytes — the composite layout isn't directly importable via Web Crypto.
@@ -146,10 +131,22 @@ export interface DeriveKeyOptions {
   toJWK?: boolean;
 }
 
-export type DeriveKeyReturn<TOptions extends DeriveKeyOptions> = TOptions["toJWK"] extends true
-  ? JWK_oct
+/** PBES2 → AES-KW alg that ends up stamped on the derived JWK's `alg`. */
+type DerivedJWKAlg<TAlg extends JWK_PBES2> = TAlg extends "PBES2-HS256+A128KW"
+  ? "A128KW"
+  : TAlg extends "PBES2-HS384+A192KW"
+    ? "A192KW"
+    : TAlg extends "PBES2-HS512+A256KW"
+      ? "A256KW"
+      : JWK_AES_KW;
+
+export type DeriveKeyReturn<
+  TOptions extends DeriveKeyOptions,
+  TAlg extends JWK_PBES2 = JWK_PBES2,
+> = TOptions["toJWK"] extends true
+  ? JWK_oct<DerivedJWKAlg<TAlg>>
   : TOptions["toJWK"] extends object
-    ? JWK_oct
+    ? JWK_oct<DerivedJWKAlg<TAlg>>
     : CryptoKey;
 
 export type KeyManagementAlgorithm =
@@ -162,6 +159,48 @@ export type KeyManagementAlgorithm =
   | "dir";
 
 export type ContentEncryptionAlgorithm = JWK_AES_GCM | JWK_AES_CBC_HMAC;
+
+/**
+ * Keys admissible as the `wrappingKey` argument of {@link wrapKey}, narrowed
+ * by the key management algorithm. Mirrors the runtime branches in
+ * `jwk.wrapKey` and the inference in `inferJWEAllowedAlgorithms`.
+ *
+ * - `dir` accepts any symmetric JWK (the key _is_ the CEK).
+ * - AES-GCMKW tolerates a JWK whose `alg` is the bare `A*GCM` counterpart —
+ *   matches the `jweAlgsFromOctJWK` aliasing rule.
+ */
+export type WrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_RSA_ENC
+  ? CryptoKey | JWK_RSA_Public<A>
+  : A extends JWK_ECDH_ES
+    ? CryptoKey | JWK_EC_Public<A> | JWK_OKP_Public<A>
+    : A extends JWK_PBES2
+      ? string | Uint8Array<ArrayBuffer> | JWK_oct<A>
+      : A extends JWK_AES_KW
+        ? CryptoKey | JWK_oct<A>
+        : A extends JWK_AES_GCM_KW
+          ? CryptoKey | JWK_oct<A | `A${"128" | "192" | "256"}GCM`>
+          : A extends "dir"
+            ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
+            : never;
+
+/**
+ * Keys admissible as the `unwrappingKey` argument of {@link unwrapKey}.
+ * The private-side counterpart of {@link WrappingKeyFor} — symmetric branches
+ * are identical; asymmetric branches use the `_Private` variants.
+ */
+export type UnwrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_RSA_ENC
+  ? CryptoKey | JWK_RSA_Private<A>
+  : A extends JWK_ECDH_ES
+    ? CryptoKey | JWK_EC_Private<A> | JWK_OKP_Private<A>
+    : A extends JWK_PBES2
+      ? string | Uint8Array<ArrayBuffer> | JWK_oct<A>
+      : A extends JWK_AES_KW
+        ? CryptoKey | JWK_oct<A>
+        : A extends JWK_AES_GCM_KW
+          ? CryptoKey | JWK_oct<A | `A${"128" | "192" | "256"}GCM`>
+          : A extends "dir"
+            ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
+            : never;
 
 /** Options for the wrapKey function. */
 export interface WrapKeyOptions {
@@ -282,8 +321,15 @@ export interface UnwrapKeyOptions {
  * LICENSE: https://github.com/panva/jose/blob/v6.0.10/LICENSE.md
  */
 
-/** Generic JSON Web Key Parameters. */
-export interface JWKParameters {
+/**
+ * Generic JSON Web Key Parameters.
+ *
+ * The `Alg` type parameter constrains the JWK's `alg` field. Each concrete JWK
+ * interface below tightens `Alg` to the algorithm family admissible for that key
+ * type — e.g. a `JWK_oct<JWK_HMAC>` can only hold `"HS256" | "HS384" | "HS512"`
+ * in `alg`.
+ */
+export interface JWKParameters<Alg extends string = string> {
   /** JWK "kty" (Key Type) Parameter */
   kty: string;
   /**
@@ -291,7 +337,7 @@ export interface JWKParameters {
    *
    * @see {@link https://github.com/panva/jose/issues/210 Algorithm Key Requirements}
    */
-  alg?: string;
+  alg?: Alg;
   /** JWK "key_ops" (Key Operations) Parameter */
   key_ops?: KeyUsage[];
   /** JWK "ext" (Extractable) Parameter */
@@ -317,7 +363,9 @@ export interface JWKParameters {
 }
 
 /** Public EC JSON Web Keys */
-export interface JWK_EC_Public extends JWKParameters {
+export interface JWK_EC_Public<
+  Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string,
+> extends JWKParameters<Alg> {
   /** EC JWK "kty" (Key Type) Parameter */
   kty: "EC";
   /** EC JWK "crv" (Curve) Parameter */
@@ -329,16 +377,22 @@ export interface JWK_EC_Public extends JWKParameters {
 }
 
 /** Private EC JSON Web Keys */
-export interface JWK_EC_Private extends JWK_EC_Public {
+export interface JWK_EC_Private<
+  Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string,
+> extends JWK_EC_Public<Alg> {
   /** EC JWK "d" (ECC Private Key) Parameter */
   d: string;
 }
 
 /** EC JSON Web Keys */
-export type JWK_EC = JWK_EC_Public | JWK_EC_Private;
+export type JWK_EC<Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string> =
+  | JWK_EC_Public<Alg>
+  | JWK_EC_Private<Alg>;
 
 /** Public RSA JSON Web Keys */
-export interface JWK_RSA_Public extends JWKParameters {
+export interface JWK_RSA_Public<
+  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
+> extends JWKParameters<Alg> {
   /** RSA JWK "kty" (Key Type) Parameter */
   kty: "RSA";
   /** RSA JWK "e" (Exponent) Parameter */
@@ -349,7 +403,9 @@ export interface JWK_RSA_Public extends JWKParameters {
 }
 
 /** Private RSA JSON Web Keys */
-export interface JWK_RSA_Private extends JWK_RSA_Public {
+export interface JWK_RSA_Private<
+  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
+> extends JWK_RSA_Public<Alg> {
   /** RSA JWK "d" (Private Exponent) Parameter */
   d: string;
   /** RSA JWK "dp" (First Factor CRT Exponent) Parameter */
@@ -365,10 +421,13 @@ export interface JWK_RSA_Private extends JWK_RSA_Public {
 }
 
 /** RSA JSON Web Keys */
-export type JWK_RSA = JWK_RSA_Public | JWK_RSA_Private;
+export type JWK_RSA<Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string> =
+  JWK_RSA_Public<Alg> | JWK_RSA_Private<Alg>;
 
 /** Public ED JSON Web Keys */
-export interface JWK_OKP_Public extends JWKParameters {
+export interface JWK_OKP_Public<
+  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
+> extends JWKParameters<Alg> {
   /** ED JWK "kty" (Key Type) Parameter */
   kty: "OKP";
   /** ED JWK "crv" (Curve) Parameter */
@@ -378,60 +437,113 @@ export interface JWK_OKP_Public extends JWKParameters {
 }
 
 /** Private ED JSON Web Keys */
-export interface JWK_OKP_Private extends JWK_OKP_Public {
+export interface JWK_OKP_Private<
+  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
+> extends JWK_OKP_Public<Alg> {
   /** ED JWK "d" (Private Key) Parameter */
   d: string;
 }
 
 /** OKP JSON Web Keys */
-export type JWK_OKP = JWK_OKP_Public | JWK_OKP_Private;
+export type JWK_OKP<Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string> =
+  | JWK_OKP_Public<Alg>
+  | JWK_OKP_Private<Alg>;
 
 /** oct JSON Web Keys */
-export interface JWK_oct extends JWKParameters {
+export interface JWK_oct<
+  Alg extends
+    | JWK_HMAC
+    | JWK_AES_KW
+    | JWK_AES_GCM
+    | JWK_AES_GCM_KW
+    | JWK_AES_CBC_HMAC
+    | JWK_PBES2
+    | "dir"
+    | (string & {}) = string,
+> extends JWKParameters<Alg> {
   /** Oct JWK "k" (Key Value) Parameter */
   k: string;
 }
 
 /** Symmetric JSON Web Keys */
-export type JWK_Symmetric = JWK_oct;
+export type JWK_Symmetric<
+  Alg extends
+    | JWK_HMAC
+    | JWK_AES_KW
+    | JWK_AES_GCM
+    | JWK_AES_GCM_KW
+    | JWK_AES_CBC_HMAC
+    | JWK_PBES2
+    | "dir"
+    | (string & {}) = string,
+> = JWK_oct<Alg>;
 
 /** Asymmetric JSON Web Keys */
-export type JWK_Asymmetric = JWK_RSA | JWK_EC | JWK_OKP;
+export type JWK_Asymmetric<Alg extends string = string> = JWK_RSA<Alg> | JWK_EC<Alg> | JWK_OKP<Alg>;
 
 /** Public JSON Web Keys */
-export type JWK_Public = JWK_RSA_Public | JWK_EC_Public | JWK_OKP_Public;
+export type JWK_Public<Alg extends string = string> =
+  | JWK_RSA_Public<Alg>
+  | JWK_EC_Public<Alg>
+  | JWK_OKP_Public<Alg>;
 
 /** Private JSON Web Keys */
-export type JWK_Private = JWK_RSA_Private | JWK_EC_Private | JWK_OKP_Private;
+export type JWK_Private<Alg extends string = string> =
+  | JWK_RSA_Private<Alg>
+  | JWK_EC_Private<Alg>
+  | JWK_OKP_Private<Alg>;
 
 /**
  * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC", "OKP" and "oct" key types are supported.
  */
-export type JWK = JWK_oct | JWK_RSA | JWK_EC | JWK_OKP;
+export type JWK<Alg extends string = string> =
+  | JWK_oct<Alg>
+  | JWK_RSA<Alg>
+  | JWK_EC<Alg>
+  | JWK_OKP<Alg>;
 
 /**
- * A pair of public and private JSON Web Keys.
+ * A pair of public and private JSON Web Keys, narrowed by `Alg` when that
+ * uniquely identifies the key family:
+ *
+ * - `JWK_Pair<"RS256">` → RSA pair only
+ * - `JWK_Pair<"ES256">` → EC pair only
+ * - `JWK_Pair<"ECDH-ES+A256KW">` → EC pair **or** OKP pair (curve decides at runtime)
+ * - `JWK_Pair<"Ed25519">` / `JWK_Pair<"EdDSA">` → OKP pair only
+ *
+ * The final branch is a generic fallback (`Alg = string`, or any custom /
+ * forward-compat algorithm that doesn't match a known family) — it yields
+ * the permissive three-branch union.
  */
-export type JWK_Pair =
-  | {
-      publicKey: JWK_RSA_Public;
-      privateKey: JWK_RSA_Private;
-    }
-  | {
-      publicKey: JWK_EC_Public;
-      privateKey: JWK_EC_Private;
-    }
-  | {
-      publicKey: JWK_OKP_Public;
-      privateKey: JWK_OKP_Private;
-    };
+export type JWK_Pair<Alg extends string = string> = Alg extends
+  | JWK_RSA_SIGN
+  | JWK_RSA_PSS
+  | JWK_RSA_ENC
+  ? { publicKey: JWK_RSA_Public<Alg>; privateKey: JWK_RSA_Private<Alg> }
+  : Alg extends JWK_ECDSA
+    ? { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+    : Alg extends JWK_ECDH_ES
+      ?
+          | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+          | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> }
+      : Alg extends JWK_OKP_SIGN
+        ? { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> }
+        :
+            | { publicKey: JWK_RSA_Public<Alg>; privateKey: JWK_RSA_Private<Alg> }
+            | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+            | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> };
 
 /**
  * JSON Web Key Set ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK Set}). "RSA", "EC" and "oct" key types are supported.
+ *
+ * The optional `T` generic preserves the precise key tuple when constructed
+ * in TS — e.g. `JWKSet<[JWK_oct<"HS256">, JWK_EC_Public<"ES256">]>` — while the
+ * default `JWK[]` keeps the permissive behavior expected for JWKS fetched from
+ * external sources (runtime trials each candidate).
  */
-export interface JWKSet {
+export interface JWKSet<T extends readonly JWK[] = JWK[]> {
   /** JWK Set "keys" Parameter */
-  keys: JWK[];
+  keys: T;
 
   [parameter: string]: unknown;
 }

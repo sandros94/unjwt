@@ -80,21 +80,42 @@ export function isCryptoKey(key: unknown): key is CryptoKey {
 export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
   key && typeof key === "object" && isCryptoKey(key.publicKey) && isCryptoKey(key.privateKey);
 
-/** Returns true if the JWK is a symmetric (oct) key. */
-export function isSymmetricJWK(key: unknown): key is Extract<JWK, JWK_oct> {
+/**
+ * Returns true if the JWK is a symmetric (oct) key.
+ *
+ * The `T` inference preserves the caller's narrowed alg type — passing a
+ * `JWK_oct<"HS256">` refines to `JWK_oct<"HS256">`, not `JWK_oct<string>`.
+ */
+export function isSymmetricJWK<T>(key: T): key is Extract<T, JWK_oct>;
+export function isSymmetricJWK(key: unknown): key is JWK_oct;
+export function isSymmetricJWK(key: any): boolean {
   return isJWK(key) && key.kty === "oct" && typeof (key as JWK_oct).k === "string";
 }
 
-/** Returns true if the JWK is an asymmetric (RSA, EC, OKP) key. */
-export function isAsymmetricJWK(key: unknown): key is Exclude<JWK, JWK_oct> {
+/**
+ * Returns true if the JWK is an asymmetric (RSA, EC, OKP) key.
+ *
+ * The `T` inference preserves the caller's narrowed alg type — passing a
+ * `JWK_EC<"ES256">` refines to `JWK_EC<"ES256">`, not `JWK_EC<string>`,
+ * and so on for RSA and OKP.
+ */
+export function isAsymmetricJWK<T>(key: T): key is Exclude<T, JWK_oct>;
+export function isAsymmetricJWK(key: unknown): key is Exclude<JWK, JWK_oct>;
+export function isAsymmetricJWK(key: any): boolean {
   return !isSymmetricJWK(key);
 }
 
 /**
  * Type guard that checks if the provided JWK contains private key material.
  * It relies purely on the presence of private components (e.g. "d"), not on the alg value.
+ *
+ * Preserves narrow alg types from the caller.
  */
-export function isPrivateJWK(key: unknown): key is JWK_Private {
+export function isPrivateJWK<T>(
+  key: T,
+): key is Extract<T, JWK_EC_Private | JWK_OKP_Private | JWK_RSA_Private>;
+export function isPrivateJWK(key: unknown): key is JWK_Private;
+export function isPrivateJWK(key: any): boolean {
   if (!isJWK(key)) return false;
   if (key.kty === "EC") {
     return typeof (key as Partial<JWK_EC_Private>).d === "string";
@@ -111,8 +132,14 @@ export function isPrivateJWK(key: unknown): key is JWK_Private {
 /**
  * Type guard that checks if the provided JWK is a public (asymmetric) key.
  * This checks for the presence of public components and absence of private material.
+ *
+ * Preserves narrow alg types from the caller.
  */
-export function isPublicJWK(key: unknown): key is JWK_Public {
+export function isPublicJWK<T>(
+  key: T,
+): key is Exclude<Extract<T, JWK_EC_Public | JWK_OKP_Public | JWK_RSA_Public>, JWK_Private>;
+export function isPublicJWK(key: unknown): key is JWK_Public;
+export function isPublicJWK(key: any): boolean {
   if (!isJWK(key)) return false;
   if (key.kty === "EC") {
     const ec = key as Partial<JWK_EC_Public & JWK_EC_Private>;

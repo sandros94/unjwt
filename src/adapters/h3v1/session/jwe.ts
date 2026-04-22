@@ -9,11 +9,10 @@ import { type H3Event, isEvent, setCookie } from "h3v1";
 import { parse as parseCookies } from "cookie-esv1";
 import type {
   ExpiresIn,
-  JWK,
-  JWK_oct,
-  JWK_Symmetric,
-  JWK_Public,
-  JWK_Private,
+  JWEEncryptJWK,
+  JWEDecryptJWK,
+  JWEAsymmetricPublicJWK,
+  JWEAsymmetricPrivateJWK,
   JWEEncryptOptions,
   JWEHeaderParameters,
   JWTClaimValidationOptions,
@@ -91,7 +90,7 @@ export interface SessionHooksJWE<
     header: JWEHeaderParameters;
     event: TEvent;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
-  }) => JWK_Symmetric | JWK_Private | Promise<JWK_Symmetric | JWK_Private>;
+  }) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
 }
 
 export interface SessionConfigJWE<
@@ -102,11 +101,10 @@ export interface SessionConfigJWE<
   /** Shared key used, string for PBES2 or Json Web Key (JWK) */
   key:
     | string
-    | JWK_Symmetric
-    | JWK_Private
+    | JWEEncryptJWK
     | {
-        privateKey: JWK_Private | JWK_Symmetric;
-        publicKey?: JWK_Public;
+        privateKey: JWEAsymmetricPrivateJWK;
+        publicKey?: JWEAsymmetricPublicJWK;
       };
   /** Session lifetime in seconds (used to derive exp from iat) */
   maxAge?: MaxAge;
@@ -639,20 +637,22 @@ export async function clearJWESession<
   });
 }
 
-function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK {
+function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWEEncryptJWK {
   if (!key) {
     throw new Error("Session: JWE key is required.");
   }
 
-  let _key: string | JWK | undefined;
+  let _key: string | JWEEncryptJWK | undefined;
   if (typeof key === "string") {
     _key = key;
-  } else if (isSymmetricJWK(key) || isPrivateJWK(key)) {
+  } else if (isSymmetricJWK(key)) {
     _key = key;
-  } else if ("publicKey" in key && isPublicJWK(key.publicKey)) {
+  } else if ("publicKey" in key && key.publicKey && isPublicJWK(key.publicKey)) {
     _key = key.publicKey;
   } else if ("privateKey" in key && isPrivateJWK(key.privateKey)) {
-    _key = key.privateKey;
+    // Fall back to the private JWK — `encrypt` accepts a symmetric oct here or
+    // extracts the public parts internally when the caller has no public half.
+    _key = key.privateKey as unknown as JWEEncryptJWK;
   }
 
   if (!_key) {
@@ -663,12 +663,12 @@ function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK {
 
   return _key;
 }
-function getDecryptKey(key: SessionConfigJWE["key"] | undefined): string | JWK_oct | JWK_Private {
+function getDecryptKey(key: SessionConfigJWE["key"] | undefined): string | JWEDecryptJWK {
   if (!key) {
     throw new Error("Session: JWE key is required.");
   }
 
-  let _key: string | JWK_oct | JWK_Private | undefined = undefined;
+  let _key: string | JWEDecryptJWK | undefined = undefined;
   if (typeof key === "string") {
     _key = key;
   } else if (isSymmetricJWK(key)) {

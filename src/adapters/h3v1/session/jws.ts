@@ -10,9 +10,12 @@ import { parse as parseCookies } from "cookie-esv1";
 import type {
   ExpiresIn,
   JWKSet,
-  JWK_Public,
-  JWK_Private,
-  JWK_Symmetric,
+  JWK_HMAC,
+  JWK_oct,
+  JWSSignJWK,
+  JWSVerifyJWK,
+  JWSAsymmetricPrivateJWK,
+  JWSAsymmetricPublicJWK,
   JWSSignOptions,
   JWKLookupFunctionHeader,
   JWTClaimValidationOptions,
@@ -90,7 +93,7 @@ export interface SessionHooksJWS<
     header: JWKLookupFunctionHeader;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
+  }) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
 }
 
 export interface SessionConfigJWS<
@@ -102,10 +105,10 @@ export interface SessionConfigJWS<
    * JWK (private for signing with RS/ES/PS, or symmetric oct) used for signing.
    */
   key:
-    | JWK_Symmetric
+    | JWK_oct<JWK_HMAC>
     | {
-        privateKey: JWK_Private;
-        publicKey: JWK_Public | JWK_Public[] | JWKSet;
+        privateKey: JWSAsymmetricPrivateJWK;
+        publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet;
       };
   /** Session lifetime in seconds (sets exp = iat + maxAge) */
   maxAge?: MaxAge;
@@ -632,12 +635,12 @@ export async function clearJWSSession<
   });
 }
 
-function getSignKey(key: SessionConfigJWS["key"] | undefined): JWK_Symmetric | JWK_Private {
+function getSignKey(key: SessionConfigJWS["key"] | undefined): JWSSignJWK {
   if (!key) {
     throw new Error("Session: JWS key is required.");
   }
 
-  let _key: JWK_Symmetric | JWK_Private | undefined = undefined;
+  let _key: JWSSignJWK | undefined = undefined;
   if (isSymmetricJWK(key)) {
     _key = key;
   } else if ("privateKey" in key && isPrivateJWK(key.privateKey)) {
@@ -652,14 +655,12 @@ function getSignKey(key: SessionConfigJWS["key"] | undefined): JWK_Symmetric | J
 
   return _key;
 }
-function getVerifyKey(
-  key: SessionConfigJWS["key"] | undefined,
-): JWK_Symmetric | JWK_Public | JWKSet {
+function getVerifyKey(key: SessionConfigJWS["key"] | undefined): JWSVerifyJWK | JWKSet {
   if (!key) {
     throw new Error("Session: JWS key is required.");
   }
 
-  let _key: JWK_Symmetric | JWK_Public | JWKSet | undefined = undefined;
+  let _key: JWSVerifyJWK | JWKSet | undefined = undefined;
   if (isSymmetricJWK(key)) {
     _key = key;
   } else if ("publicKey" in key && isPublicJWK(key.publicKey)) {

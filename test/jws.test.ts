@@ -4,7 +4,7 @@ import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "unse
 
 import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
-import type { JWTClaims, JWK, JWK_Private, JWKSet } from "../src/core/types";
+import type { JWTClaims, JWK, JWK_RSA_Private, JWKSet } from "../src/core/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -18,13 +18,13 @@ describe.concurrent("JWS Utilities", () => {
   describe("sign", () => {
     it("should sing while inferring alg from JWK", async () => {
       const t = "Hello, World!";
-      const jwk: JWK = {
+      const jwk = {
         key_ops: ["sign", "verify"],
         ext: true,
         kty: "oct",
         k: "OZ3BsJChEniZwQhiyZdML26Ovchsjqal9sAQR7DsBfc4xBFlcxqYzlOO77MNd0CnPKdznatgsELJjW02BqaqVw",
         alg: "HS256",
-      };
+      } as const satisfies JWK;
 
       const jws = await sign(t, jwk);
       const { payload } = await verify(jws, jwk);
@@ -588,7 +588,7 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should verify with JWK known in the keyset", async () => {
-      const rsPrKey = await exportKey<JWK_Private>(rs256KeyPair.privateKey, {
+      const rsPrKey = await exportKey<JWK_RSA_Private<"RS256">>(rs256KeyPair.privateKey, {
         kid: "key1",
       });
       const jws = await sign(payloadObj, rsPrKey);

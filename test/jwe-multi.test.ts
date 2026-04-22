@@ -12,13 +12,10 @@ import {
 import { generateJWK } from "../src/core/jwk";
 import type {
   JWK,
-  JWK_RSA_Public,
-  JWK_RSA_Private,
   JWK_EC_Public,
   JWK_EC_Private,
-  JWK_OKP_Public,
-  JWK_OKP_Private,
-  JWK_Symmetric,
+  JWK_oct,
+  JWK_Pair,
   JWKSet,
   JWEGeneralSerialization,
   JWEFlattenedSerialization,
@@ -28,18 +25,14 @@ import type {
 
 describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
   const keys: {
-    rsa256: { publicKey: JWK_RSA_Public; privateKey: JWK_RSA_Private };
-    rsa384: { publicKey: JWK_RSA_Public; privateKey: JWK_RSA_Private };
-    ecdhP256:
-      | { publicKey: JWK_OKP_Public; privateKey: JWK_OKP_Private }
-      | { publicKey: JWK_EC_Public; privateKey: JWK_EC_Private };
-    ecdhX25519:
-      | { publicKey: JWK_OKP_Public; privateKey: JWK_OKP_Private }
-      | { publicKey: JWK_EC_Public; privateKey: JWK_EC_Private };
-    a128kw: JWK_Symmetric;
-    a256kw: JWK_Symmetric;
-    a256gcmkw: JWK_Symmetric;
-    a256gcm_dir: JWK_Symmetric;
+    rsa256: JWK_Pair<"RSA-OAEP-256">;
+    rsa384: JWK_Pair<"RSA-OAEP-384">;
+    ecdhP256: JWK_Pair<"ECDH-ES+A256KW">;
+    ecdhX25519: JWK_Pair<"ECDH-ES+A256KW">;
+    a128kw: JWK_oct<"A128KW">;
+    a256kw: JWK_oct<"A256KW">;
+    a256gcmkw: JWK_oct<"A256GCMKW">;
+    a256gcm_dir: JWK_oct<"A256GCM">;
   } = {} as any;
 
   beforeAll(async () => {
@@ -162,9 +155,10 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
     it("throws ERR_JWE_RECIPIENT_ALG_INFERENCE when JWK has no alg", async () => {
       const noAlg: JWK = { ...keys.a256kw };
       delete (noAlg as { alg?: string }).alg;
-      await expect(encryptMulti({ x: 1 }, [{ key: noAlg }])).rejects.toSatisfy((e) =>
-        isJWTError(e, "ERR_JWE_RECIPIENT_ALG_INFERENCE"),
-      );
+      await expect(
+        // @ts-expect-error intentionally passing an alg-less JWK to exercise runtime guard
+        encryptMulti({ x: 1 }, [{ key: noAlg }]),
+      ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWE_RECIPIENT_ALG_INFERENCE"));
     });
 
     it("throws ERR_JWE_ALG_FORBIDDEN_IN_MULTI on dir alg", async () => {
@@ -177,7 +171,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
 
     it("throws ERR_JWE_ALG_FORBIDDEN_IN_MULTI on bare ECDH-ES", async () => {
       await expect(
-        encryptMulti({ x: 1 }, [{ key: { ...keys.ecdhP256.publicKey, alg: "ECDH-ES" } as JWK }], {
+        encryptMulti({ x: 1 }, [{ key: { ...keys.ecdhP256.publicKey, alg: "ECDH-ES" } }], {
           enc: "A256GCM",
         }),
       ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWE_ALG_FORBIDDEN_IN_MULTI"));
@@ -326,7 +320,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }], {
           enc: "A256GCM",
         });
-        const unrelated: JWK_Symmetric = { ...keys.a128kw, kid: "unrelated" };
+        const unrelated: JWK_oct<"A128KW"> = { ...keys.a128kw, kid: "unrelated" };
         await expect(
           decryptMulti(jwe, unrelated, { strictRecipientMatch: true }),
         ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWE_NO_MATCHING_RECIPIENT"));
@@ -469,13 +463,14 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
           { sub: "u1" },
           [
             {
-              key: (keys.ecdhP256 as { publicKey: JWK_EC_Public }).publicKey,
+              key: (keys.ecdhP256 as { publicKey: JWK_EC_Public<"ECDH-ES+A256KW"> }).publicKey,
               ecdh: { ephemeralKey: ephemeral },
             },
           ],
           { enc: "A256GCM" },
         );
-        const ecdhPriv = (keys.ecdhP256 as { privateKey: JWK_EC_Private }).privateKey;
+        const ecdhPriv = (keys.ecdhP256 as { privateKey: JWK_EC_Private<"ECDH-ES+A256KW"> })
+          .privateKey;
         const { payload } = await decryptMulti(jwe, ecdhPriv);
         expect((payload as JWTClaims).sub).toBe("u1");
       });
@@ -488,7 +483,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         });
         // Strip kid from the wire recipient so the set filter can't narrow by kid —
         // forces both a128kw (wrong alg, filtered out) and an unrelated A256KW to be tried.
-        const anotherA256 = (await generateJWK("A256KW")) as JWK_Symmetric;
+        const anotherA256 = await generateJWK("A256KW");
         const jweNoKid: JWEGeneralSerialization = {
           ...jwe,
           recipients: [
@@ -510,8 +505,8 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
             { header: { alg: "A256KW" }, encrypted_key: jwe.recipients[0]!.encrypted_key },
           ],
         };
-        const wrong1 = (await generateJWK("A256KW")) as JWK_Symmetric;
-        const wrong2 = (await generateJWK("A256KW")) as JWK_Symmetric;
+        const wrong1 = await generateJWK("A256KW");
+        const wrong2 = await generateJWK("A256KW");
         const set: JWKSet = { keys: [wrong1, wrong2] };
         await expect(decryptMulti(jweNoKid, set)).rejects.toBeInstanceOf(JWTError);
       });
@@ -539,7 +534,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
     });
 
     it("ecdh.partyUInfo / partyVInfo propagate to apu/apv and round-trip", async () => {
-      const pub = (keys.ecdhP256 as { publicKey: JWK_EC_Public }).publicKey;
+      const pub = (keys.ecdhP256 as { publicKey: JWK_EC_Public<"ECDH-ES+A256KW"> }).publicKey;
       const jwe = await encryptMulti(
         { sub: "u1" },
         [
@@ -555,7 +550,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       );
       expect(jwe.recipients[0]?.header?.apu).toBeTypeOf("string");
       expect(jwe.recipients[0]?.header?.apv).toBeTypeOf("string");
-      const priv = (keys.ecdhP256 as { privateKey: JWK_EC_Private }).privateKey;
+      const priv = (keys.ecdhP256 as { privateKey: JWK_EC_Private<"ECDH-ES+A256KW"> }).privateKey;
       const { payload } = await decryptMulti(jwe, priv);
       expect((payload as JWTClaims).sub).toBe("u1");
     });

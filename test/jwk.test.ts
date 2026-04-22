@@ -688,8 +688,14 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("should throw wrapKey for invalid key type", async () => {
-      await expect(wrapKey("A128KW", cek, "not-a-key-object")).rejects.toThrow(TypeError);
-      await expect(wrapKey("RSA-OAEP", cek, secureRandomBytes(32))).rejects.toThrow(); // RSA needs CryptoKey
+      await expect(
+        // @ts-expect-error A128KW requires a CryptoKey or JWK_oct<"A128KW">; exercises runtime guard
+        wrapKey("A128KW", cek, "not-a-key-object"),
+      ).rejects.toThrow(TypeError);
+      await expect(
+        // @ts-expect-error RSA-OAEP requires a CryptoKey or JWK_RSA_Public; exercises runtime guard
+        wrapKey("RSA-OAEP", cek, secureRandomBytes(32)),
+      ).rejects.toThrow(); // RSA needs CryptoKey
     });
 
     it("should throw wrapKey for unsupported algorithm", async () => {
@@ -719,9 +725,10 @@ describe.concurrent("JWK Utilities", () => {
     it("should throw unwrapKey for invalid key type", async () => {
       const wrappingKey = await generateKey("A128KW");
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
-      await expect(unwrapKey("A128KW", encryptedKey, "not-a-key-object")).rejects.toThrow(
-        TypeError,
-      );
+      await expect(
+        // @ts-expect-error A128KW requires a CryptoKey or JWK_oct<"A128KW">; exercises runtime guard
+        unwrapKey("A128KW", encryptedKey, "not-a-key-object"),
+      ).rejects.toThrow(TypeError);
     });
 
     it("should throw unwrapKey for unsupported algorithm", async () => {
