@@ -70,8 +70,8 @@
   "devDependencies": {
     "@types/node": "^24",
     "@types/supertest": "^7.2.0",
-    "@typescript/native-preview": "7.0.0-dev.20260419.1",
-    "@vitest/coverage-v8": "^4.1.4",
+    "@typescript/native-preview": "7.0.0-dev.20260421.2",
+    "@vitest/coverage-v8": "^4.1.5",
     "automd": "^0.4.3",
     "changelogen": "^0.6.2",
     "cookie-esv1": "npm:cookie-es@^1.2.3",
@@ -81,14 +81,14 @@
     "jose": "^6.2.2",
     "nano-staged": "^1.0.2",
     "obuild": "^0.4.33",
-    "oxfmt": "^0.45.0",
-    "oxlint": "^1.60.0",
-    "rolldown": "1.0.0-rc.16",
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.61.0",
+    "rolldown": "1.0.0-rc.17",
     "simple-git-hooks": "^2.13.1",
     "supertest": "^7.2.2",
     "typescript": "^6.0.3",
-    "unsecure": "^0.2.1",
-    "vitest": "^4.1.4"
+    "unsecure": "^0.2.2",
+    "vitest": "^4.1.5"
   },
   "peerDependencies": {
     "cookie-es": "^1.2.3 || ^3.1.1",
@@ -117,5 +117,5 @@
       "pnpm run fmt"
     ]
   },
-  "packageManager": "pnpm@10.33.0"
+  "packageManager": "pnpm@10.33.1"
 }
