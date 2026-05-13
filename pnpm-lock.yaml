@@ -15,8 +15,8 @@ importers:
         specifier: ^1.2.3 || ^3.1.1
         version: 3.1.1
       h3:
-        specifier: ^1.15.4 || >=2.0.1-rc.20 || ^2.0.1
-        version: 2.0.1-rc.20
+        specifier: ^1.15.4 || >=2.0.1-rc.22 || ^2.0.1
+        version: 2.0.1-rc.22
       rou3:
         specifier: ^0.8.1
         version: 0.8.1
@@ -49,8 +49,8 @@ importers:
         specifier: npm:h3@^1.15.11
         version: h3@1.15.11
       h3v2:
-        specifier: npm:h3@^2.0.1-rc.20
-        version: h3@2.0.1-rc.20
+        specifier: npm:h3@^2.0.1-rc.22
+        version: h3@2.0.1-rc.22
       jose:
         specifier: ^6.2.2
         version: 6.2.2
@@ -88,8 +88,8 @@ importers:
   playground:
     devDependencies:
       h3:
-        specifier: ^2.0.1-rc.20
-        version: 2.0.1-rc.20
+        specifier: ^2.0.1-rc.22
+        version: 2.0.1-rc.22
       unjwt:
         specifier: link:..
         version: link:..
@@ -1305,8 +1305,8 @@ packages:
   h3@1.15.11:
     resolution: {integrity: sha512-L3THSe2MPeBwgIZVSH5zLdBBU90TOxarvhK9d04IDY2AmVS8j2Jz2LIWtwsGOU3lu2I5jCN7FNvVfY2+XyF+mg==}
 
-  h3@2.0.1-rc.20:
-    resolution: {integrity: sha512-28ljodXuUp0fZovdiSRq4G9OgrxCztrJe5VdYzXAB7ueRvI7pIUqLU14Xi3XqdYJ/khXjfpUOOD2EQa6CmBgsg==}
+  h3@2.0.1-rc.22:
+    resolution: {integrity: sha512-Esv0DMIuPkCTSWCA0vO73vcTqwzH1wjSrAO1TXNu/K3up1sZHa9EKMapbmxCDYBeymC3fVTk4qxp7ogQWQ+KgA==}
     engines: {node: '>=20.11.1'}
     hasBin: true
     peerDependencies:
@@ -1692,8 +1692,8 @@ packages:
   spdx-satisfies@5.0.1:
     resolution: {integrity: sha512-Nwor6W6gzFp8XX4neaKQ7ChV4wmpSh2sSDemMFSzHxpTw460jxFYeOn+jq4ybnSSw/5sc3pjka9MQPouksQNpw==}
 
-  srvx@0.11.13:
-    resolution: {integrity: sha512-oknN6qduuMPafxKtHucUeG32Q963pjriA5g3/Bl05cwEsUe5VVbIU4qR9LrALHbipSCyBe+VmfDGGydqazDRkw==}
+  srvx@0.11.15:
+    resolution: {integrity: sha512-iXsux0UcOjdvs0LCMa2Ws3WwcDUozA3JN3BquNXkaFPP7TpRqgunKdEgoZ/uwb1J6xaYHfxtz9Twlh6yzwM6Tg==}
     engines: {node: '>=20.16.0'}
     hasBin: true
 
@@ -2796,10 +2796,10 @@ snapshots:
       ufo: 1.6.3
       uncrypto: 0.1.3
 
-  h3@2.0.1-rc.20:
+  h3@2.0.1-rc.22:
     dependencies:
       rou3: 0.8.1
-      srvx: 0.11.13
+      srvx: 0.11.15
 
   has-flag@4.0.0: {}
 
@@ -3253,7 +3253,7 @@ snapshots:
       spdx-expression-parse: 3.0.1
       spdx-ranges: 2.1.1
 
-  srvx@0.11.13: {}
+  srvx@0.11.15: {}
 
   stackback@0.0.2: {}
 
