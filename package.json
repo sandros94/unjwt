@@ -81,14 +81,14 @@
     "jose": "^6.2.2",
     "nano-staged": "^1.0.2",
     "obuild": "^0.4.33",
-    "oxfmt": "^0.46.0",
-    "oxlint": "^1.61.0",
-    "rolldown": "1.0.0-rc.17",
+    "oxfmt": "^0.49.0",
+    "oxlint": "^1.64.0",
+    "rolldown": "1.0.0",
     "simple-git-hooks": "^2.13.1",
     "supertest": "^7.2.2",
     "typescript": "^6.0.3",
     "unsecure": "^0.2.2",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.6"
   },
   "peerDependencies": {
     "cookie-es": "^1.2.3 || ^3.1.1",
