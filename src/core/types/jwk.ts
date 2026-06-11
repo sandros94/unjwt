@@ -75,7 +75,7 @@ export type GenerateKeyAlgorithm = Exclude<JWKAlgorithm, "none" | "dir" | JWK_PB
 export interface GenerateKeyOptions {
   /** Key usages for the generated key(s). Note: For composite keys (CBC), default usages are applied separately. */
   keyUsage?: KeyUsage[];
-  /** Mark the key(s) as extractable. Defaults to true. */
+  /** Mark the key(s) as extractable. Defaults to true. Ignored when `toJWK` is set — the JWK output requires exporting the intermediate key. */
   extractable?: boolean;
   /** RSA modulus length. Defaults to 2048. */
   modulusLength?: number;
@@ -109,7 +109,7 @@ export type GenerateKeyReturn<
   TOptions extends GenerateKeyOptions,
 > = TOptions["toJWK"] extends true ? GenerateKeyReturnJWK<TAlg> : GenerateKeyReturnCrypto<TAlg>;
 
-export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK">;
+export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK" | "extractable">;
 
 export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GenerateKeyReturnJWK<TAlg>;
 
@@ -121,7 +121,7 @@ export interface DeriveKeyOptions {
   iterations: number;
   /** Key usages for the derived key. Defaults to ["wrapKey", "unwrapKey"]. */
   keyUsage?: KeyUsage[];
-  /** Mark the derived key as extractable. Defaults to false. */
+  /** Mark the derived key as extractable. Defaults to false. Ignored when `toJWK` is set — the JWK output requires exporting the derived key. */
   extractable?: boolean;
   /**
    * Export the derived key as JWK_oct. When `true`, returns the derived key in

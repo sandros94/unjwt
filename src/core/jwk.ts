@@ -89,6 +89,7 @@ export type { JWTErrorCode, JWTErrorCauseMap } from "./error";
  * @param options
  *   - `toJWK?` — when `true`, return JWK / JWK pair instead of `CryptoKey` / `CryptoKeyPair`.
  *   - `extractable?` — forwarded to `crypto.subtle.generateKey`. Defaults to `true`.
+ *     Ignored when `toJWK` is set — the JWK output requires exporting the intermediate key.
  *   - `keyUsage?` — override the default usages derived from `alg`.
  *   - `modulusLength?` — RSA only; defaults to `2048`.
  *   - `publicExponent?` — RSA only; defaults to `0x010001`.
@@ -118,7 +119,8 @@ export async function generateKey(
   options: GenerateKeyOptions = {},
 ): Promise<CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | JWK_Pair> {
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
-  const defaultExtractable = options.extractable !== false;
+  // The JWK output requires exporting the intermediate key, so `toJWK` forces extractable.
+  const defaultExtractable = exportToJWK || options.extractable !== false;
 
   // AES-CBC+HMAC composite material isn't directly importable via Web Crypto,
   // so we generate and export raw bytes.
@@ -164,7 +166,6 @@ export async function generateKey(
  *            `"A128GCM"`, `"A256CBC-HS512"`). PBES2, `"dir"`, and `"none"` are
  *            not accepted.
  * @param options
- *   - `extractable?` — forwarded to `crypto.subtle.generateKey`. Defaults to `true`.
  *   - `keyUsage?` — override the default usages derived from `alg`.
  *   - `modulusLength?` — RSA only; defaults to `2048`.
  *   - `publicExponent?` — RSA only; defaults to `0x010001`.
@@ -189,14 +190,12 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
   alg: TAlg,
   options?: GenerateJWKOptions & Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<GenerateJWKReturn<TAlg>> {
-  const { keyUsage, extractable, modulusLength, publicExponent, namedCurve, ...jwkParams } =
-    options ?? {};
+  const { keyUsage, modulusLength, publicExponent, namedCurve, ...jwkParams } = options ?? {};
   const kid = typeof jwkParams.kid === "string" ? jwkParams.kid : crypto.randomUUID();
   const extraParams = { ...jwkParams, kid };
 
   const result = await generateKey(alg, {
     keyUsage,
-    extractable,
     modulusLength,
     publicExponent,
     namedCurve,
@@ -286,7 +285,6 @@ export async function deriveKeyFromPassword(
  *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets (RFC 7518 §4.8.1.1).
  *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
  *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
- *   - `extractable?` — forwarded to `crypto.subtle.importKey`. Defaults to `false`.
  *   - JWK metadata (`kid`, `use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the
  *     result. `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot
  *     be overridden here.
@@ -294,14 +292,14 @@ export async function deriveKeyFromPassword(
 export async function deriveJWKFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
   alg: JWK_PBES2,
-  options: Omit<DeriveKeyOptions, "toJWK"> & Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
+  options: Omit<DeriveKeyOptions, "toJWK" | "extractable"> &
+    Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<JWK_oct> {
-  const { salt, iterations, keyUsage, extractable, ...jwkParams } = options;
+  const { salt, iterations, keyUsage, ...jwkParams } = options;
   const result = await deriveKeyFromPassword(password, alg, {
     salt,
     iterations,
     keyUsage,
-    extractable,
     toJWK: true,
   });
   return Object.keys(jwkParams).length > 0 ? { ...jwkParams, ...result } : result;

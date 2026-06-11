@@ -26,7 +26,7 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
 - `alg: GenerateKeyAlgorithm` — any JWS or JWE algorithm except `"dir"` and PBES2
 - `options?: GenerateKeyOptions`
   - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`
-  - `extractable?: boolean` — default `true`
+  - `extractable?: boolean` — default `true`; ignored when `toJWK: true` (the JWK output requires exporting the intermediate key)
   - `keyUsage?: KeyUsage[]`
   - `modulusLength?: number` — RSA only, default `2048`
   - `publicExponent?: Uint8Array` — RSA only, default `0x010001`
@@ -255,13 +255,14 @@ PBKDF2 derivation for PBES2 algorithms.
 - `password: string | Uint8Array`
 - `alg: JWK_PBES2` — `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`
 - `options: DeriveKeyOptions` — `{ salt: Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
+  (`extractable` is ignored when `toJWK: true` — the JWK output requires exporting the derived key)
 
 Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
 
 ### `deriveJWKFromPassword(password, alg, options)`
 
 Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 derivation
-knobs (`salt`, `iterations`, `extractable`, `keyUsage`) with JWK metadata fields (`kid`, `use`, …).
+knobs (`salt`, `iterations`, `keyUsage`) with JWK metadata fields (`kid`, `use`, …).
 `alg`, `kty`, `key_ops`, and `ext` are managed by the library.
 
 ```ts
