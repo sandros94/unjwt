@@ -211,8 +211,10 @@ Imports a PEM-encoded key and returns it as a JWK. The PEM type is inferred from
 - `alg: JWKPEMAlgorithm`
 - `options?`
   - `pemType?: "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
-  - `extractable?: boolean` — default `false` for private keys, `true` for public keys
   - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`)
+
+The returned JWK always contains the key material in plain JavaScript. To obtain a
+non-extractable `CryptoKey`, pass the result to `importKey(jwk, { extractable: false })`.
 
 Throws `ERR_JWK_INVALID` when the PEM has no recognisable label and `pemType` is not supplied,
 or when the label does not match the requested/inferred type.

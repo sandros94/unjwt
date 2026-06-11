@@ -958,9 +958,12 @@ export async function unwrapKey(
  *            the key's intended algorithm and for setting the `alg` field on the resulting JWK.
  * @param options
  *   - `pemType?` — explicit PEM type; inferred from the label when omitted.
- *   - `extractable?` — forwarded to `crypto.subtle.importKey`. Defaults to `false` for private
- *     keys and `true` for public keys.
  *   - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`).
+ *
+ * The returned JWK always contains the key material in plain JavaScript — non-extractable
+ * import is impossible for a PEM → JWK conversion (JWK export requires an extractable key).
+ * To obtain a non-extractable `CryptoKey`, pass the result to
+ * `importKey(jwk, { extractable: false })`.
  *     `alg`, `kty`, `key_ops`, and `ext` are reserved and cannot be overridden here.
  * @throws `JWTError("ERR_JWK_INVALID")` if the PEM type cannot be inferred (no recognised label
  *         and no `options.pemType`), or if the label does not match the requested/inferred type.
@@ -981,13 +984,12 @@ export async function importPEM<T extends JWK>(
   options?: {
     /** PEM type. Inferred from the PEM label when omitted. */
     pemType?: "pkcs8" | "spki" | "x509";
-    /** Passed to `crypto.subtle.importKey`. Defaults to `false` for private keys, `true` otherwise. */
-    extractable?: boolean;
     /** Additional JWK properties merged into the exported key (e.g. `kid`). */
     jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
   },
 ): Promise<T> {
-  const extractable = options?.extractable !== false;
+  // The intermediate CryptoKey must be extractable: the JWK output requires exporting it.
+  const extractable = true;
   const pemType = options?.pemType ?? inferPEMType(pem);
 
   if (!pemType) {
@@ -1029,7 +1031,6 @@ export async function importFromPEM<T extends JWK>(
   pemType: "pkcs8" | "spki" | "x509",
   alg: JWKPEMAlgorithm,
   options?: {
-    extractable?: boolean;
     jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
   },
 ): Promise<T> {
