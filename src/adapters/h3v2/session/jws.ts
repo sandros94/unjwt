@@ -35,6 +35,10 @@ import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jws_getSession");
 
+/**
+ * In-memory session state for the current request, mirroring the claims of
+ * the underlying compact JWS token.
+ */
 export interface SessionJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -45,34 +49,46 @@ export interface SessionJWS<
   createdAt: number;
   /** Session expiry time in ms — mirrors the JWT `exp` claim (seconds). */
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
+  /** Session data — carried in the token payload, spread at the top level. */
   data: SessionData<T>;
+  /** The current compact JWS token. `undefined` until the session is persisted. */
   token: string | undefined;
   [kGetSessionPromise]?: Promise<SessionJWS<T, MaxAge>>;
 }
 
+/**
+ * Lifecycle hooks for JWS sessions. `onRead`, `onExpire`, and `onError` are
+ * mutually exclusive per incoming token — `onRead` fires only when a session
+ * was successfully established from it.
+ */
 export interface SessionHooksJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 > {
+  /** Fires when an incoming token was verified and the session established. */
   onRead?: (args: {
     session: SessionJWS<T, MaxAge> & { id: string; token: string };
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires after a new token was signed — including pure token refreshes (update with no data). */
   onUpdate?: (args: {
-    /** Session after it has been updated.. */
+    /** Session after the update. */
     session: SessionJWS<T, MaxAge> & { id: string; token: string };
-    /** Snapshot of the session before was updated. */
+    /** Deep-copied snapshot of the session before the update. */
     oldSession: SessionJWS<T, MaxAge>;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires when the session is cleared. */
   onClear?: (args: {
+    /** Last known session before clearing, if any. */
     oldSession: SessionJWS<T, MaxAge> | undefined;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires when the incoming token is expired. Receives the expired token's decoded claims. */
   onExpire?: (args: {
     session: {
       id: string | undefined;
@@ -84,6 +100,7 @@ export interface SessionHooksJWS<
     error: Error;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires on read-path failures other than expiry, and on write-path sign failures. */
   onError?: (args: {
     /**
      * The session involved in the error.
@@ -93,6 +110,7 @@ export interface SessionHooksJWS<
     error: any;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Resolve the verification key(s) for the incoming token from its protected header (e.g. by `kid`). */
   onVerifyKeyLookup?: (args: {
     header: JWKLookupFunctionHeader;
     event: TEvent;
@@ -100,26 +118,45 @@ export interface SessionHooksJWS<
   }) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
 }
 
+/**
+ * Configuration for a JWS-backed (signed, not encrypted) session.
+ */
 export interface SessionConfigJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 > {
+  /**
+   * JWK used for signing — a symmetric `oct` (HS*) key, or an asymmetric pair:
+   * the private key signs, the public side verifies (single JWK, array, or
+   * JWKSet for rotation).
+   */
   key:
     | JWK_oct<JWK_HMAC>
     | {
         privateKey: JWSAsymmetricPrivateJWK;
         publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet;
       };
+  /**
+   * Session lifetime in seconds — sets `exp = iat + maxAge` in the token and
+   * drives the cookie expiry. Without it the token carries no `exp` and never
+   * expires cryptographically.
+   */
   maxAge?: MaxAge;
+  /** Session name — drives the cookie name and the default session header. Default `"h3-jws"`. */
   name?: string;
+  /** Cookie options (`false` to disable). Defaults: `path="/"`, `secure`, `httpOnly: false` — the JWS payload is client-readable by design. */
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
+  /** Request header to read the token from (`false` to disable). Default `x-<name>-session`. */
   sessionHeader?: false | string;
+  /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
+  /** JWS sign/verify overrides. */
   jws?: {
     signOptions?: Omit<JWSSignOptions, "expiresIn">;
     verifyOptions?: JWTClaimValidationOptions;
   };
+  /** Lifecycle hooks — see {@link SessionHooksJWS}. */
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 

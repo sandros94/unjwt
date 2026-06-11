@@ -29,6 +29,10 @@ import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
 
+/**
+ * In-memory session state for the current request, mirroring the claims of
+ * the underlying compact JWE token.
+ */
 export interface SessionJWE<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -39,34 +43,46 @@ export interface SessionJWE<
   createdAt: number;
   /** Session expiry time in ms — mirrors the JWT `exp` claim (seconds). */
   expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
+  /** Session data — carried in the token payload, spread at the top level. */
   data: SessionData<T>;
+  /** The current compact JWE token. `undefined` until the session is persisted. */
   token: string | undefined;
   [kGetSessionPromise]?: Promise<SessionJWE<T, MaxAge>>;
 }
 
+/**
+ * Lifecycle hooks for JWE sessions. `onRead`, `onExpire`, and `onError` are
+ * mutually exclusive per incoming token — `onRead` fires only when a session
+ * was successfully established from it.
+ */
 export interface SessionHooksJWE<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 > {
+  /** Fires when an incoming token was decrypted and the session established. */
   onRead?: (args: {
     session: SessionJWE<T, MaxAge> & { id: string; token: string };
     event: TEvent;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires after a new token was sealed — including pure token refreshes (update with no data). */
   onUpdate?: (args: {
-    /** Session after it has been updated.. */
+    /** Session after the update. */
     session: SessionJWE<T, MaxAge> & { id: string; token: string };
-    /** Snapshot of the session before was updated. */
+    /** Deep-copied snapshot of the session before the update. */
     oldSession: SessionJWE<T, MaxAge>;
     event: TEvent;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires when the session is cleared. */
   onClear?: (args: {
+    /** Last known session before clearing, if any. */
     oldSession: SessionJWE<T, MaxAge> | undefined;
     event: TEvent;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires when the incoming token is expired. Receives the expired token's decoded claims. */
   onExpire?: (args: {
     session: {
       id: string | undefined;
@@ -78,6 +94,7 @@ export interface SessionHooksJWE<
     error: Error;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Fires on read-path failures other than expiry, and on write-path seal failures. */
   onError?: (args: {
     /**
      * The session involved in the error.
@@ -87,6 +104,7 @@ export interface SessionHooksJWE<
     error: any;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
+  /** Resolve the decryption key for the incoming token from its protected header (e.g. by `kid`). */
   onUnsealKeyLookup?: (args: {
     header: JWEHeaderParameters;
     event: TEvent;
@@ -94,12 +112,18 @@ export interface SessionHooksJWE<
   }) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
 }
 
+/**
+ * Configuration for a JWE-backed (encrypted) session.
+ */
 export interface SessionConfigJWE<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 > {
-  /** Shared key used, string for PBES2 or Json Web Key (JWK) */
+  /**
+   * Secret used for sealing — a password string (PBES2), a symmetric JWK, or
+   * an asymmetric pair: the public key seals, the private key unseals.
+   */
   key:
     | string
     | JWEEncryptJWK
@@ -107,21 +131,26 @@ export interface SessionConfigJWE<
         privateKey: JWEAsymmetricPrivateJWK;
         publicKey?: JWEAsymmetricPublicJWK;
       };
-  /** Session lifetime in seconds (used to derive exp from iat) */
+  /**
+   * Session lifetime in seconds — sets `exp = iat + maxAge` in the token and
+   * drives the cookie expiry. Without it the token carries no `exp` and never
+   * expires cryptographically.
+   */
   maxAge?: MaxAge;
-  /** Default is "h3" */
+  /** Session name — drives the cookie name and the default session header. Default `"h3-jwe"`. */
   name?: string;
-  /** Default is secure, httpOnly, path="/" */
+  /** Cookie options (`false` to disable). Defaults: `path="/"`, `secure`, `httpOnly: true`. */
   cookie?: false | CookieSerializeOptions;
-  /** Default is x-h3-session / x-{name}-session */
+  /** Request header to read the token from (`false` to disable). Default `x-<name>-session`. */
   sessionHeader?: false | string;
-  /** Default is crypto.randomUUID */
+  /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
-  /** JWE configuration overrides */
+  /** JWE encrypt/decrypt overrides. */
   jwe?: {
     encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
     decryptOptions?: JWTClaimValidationOptions;
   };
+  /** Lifecycle hooks — see {@link SessionHooksJWE}. */
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
 }
 
