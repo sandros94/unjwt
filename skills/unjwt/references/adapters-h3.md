@@ -301,6 +301,7 @@ For advanced control over the session lifecycle:
 | Function                                   | Purpose                                       |
 | ------------------------------------------ | --------------------------------------------- |
 | `getJWSSession(event, config)`             | Read/initialize session from cookie/header    |
+| `getJWSSessionToken(event, config)`        | Get raw token string from cookie/header       |
 | `updateJWSSession(event, config, update?)` | Update data, re-sign, set cookie              |
 | `signJWSSession(event, config)`            | Sign current session to JWS token string      |
 | `verifyJWSSession(event, config, token)`   | Verify a JWS token to session data            |

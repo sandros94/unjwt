@@ -17,6 +17,7 @@ export {
   type SessionJWS,
   clearJWSSession,
   getJWSSession,
+  getJWSSessionToken,
   signJWSSession,
   updateJWSSession,
   useJWSSession,

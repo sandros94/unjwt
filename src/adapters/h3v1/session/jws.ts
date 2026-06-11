@@ -334,7 +334,12 @@ export async function getJWSSession<
   return session;
 }
 
-function getJWSSessionToken<
+/**
+ * Read the raw session token for the request. The session header (default
+ * `x-<name>-session`, `Bearer ` prefix stripped) takes precedence, then a
+ * freshly-minted token on the response's `Set-Cookie`, then the session cookie.
+ */
+export function getJWSSessionToken<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
