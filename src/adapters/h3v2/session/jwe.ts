@@ -136,7 +136,7 @@ const DEFAULT_COOKIE: SessionConfigJWE["cookie"] = {
 };
 
 /**
- * Create a session manager for the current request.
+ * Create a session manager for the current request using JWE (encrypted).
  */
 export async function useJWESession<
   T extends Record<string, any> = SessionClaims,
@@ -181,7 +181,7 @@ export async function useJWESession<
 }
 
 /**
- * Get the session for the current request.
+ * Get (and lazily initialize) the session for the current request.
  */
 export async function getJWESession<
   T extends Record<string, any> = SessionClaims,
@@ -333,6 +333,11 @@ export async function getJWESession<
   return session;
 }
 
+/**
+ * Read the raw session token for the request. The session header (default
+ * `x-<name>-session`, `Bearer ` prefix stripped) takes precedence, then a
+ * freshly-minted token on the response's `Set-Cookie`, then the session cookie.
+ */
 export function getJWESessionToken<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -369,7 +374,7 @@ export function getJWESessionToken<
 }
 
 /**
- * Update the session data for the current request.
+ * Update the session data (if provided) and reissue the JWE token.
  */
 export async function updateJWESession<
   T extends Record<string, any> = SessionClaims,
@@ -457,7 +462,10 @@ export async function updateJWESession<
 }
 
 /**
- * Produce a JWE for the current session.
+ * Seal the current session as a compact JWE.
+ * Payload: `session.data` spread at the top level, plus the reserved claims
+ * `jti`, `iat`, and `exp` (when `maxAge` is set), which overwrite any
+ * same-named keys in the session data.
  */
 export async function sealJWESession<
   T extends Record<string, any> = SessionClaims,
@@ -507,7 +515,12 @@ export async function sealJWESession<
 }
 
 /**
- * Decrypt the JWE and return a Session-compatible object.
+ * Decrypt and parse a compact JWE into a Session structure.
+ * Performs:
+ *  - authenticated decryption
+ *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
+ *  - `typ` header check and alg/enc pinning when configured
+ *  - `maxAge` enforced as `maxTokenAge` when provided
  */
 export async function unsealJWESession<
   T extends Record<string, any> = SessionClaims,

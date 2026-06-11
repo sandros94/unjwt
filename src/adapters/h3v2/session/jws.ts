@@ -130,6 +130,10 @@ const DEFAULT_COOKIE: SessionConfigJWS["cookie"] = {
   httpOnly: false,
 };
 
+/**
+ * Create a session manager for the current request using JWS (signed only, not encrypted).
+ * NOTE: Contents are visible to clients (Base64URL-decoded JSON). Do not store secrets in session data.
+ */
 export async function useJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -171,6 +175,9 @@ export async function useJWSSession<
   return sessionManager;
 }
 
+/**
+ * Get (and lazily initialize) the session for the current request.
+ */
 export async function getJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -316,6 +323,11 @@ export async function getJWSSession<
   return session;
 }
 
+/**
+ * Read the raw session token for the request. The session header (default
+ * `x-<name>-session`, `Bearer ` prefix stripped) takes precedence, then a
+ * freshly-minted token on the response's `Set-Cookie`, then the session cookie.
+ */
 export function getJWSSessionToken<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -351,6 +363,9 @@ export function getJWSSessionToken<
   return token;
 }
 
+/**
+ * Update the session data (if provided) and reissue the JWS token.
+ */
 export async function updateJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -434,6 +449,12 @@ export async function updateJWSSession<
   return session;
 }
 
+/**
+ * Sign the current session as a compact JWS.
+ * Payload: `session.data` spread at the top level, plus the reserved claims
+ * `jti`, `iat`, and `exp` (when `maxAge` is set), which overwrite any
+ * same-named keys in the session data.
+ */
 export async function signJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -483,6 +504,14 @@ export async function signJWSSession<
   return token;
 }
 
+/**
+ * Verify and parse a compact JWS into a Session structure.
+ * Performs:
+ *  - cryptographic signature verification
+ *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
+ *  - `typ` header check and algorithm pinning when configured
+ *  - `maxAge` enforced as `maxTokenAge` when provided
+ */
 export async function verifyJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -536,6 +565,9 @@ export async function verifyJWSSession<
   };
 }
 
+/**
+ * Clear the session (delete from context and drop cookie).
+ */
 export async function clearJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

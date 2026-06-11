@@ -185,7 +185,7 @@ export async function useJWSSession<
 }
 
 /**
- * Retrieve (and lazily initialize) the session.
+ * Get (and lazily initialize) the session for the current request.
  */
 export async function getJWSSession<
   T extends Record<string, any> = SessionClaims,
@@ -400,7 +400,7 @@ function _getResHeader(event: H3Event | CompatEvent, name: string) {
 }
 
 /**
- * Update session data (if provided) and reissue JWS.
+ * Update the session data (if provided) and reissue the JWS token.
  */
 export async function updateJWSSession<
   T extends Record<string, any> = SessionClaims,
@@ -486,9 +486,10 @@ export async function updateJWSSession<
 }
 
 /**
- * Sign current session as a compact JWS.
- * Payload claims:
- *  jti, iat, exp?, data, plus optional extraClaims (cannot override reserved)
+ * Sign the current session as a compact JWS.
+ * Payload: `session.data` spread at the top level, plus the reserved claims
+ * `jti`, `iat`, and `exp` (when `maxAge` is set), which overwrite any
+ * same-named keys in the session data.
  */
 export async function signJWSSession<
   T extends Record<string, any> = SessionClaims,
@@ -542,9 +543,9 @@ export async function signJWSSession<
  * Verify and parse a compact JWS into a Session structure.
  * Performs:
  *  - cryptographic signature verification
- *  - (optional) standard claim checks if validateJWT true
- *  - ensures jti & iat presence
- *  - enforces maxAge if provided
+ *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
+ *  - `typ` header check and algorithm pinning when configured
+ *  - `maxAge` enforced as `maxTokenAge` when provided
  */
 export async function verifyJWSSession<
   T extends Record<string, any> = SessionClaims,
@@ -599,7 +600,7 @@ export async function verifyJWSSession<
 }
 
 /**
- * Destroy the session (context + cookie).
+ * Clear the session (delete from context and drop cookie).
  */
 export async function clearJWSSession<
   T extends Record<string, any> = SessionClaims,
