@@ -20,6 +20,7 @@ import {
   isJWK,
   validateJwtClaims,
 } from "./utils";
+import { assertOctKeyLength } from "./_crypto";
 
 // -----------------------------------------------------------------------------
 // JWKSet candidate filter — used by JWS verify + JWE decrypt (compact & multi).
@@ -110,10 +111,7 @@ export async function resolveSigningKey(
   usage: "sign" | "verify",
 ): Promise<CryptoKey> {
   if (key instanceof Uint8Array) {
-    const minBytes = Number.parseInt(alg.slice(2), 10) / 8;
-    if (key.length < minBytes) {
-      throw new JWTError(`${alg} requires a key of at least ${minBytes} bytes`, "ERR_JWK_INVALID");
-    }
+    assertOctKeyLength(key, alg);
     return crypto.subtle.importKey(
       "raw",
       key,

@@ -373,6 +373,59 @@ describe.concurrent("JWK Utilities", () => {
       expect(key.extractable).toBe(true);
     });
 
+    describe("oct key length validation", () => {
+      const shortK = base64UrlEncode(secureRandomBytes(8));
+
+      it("rejects an undersized HS256 key (RFC 7518 §3.2)", async () => {
+        await expect(importKey({ kty: "oct", k: shortK, alg: "HS256" })).rejects.toThrow(
+          "HS256 requires a key of at least 32 bytes",
+        );
+      });
+
+      it("accepts an HS256 key at the minimum size", async () => {
+        const k = base64UrlEncode(secureRandomBytes(32));
+        const bytes = await importKey({ kty: "oct", k, alg: "HS256" });
+        expect(bytes).toBeInstanceOf(Uint8Array);
+      });
+
+      it("rejects a wrong-size A128KW key", async () => {
+        await expect(importKey({ kty: "oct", k: shortK, alg: "A128KW" })).rejects.toThrow(
+          "A128KW requires a key of exactly 16 bytes",
+        );
+      });
+
+      it("rejects a wrong-size A256GCMKW key", async () => {
+        await expect(importKey({ kty: "oct", k: shortK, alg: "A256GCMKW" })).rejects.toThrow(
+          "A256GCMKW requires a key of exactly 32 bytes",
+        );
+      });
+
+      it("rejects a wrong-size composite A256CBC-HS512 key", async () => {
+        await expect(importKey({ kty: "oct", k: shortK, alg: "A256CBC-HS512" })).rejects.toThrow(
+          "A256CBC-HS512 requires a key of exactly 64 bytes",
+        );
+      });
+
+      it("rejects an undersized HMAC key via asCryptoKey", async () => {
+        await expect(
+          importKey(
+            { kty: "oct", k: shortK },
+            {
+              asCryptoKey: true,
+              algorithm: { name: "HMAC", hash: "SHA-256" },
+              usage: ["sign", "verify"],
+            },
+          ),
+        ).rejects.toThrow("HMAC with SHA-256 requires a key of at least 32 bytes");
+      });
+
+      it("skips validation when no alg is present", async () => {
+        const bytes = await importKey({ kty: "oct", k: shortK });
+        expect(bytes).toBeInstanceOf(Uint8Array);
+        expect((bytes as Uint8Array).length).toBe(8);
+      });
+    });
+
     describe("expect option", () => {
       it("rejects a private JWK when expect is 'public'", async () => {
         const { privateKey } = await generateJWK("ES256");

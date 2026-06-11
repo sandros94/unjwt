@@ -70,6 +70,12 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
 - Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`)
 
+`oct` key lengths are validated against the JWK's `alg` (or the positional hint) at import:
+HS\* require at least the hash output size (32/48/64 bytes, RFC 7518 §3.2); A\*KW, A\*GCMKW,
+A\*GCM, and A\*CBC-HS\* require their exact key size. `asCryptoKey` with an HMAC `algorithm`
+enforces the same minimum. Throws `ERR_JWK_INVALID`; algorithms whose key size cannot be known
+from `alg` alone (e.g. `"dir"`, absent `alg`) are not checked.
+
 #### `expect` option
 
 Pass `{ expect: "public" | "private" }` to validate the caller's intent against the key's

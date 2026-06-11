@@ -1,6 +1,7 @@
 import { base64UrlEncode } from "unsecure/utils";
 
 import { concatUint8Arrays, isCryptoKey } from "../utils";
+import { JWTError } from "../error";
 
 // --- CEK / IV generation ---
 
@@ -60,6 +61,32 @@ export function checkCEKLength(cek: Uint8Array<ArrayBuffer>, expected: number): 
   if (actual !== expected) {
     throw new Error(
       `Invalid Content Encryption Key length. Expected ${expected} bits, got ${actual} bits`,
+    );
+  }
+}
+
+// RFC 7518 §3.2: HMAC keys must be at least the hash output size; AES-based
+// algorithms require an exact key size. Algorithms whose key size cannot be
+// known from `alg` alone (e.g. "dir", absent alg) are skipped.
+export function assertOctKeyLength(bytes: Uint8Array, alg: string | undefined): void {
+  if (!alg) return;
+  if (alg === "HS256" || alg === "HS384" || alg === "HS512") {
+    const minBytes = Number.parseInt(alg.slice(2), 10) >> 3;
+    if (bytes.length < minBytes) {
+      throw new JWTError(
+        `${alg} requires a key of at least ${minBytes} bytes (got ${bytes.length})`,
+        "ERR_JWK_INVALID",
+      );
+    }
+    return;
+  }
+  const exactBits = /^A(128|192|256)(GCM)?KW$/.test(alg)
+    ? Number.parseInt(alg.slice(1, 4), 10)
+    : CEK_BIT_LENGTHS[alg];
+  if (exactBits !== undefined && bytes.length << 3 !== exactBits) {
+    throw new JWTError(
+      `${alg} requires a key of exactly ${exactBits >> 3} bytes (got ${bytes.length})`,
+      "ERR_JWK_INVALID",
     );
   }
 }

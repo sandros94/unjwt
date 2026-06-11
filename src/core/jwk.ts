@@ -37,6 +37,7 @@ import {
   jwkTokey,
   keyToJWK,
   bitLengthCEK,
+  assertOctKeyLength,
   deriveKeyPBES2,
   pbes2Wrap,
   pbes2Unwrap,
@@ -449,6 +450,7 @@ export async function importKey(
   if (isJWK(key)) {
     if ("k" in key && typeof key.k === "string") {
       const rawBytes = base64UrlDecode(key.k as string, { returnAs: "uint8array" });
+      assertOctKeyLength(rawBytes, key.alg || alg);
       if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
         const { algorithm, usage, extractable = false } = algOrOptions;
         if (!algorithm || !usage) {
@@ -456,6 +458,17 @@ export async function importKey(
             "asCryptoKey option requires `algorithm` and `usage` to be provided.",
             "ERR_JWK_INVALID",
           );
+        }
+        if (typeof algorithm === "object" && algorithm.name === "HMAC") {
+          const hash = (algorithm as HmacImportParams).hash;
+          const hashName = typeof hash === "string" ? hash : hash?.name;
+          const minBytes = Number.parseInt(hashName?.slice(-3) ?? "", 10) / 8;
+          if (minBytes && rawBytes.length < minBytes) {
+            throw new JWTError(
+              `HMAC with ${hashName} requires a key of at least ${minBytes} bytes (got ${rawBytes.length})`,
+              "ERR_JWK_INVALID",
+            );
+          }
         }
         return crypto.subtle.importKey("raw", rawBytes, algorithm, extractable, usage);
       }

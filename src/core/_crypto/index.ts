@@ -18,6 +18,7 @@ export {
   gcmkwDecrypt,
   aesKwWrap,
   aesKwUnwrap,
+  assertOctKeyLength,
 } from "./_aes";
 export { encryptKey, normalizeKey } from "./_key-encryption";
 export { jwkTokey, keyToJWK } from "./_key-codec";
