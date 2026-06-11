@@ -204,7 +204,15 @@ export type UnwrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_R
 
 /** Options for the wrapKey function. */
 export interface WrapKeyOptions {
-  /** Initialization Vector for AES-GCMKW. Generated if not provided. */
+  /**
+   * Initialization Vector for AES-GCMKW. A fresh random IV is generated when
+   * not provided — production code should always omit this option.
+   *
+   * **Never reuse an IV and never derive it from external input.** A single
+   * IV reused under the same wrapping key breaks AES-GCM entirely (plaintext
+   * recovery and forgery). Provided only for tests and reproduction of known
+   * vectors in security research.
+   */
   iv?: Uint8Array<ArrayBuffer>;
   /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
   p2s?: Uint8Array<ArrayBuffer>;

@@ -119,7 +119,9 @@ Wraps a Content Encryption Key using the specified key management algorithm.
 - `keyToWrap: CryptoKey | Uint8Array`
 - `wrappingKey: CryptoKey | JWK | string | Uint8Array` — string/Uint8Array only for PBES2
 - `options?: WrapKeyOptions`
-  - `iv?` — AES-GCMKW initialization vector
+  - `iv?` — AES-GCMKW initialization vector; auto-generated when omitted (always omit in
+    production — reusing an IV under the same key breaks AES-GCM; intended only for tests
+    and known-vector reproduction, never derive it from external input)
   - `p2s?`, `p2c?` — PBES2 salt and iteration count
   - `ecdh?` — ECDH-ES options:
     - `ephemeralKey?` — custom ephemeral key (CryptoKeyPair, JWK_EC_Private, etc.); generated automatically if omitted
