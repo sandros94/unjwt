@@ -7,6 +7,7 @@
 import type { CookieSerializeOptions } from "cookie-esv1";
 import { type H3Event, isEvent, setCookie } from "h3v1";
 import { parse as parseCookies } from "cookie-esv1";
+import { sanitizeObjectCopy } from "unsecure/sanitize";
 import type {
   ExpiresIn,
   JWKSet,
@@ -423,11 +424,13 @@ export async function updateJWSSession<
       token: string;
     }) || (await getJWSSession(event, config));
 
+  // Snapshot before the updater runs, with a deep copy of `data`, so
+  // `oldSession` is a true "before" state for hook diffing and rollback.
+  const oldSession = { ...session, data: sanitizeObjectCopy(session.data) };
+
   if (typeof update === "function") {
     update = update(session.data);
   }
-
-  const oldSession = { ...session, data: { ...session.data } };
 
   if (update) {
     Object.assign(session.data, update);
@@ -452,6 +455,7 @@ export async function updateJWSSession<
       id: oldSession.id,
       createdAt: oldSession.createdAt,
       expiresAt: oldSession.expiresAt,
+      data: oldSession.data,
     });
     session.token = oldSession.token;
     await config.hooks?.onError?.({ session, event, error: error_, config });
@@ -613,7 +617,7 @@ export async function clearJWSSession<
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];
   }
-  const oldSession = session ? { ...session, data: { ...session.data } } : undefined;
+  const oldSession = session ? { ...session, data: sanitizeObjectCopy(session.data) } : undefined;
 
   if (event.context.sessions?.[sessionName]) {
     delete event.context.sessions[sessionName];

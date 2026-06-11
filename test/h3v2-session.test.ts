@@ -795,6 +795,100 @@ describe("adapter h3 v2", () => {
       expect(body.token).toBe(updates[1]!.token);
     });
 
+    it("JWS onUpdate: oldSession.data is a deep pre-update snapshot", async () => {
+      const snapshots: Array<{ oldRole: string | undefined; newRole: string | undefined }> = [];
+
+      const config: SessionConfigJWS = {
+        name: "h3-jws-deep-snapshot",
+        key: jwsOctKey,
+        hooks: {
+          onUpdate: vi.fn(({ session, oldSession }) => {
+            snapshots.push({
+              oldRole: (oldSession.data as any).user?.role,
+              newRole: (session.data as any).user?.role,
+            });
+          }),
+        },
+      };
+
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, config);
+        await session.update({ user: { role: "user" } });
+        // Mutate a nested object in place via the updater function — a shallow
+        // snapshot (or one taken after the updater ran) would already see "admin".
+        await session.update((data) => {
+          (data as any).user.role = "admin";
+          return {};
+        });
+        return {};
+      });
+
+      await localApp.request("/");
+
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[1]!.oldRole).toBe("user");
+      expect(snapshots[1]!.newRole).toBe("admin");
+    });
+
+    it("JWS update failure rolls back session.data (no split state)", async () => {
+      const onError = vi.fn();
+      const config: SessionConfigJWS = {
+        name: "h3-jws-data-rollback",
+        key: jwsOctKey,
+        hooks: { onError },
+      };
+
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, config);
+        await session.update({ user: { role: "user" } });
+        try {
+          // BigInt is not JSON-serializable — signing the new payload throws.
+          await session.update({ big: 1n });
+        } catch {}
+        return {
+          role: (session.data as any).user.role,
+          hasBig: "big" in session.data,
+        };
+      });
+
+      const body = await (await localApp.request("/")).json();
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(body.role).toBe("user");
+      expect(body.hasBig).toBe(false);
+      expect("big" in onError.mock.calls[0]![0].session.data).toBe(false);
+    });
+
+    it("JWE update failure rolls back session.data (no split state)", async () => {
+      const onError = vi.fn();
+      const config: SessionConfigJWE = {
+        name: "h3-jwe-data-rollback",
+        key: jweOctKey,
+        hooks: { onError },
+      };
+
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWESession(event, config);
+        await session.update({ user: { role: "user" } });
+        try {
+          await session.update({ big: 1n });
+        } catch {}
+        return {
+          role: (session.data as any).user.role,
+          hasBig: "big" in session.data,
+        };
+      });
+
+      const body = await (await localApp.request("/")).json();
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(body.role).toBe("user");
+      expect(body.hasBig).toBe(false);
+    });
+
     it("JWS onClear receives the token and fires even with cookie:false", async () => {
       let clearedToken: string | undefined;
 
