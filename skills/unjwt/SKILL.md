@@ -4,7 +4,7 @@ description: "Expert knowledge for working with unjwt — a low-level, zero-dep,
 metadata:
   version: 0.1.0
   library: unjwt
-  library-version: 0.7.0
+  library-version: 0.7.1
   org: sandros94
   documentation: https://github.com/sandros94/unjwt
 ---
@@ -17,7 +17,7 @@ Implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517).
 
 ## Quick orientation
 
-> **Skill written against `unjwt@0.7.0`.** APIs are stable within v0.7 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
+> **Skill written against `unjwt@0.7.1`.** APIs are stable within v0.7 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
 
 The following is a list of reference files:
 
