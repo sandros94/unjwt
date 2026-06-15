@@ -27,6 +27,10 @@ Peer dep: `h3`
   (JWE) in the session config: signing/sealing uses them, and verification/unsealing then
   accepts only those values. Without them, accepted algorithms are inferred from the key's
   metadata.
+- **Reserved claims.** `jti` and `iat` always overwrite same-named keys in the session
+  data. `exp` is written only when `maxAge` is set — with `maxAge` unset, an `exp` key in
+  the session data is carried into the token and becomes its actual expiry claim (useful
+  for per-session custom lifetimes; surprising if accidental).
 
 ## SessionManager Interface
 

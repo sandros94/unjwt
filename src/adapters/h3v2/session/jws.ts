@@ -139,8 +139,9 @@ export interface SessionConfigJWS<
       };
   /**
    * Session lifetime in seconds — sets `exp = iat + maxAge` in the token and
-   * drives the cookie expiry. Without it the token carries no `exp` and never
-   * expires cryptographically.
+   * drives the cookie expiry. Without it the library writes no `exp` — though
+   * an `exp` key in the session data is then carried into the token as its
+   * actual expiry claim.
    */
   maxAge?: MaxAge;
   /** Session name — drives the cookie name and the default session header. Default `"h3-jws"`. */
