@@ -91,6 +91,11 @@ describe("elysia chunked cookies — unit", () => {
     expect(readChunkedCookie(jar, "sess")).toBeUndefined();
   });
 
+  it("treats a marker with a non-digit suffix as malformed (not chunked)", () => {
+    const { jar } = makeJar({ sess: "__chunked__3x", "sess.1": "a" });
+    expect(readChunkedCookie(jar, "sess")).toBeUndefined();
+  });
+
   it("expires surplus chunks when re-writing with fewer (chunked → plain)", () => {
     const { jar, store } = makeJar();
     writeChunkedCookie(jar, "sess", "x".repeat(25), { chunkMaxLength: 10 }); // 3 chunks

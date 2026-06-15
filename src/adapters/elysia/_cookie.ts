@@ -96,8 +96,12 @@ function chunkName(name: string, index: number): string {
 
 function parseChunkCount(main: string | undefined): number {
   if (main === undefined || !main.startsWith(CHUNK_MARKER)) return 0;
-  const count = Number.parseInt(main.slice(CHUNK_MARKER.length), 10);
-  if (!Number.isInteger(count) || count < 1 || count > MAX_CHUNK_COUNT) return 0;
+  const suffix = main.slice(CHUNK_MARKER.length);
+  // Only a pure-digit suffix is a chunk marker, so a plain cookie value that merely
+  // starts with the marker text is not misread as chunked.
+  if (!/^\d+$/.test(suffix)) return 0;
+  const count = Number.parseInt(suffix, 10);
+  if (count < 1 || count > MAX_CHUNK_COUNT) return 0;
   return count;
 }
 
