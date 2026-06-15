@@ -143,7 +143,8 @@ export function jwsSession<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   K extends string = "session",
 >(
-  config: SessionConfigJWS<T, MaxAge> & { contextKey?: K },
+  config: SessionConfigJWS<T, MaxAge> &
+    (K extends "session" ? { contextKey?: K } : { contextKey: K }),
 ): SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`> {
   const contextKey = (config.contextKey ?? "session") as K;
   return new Elysia({ name: "unjwt/elysia-jws", seed: contextKey })
