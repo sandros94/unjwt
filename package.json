@@ -51,6 +51,10 @@
     "./adapters/h3v2": {
       "types": "./dist/adapters/h3v2/index.d.mts",
       "default": "./dist/adapters/h3v2/index.mjs"
+    },
+    "./adapters/elysia": {
+      "types": "./dist/adapters/elysia/index.d.mts",
+      "default": "./dist/adapters/elysia/index.mjs"
     }
   },
   "scripts": {
