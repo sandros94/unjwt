@@ -1,5 +1,11 @@
 import type { JWTClaims, ExpiresIn } from "../../../core/types";
 import type { StrictOmit } from "../../../core/utils/types";
+import type { ChunkableCookieJar } from "../_cookie";
+
+export interface SessionContext {
+  cookie: ChunkableCookieJar;
+  request: { headers: { get(name: string): string | null } };
+}
 
 export interface SessionClaims
   extends Required<Pick<JWTClaims, "jti" | "iat">>, StrictOmit<JWTClaims, "jti" | "iat"> {}

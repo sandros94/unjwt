@@ -51,6 +51,14 @@ security model, and stay testable in the existing vitest+Node CI without Bun.
 - **Per-request state: resolve closure.** No `context.sessions` map — the manager closes over its
   `SessionJWS`/`SessionJWE` state object, which `update`/`clear` mutate in place. Cleaner than h3's
   context store given Elysia's per-request `resolve`.
+- **Context provisioning (CRITICAL for Phase 3).** Elysia lazily provisions context fields
+  (`cookie`, etc.) by statically scanning each hook's source for property references. Passing an
+  opaque `ctx` into `createJWSSession`/`createJWESession` hides the `cookie` usage, so Elysia does
+  NOT provision `ctx.cookie` and it is `undefined` at runtime (verified under Node — throws "Cannot
+  read properties of undefined"). The plugin's `resolve` MUST destructure the needed fields so they
+  are provisioned, then pass a minimal context:
+  `resolve(async ({ cookie, request }) => ({ [key]: await createJWSSession({ cookie, request }, config) }))`.
+  This is also why `SessionContext` is intentionally minimal (`{ cookie, request }`).
 - **Phasing note:** hooks (vision Phase 4) are woven into the lifecycle and into the config type
   (`config.hooks` + the hook arg shapes reference the Elysia context), so Phases 2 and 4 are
   implemented together as one "session core" unit rather than sequentially.
