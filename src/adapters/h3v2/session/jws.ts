@@ -66,7 +66,11 @@ export interface SessionHooksJWS<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 > {
-  /** Fires when an incoming token was verified and the session established. */
+  /**
+   * Fires when an incoming token was verified and the session established.
+   * May fire more than once per request when `useJWSSession` is called
+   * concurrently in the same handler — dedupe via `session.id` if needed.
+   */
   onRead?: (args: {
     session: SessionJWS<T, MaxAge> & { id: string; token: string };
     event: TEvent;

@@ -63,7 +63,11 @@ export interface SessionHooksJWE<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
 > {
-  /** Fires when an incoming token was decrypted and the session established. */
+  /**
+   * Fires when an incoming token was decrypted and the session established.
+   * May fire more than once per request when `useJWESession` is called
+   * concurrently in the same handler — dedupe via `session.id` if needed.
+   */
   onRead?: (args: {
     session: SessionJWE<T, MaxAge> & { id: string; token: string };
     event: TEvent;
