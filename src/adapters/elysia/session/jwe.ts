@@ -8,7 +8,9 @@ import type {
   JWEHeaderParameters,
   JWTClaimValidationOptions,
 } from "../../../core/types";
+import { Elysia } from "elysia";
 import { encrypt, decrypt, isJWTError } from "../../../core/jwe";
+import { guardName, type SessionPlugin } from "../_plugin";
 import {
   isSymmetricJWK,
   isPrivateJWK,
@@ -132,6 +134,38 @@ export async function createJWESession<
   const state = emptySession<T, MaxAge>(config);
   await initFromToken(context, config, state);
   return buildManager(context, config, state);
+}
+
+export function jweSession<
+  T extends Record<string, any> = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  K extends string = "session",
+>(
+  config: SessionConfigJWE<T, MaxAge> & { contextKey?: K },
+): SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`> {
+  const contextKey = (config.contextKey ?? "session") as K;
+  return new Elysia({ name: "unjwt/elysia-jwe", seed: contextKey })
+    .resolve({ as: "scoped" }, async ({ cookie, request }) => {
+      const session = await createJWESession<T, MaxAge, SessionContext>(
+        { cookie, request },
+        config,
+      );
+      return { [contextKey]: session } as { [P in K]: SessionManager<T, MaxAge> };
+    })
+    .macro({
+      [guardName(contextKey)]: {
+        resolve(ctx) {
+          const session = (ctx as Record<string, unknown>)[contextKey] as
+            | SessionManager<T, MaxAge>
+            | undefined;
+          if (!session?.id) return ctx.status(401, "Unauthorized");
+          return {};
+        },
+      },
+    }) as unknown as SessionPlugin<
+    { [P in K]: SessionManager<T, MaxAge> },
+    `require${Capitalize<K>}`
+  >;
 }
 
 function buildManager<
