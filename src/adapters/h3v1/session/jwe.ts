@@ -145,7 +145,7 @@ export interface SessionConfigJWE<
   sessionHeader?: false | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
-  /** JWE encrypt/decrypt overrides. */
+  /** JWE encrypt/decrypt overrides. Set `encryptOptions.alg` and `enc` to pin the session algorithms — unsealing then accepts only them. */
   jwe?: {
     encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
     decryptOptions?: JWTClaimValidationOptions;

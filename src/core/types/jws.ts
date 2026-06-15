@@ -136,7 +136,12 @@ export interface JWSVerifyResult<T extends JOSEPayload = JOSEPayload> {
 
 /** Options for JWS verification */
 export interface JWSVerifyOptions extends JWTClaimValidationOptions {
-  /** List of allowed algorithms. If provided, the JWS `alg` must be in this list. */
+  /**
+   * List of allowed algorithms. If provided, the JWS `alg` must be in this list.
+   * When omitted, the allowlist is inferred from the key's shape — keys without
+   * usable metadata (raw `Uint8Array`/string, alg-less JWKs, lookup functions)
+   * cannot be inferred and require this option explicitly.
+   */
   algorithms?: JWSAlgorithm[];
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
   forceUint8Array?: boolean;

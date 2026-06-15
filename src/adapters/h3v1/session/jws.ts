@@ -148,7 +148,7 @@ export interface SessionConfigJWS<
   sessionHeader?: false | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
-  /** JWS sign/verify overrides. */
+  /** JWS sign/verify overrides. Set `signOptions.alg` to pin the session algorithm — verification then accepts only it. */
   jws?: {
     signOptions?: Omit<JWSSignOptions, "expiresIn">;
     verifyOptions?: JWTClaimValidationOptions;

@@ -220,7 +220,12 @@ export interface JWEEncryptOptions {
  * JWE (JSON Web Encryption) decryption options
  */
 export interface JWEDecryptOptions extends JWTClaimValidationOptions {
-  /** A list of allowed JWE "alg" (Algorithm) Header Parameter values for key management. */
+  /**
+   * A list of allowed JWE "alg" (Algorithm) Header Parameter values for key management.
+   * When omitted, the allowlist is inferred from the key's shape — password strings
+   * and raw `Uint8Array` keys infer the PBES2 family plus `dir`; lookup functions
+   * cannot be inferred and require this option explicitly.
+   */
   algorithms?: KeyManagementAlgorithm[];
   /** A list of allowed JWE "enc" (Encryption Algorithm) Header Parameter values for content encryption. */
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];

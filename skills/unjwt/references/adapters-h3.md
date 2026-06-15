@@ -21,6 +21,13 @@ Peer dep: `h3`
 | Key types       | Password string, symmetric JWK, asymmetric keypair | Symmetric JWK, asymmetric keypair              |
 | Use when        | Session data is sensitive                          | Data is non-sensitive, clients need to read it |
 
+## Security notes
+
+- **Pin algorithms.** Set `jws.signOptions.alg` (JWS) or `jwe.encryptOptions.alg` + `enc`
+  (JWE) in the session config: signing/sealing uses them, and verification/unsealing then
+  accepts only those values. Without them, accepted algorithms are inferred from the key's
+  metadata.
+
 ## SessionManager Interface
 
 Both `useJWESession` and `useJWSSession` return a `SessionManager`:
