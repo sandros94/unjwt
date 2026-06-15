@@ -63,6 +63,37 @@ security model, and stay testable in the existing vitest+Node CI without Bun.
   (`config.hooks` + the hook arg shapes reference the Elysia context), so Phases 2 and 4 are
   implemented together as one "session core" unit rather than sequentially.
 
+### Phase 3 design decisions (resolved during implementation)
+
+- **`isolatedDeclarations` vs Elysia plugin types.** The project sets `isolatedDeclarations: true`
+  (fast/portable `.d.ts`), which requires every exported function to have a hand-writable return
+  type. `jwsSession`/`jweSession` return `new Elysia().resolve().macro()` — a deeply-inferred type.
+  Resolved WITHOUT a tsconfig/build carve-out by writing the return type explicitly (shared
+  `SessionPlugin<Resolved, GuardName>` in `_plugin.ts`) against Elysia's 7 generics: the scoped
+  resolve augmentation goes in `Ephemeral.resolve` as `{ [P in K]: SessionManager }`, and the guard
+  in `Metadata.macro` as `{ [GuardName]?: boolean }`; the body is cast `as unknown as <that type>`.
+  This keeps `isolatedDeclarations` on for the whole library while giving consumers typed
+  `ctx[contextKey]` and a working `.guard({ requireSession: true })`. (`macroFn` is left `{}` — consumers
+  only need `Metadata.macro` for the route option. The macro slot must be **optional**
+  (`requireSession?`); a required key forces `requireSession` onto every route's hook options.)
+- **Guard macro name is derived from `contextKey`:** `require${Capitalize<contextKey>}` (default
+  `requireSession`, `contextKey: "shared"` → `requireShared`, etc.). Without this, multiple session
+  plugins on one app all register a hardcoded `requireSession` macro and Elysia silently keeps the
+  **last-registered** one (verified: a `session` cookie failed a guard that had been shadowed to
+  check `shared`). The runtime key is computed (`guardName()` helper), so the `.macro({ [key]: … })`
+  call relies on the `as unknown as SessionPlugin` return cast (Elysia's macro typing expects literal
+  keys); the consumer-facing type stays exact via the template-literal `GuardName`. The macro
+  `resolve` must use an **inferred** `ctx` param — an explicit annotation breaks the macro overload.
+- **Multi-session is supported and tested:** distinct `contextKey` AND `name` per plugin →
+  independent ambient sessions, cookies, and guards. JWS + JWE together works (e.g. access-JWS +
+  refresh-JWE), each keeping its own cookie defaults (`httpOnly:false` vs `true`).
+- **Plugin instance dedupe:** `new Elysia({ name: "unjwt/elysia-jws" | "unjwt/elysia-jwe", seed: contextKey })`.
+  Seeding by `contextKey` means multi-session apps with distinct keys produce distinct instances,
+  while two plugins on the same key dedupe (which is correct — they would collide on context).
+- **Plugin factories live with their cores** (`session/jws.ts`, `session/jwe.ts`), mirroring h3v2's
+  one-file-per-mode layout. This pulls `elysia` into those modules (expected for the adapter). The
+  shared plugin return type + `guardName()` helper live in `_plugin.ts`.
+
 ---
 
 ## H3 → Elysia mapping
@@ -162,24 +193,36 @@ layer must cast reads to `string` explicitly. Not a blocker.
 
 Each phase is thin enough that a wrong assumption invalidates at most the next phase.
 
-- **Phase 0 — Spike. ✓ DONE.** Validated the CI + plumbing story (see "Phase 0 spike" above);
-  `test/elysia-spike.test.ts` is the throwaway proof, to be deleted when Phase 5 lands real tests.
-  Output below was a go: confirmed `handle()`
-  test harness pattern.
-- **Phase 1 — Cookie chunking layer.** Self-contained read/reassemble + write/split + remove over
-  `context.cookie`, ported from the H3 chunk logic. Unit-tested in isolation (no session logic).
-  The second load-bearing unknown.
-- **Phase 2 — Session core.** Config types (`SessionConfigJWS`/`JWE`, mirroring H3), the
-  `resolve`-based session manager (`getJWSSession`/`getJWESession`), lazy `id`, `update`, `clear`,
-  reusing core sign/verify/encrypt/decrypt and the deep-clone snapshot/rollback. JWS and JWE.
-- **Phase 3 — Plugin + macro packaging.** `jwsSession(config)`/`jweSession(config)` factories
-  (named instances, scoped resolve attaching `ctx.session`) + `requireSession` guard macro
-  (→ `status(401)`).
-- **Phase 4 — Session hooks.** Wire `onRead`/`onUpdate`/`onClear`/`onExpire`/`onError` into the
-  Elysia lifecycle, reusing the H3 structured-error routing and mutual-exclusivity contract.
-- **Phase 5 — Tests, docs, packaging.** vitest+Node tests via `app.handle()`; export path
-  `unjwt/adapters/elysia` (+ `build.config.ts` entry, `package.json` exports, `elysia` peerDep);
-  skills reference + docs-site page; disambiguate "session hooks" vs Elysia "lifecycle hooks".
+> **Phase 4 (hooks) was absorbed into Phases 2+3.** The hook lifecycle is inseparable from the
+> session lifecycle and config type, so it shipped with the cores (init/update/clear hooks) and the
+> plugin (the guard reads the hook-populated session). There is no standalone Phase 4.
+
+- **Phase 0 — Spike. ✓ DONE.** Validated the CI + plumbing story (see "Phase 0 spike" above).
+  `test/elysia-spike.test.ts` was the throwaway proof; superseded by the real tests below.
+- **Phase 1 — Cookie chunking layer. ✓ DONE & COMMITTED.** `_cookie.ts` (read/reassemble,
+  write/split, remove) ported from H3's scheme; unit + real-Elysia integration tested.
+- **Phase 2 + 4 — Session core + hooks. ✓ DONE & COMMITTED.** `createJWSSession`/`createJWESession`
+  (`session/jws.ts`, `session/jwe.ts`) with closure state, lazy `id`, `update`/`clear`, full hook
+  lifecycle (onRead/onUpdate/onClear/onExpire/onError, mutual exclusivity, deep-clone rollback),
+  reusing core sign/verify/encrypt/decrypt + the chunking layer. JWS and JWE. Unit + integration tested.
+- **Phase 3 — Plugin factories + guard macro. ✓ DONE.** `jwsSession()`/`jweSession()` (scoped
+  resolve destructuring `{ cookie, request }`, inject under `contextKey`, explicit `SessionPlugin`
+  return type for `isolatedDeclarations`) + `requireSession` guard macro (→ `status(401)`) +
+  `index.ts` barrel. Real-server integration tested.
+- **Phase 5 — Packaging + docs.** Add `./src/adapters/elysia/index` to the **existing single
+  multi-input `bundle` entry** in `build.config.ts` (NOT a separate entry) + add `"elysia"` to
+  `rolldown.external` (peer dep, never bundled; no alias replacement — single Elysia major). Add the
+  `./adapters/elysia` `package.json` exports entry. Then skills reference + docs-site page
+  (disambiguate "session hooks" vs Elysia "lifecycle hooks"). Docs after the implementation is committed.
+
+  **Bundling note (no core duplication):** the build is one `type: "bundle"` with many `input`s, so
+  rolldown code-splits shared core into `dist/_chunks/*.mjs` (jwk/jws/jwe/utils/\_internal) and every
+  entry — core subpaths AND adapters — imports from those chunks. Core lives once. This is why
+  adapters must stay inputs of the _same_ bundle (separate bundle entries = separate rolldown builds
+  = duplicated core). Externalizing core to published `unjwt/*` specifiers was considered and
+  rejected: unnecessary for a single package with subpath exports, and adds self-referential
+  complexity. `unsecure` stays bundled (inlined → zero runtime deps); only true peer deps
+  (`elysia`, `h3`, `cookie-es`, `rou3`) are external.
 
 ---
 
