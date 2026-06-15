@@ -35,10 +35,10 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 ### Module structure (each is a separate export path)
 
 - `unjwt` — barrel re-export of `jws`, `jwe`, `jwk`, `utils` namespaces
-- `unjwt/jws` — `sign()`, `verify()` (JWS Compact Serialization)
-- `unjwt/jwe` — `encrypt()`, `decrypt()` (JWE Compact Serialization)
+- `unjwt/jws` — `sign()`, `verify()` (Compact) plus `signMulti()`/`verifyMulti()`/`verifyMultiAll()` (General/Flattened)
+- `unjwt/jwe` — `encrypt()`, `decrypt()` (Compact) plus `encryptMulti()`/`decryptMulti()` (General/Flattened)
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
-- `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), randomBytes
+- `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), `secureRandomBytes`
 - `unjwt/adapters/h3v1` and `unjwt/adapters/h3v2` — `useJWSSession()`, `useJWESession()` for cookie-based JWT sessions
 
 ### Source layout
@@ -47,12 +47,17 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 src/
   index.ts              # barrel: re-exports core modules as namespaces
   core/
-    jws.ts              # sign/verify implementation
-    jwe.ts              # encrypt/decrypt implementation
+    jws.ts              # sign/verify (compact); re-exports the multi-recipient API
+    jwe.ts              # encrypt/decrypt (compact); re-exports the multi-recipient API
+    jws-multi.ts        # signMulti/verifyMulti/verifyMultiAll (General/Flattened JWS)
+    jwe-multi.ts        # encryptMulti/decryptMulti (General/Flattened JWE)
     jwk.ts              # key management (generateKey, importKey, exportKey, wrapKey, unwrapKey, PEM conversion)
+    _internal.ts        # shared signing-key resolver + JWKSet candidate filter for jws/jwe
+    error.ts            # JWTError class + error codes (ERR_JWT_EXPIRED, …)
     types/              # TypeScript types for JWK, JWS, JWE, JWT
     utils/              # encoding, type guards, JWT claim validation, sanitization
-    jose/               # low-level crypto primitives forked from panva/jose (sign-verify, encrypt-decrypt, key conversion, ECDH, PBES2, RSA, AES-GCM KW, ASN.1)
+    _crypto/            # low-level crypto primitives — independently-maintained fork of panva/jose
+                        # (_sign-verify, _aes, _ecdh, _pbes2, _rsa, _key-codec, _key-encryption, _pem)
   adapters/
     h3v1/               # H3 v1 session adapter (useJWSSession, useJWESession)
     h3v2/               # H3 v2 session adapter (same API, different h3 import)
@@ -61,7 +66,8 @@ src/
 ### Key design patterns
 
 - **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. Cookie-es similarly as `cookie-esv1`/`cookie-esv3`. The build config (`build.config.ts`) replaces these aliases with the real package names (`h3`, `cookie-es`) in dist output.
-- **`src/core/jose/`** is an internal fork of [`panva/jose`](https://github.com/panva/jose) primitives — excluded from test coverage. Do not add tests for files in this directory.
+- **`src/core/_crypto/`** is an internal, independently-maintained fork of [`panva/jose`](https://github.com/panva/jose) primitives — excluded from test coverage. Do not add tests for files in this directory.
+- **Bundled `unsecure` dependency:** core imports primitives from [`unsecure`](https://github.com/sandros94/unsecure) (`base64UrlEncode`/`base64UrlDecode`, `secureRandomBytes`, `sanitizeObjectCopy`/`safeJsonParse`). It is a devDependency inlined into dist at build time (not marked external in `build.config.ts`), so the published package keeps zero runtime dependencies.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
 - **Session adapters** store JWT tokens in chunked cookies (via h3's `getChunkedCookie`/`setChunkedCookie`). Sessions are lazy — `id` is `undefined` until `session.update()` is called.
@@ -69,11 +75,12 @@ src/
 ## Testing conventions
 
 - **No dynamic imports in tests.** Do not use `await import(...)` inside `it()`/`describe()` blocks. All module imports must be static top-level `import` statements. Dynamic imports defeat tree-shaking, make the module graph opaque to the type checker (inferred `any` types instead of the real ones), hide missing-import errors until runtime, and slow down vitest's transform phase. The only legitimate reasons to use a dynamic import in a test are (a) testing actual code-splitting / lazy-loading behaviour or (b) resetting module state between tests with `vi.resetModules()` — neither applies here. If an identifier is needed in a newly written test and it is not yet in the static imports, add it there instead.
-- **No tests for `src/core/jose/`** — that directory is an internal fork of panva/jose and is excluded from coverage (at the time of writing).
+- **No tests for `src/core/_crypto/`** — that directory is an internal fork of panva/jose and is excluded from coverage (at the time of writing).
 
-## Known issues & long-term vision
+## Planning & design docs
 
-- **`.agents/vision/adapters-hooks.md`** — full analysis and fix tracker for the h3 adapter `SessionHooks` interfaces. **Read this before touching any hook callsite or interface in `src/adapters/`.**
+- **`.agents/vision/`** — working space for drafting **new** features before implementation. Empty when no design is in flight; it is not a historical archive — completed designs live in the code and git history.
+- **`.agents/TODO.md`** — deferred backlog (e.g. deprecated-alias removals slated for a future major version).
 
 ## Code Conventions
 
