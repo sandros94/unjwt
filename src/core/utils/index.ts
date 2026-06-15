@@ -83,6 +83,11 @@ export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
 /**
  * Returns true if the JWK is a symmetric (oct) key.
  *
+ * NOTE: a symmetric JWK's `k` is always secret key material. {@link isPrivateJWK}
+ * returns `false` for `oct` keys (it only detects asymmetric `d`), so use this
+ * guard — not `!isPrivateJWK(key)` — when deciding whether a JWK is safe to
+ * publish.
+ *
  * The `T` inference preserves the caller's narrowed alg type — passing a
  * `JWK_oct<"HS256">` refines to `JWK_oct<"HS256">`, not `JWK_oct<string>`.
  */
@@ -106,8 +111,15 @@ export function isAsymmetricJWK(key: any): boolean {
 }
 
 /**
- * Type guard that checks if the provided JWK contains private key material.
- * It relies purely on the presence of private components (e.g. "d"), not on the alg value.
+ * Type guard that checks if the provided JWK contains *asymmetric* private key
+ * material. It relies purely on the presence of private components (e.g. "d"),
+ * not on the alg value.
+ *
+ * WARNING: this returns `false` for symmetric (`oct`) keys — their `k` is secret
+ * material too, but it is not a `d` component. `!isPrivateJWK(key)` is therefore
+ * NOT a "safe to share" check: it passes every `oct` key. To filter keys that
+ * are safe to publish, use {@link isPublicJWK} (true only for asymmetric public
+ * keys); to detect any secret material, combine with {@link isSymmetricJWK}.
  *
  * Preserves narrow alg types from the caller.
  */
@@ -130,8 +142,9 @@ export function isPrivateJWK(key: any): boolean {
 }
 
 /**
- * Type guard that checks if the provided JWK is a public (asymmetric) key.
- * This checks for the presence of public components and absence of private material.
+ * Type guard that checks if the provided JWK is a public (asymmetric) key:
+ * public components present, no private `d`. Returns `false` for `oct` keys
+ * (which are always secret), making it the correct "safe to publish" predicate.
  *
  * Preserves narrow alg types from the caller.
  */

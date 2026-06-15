@@ -36,6 +36,12 @@ PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriv
 
 To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` instead of `toJWK: true`.
 
+> **Extractability.** Generated keys default to `extractable: true` (the JWK-first model needs
+> export). For long-lived asymmetric private keys that should never leave the runtime — a
+> signing key held in a server process — generate a `CryptoKey` with `extractable: false`
+> (omit `toJWK`, which forces extractable). The key still signs/decrypts via Web Crypto, but
+> its material can no longer be exported, so a compromised process cannot exfiltrate it.
+
 ### `generateJWK(alg, options?)`
 
 Always returns JWK format with a `kid` (auto-generated via `crypto.randomUUID()` when not supplied).

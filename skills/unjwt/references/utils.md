@@ -47,17 +47,22 @@ Concatenates multiple `Uint8Array<ArrayBuffer>` instances into one contiguous bu
 
 ## Type Guards
 
-| Function               | Returns                 | Checks                                            |
-| ---------------------- | ----------------------- | ------------------------------------------------- |
-| `isJWK(key)`           | `key is JWK`            | Valid JWK structure with `kty`                    |
-| `isJWKSet(key)`        | `key is JWKSet`         | Object with `keys` array                          |
-| `isCryptoKey(key)`     | `key is CryptoKey`      | CryptoKey instance                                |
-| `isCryptoKeyPair(key)` | `key is CryptoKeyPair`  | Object with `publicKey` + `privateKey` CryptoKeys |
-| `isSymmetricJWK(key)`  | `key is JWK_oct`        | JWK with `kty: "oct"` and `k` property            |
-| `isAsymmetricJWK(key)` | `key is JWK_Asymmetric` | JWK that is not `oct`                             |
-| `isPrivateJWK(key)`    | `key is JWK_Private`    | Asymmetric JWK with `d` component                 |
-| `isPublicJWK(key)`     | `key is JWK_Public`     | Asymmetric JWK without `d` component              |
-| `assertCryptoKey(key)` | assertion               | Throws if not CryptoKey                           |
+| Function               | Returns                 | Checks                                                  |
+| ---------------------- | ----------------------- | ------------------------------------------------------- |
+| `isJWK(key)`           | `key is JWK`            | Valid JWK structure with `kty`                          |
+| `isJWKSet(key)`        | `key is JWKSet`         | Object with `keys` array                                |
+| `isCryptoKey(key)`     | `key is CryptoKey`      | CryptoKey instance                                      |
+| `isCryptoKeyPair(key)` | `key is CryptoKeyPair`  | Object with `publicKey` + `privateKey` CryptoKeys       |
+| `isSymmetricJWK(key)`  | `key is JWK_oct`        | JWK with `kty: "oct"` and `k` property                  |
+| `isAsymmetricJWK(key)` | `key is JWK_Asymmetric` | JWK that is not `oct`                                   |
+| `isPrivateJWK(key)`    | `key is JWK_Private`    | **Asymmetric** JWK with `d` (returns `false` for `oct`) |
+| `isPublicJWK(key)`     | `key is JWK_Public`     | Asymmetric JWK without `d` component                    |
+| `assertCryptoKey(key)` | assertion               | Throws if not CryptoKey                                 |
+
+> **Sharing keys safely.** `!isPrivateJWK(key)` is _not_ a "safe to publish" check —
+> `isPrivateJWK` only detects asymmetric `d`, so it returns `false` for every `oct` key,
+> whose `k` is always secret. Use `isPublicJWK(key)` (true only for asymmetric public keys)
+> to filter keys that are safe to share; treat any `isSymmetricJWK(key)` as secret.
 
 ## JWT Utilities
 

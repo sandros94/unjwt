@@ -75,7 +75,12 @@ export type GenerateKeyAlgorithm = Exclude<JWKAlgorithm, "none" | "dir" | JWK_PB
 export interface GenerateKeyOptions {
   /** Key usages for the generated key(s). Note: For composite keys (CBC), default usages are applied separately. */
   keyUsage?: KeyUsage[];
-  /** Mark the key(s) as extractable. Defaults to true. Ignored when `toJWK` is set — the JWK output requires exporting the intermediate key. */
+  /**
+   * Mark the key(s) as extractable. Defaults to true. Ignored when `toJWK` is set —
+   * the JWK output requires exporting the intermediate key. For long-lived asymmetric
+   * private keys that should never leave the runtime, prefer `false` (and omit `toJWK`):
+   * the key still signs/decrypts but its material cannot be exported.
+   */
   extractable?: boolean;
   /** RSA modulus length. Defaults to 2048. */
   modulusLength?: number;
