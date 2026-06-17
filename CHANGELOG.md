@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.7.2
+
+[compare changes](https://github.com/sandros94/unjwt/compare/v0.7.1...v0.7.2)
+
+### 🚀 Enhancements
+
+- **adapters:** Elysia ([#14](https://github.com/sandros94/unjwt/pull/14))
+
+### 🩹 Fixes
+
+- Remove unusable extractable option from importPEM ([ac8a67c](https://github.com/sandros94/unjwt/commit/ac8a67c))
+- Resolve extractable/toJWK conflicts in key generation and derivation ([290911b](https://github.com/sandros94/unjwt/commit/290911b))
+- Validate oct key length on import ([0d0a6c6](https://github.com/sandros94/unjwt/commit/0d0a6c6))
+- **adapters:** Deep-copy session snapshot and roll back data on failed update ([d1daa1a](https://github.com/sandros94/unjwt/commit/d1daa1a))
+- **adapters:** Export `getJWSSessionToken` from both adapters ([ea703c2](https://github.com/sandros94/unjwt/commit/ea703c2))
+
+### 📖 Documentation
+
+- Update with new dynamic JWKs type ([21c3b97](https://github.com/sandros94/unjwt/commit/21c3b97))
+- Warn against caller-supplied `IV` in `wrapKey` ([e2788d5](https://github.com/sandros94/unjwt/commit/e2788d5))
+- **adapters:** Align h3v1/h3v2 session JSDoc ([9e5c892](https://github.com/sandros94/unjwt/commit/9e5c892))
+- **adapters:** Improve session interfaces JSDocs ([8c78d14](https://github.com/sandros94/unjwt/commit/8c78d14))
+- Improve algorithm option description ([f0847e9](https://github.com/sandros94/unjwt/commit/f0847e9))
+- **adapters:** Improve exp+iat claims descriptions ([a2a6b03](https://github.com/sandros94/unjwt/commit/a2a6b03))
+- Clarify key representations, sharing guards, and extractability ([647f419](https://github.com/sandros94/unjwt/commit/647f419))
+- **adapters:** Add description for `onRead` triggering multiple times if used more than once in the same request (like middleware first then handler) ([f8aac72](https://github.com/sandros94/unjwt/commit/f8aac72))
+
+### 🏡 Chore
+
+- Update h3 v2 dep ([2143469](https://github.com/sandros94/unjwt/commit/2143469))
+- Update fmt, lint and rolldown ([6b3fe17](https://github.com/sandros94/unjwt/commit/6b3fe17))
+- Update deps ([3baa1c2](https://github.com/sandros94/unjwt/commit/3baa1c2))
+- Update docs deps ([9429943](https://github.com/sandros94/unjwt/commit/9429943))
+- Udpate agents docs ([2fe1758](https://github.com/sandros94/unjwt/commit/2fe1758))
+- Update unjwt version in related `SKILL.md` ([f00b13f](https://github.com/sandros94/unjwt/commit/f00b13f))
+- Bump lib versioon in SKILL ([e1cd551](https://github.com/sandros94/unjwt/commit/e1cd551))
+
+### ❤️ Contributors
+
+- Sandro Circi ([@sandros94](https://github.com/sandros94))
+
 ## v0.7.1
 
 [compare changes](https://github.com/sandros94/unjwt/compare/v0.7.0...v0.7.1)
