@@ -40,6 +40,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
 - `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), `secureRandomBytes`
 - `unjwt/adapters/h3v1` and `unjwt/adapters/h3v2` — `useJWSSession()`, `useJWESession()` for cookie-based JWT sessions
+- `unjwt/adapters/elysia` — `jwsSession()`/`jweSession()` Elysia plugins (ambient `ctx.session`, `requireSession` guard macro) + `createJWSSession()`/`createJWESession()` lower-level
 
 ### Source layout
 
@@ -61,11 +62,16 @@ src/
   adapters/
     h3v1/               # H3 v1 session adapter (useJWSSession, useJWESession)
     h3v2/               # H3 v2 session adapter (same API, different h3 import)
+    elysia/             # Elysia session adapter
+      _cookie.ts        # chunked-cookie layer over Elysia's reactive cookie jar
+      _plugin.ts        # SessionPlugin<> explicit return type + guardName() helper
+      session/          # createJWSSession/createJWESession cores, jwsSession/jweSession plugins, shared types
 ```
 
 ### Key design patterns
 
-- **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. Cookie-es similarly as `cookie-esv1`/`cookie-esv3`. The build config (`build.config.ts`) replaces these aliases with the real package names (`h3`, `cookie-es`) in dist output.
+- **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. Cookie-es similarly as `cookie-esv1`/`cookie-esv3`. The build config (`build.config.ts`) replaces these aliases with the real package names (`h3`, `cookie-es`) in dist output. `elysia` has no dual-version aliasing (single major) — it's a plain optional peer dep, marked `external` in the build.
+- **Single multi-input bundle:** all entry points (core subpaths + every adapter) are `input`s of one `type: "bundle"` in `build.config.ts`, so rolldown code-splits shared core into `dist/_chunks/*` (no per-adapter duplication). Adding an adapter = add its `index` input + any peer dep to `external`. `unsecure` stays bundled (inlined → zero runtime deps).
 - **`src/core/_crypto/`** is an internal, independently-maintained fork of [`panva/jose`](https://github.com/panva/jose) primitives — excluded from test coverage. Do not add tests for files in this directory.
 - **Bundled `unsecure` dependency:** core imports primitives from [`unsecure`](https://github.com/sandros94/unsecure) (`base64UrlEncode`/`base64UrlDecode`, `secureRandomBytes`, `sanitizeObjectCopy`/`safeJsonParse`). It is a devDependency inlined into dist at build time (not marked external in `build.config.ts`), so the published package keeps zero runtime dependencies.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.

@@ -26,19 +26,21 @@ The following is a list of reference files:
 - `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`; `importFromPEM`, `exportToPEM` are deprecated aliases), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`, `getJWKFromSet` — deprecated), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
 - `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `secureRandomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
 - `references/adapters-h3.md`: H3 session adapters (v1 and v2), `useJWESession`, `useJWSSession`, `SessionManager` interface, `SessionConfigJWE`, `SessionConfigJWS`, lifecycle hooks (`onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`), key lookup hooks (`onUnsealKeyLookup`, `onVerifyKeyLookup`), lower-level functions, cookie chunking (v2), header-based tokens, refresh token pattern
+- `references/adapters-elysia.md`: Elysia session adapter, `jwsSession`/`jweSession` plugins, ambient `ctx[contextKey]`, `requireSession` guard macro (derived per `contextKey`), multiple sessions (access JWS + refresh JWE), `createJWSSession`/`createJWESession` lower-level, `SessionConfigJWS`/`SessionConfigJWE`, lifecycle hooks (`context` not `event`), cookie chunking, header tokens, `isolatedDeclarations` plugin typing
 
 ## Export Paths
 
-| Path                  | Purpose                                                                                              |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
-| `unjwt`               | Flat barrel: all public functions and types from `jws`, `jwe`, `jwk`, `utils`                        |
-| `unjwt/jws`           | `sign()`, `verify()` (Compact) — `signMulti()`, `verifyMulti()` (General JSON Serialization)         |
-| `unjwt/jwe`           | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
-| `unjwt/jwk`           | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                       |
-| `unjwt/utils`         | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`                      |
-| `unjwt/adapters/h3`   | H3 session adapter (aliases h3v1)                                                                    |
-| `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2)                                                            |
-| `unjwt/adapters/h3v2` | H3 v2 session adapter (Nuxt v5, Nitro v3)                                                            |
+| Path                    | Purpose                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `unjwt`                 | Flat barrel: all public functions and types from `jws`, `jwe`, `jwk`, `utils`                        |
+| `unjwt/jws`             | `sign()`, `verify()` (Compact) — `signMulti()`, `verifyMulti()` (General JSON Serialization)         |
+| `unjwt/jwe`             | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
+| `unjwt/jwk`             | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                       |
+| `unjwt/utils`           | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`                      |
+| `unjwt/adapters/h3`     | H3 session adapter (aliases h3v1)                                                                    |
+| `unjwt/adapters/h3v1`   | H3 v1 session adapter (Nuxt v4, Nitro v2)                                                            |
+| `unjwt/adapters/h3v2`   | H3 v2 session adapter (Nuxt v5, Nitro v3)                                                            |
+| `unjwt/adapters/elysia` | Elysia session adapter — `jwsSession`/`jweSession` plugins (`>=1.4.0`)                               |
 
 ## Quick Start
 
