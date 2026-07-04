@@ -123,7 +123,7 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "10.33.1",
+      "version": "11.9.0",
       "onFail": "download"
     },
     "runtime": {
