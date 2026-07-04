@@ -1127,7 +1127,7 @@ describe.concurrent("JWK Utilities", () => {
         { kty: "oct", kid: "key-1", alg: "HS256", k: "abc" },
         { kty: "oct", kid: "key-2", alg: "HS384", k: "def" },
       ],
-    };
+    } satisfies JWKSet;
 
     it("should throw for invalid JWK Set", () => {
       // @ts-expect-error intentionally invalid JWK set
@@ -1170,7 +1170,9 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("should return the only key when set has one key and no kid in header", () => {
-      const singleKeySet = { keys: [{ kty: "oct", kid: "only", alg: "HS256", k: "abc" }] };
+      const singleKeySet = {
+        keys: [{ kty: "oct", kid: "only", alg: "HS256", k: "abc" }],
+      } satisfies JWKSet;
       const key = getJWKFromSet(singleKeySet, { alg: "HS256" });
       expect(key.kid).toBe("only");
     });

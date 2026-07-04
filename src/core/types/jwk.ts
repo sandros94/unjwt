@@ -474,6 +474,8 @@ export interface JWK_oct<
     | "dir"
     | (string & {}) = string,
 > extends JWKParameters<Alg> {
+  /** Oct JWK "kty" (Key Type) Parameter */
+  kty: "oct";
   /** Oct JWK "k" (Key Value) Parameter */
   k: string;
 }
