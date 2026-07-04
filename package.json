@@ -59,13 +59,13 @@
   },
   "scripts": {
     "build": "obuild",
+    "stub": "obuild --stub",
     "dev": "bun --watch ./playground/main.ts",
     "dev:prepare": "obuild --stub && pnpm simple-git-hooks",
     "lint": "oxlint . && oxfmt --check .",
     "fmt": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",
     "release": "pnpm test && pnpm prepack && changelogen --release --push",
-    "stub": "obuild --stub",
     "test": "vitest run --slowTestThreshold=1000",
     "test:coverage": "vitest run --coverage --slowTestThreshold=1000",
     "typecheck": "tsgo --noEmit",
@@ -84,7 +84,6 @@
     "h3v1": "npm:h3@^1.15.11",
     "h3v2": "npm:h3@^2.0.1-rc.22",
     "jose": "^6.2.3",
-    "nano-staged": "^1.0.2",
     "obuild": "^0.4.36",
     "oxfmt": "^0.54.0",
     "oxlint": "^1.69.0",
@@ -119,12 +118,18 @@
     "unjwt": "link:."
   },
   "simple-git-hooks": {
-    "pre-commit": "./node_modules/.bin/nano-staged"
+    "pre-commit": "pnpm stub && pnpm lint && pnpm typecheck"
   },
-  "nano-staged": {
-    "*.{js,ts,mjs,cjs,json,yml,md}": [
-      "pnpm run fmt"
-    ]
-  },
-  "packageManager": "pnpm@10.33.1"
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "10.33.1",
+      "onFail": "download"
+    },
+    "runtime": {
+      "name": "node",
+      "version": ">=24.17",
+      "onFail": "error"
+    }
+  }
 }
