@@ -18,7 +18,20 @@ import type {
   JWSFlattenedSerialization,
   JWKLookupFunction,
   JWTClaims,
+  JWSMultiVerifyOutcome,
 } from "../src/core/types";
+
+/**
+ * Asserts a multi-verify outcome is `verified: false` and returns it narrowed to
+ * the failure variant, so failure-branch assertions read without a type-narrowing
+ * conditional (which `vitest/no-conditional-expect` flags).
+ */
+function expectUnverified(
+  outcome: JWSMultiVerifyOutcome | undefined,
+): Extract<JWSMultiVerifyOutcome, { verified: false }> {
+  expect(outcome?.verified).toBe(false);
+  return outcome as Extract<JWSMultiVerifyOutcome, { verified: false }>;
+}
 
 describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
   const keys: {
@@ -363,11 +376,9 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
       expect(outcomes).toHaveLength(2);
       expect(outcomes[0]?.verified).toBe(true);
-      expect(outcomes[1]?.verified).toBe(false);
-      if (outcomes[1] && !outcomes[1].verified) {
-        expect(isJWTError(outcomes[1].error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
-        expect(outcomes[1].protectedHeader?.alg).toBe("HS256");
-      }
+      const outcome = expectUnverified(outcomes[1]);
+      expect(isJWTError(outcome.error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+      expect(outcome.protectedHeader?.alg).toBe("HS256");
     });
 
     it("captures a throwing key resolver as a verified:false outcome", async () => {
@@ -382,10 +393,8 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
       expect(call).toBe(2);
       expect(outcomes[0]?.verified).toBe(true);
-      expect(outcomes[1]?.verified).toBe(false);
-      if (outcomes[1] && !outcomes[1].verified) {
-        expect(isJWTError(outcomes[1].error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
-      }
+      const outcome = expectUnverified(outcomes[1]);
+      expect(isJWTError(outcome.error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     });
 
     it("captures disallowed alg per-signer via options.algorithms", async () => {
@@ -398,10 +407,8 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       const outcomes = await verifyMultiAll(jws, resolver, { algorithms: ["RS256"] });
 
       expect(outcomes[0]?.verified).toBe(true);
-      expect(outcomes[1]?.verified).toBe(false);
-      if (outcomes[1] && !outcomes[1].verified) {
-        expect(isJWTError(outcomes[1].error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
-      }
+      const outcome = expectUnverified(outcomes[1]);
+      expect(isJWTError(outcome.error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
     });
 
     it("captures expired JWT claims on verified signatures as verified:false", async () => {
@@ -412,12 +419,10 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       const outcomes = await verifyMultiAll(jws, () => keys.hs256);
 
       expect(outcomes).toHaveLength(1);
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(isJWTError(outcomes[0].error, "ERR_JWT_EXPIRED")).toBe(true);
-        // Protected header is surfaced even on claim-validation failure.
-        expect(outcomes[0].protectedHeader?.alg).toBe("HS256");
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(isJWTError(outcome.error, "ERR_JWT_EXPIRED")).toBe(true);
+      // Protected header is surfaced even on claim-validation failure.
+      expect(outcome.protectedHeader?.alg).toBe("HS256");
     });
 
     it("supports 'all must verify' policy at the call site", async () => {
@@ -484,10 +489,8 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         signatures: [{ ...jws.signatures[0]!, signature: undefined as unknown as string }],
       };
       const outcomes = await verifyMultiAll(tampered, () => keys.hs256);
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(isJWTError(outcomes[0].error, "ERR_JWS_INVALID")).toBe(true);
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(isJWTError(outcome.error, "ERR_JWS_INVALID")).toBe(true);
     });
 
     it("reports a signature missing 'alg' in protected header as verified:false", async () => {
@@ -498,11 +501,9 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         signatures: [{ ...jws.signatures[0]!, protected: forgedProtected }],
       };
       const outcomes = await verifyMultiAll(tampered, () => keys.hs256);
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(isJWTError(outcomes[0].error, "ERR_JWS_INVALID")).toBe(true);
-        expect(outcomes[0].protectedHeader?.typ).toBe("JWT");
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(isJWTError(outcome.error, "ERR_JWS_INVALID")).toBe(true);
+      expect(outcome.protectedHeader?.typ).toBe("JWT");
     });
 
     it("reports a protected-header decode failure as verified:false", async () => {
@@ -513,10 +514,8 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         signatures: [{ ...jws.signatures[0]!, protected: garbageProtected }],
       };
       const outcomes = await verifyMultiAll(tampered, () => keys.hs256);
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(isJWTError(outcomes[0].error, "ERR_JWS_INVALID")).toBe(true);
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(isJWTError(outcome.error, "ERR_JWS_INVALID")).toBe(true);
     });
 
     it("reports a disjoint-header violation as verified:false", async () => {
@@ -530,32 +529,26 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         signatures: [{ ...jws.signatures[0]!, header: { typ: protectedDecoded.typ ?? "JWT" } }],
       };
       const outcomes = await verifyMultiAll(tampered, () => keys.hs256);
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(isJWTError(outcomes[0].error, "ERR_JWS_HEADER_PARAMS_NOT_DISJOINT")).toBe(true);
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(isJWTError(outcome.error, "ERR_JWS_HEADER_PARAMS_NOT_DISJOINT")).toBe(true);
     });
 
     it("reports typ mismatch as verified:false", async () => {
       const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
       const outcomes = await verifyMultiAll(jws, () => keys.hs256, { typ: "dpop+jwt" });
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(isJWTError(outcomes[0].error, "ERR_JWS_INVALID")).toBe(true);
-        expect(outcomes[0].error.message).toContain("typ");
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(isJWTError(outcome.error, "ERR_JWS_INVALID")).toBe(true);
+      expect(outcome.error.message).toContain("typ");
     });
 
     it("reports crit-header violation as verified:false", async () => {
       const jws = await signMulti({ x: 1 }, [
-        { key: keys.hs256, protectedHeader: { crit: ["unknown-ext"], "unknown-ext": "value" } },
+        { key: keys.hs256, protectedHeader: { "crit": ["unknown-ext"], "unknown-ext": "value" } },
       ]);
       // No `recognizedHeaders`, so "unknown-ext" is not processed → violation.
       const outcomes = await verifyMultiAll(jws, () => keys.hs256);
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(outcomes[0].protectedHeader?.crit).toEqual(["unknown-ext"]);
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(outcome.protectedHeader?.crit).toEqual(["unknown-ext"]);
     });
 
     it("normalises non-Error throws from the key resolver (preserves cause)", async () => {
@@ -563,13 +556,11 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       const outcomes = await verifyMultiAll(jws, () => {
         throw "plain-string-error"; // eslint-disable-line no-throw-literal
       });
-      expect(outcomes[0]?.verified).toBe(false);
-      if (outcomes[0] && !outcomes[0].verified) {
-        expect(isJWTError(outcomes[0].error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
-        // The string falls through to the fallback message path in _asJWTError,
-        // and the original value is preserved as the error's `cause`.
-        expect(outcomes[0].error.cause).toBe("plain-string-error");
-      }
+      const outcome = expectUnverified(outcomes[0]);
+      expect(isJWTError(outcome.error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+      // The string falls through to the fallback message path in _asJWTError,
+      // and the original value is preserved as the error's `cause`.
+      expect(outcome.error.cause).toBe("plain-string-error");
     });
   });
 
@@ -622,12 +613,9 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
     it("throws on multi-signature input", async () => {
       const general = await signMulti({ x: 1 }, [{ key: keys.hs256 }, { key: keys.hs384 }]);
-      try {
-        generalToFlattenedJWS(general);
-        expect.fail("should have thrown");
-      } catch (err) {
-        expect(isJWTError(err, "ERR_JWS_INVALID_SERIALIZATION")).toBe(true);
-      }
+      expect(() => generalToFlattenedJWS(general)).toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWS_INVALID_SERIALIZATION" }),
+      );
     });
 
     it("round-trips via Flattened back into verifyMulti", async () => {

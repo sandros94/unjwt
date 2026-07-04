@@ -378,17 +378,17 @@ references for those.
 
 ```ts
 interface JWKParameters<Alg extends string = string> {
-  kty: string;
-  alg?: Alg;
-  key_ops?: KeyUsage[];
-  ext?: boolean;
-  use?: string;
-  x5c?: string[];
-  x5t?: string;
+  "kty": string;
+  "alg"?: Alg;
+  "key_ops"?: KeyUsage[];
+  "ext"?: boolean;
+  "use"?: string;
+  "x5c"?: string[];
+  "x5t"?: string;
   "x5t#S256"?: string;
-  x5u?: string;
-  kid?: string;
-  enc?: ContentEncryptionAlgorithm; // non-standard hint for `alg: "dir"`
+  "x5u"?: string;
+  "kid"?: string;
+  "enc"?: ContentEncryptionAlgorithm; // non-standard hint for `alg: "dir"`
 }
 
 // Symmetric — admits every symmetric / password alg + "dir"

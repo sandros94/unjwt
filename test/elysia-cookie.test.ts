@@ -82,7 +82,7 @@ describe("elysia chunked cookies — unit", () => {
   });
 
   it("returns undefined when a declared chunk is missing", () => {
-    const { jar } = makeJar({ sess: "__chunked__3", "sess.1": "a", "sess.2": "b" });
+    const { jar } = makeJar({ "sess": "__chunked__3", "sess.1": "a", "sess.2": "b" });
     expect(readChunkedCookie(jar, "sess")).toBeUndefined();
   });
 
@@ -92,7 +92,7 @@ describe("elysia chunked cookies — unit", () => {
   });
 
   it("treats a marker with a non-digit suffix as malformed (not chunked)", () => {
-    const { jar } = makeJar({ sess: "__chunked__3x", "sess.1": "a" });
+    const { jar } = makeJar({ "sess": "__chunked__3x", "sess.1": "a" });
     expect(readChunkedCookie(jar, "sess")).toBeUndefined();
   });
 
@@ -122,7 +122,7 @@ describe("elysia chunked cookies — unit", () => {
 
   it("removes a chunked cookie and all its parts", () => {
     const { jar, store } = makeJar({
-      sess: "__chunked__2",
+      "sess": "__chunked__2",
       "sess.1": "a",
       "sess.2": "b",
     });

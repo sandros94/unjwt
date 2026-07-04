@@ -134,7 +134,7 @@ describe("adapter h3 v2", () => {
       const result = await app.request("/", {
         method: "POST",
         headers: {
-          Cookie: cookie,
+          "Cookie": cookie,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ foo: "bar" }),
@@ -373,7 +373,7 @@ describe("adapter h3 v2", () => {
       const result = await app.request("/", {
         method: "POST",
         headers: {
-          Cookie: cookie,
+          "Cookie": cookie,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ foo: "bar" }),

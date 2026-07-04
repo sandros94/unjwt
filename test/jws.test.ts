@@ -375,9 +375,7 @@ describe.concurrent("JWS Utilities", () => {
 
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
-      if (isJWTError(error, "ERR_JWT_EXPIRED")) {
-        expect(error.cause).toStrictEqual({ jti: "test-jti-exp", iat, exp });
-      }
+      expect((error as JWTError).cause).toStrictEqual({ jti: "test-jti-exp", iat, exp });
     });
 
     it("should throw JWTError with ERR_JWT_EXPIRED code and cause for exceeded maxTokenAge", async () => {
@@ -400,9 +398,7 @@ describe.concurrent("JWS Utilities", () => {
 
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
-      if (isJWTError(error, "ERR_JWT_EXPIRED")) {
-        expect(error.cause).toMatchObject({ jti: "test-jti-age", iat });
-      }
+      expect((error as JWTError).cause).toMatchObject({ jti: "test-jti-age", iat });
     });
 
     it("should not include computed `exp`", async () => {
@@ -1137,7 +1133,7 @@ describe.concurrent("JWS Utilities", () => {
         ).resolves.toBeDefined();
       });
 
-      it("it does have an expired claim but validation is skipped", async () => {
+      it("does have an expired claim but validation is skipped", async () => {
         const jws = await sign({ sub: "abc" }, hs256Key, {
           alg: "HS256",
           expiresIn: 60,
@@ -1181,16 +1177,10 @@ describe.concurrent("JWS Utilities", () => {
       it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
         const jws = await sign({ sub: "abc", exp: "never" }, hs256Key, { alg: "HS256" });
 
-        try {
-          await verify(jws, hs256Key);
-          expect.fail("verify should have thrown");
-        } catch (err) {
-          expect(isJWTError(err)).toBe(true);
-          if (isJWTError(err)) expect(err.code).toBe("ERR_JWT_CLAIM_INVALID");
-          expect((err as Error).message).toContain(
-            '"exp" (Expiration Time) Claim must be a number',
-          );
-        }
+        const err = await verify(jws, hs256Key).catch((e) => e);
+        expect(isJWTError(err)).toBe(true);
+        expect((err as JWTError).code).toBe("ERR_JWT_CLAIM_INVALID");
+        expect((err as Error).message).toContain('"exp" (Expiration Time) Claim must be a number');
       });
     });
 
@@ -1287,7 +1277,7 @@ describe.concurrent("JWS Utilities", () => {
     it("should throw for invalid signature base64", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
       const parts = jws.split(".");
-      await expect(verify(`${parts[0]}.${parts[1]}.sig?`, hs256Key)).rejects.toThrow();
+      await expect(verify(`${parts[0]}.${parts[1]}.sig?`, hs256Key)).rejects.toThrow(JWTError);
     });
 
     it("should throw for signature mismatch", async () => {

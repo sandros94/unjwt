@@ -1,8 +1,0 @@
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["unicorn", "typescript", "oxc"],
-  "ignorePatterns": ["pnpm*.yaml", "**/dist/**"],
-  "rules": {
-    "oxc/only-used-in-recursion": "off"
-  }
-}

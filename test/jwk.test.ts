@@ -214,7 +214,7 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw for unsupported algorithm", async () => {
       // @ts-expect-error Intentionally passing an unsupported algorithm
-      await expect(generateKey("UnsupportedAlg")).rejects.toThrow();
+      await expect(generateKey("UnsupportedAlg")).rejects.toThrow(/unsupported/i);
     });
   });
 
@@ -737,7 +737,8 @@ describe.concurrent("JWK Utilities", () => {
       const wrappingKey1 = await generateKey("A128KW");
       const wrappingKey2 = await generateKey("A128KW");
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey1);
-      await expect(unwrapKey("A128KW", encryptedKey, wrappingKey2)).rejects.toThrow(); // Subtle crypto errors vary, check for any throw
+      // eslint-disable-next-line vitest/require-to-throw-message -- Subtle crypto (AES-KW) unwrap errors vary by runtime; assert only that it rejects
+      await expect(unwrapKey("A128KW", encryptedKey, wrappingKey2)).rejects.toThrow();
     });
 
     it("should throw wrapKey for invalid key type", async () => {
@@ -748,7 +749,7 @@ describe.concurrent("JWK Utilities", () => {
       await expect(
         // @ts-expect-error RSA-OAEP requires a CryptoKey or JWK_RSA_Public; exercises runtime guard
         wrapKey("RSA-OAEP", cek, secureRandomBytes(32)),
-      ).rejects.toThrow(); // RSA needs CryptoKey
+      ).rejects.toThrow(TypeError); // RSA needs a CryptoKey
     });
 
     it("should throw wrapKey for unsupported algorithm", async () => {

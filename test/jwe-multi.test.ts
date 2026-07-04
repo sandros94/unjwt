@@ -618,12 +618,9 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }, { key: keys.a128kw }], {
         enc: "A256GCM",
       });
-      try {
-        generalToFlattened(jwe);
-        expect.fail("should have thrown");
-      } catch (err) {
-        expect(isJWTError(err, "ERR_JWE_INVALID_SERIALIZATION")).toBe(true);
-      }
+      expect(() => generalToFlattened(jwe)).toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_JWE_INVALID_SERIALIZATION" }),
+      );
     });
 
     it("round-trips via Flattened back into decryptMulti", async () => {

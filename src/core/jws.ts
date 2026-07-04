@@ -228,7 +228,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     payload = decodeJWSPayload<T>(payloadEncoded as string, useB64, options.forceUint8Array);
   } catch (error_) {
     throw new JWTError(
-      `Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : error_})`,
+      `Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : String(error_)})`,
       "ERR_JWS_INVALID",
     );
   }

@@ -87,7 +87,7 @@ const genericExport = async (
   key: unknown,
 ) => {
   if (!isCryptoKey(key)) {
-    throw new TypeError(`Key must be ${key} of type CryptoKey`);
+    throw new TypeError(`Key must be of type CryptoKey, got ${typeof key}`);
   }
 
   if (!key.extractable) {

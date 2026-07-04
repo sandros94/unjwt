@@ -49,12 +49,12 @@ describe.concurrent("Utility Functions", () => {
 
     it("should throw on invalid input", () => {
       // @ts-expect-error intentional invalid input
-      expect(() => computeDurationInSeconds("")).toThrow();
+      expect(() => computeDurationInSeconds("")).toThrow(TypeError);
       // @ts-expect-error intentional invalid input
-      expect(() => computeDurationInSeconds("5x")).toThrow();
-      expect(() => computeDurationInSeconds(-10)).toThrow();
-      expect(() => computeDurationInSeconds(0)).toThrow();
-      expect(() => computeDurationInSeconds(Number.NaN)).toThrow();
+      expect(() => computeDurationInSeconds("5x")).toThrow(TypeError);
+      expect(() => computeDurationInSeconds(-10)).toThrow(TypeError);
+      expect(() => computeDurationInSeconds(0)).toThrow(TypeError);
+      expect(() => computeDurationInSeconds(Number.NaN)).toThrow(TypeError);
     });
   });
 

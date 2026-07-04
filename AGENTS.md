@@ -57,7 +57,7 @@ src/
     error.ts            # JWTError class + error codes (ERR_JWT_EXPIRED, …)
     types/              # TypeScript types for JWK, JWS, JWE, JWT
     utils/              # encoding, type guards, JWT claim validation, sanitization
-    _crypto/            # low-level crypto primitives — independently-maintained fork of panva/jose
+    _crypto/            # low-level crypto primitives — originally derived from panva/jose, now maintained in-tree
                         # (_sign-verify, _aes, _ecdh, _pbes2, _rsa, _key-codec, _key-encryption, _pem)
   adapters/
     h3v1/               # H3 v1 session adapter (useJWSSession, useJWESession)
@@ -72,7 +72,7 @@ src/
 
 - **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. Cookie-es similarly as `cookie-esv1`/`cookie-esv3`. The build config (`build.config.ts`) replaces these aliases with the real package names (`h3`, `cookie-es`) in dist output. `elysia` has no dual-version aliasing (single major) — it's a plain optional peer dep, marked `external` in the build.
 - **Single multi-input bundle:** all entry points (core subpaths + every adapter) are `input`s of one `type: "bundle"` in `build.config.ts`, so rolldown code-splits shared core into `dist/_chunks/*` (no per-adapter duplication). Adding an adapter = add its `index` input + any peer dep to `external`. `unsecure` stays bundled (inlined → zero runtime deps).
-- **`src/core/_crypto/`** is an internal, independently-maintained fork of [`panva/jose`](https://github.com/panva/jose) primitives — excluded from test coverage. Do not add tests for files in this directory.
+- **`src/core/_crypto/`** originated as a fork of [`panva/jose`](https://github.com/panva/jose) primitives but is now maintained as part of this codebase — modify and fix it like any other module (bug fixes, lint, type-safety). It is excluded from test coverage; adding tests there is optional, not required.
 - **Bundled `unsecure` dependency:** core imports primitives from [`unsecure`](https://github.com/sandros94/unsecure) (`base64UrlEncode`/`base64UrlDecode`, `secureRandomBytes`, `sanitizeObjectCopy`/`safeJsonParse`). It is a devDependency inlined into dist at build time (not marked external in `build.config.ts`), so the published package keeps zero runtime dependencies.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
@@ -81,7 +81,7 @@ src/
 ## Testing conventions
 
 - **No dynamic imports in tests.** Do not use `await import(...)` inside `it()`/`describe()` blocks. All module imports must be static top-level `import` statements. Dynamic imports defeat tree-shaking, make the module graph opaque to the type checker (inferred `any` types instead of the real ones), hide missing-import errors until runtime, and slow down vitest's transform phase. The only legitimate reasons to use a dynamic import in a test are (a) testing actual code-splitting / lazy-loading behaviour or (b) resetting module state between tests with `vi.resetModules()` — neither applies here. If an identifier is needed in a newly written test and it is not yet in the static imports, add it there instead.
-- **No tests for `src/core/_crypto/`** — that directory is an internal fork of panva/jose and is excluded from coverage (at the time of writing).
+- **`src/core/_crypto/` is excluded from coverage** — originally derived from panva/jose and kept out of the coverage report; tests there are optional, not required.
 
 ## Planning & design docs
 

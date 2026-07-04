@@ -27,12 +27,16 @@ import type { JWTErrorCode } from "../src/core/error";
 
 /** Assert that `fn` throws a `JWTError` with the given `code`. */
 function expectThrowsJWTError(fn: () => unknown, code: JWTErrorCode): void {
+  let err: unknown;
+  let threw = false;
   try {
     fn();
-    expect.fail(`expected to throw JWTError(${code})`);
-  } catch (err) {
-    expect(isJWTError(err, code)).toBe(true);
+  } catch (e) {
+    threw = true;
+    err = e;
   }
+  expect(threw, `expected to throw JWTError(${code})`).toBe(true);
+  expect(isJWTError(err, code)).toBe(true);
 }
 
 describe.concurrent("_internal helpers", () => {

@@ -28,11 +28,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare development build
+        run: pnpm dev:prepare
+
       - name: Lint
         run: pnpm lint
 
       - name: Test
         run: pnpm test
+
+      - name: Build packages
+        run: pnpm build
 
       - name: Publish
         run: pnpm publish --no-git-checks

@@ -178,6 +178,7 @@ describe.concurrent("JWE Utilities", () => {
   ];
 
   for (const { alg, enc, plaintext, desc } of testScenarios) {
+    // eslint-disable-next-line vitest/valid-title -- data-driven suite: title comes from the scenario table
     describe(desc, () => {
       it(`should encrypt and decrypt successfully`, async () => {
         let encryptionKey: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>;
@@ -220,6 +221,7 @@ describe.concurrent("JWE Utilities", () => {
         // jose doesn't support PBES2-HS256+A128KW alg header
         if (alg !== "PBES2-HS256+A128KW") {
           const { plaintext: decryptedByJose } = await jose.compactDecrypt(jwe, decryptionKey);
+          // eslint-disable-next-line vitest/no-conditional-expect -- data-driven: jose can't decrypt PBES2, so this cross-check is intentionally skipped for that alg
           expect(decryptedByJose).toEqual(plaintextBuffer);
         }
 
@@ -230,10 +232,13 @@ describe.concurrent("JWE Utilities", () => {
         const { payload: decrypted } = await decrypt(jweFromJose, decryptionKey);
 
         if (typeof plaintext === "object" && !(plaintext instanceof Uint8Array)) {
+          // eslint-disable-next-line vitest/no-conditional-expect -- data-driven: decrypted value asserted per plaintext scenario type
           expect(decrypted).toEqual(plaintext);
         } else if (typeof plaintext === "string") {
+          // eslint-disable-next-line vitest/no-conditional-expect -- data-driven: decrypted value asserted per plaintext scenario type
           expect(decrypted).toEqual(plaintext);
         } else {
+          // eslint-disable-next-line vitest/no-conditional-expect -- data-driven: decrypted value asserted per plaintext scenario type
           expect(textEncoder.encode(decrypted as any)).toEqual(plaintext);
         }
       });
@@ -584,9 +589,10 @@ describe.concurrent("JWE Utilities", () => {
 
     it("should throw for decryption failure (e.g., wrong key)", async () => {
       const wrongKey = await generateKey("A128KW");
-      await expect(decrypt(jwe, wrongKey)).rejects.toThrow();
+      await expect(decrypt(jwe, wrongKey)).rejects.toThrow(JWTError);
 
       const wrongJoseKey = await jose.importJWK(await exportKey(wrongKey));
+      // eslint-disable-next-line vitest/require-to-throw-message -- cross-check that jose also rejects the wrong key; its error type/message is jose-internal
       await expect(jose.compactDecrypt(jwe, wrongJoseKey)).rejects.toThrow();
     });
 
@@ -770,7 +776,7 @@ describe.concurrent("JWE Utilities", () => {
         await expect(decrypt(jweCrit, key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
       });
 
-      it("it does have an expired claim but validation is skipped", async () => {
+      it("does have an expired claim but validation is skipped", async () => {
         const key = keys[alg]!.key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc" };
 
@@ -810,16 +816,10 @@ describe.concurrent("JWE Utilities", () => {
         const key = keys[alg]!.key as CryptoKey;
         const jwe = await encrypt({ sub: "abc", exp: "never" }, key, { alg, enc });
 
-        try {
-          await decrypt(jwe, key);
-          expect.fail("decrypt should have thrown");
-        } catch (err) {
-          expect(isJWTError(err)).toBe(true);
-          if (isJWTError(err)) expect(err.code).toBe("ERR_JWT_CLAIM_INVALID");
-          expect((err as Error).message).toContain(
-            '"exp" (Expiration Time) Claim must be a number',
-          );
-        }
+        const err = await decrypt(jwe, key).catch((e) => e);
+        expect(isJWTError(err)).toBe(true);
+        expect((err as JWTError).code).toBe("ERR_JWT_CLAIM_INVALID");
+        expect((err as Error).message).toContain('"exp" (Expiration Time) Claim must be a number');
       });
 
       it("should throw if JWT has expired", async () => {
@@ -857,9 +857,7 @@ describe.concurrent("JWE Utilities", () => {
 
         expect(error).toBeInstanceOf(JWTError);
         expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
-        if (isJWTError(error, "ERR_JWT_EXPIRED")) {
-          expect(error.cause).toMatchObject({ jti: "test-jti-exp", exp: 60 });
-        }
+        expect((error as JWTError).cause).toMatchObject({ jti: "test-jti-exp", exp: 60 });
       });
     });
   });

@@ -344,35 +344,35 @@ export interface UnwrapKeyOptions {
  */
 export interface JWKParameters<Alg extends string = string> {
   /** JWK "kty" (Key Type) Parameter */
-  kty: string;
+  "kty": string;
   /**
    * JWK "alg" (Algorithm) Parameter
    *
    * @see {@link https://github.com/panva/jose/issues/210 Algorithm Key Requirements}
    */
-  alg?: Alg;
+  "alg"?: Alg;
   /** JWK "key_ops" (Key Operations) Parameter */
-  key_ops?: KeyUsage[];
+  "key_ops"?: KeyUsage[];
   /** JWK "ext" (Extractable) Parameter */
-  ext?: boolean;
+  "ext"?: boolean;
   /** JWK "use" (Public Key Use) Parameter */
-  use?: string;
+  "use"?: string;
   /** JWK "x5c" (X.509 Certificate Chain) Parameter */
-  x5c?: string[];
+  "x5c"?: string[];
   /** JWK "x5t" (X.509 Certificate SHA-1 Thumbprint) Parameter */
-  x5t?: string;
+  "x5t"?: string;
   /** JWK "x5t#S256" (X.509 Certificate SHA-256 Thumbprint) Parameter */
   "x5t#S256"?: string;
   /** JWK "x5u" (X.509 URL) Parameter */
-  x5u?: string;
+  "x5u"?: string;
   /** JWK "kid" (Key ID) Parameter */
-  kid?: string;
+  "kid"?: string;
   /**
    * Non-standard JWK content encryption algorithm hint.
    * When `alg` is `"dir"`, the library reads this field to infer the
    * content encryption algorithm (`enc`) when it is not provided in options.
    */
-  enc?: ContentEncryptionAlgorithm;
+  "enc"?: ContentEncryptionAlgorithm;
 }
 
 /** Public EC JSON Web Keys */

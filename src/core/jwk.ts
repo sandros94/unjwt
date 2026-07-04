@@ -1025,7 +1025,7 @@ export async function importPEM<T extends JWK>(
       break;
     }
     default: {
-      throw new JWTError(`Unsupported PEM type: ${pemType}`, "ERR_JWK_UNSUPPORTED");
+      throw new JWTError(`Unsupported PEM type: ${String(pemType)}`, "ERR_JWK_UNSUPPORTED");
     }
   }
 
@@ -1142,7 +1142,7 @@ export async function exportPEM(
       return toSPKI(cryptoKey);
     }
     default: {
-      throw new JWTError(`Unsupported PEM format: ${pemFormat}`, "ERR_JWK_UNSUPPORTED");
+      throw new JWTError(`Unsupported PEM format: ${String(pemFormat)}`, "ERR_JWK_UNSUPPORTED");
     }
   }
 }

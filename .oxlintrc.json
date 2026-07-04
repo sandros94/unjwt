@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  "plugins": ["unicorn", "typescript", "oxc", "vitest"],
+  "options": { "typeAware": true, "typeCheck": true },
+
+  "ignorePatterns": [
+    "**/CHANGELOG.md",
+    "**/pnpm*.yaml",
+    "**/dist/**",
+    "**/*.gen.ts",
+    "**/.output/**",
+    "**/.data/**",
+    "**/.nuxt/**",
+    "**/.nitro/**",
+    "**/.cache/**",
+    "**/node_modules/**",
+    "**/coverage/**",
+    "**/playwright-report/**",
+    "**/test-results/**",
+    "**/.pgdata/**",
+    "**/drizzle/**"
+  ],
+
+  "rules": {
+    "oxc/only-used-in-recursion": "off",
+    "require-mock-type-parameters": "off",
+    "vitest/expect-expect": ["warn", { "assertFunctionNames": ["expect", "expectThrowsJWTError"] }]
+  }
+}

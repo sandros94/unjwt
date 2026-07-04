@@ -6,21 +6,21 @@ import { JWTError } from "../error";
 // --- CEK / IV generation ---
 
 const IV_BIT_LENGTHS: Record<string, number> = {
-  A128GCM: 96,
-  A128GCMKW: 96,
-  A192GCM: 96,
-  A192GCMKW: 96,
-  A256GCM: 96,
-  A256GCMKW: 96,
+  "A128GCM": 96,
+  "A128GCMKW": 96,
+  "A192GCM": 96,
+  "A192GCMKW": 96,
+  "A256GCM": 96,
+  "A256GCMKW": 96,
   "A128CBC-HS256": 128,
   "A192CBC-HS384": 128,
   "A256CBC-HS512": 128,
 };
 
 const CEK_BIT_LENGTHS: Record<string, number> = {
-  A128GCM: 128,
-  A192GCM: 192,
-  A256GCM: 256,
+  "A128GCM": 128,
+  "A192GCM": 192,
+  "A256GCM": 256,
   "A128CBC-HS256": 256,
   "A192CBC-HS384": 384,
   "A256CBC-HS512": 512,
