@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # 1. On every push to main: open/update a draft `release/vX.Y.Z` PR from the
+  #    conventional commits since the last tag.
+  pr:
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: danielroe/uppt/pr@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # 2. When the release PR is merged: tag the merge commit, publish the GitHub
+  #    Release, and dispatch this workflow again at the new tag.
+  release:
+    if: |
+      github.event_name == 'pull_request'
+      && github.event.pull_request.merged == true
+      && startsWith(github.event.pull_request.head.ref, 'release/v')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: danielroe/uppt/release@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # 3. At the new tag: install (--ignore-scripts), run prepack + `pnpm pack`,
+  #    upload the tarball as an artifact.
+  pack:
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pack-${{ github.ref }}
+      cancel-in-progress: false
+    permissions: {}
+    outputs:
+      files: ${{ steps.pack.outputs.files }}
+    steps:
+      - id: pack
+        uses: danielroe/uppt/pack@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+
+  # 4. Stage the tarball to npm via OIDC trusted publishing. Runs in the `npm`
+  #    environment; the staged publish waits for maintainer 2FA approval.
+  publish:
+    if: |
+      github.event_name == 'workflow_dispatch'
+      && startsWith(github.ref, 'refs/tags/v')
+      && needs.pack.outputs.files != '[]'
+    needs: pack
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+    environment: npm
+    steps:
+      - uses: danielroe/uppt/publish@7bcfb5397c37202ef882363f755423130419d28a # v0.5.5
+        with:
+          files: ${{ needs.pack.outputs.files }}
