@@ -49,7 +49,7 @@ Concatenates multiple `Uint8Array<ArrayBuffer>` instances into one contiguous bu
 
 | Function               | Returns                 | Checks                                                  |
 | ---------------------- | ----------------------- | ------------------------------------------------------- |
-| `isJWK(key)`           | `key is JWK`            | Valid JWK structure with `kty`                          |
+| `isJWK(key)`           | `key is JWK`            | Modelled JWK (`kty` is `oct`/`RSA`/`EC`/`OKP`)          |
 | `isJWKSet(key)`        | `key is JWKSet`         | Object with `keys` array                                |
 | `isCryptoKey(key)`     | `key is CryptoKey`      | CryptoKey instance                                      |
 | `isCryptoKeyPair(key)` | `key is CryptoKeyPair`  | Object with `publicKey` + `privateKey` CryptoKeys       |

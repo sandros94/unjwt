@@ -48,10 +48,15 @@ export function maybeArray<T>(item: T | T[]): T[] {
   return Array.isArray(item) ? item : [item];
 }
 
-/** Type guard for {@link JWK} — checks for an object with a string `kty`. */
+/**
+ * Type guard for {@link JWK} — an object whose `kty` this library models
+ * (`"oct"`/`"RSA"`/`"EC"`/`"OKP"`).
+ */
 export function isJWK(key: any): key is JWK {
   return (
-    typeof key === "object" && key !== null && "kty" in key && typeof (key as JWK).kty === "string"
+    typeof key === "object" &&
+    key !== null &&
+    (key.kty === "oct" || key.kty === "RSA" || key.kty === "EC" || key.kty === "OKP")
   );
 }
 

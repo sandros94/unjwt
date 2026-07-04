@@ -3,6 +3,7 @@ import { secureRandomBytes, textEncoder } from "unsecure";
 import {
   concatUint8Arrays,
   maybeArray,
+  isJWK,
   isPublicJWK,
   isPrivateJWK,
   isSymmetricJWK,
@@ -233,6 +234,26 @@ describe("type guards", () => {
 
     it("returns false for EC JWK", () => {
       expect(isSymmetricJWK({ kty: "EC", crv: "P-256", x: "a", y: "b" })).toBe(false);
+    });
+  });
+
+  describe("isJWK", () => {
+    it("returns true for each modelled kty", () => {
+      expect(isJWK({ kty: "oct", k: "abc" })).toBe(true);
+      expect(isJWK({ kty: "RSA", n: "abc", e: "AQAB" })).toBe(true);
+      expect(isJWK({ kty: "EC", crv: "P-256", x: "a", y: "b" })).toBe(true);
+      expect(isJWK({ kty: "OKP", crv: "Ed25519", x: "a" })).toBe(true);
+    });
+
+    it("returns false for an unmodelled kty", () => {
+      expect(isJWK({ kty: "AKP", pub: "..." })).toBe(false);
+    });
+
+    it("returns false for missing kty and non-JWK values", () => {
+      expect(isJWK({ k: "abc" })).toBe(false);
+      expect(isJWK({ kty: 42 })).toBe(false);
+      expect(isJWK(null)).toBe(false);
+      expect(isJWK("string")).toBe(false);
     });
   });
 
