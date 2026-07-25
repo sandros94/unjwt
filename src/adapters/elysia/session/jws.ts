@@ -123,6 +123,7 @@ const DEFAULT_COOKIE: CookieAttributes = {
   path: "/",
   secure: true,
   httpOnly: false,
+  sameSite: "lax",
 };
 
 export async function createJWSSession<

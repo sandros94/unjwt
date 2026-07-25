@@ -121,6 +121,7 @@ const DEFAULT_COOKIE: CookieAttributes = {
   path: "/",
   secure: true,
   httpOnly: true,
+  sameSite: "lax",
 };
 
 export async function createJWESession<
