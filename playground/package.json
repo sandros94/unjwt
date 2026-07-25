@@ -7,7 +7,7 @@
     "start": "h3 serve --prod"
   },
   "devDependencies": {
-    "h3": "^2.0.1-rc.22",
+    "h3": "^2.0.1-rc.26",
     "unjwt": "^0.7.2"
   }
 }

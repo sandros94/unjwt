@@ -70,26 +70,26 @@
     "bench": "vitest bench --run"
   },
   "devDependencies": {
-    "@types/node": "^25",
-    "@types/supertest": "^7.2.0",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@types/node": "^24",
+    "@types/supertest": "^7.2.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "automd": "^0.4.3",
     "cookie-esv1": "npm:cookie-es@^1.2.3",
     "cookie-esv3": "npm:cookie-es@^3.1.1",
     "elysia": "^1.4.29",
     "h3v1": "npm:h3@^1.15.11",
-    "h3v2": "npm:h3@^2.0.1-rc.22",
-    "jose": "^6.2.3",
-    "obuild": "^0.4.37",
+    "h3v2": "npm:h3@^2.0.1-rc.26",
+    "jose": "^6.2.4",
+    "obuild": "^0.4.38",
     "oxfmt": "^0.57.0",
-    "oxlint": "^1.72.0",
+    "oxlint": "^1.75.0",
     "oxlint-tsgolint": "^7.0.2001",
-    "rolldown": "1.1.4",
+    "rolldown": "1.2.0",
     "simple-git-hooks": "^2.13.1",
     "supertest": "^7.2.2",
     "typescript": "^7.0.2",
-    "unsecure": "^0.2.2",
-    "vitest": "^4.1.9"
+    "unsecure": "^0.2.3",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "cookie-es": "^1.2.3 || ^3.1.1",
@@ -120,14 +120,14 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "11.9.0",
+      "version": "11.17.0",
       "onFail": "download"
     },
     "runtime": {
       "name": "node",
-      "version": ">=24.17",
+      "version": ">=24.17.0",
       "onFail": "error"
     }
   },
-  "packageManager": "pnpm@11.9.0"
+  "packageManager": "pnpm@11.17.0"
 }
