@@ -167,6 +167,7 @@ const DEFAULT_COOKIE: SessionConfigJWE["cookie"] = {
   path: "/",
   secure: true,
   httpOnly: true,
+  sameSite: "lax",
 };
 
 /**
