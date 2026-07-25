@@ -426,8 +426,7 @@ interface JWK_EC_Private<
 }
 
 type JWK_EC<Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string> =
-  | JWK_EC_Public<Alg>
-  | JWK_EC_Private<Alg>;
+  JWK_EC_Public<Alg> | JWK_EC_Private<Alg>;
 
 // RSA — RS*, PS*, RSA-OAEP*
 interface JWK_RSA_Public<
@@ -451,8 +450,7 @@ interface JWK_RSA_Private<
 }
 
 type JWK_RSA<Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string> =
-  | JWK_RSA_Public<Alg>
-  | JWK_RSA_Private<Alg>;
+  JWK_RSA_Public<Alg> | JWK_RSA_Private<Alg>;
 
 // OKP — Ed signing or ECDH-ES (X25519 / X448)
 interface JWK_OKP_Public<
@@ -470,18 +468,13 @@ interface JWK_OKP_Private<
 }
 
 type JWK_OKP<Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string> =
-  | JWK_OKP_Public<Alg>
-  | JWK_OKP_Private<Alg>;
+  JWK_OKP_Public<Alg> | JWK_OKP_Private<Alg>;
 
 // Unions
 type JWK_Public<Alg extends string = string> =
-  | JWK_RSA_Public<Alg>
-  | JWK_EC_Public<Alg>
-  | JWK_OKP_Public<Alg>;
+  JWK_RSA_Public<Alg> | JWK_EC_Public<Alg> | JWK_OKP_Public<Alg>;
 type JWK_Private<Alg extends string = string> =
-  | JWK_RSA_Private<Alg>
-  | JWK_EC_Private<Alg>
-  | JWK_OKP_Private<Alg>;
+  JWK_RSA_Private<Alg> | JWK_EC_Private<Alg> | JWK_OKP_Private<Alg>;
 type JWK_Asymmetric<Alg extends string = string> = JWK_RSA<Alg> | JWK_EC<Alg> | JWK_OKP<Alg>;
 type JWK<Alg extends string = string> = JWK_oct<Alg> | JWK_RSA<Alg> | JWK_EC<Alg> | JWK_OKP<Alg>;
 
@@ -497,15 +490,13 @@ type JWK_Pair<Alg extends string = string> = Alg extends JWK_RSA_SIGN | JWK_RSA_
   : Alg extends JWK_ECDSA
     ? { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
     : Alg extends JWK_ECDH_ES
-      ?
-          | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
-          | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> }
+      ? | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+        | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> }
       : Alg extends JWK_OKP_SIGN
         ? { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> }
-        :
-            | { publicKey: JWK_RSA_Public<Alg>; privateKey: JWK_RSA_Private<Alg> }
-            | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
-            | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> };
+        : | { publicKey: JWK_RSA_Public<Alg>; privateKey: JWK_RSA_Private<Alg> }
+          | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
+          | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> };
 
 // `T` preserves the precise key tuple when constructed in TS
 // — e.g. JWKSet<[JWK_oct<"HS256">, JWK_EC_Public<"ES256">]>

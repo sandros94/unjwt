@@ -144,13 +144,11 @@ describe.concurrent("_crypto primitives", () => {
       const cek = generateCEK("A128GCM");
       const { encryptedKey, iv, tag } = await gcmkwEncrypt("A128GCMKW", wrapKey, cek);
 
-      const ivBytes = Uint8Array.from(
-        atob(iv.replace(/-/g, "+").replace(/_/g, "/")),
-        (c) => c.codePointAt(0)!,
+      const ivBytes = Uint8Array.from(atob(iv.replace(/-/g, "+").replace(/_/g, "/")), (c) =>
+        c.codePointAt(0)!,
       );
-      const tagBytes = Uint8Array.from(
-        atob(tag.replace(/-/g, "+").replace(/_/g, "/")),
-        (c) => c.codePointAt(0)!,
+      const tagBytes = Uint8Array.from(atob(tag.replace(/-/g, "+").replace(/_/g, "/")), (c) =>
+        c.codePointAt(0)!,
       );
 
       const unwrapped = await gcmkwDecrypt("A128GCMKW", wrapKey, encryptedKey, ivBytes, tagBytes);

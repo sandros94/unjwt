@@ -224,13 +224,9 @@ JWE's multi-recipient model has one more moving part than JWS's multi-signature 
 // excluded because it has no JWE use.
 type _JWEOctAlg = JWK_AES_KW | JWK_AES_GCM | JWK_AES_GCM_KW | JWK_AES_CBC_HMAC | JWK_PBES2 | "dir";
 type JWEAsymmetricPublicJWK =
-  | JWK_RSA_Public<JWK_RSA_ENC>
-  | JWK_EC_Public<JWK_ECDH_ES>
-  | JWK_OKP_Public<JWK_ECDH_ES>;
+  JWK_RSA_Public<JWK_RSA_ENC> | JWK_EC_Public<JWK_ECDH_ES> | JWK_OKP_Public<JWK_ECDH_ES>;
 type JWEAsymmetricPrivateJWK =
-  | JWK_RSA_Private<JWK_RSA_ENC>
-  | JWK_EC_Private<JWK_ECDH_ES>
-  | JWK_OKP_Private<JWK_ECDH_ES>;
+  JWK_RSA_Private<JWK_RSA_ENC> | JWK_EC_Private<JWK_ECDH_ES> | JWK_OKP_Private<JWK_ECDH_ES>;
 type JWEEncryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPublicJWK;
 type JWEDecryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPrivateJWK;
 
