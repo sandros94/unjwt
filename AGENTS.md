@@ -24,7 +24,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - **Build:** `pnpm build` (uses obuild/rolldown)
 - **Test:** `pnpm test` (vitest)
 - **Single test file:** `pnpm vitest run test/jws.test.ts`
-- **Type check:** `pnpm typecheck` (uses tsgo)
+- **Type check:** `pnpm typecheck` (uses `tsc` from TypeScript 7)
 - **Lint:** `pnpm lint` (oxlint + oxfmt --check)
 - **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
