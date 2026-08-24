@@ -434,8 +434,9 @@ export interface JWK_RSA_Private<
 }
 
 /** RSA JSON Web Keys */
-export type JWK_RSA<Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string> =
-  JWK_RSA_Public<Alg> | JWK_RSA_Private<Alg>;
+export type JWK_RSA<
+  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
+> = JWK_RSA_Public<Alg> | JWK_RSA_Private<Alg>;
 
 /** Public ED JSON Web Keys */
 export interface JWK_OKP_Public<
