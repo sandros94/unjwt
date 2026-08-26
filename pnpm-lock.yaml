@@ -218,7 +218,7 @@ importers:
         version: 0.8.1
     devDependencies:
       '@types/node':
-        specifier: ^24
+        specifier: ^24.13.3
         version: 24.13.3
       '@types/supertest':
         specifier: ^7.2.1
@@ -822,9 +822,6 @@ packages:
 
   '@types/node@24.13.3':
     resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
-
-  '@types/node@26.2.0':
-    resolution: {integrity: sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg==}
 
   '@types/superagent@8.1.11':
     resolution: {integrity: sha512-KA7srSW/HENDtOw9DOqaFLgWuMqN9WgjEw62lh9dpvRaZDkhdOkazASd7X7i2eMUYLHa1U37ZttnePsH5zTDHw==}
@@ -1833,9 +1830,6 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici-types@8.3.0:
-    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
-
   unjwt@0.7.3:
     resolution: {integrity: sha512-I0qX3hpyOa+PQv4btPQvmpLzxWRrY77u2HqwAyqNM5K1lCjOpcAPZFmVLQzbNgwVj5T9XdwtLSOUjfIX9TnfHw==}
     peerDependencies:
@@ -2264,15 +2258,11 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
-  '@types/node@26.2.0':
-    dependencies:
-      undici-types: 8.3.0
-
   '@types/superagent@8.1.11':
     dependencies:
       '@types/cookiejar': 2.1.5
       '@types/methods': 1.1.4
-      '@types/node': 26.2.0
+      '@types/node': 24.13.3
       form-data: 4.0.6
 
   '@types/supertest@7.2.1':
@@ -3190,8 +3180,6 @@ snapshots:
   uncrypto@0.1.3: {}
 
   undici-types@7.18.2: {}
-
-  undici-types@8.3.0: {}
 
   unjwt@0.7.3(cookie-es@3.1.1)(elysia@1.4.29(@sinclair/typebox@0.34.52)(exact-mirror@1.2.4)(file-type@22.0.2(supports-color@7.2.0))(openapi-types@12.1.3)(typescript@7.0.2))(h3@2.0.1-rc.29)(rou3@0.8.1):
     optionalDependencies:

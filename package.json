@@ -70,7 +70,7 @@
     "bench": "vitest bench --run"
   },
   "devDependencies": {
-    "@types/node": "^24",
+    "@types/node": "^24.13.3",
     "@types/supertest": "^7.2.1",
     "@vitest/coverage-v8": "^4.1.11",
     "automd": "^0.4.3",
