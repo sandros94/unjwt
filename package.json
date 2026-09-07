@@ -72,7 +72,7 @@
   "devDependencies": {
     "@types/node": "^24.13.3",
     "@types/supertest": "^7.2.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "automd": "^0.4.3",
     "cookie-esv1": "npm:cookie-es@^1.2.3",
     "cookie-esv3": "npm:cookie-es@^3.1.1",
@@ -89,7 +89,7 @@
     "supertest": "^7.2.2",
     "typescript": "^7.0.2",
     "unsecure": "^0.2.3",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "peerDependencies": {
     "cookie-es": "^1.2.3 || ^3.1.1",
