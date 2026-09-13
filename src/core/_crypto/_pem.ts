@@ -47,9 +47,7 @@ export const fromX509: PEMImportFunction = (pem, alg, options?) => {
   try {
     spki = getSPKI(pem);
   } catch (error_) {
-    throw new TypeError("Failed to parse the X.509 certificate", {
-      cause: error_,
-    });
+    throw new JWTError("Failed to parse the X.509 certificate.", "ERR_JWK_INVALID", error_);
   }
   return fromSPKI(spki, alg, options);
 };
@@ -117,7 +115,12 @@ const genericImport = async (
 
   assertPEMLabel(pem, descriptor);
   const cleanedPem = pem.replace(replace, "");
-  const keyData = base64Parse(cleanedPem, { returnAs: "uint8array" });
+  let keyData: Uint8Array<ArrayBuffer>;
+  try {
+    keyData = base64Parse(cleanedPem, { returnAs: "uint8array" });
+  } catch (error) {
+    throw new JWTError("Invalid PEM: body could not be decoded.", "ERR_JWK_INVALID", error);
+  }
 
   const isPublic = keyFormat === "spki";
 
@@ -306,6 +309,15 @@ const getSPKI = (x509: string): string => {
     } catch {}
   }
   const pem = x509.replace(/(?:-----(?:BEGIN|END) CERTIFICATE-----|\s)/g, "");
-  const raw = base64Parse(pem, { returnAs: "uint8array" });
+  let raw: Uint8Array<ArrayBuffer>;
+  try {
+    raw = base64Parse(pem, { returnAs: "uint8array" });
+  } catch (error) {
+    throw new JWTError(
+      "Invalid X.509 certificate: body could not be decoded.",
+      "ERR_JWK_INVALID",
+      error,
+    );
+  }
   return formatPEM(spkiFromX509(raw), "PUBLIC KEY");
 };

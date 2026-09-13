@@ -246,7 +246,8 @@ function notAllowed(alg: string, ctx: AlgCheckContext): JWTError {
 /**
  * Parse the base64url-encoded JWS/JWE Protected Header. Returns an empty
  * header when `encoded` is absent (valid per RFC 7515 §7.2 / RFC 7516 §7.2.1);
- * throws `ERR_{family}_INVALID` on a malformed header.
+ * throws `ERR_{family}_INVALID` on a malformed header, with the originating
+ * `UnsecureError` (base64url or JSON) as `cause`.
  */
 export function decodeProtectedHeader<T extends object>(
   encoded: string | undefined,
@@ -255,10 +256,36 @@ export function decodeProtectedHeader<T extends object>(
   if (!encoded) return {} as T;
   try {
     return safeJsonParse<T>(base64UrlParse(encoded));
-  } catch {
+  } catch (error) {
     throw new JWTError(
       `Invalid ${family}: Protected header could not be decoded.`,
       `ERR_${family}_INVALID` as JWTErrorCode,
+      error,
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Wire segment decode (JWS/JWE/JWK) — the single codec-failure boundary.
+// -----------------------------------------------------------------------------
+
+/**
+ * Decode a base64url-encoded wire segment or key field into bytes, translating
+ * a codec failure into `ERR_{family}_INVALID` with the originating
+ * `UnsecureError` as `cause`. Decoding is always strict — the canonical,
+ * unpadded RFC 7515 §2 encoding is the contract for token material.
+ */
+export function decodeSegment(
+  encoded: string,
+  options: { family: "JWS" | "JWE" | "JWK"; what: string },
+): Uint8Array<ArrayBuffer> {
+  try {
+    return base64UrlParse(encoded, { returnAs: "uint8array" });
+  } catch (error) {
+    throw new JWTError(
+      `Invalid ${options.family}: ${options.what} could not be decoded.`,
+      `ERR_${options.family}_INVALID` as JWTErrorCode,
+      error,
     );
   }
 }
@@ -286,7 +313,11 @@ export function decodeJWSPayload<T>(
   forceUint8Array: boolean | undefined,
 ): T {
   if (useB64) {
-    return decodePayloadFromB64UrlSegment<T>(payloadSegment, forceUint8Array) as T;
+    try {
+      return decodePayloadFromB64UrlSegment<T>(payloadSegment, forceUint8Array) as T;
+    } catch (error) {
+      throw new JWTError("Invalid JWS: Payload could not be decoded.", "ERR_JWS_INVALID", error);
+    }
   }
   return (forceUint8Array ? textEncoder.encode(payloadSegment) : payloadSegment) as T;
 }

@@ -1,6 +1,6 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, textDecoder } from "unsecure/utils";
-import { base64UrlStringify, base64UrlParse } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -43,6 +43,7 @@ import {
   decodeProtectedHeader,
   resolveSigningKey,
   validateJwtClaimsIfJsonPayload,
+  decodeSegment,
 } from "./_internal";
 
 /**
@@ -209,7 +210,10 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const signatureBytes = base64UrlParse(wireSig.signature, { returnAs: "uint8array" });
+    const signatureBytes = decodeSegment(wireSig.signature, {
+      family: "JWS",
+      what: "Signature",
+    });
     const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${general.payload}`);
 
     cryptoAttempted = true;
@@ -601,7 +605,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWS_ALG_CTX);
   if (algError) return fail(algError, protectedHeader, unprotectedHeader);
 
-  const signatureBytes = base64UrlParse(wireSig.signature, { returnAs: "uint8array" });
+  const signatureBytes = decodeSegment(wireSig.signature, { family: "JWS", what: "Signature" });
   const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${payload}`);
 
   let verified: boolean;

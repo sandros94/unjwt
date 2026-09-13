@@ -367,6 +367,21 @@ interface JWKCacheAdapter {
 }
 ```
 
+## Errors
+
+Every JOSE operation in this module throws `JWTError` — a single `instanceof` is enough. When the root cause is one of the bundled [`unsecure`](https://github.com/sandros94/unsecure) primitives (base64url codec, JSON parse), it is preserved as `cause`:
+
+```ts
+import { importKey, isJWTError, isUnsecureError } from "unjwt/jwk";
+
+const error = await importKey(jwk).catch((e) => e);
+if (isJWTError(error, "ERR_JWK_INVALID") && isUnsecureError(error.cause, "MALFORMED")) {
+  // a segment of the wire format is not canonical base64url
+}
+```
+
+`unsecure` is inlined into unjwt's dist, so `instanceof` against a consumer-installed `unsecure` never matches. Use the `UnsecureError` / `isUnsecureError` that unjwt re-exports. The `unjwt/utils` primitives themselves still throw `UnsecureError` directly — only the JOSE operations wrap.
+
 ## JWK Types
 
 Every concrete JWK interface takes an optional `Alg` type parameter that constrains the JWK's

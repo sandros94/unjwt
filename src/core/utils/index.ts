@@ -12,6 +12,8 @@ import type {
   JWK_RSA_Private,
 } from "../types";
 
+export { UnsecureError, isUnsecureError, type UnsecureErrorCode } from "../error";
+
 export { secureRandomBytes } from "unsecure/random";
 export { safeJsonParse, sanitizeObject, sanitizeObjectCopy } from "unsecure/sanitize";
 export { textEncoder, textDecoder } from "unsecure/utils";

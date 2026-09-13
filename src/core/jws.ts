@@ -1,6 +1,6 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, textDecoder } from "unsecure/utils";
-import { base64UrlStringify, base64UrlParse } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -34,10 +34,19 @@ import {
   decodeProtectedHeader,
   resolveSigningKey,
   validateJwtClaimsIfJsonPayload,
+  decodeSegment,
 } from "./_internal";
 
 export type * from "./types/jws";
-export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
+export {
+  type JWTErrorCode,
+  type JWTErrorCauseMap,
+  type UnsecureErrorCode,
+  JWTError,
+  isJWTError,
+  UnsecureError,
+  isUnsecureError,
+} from "./error";
 export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi";
 
 /**
@@ -172,12 +181,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     );
   }
 
-  let signatureBytes: Uint8Array<ArrayBuffer>;
-  try {
-    signatureBytes = base64UrlParse(signatureEncoded, { returnAs: "uint8array" });
-  } catch {
-    throw new JWTError("Invalid JWS: Signature could not be decoded.", "ERR_JWS_INVALID");
-  }
+  const signatureBytes = decodeSegment(signatureEncoded, { family: "JWS", what: "Signature" });
 
   const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
 
@@ -226,15 +230,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   // RFC 7797: when `b64: false`, the payload segment is the raw payload (not base64url-encoded).
   const useB64 = protectedHeader.b64 !== false;
-  let payload: T;
-  try {
-    payload = decodeJWSPayload<T>(payloadEncoded as string, useB64, options.forceUint8Array);
-  } catch (error_) {
-    throw new JWTError(
-      `Invalid JWS: Payload decoding failed (${error_ instanceof Error ? error_.message : String(error_)})`,
-      "ERR_JWS_INVALID",
-    );
-  }
+  const payload = decodeJWSPayload<T>(payloadEncoded as string, useB64, options.forceUint8Array);
 
   validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
 

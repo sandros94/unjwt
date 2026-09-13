@@ -6,6 +6,8 @@ Import: `import { ... } from "unjwt/utils"`
 
 `secureRandomBytes`, the sanitizers and `textEncoder`/`textDecoder` are re-exported from the [`unsecure`](https://github.com/sandros94/unsecure) package; the Base64 helpers are thin unjwt wrappers over unsecure's `base64Stringify`/`base64Parse` with the alphabet fixed. Failures inside them surface as unsecure's `UnsecureError` (`code`: `MALFORMED`, `INVALID_TYPE`, …), not native `TypeError`/`SyntaxError`.
 
+`UnsecureError`, `UnsecureErrorCode` and `isUnsecureError` are re-exported from this module (and from `unjwt`, `unjwt/jws`, `unjwt/jwe`, `unjwt/jwk`). Because `unsecure` is inlined into unjwt's dist, a consumer-installed `unsecure` exposes a _different_ class — `instanceof` only matches unjwt's re-export. These primitives throw `UnsecureError` directly; the JOSE operations (`verify`, `decrypt`, `importKey`, `unwrapKey`, `importPEM`, …) wrap it in a `JWTError` and keep the original as `cause`.
+
 ## Encoding / Decoding
 
 unjwt's own base64 helpers, built on [`unsecure`](https://github.com/sandros94/unsecure)'s `base64Stringify`/`base64Parse` with the alphabet and padding policy fixed. Strict: decoding accepts only the canonical encoding of a byte string and throws `UnsecureError` (`code: "MALFORMED"`; `"INVALID_TYPE"` for a non text/bytes input) otherwise. `{ loose: true }` drops what cannot be used — application data only, never token material; `verify`/`decrypt` have no such option.

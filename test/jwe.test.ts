@@ -1,6 +1,6 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
-import { encrypt, decrypt, JWTError, isJWTError } from "../src/core/jwe";
+import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe";
 import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
@@ -1136,6 +1136,44 @@ describe.concurrent("JWE Utilities", () => {
       const error = await encrypt("payload", key, { alg: "dir" }).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWE_ENC_MISSING")).toBe(true);
+    });
+  });
+
+  describe("codec failures wrap into JWTError", () => {
+    let aesKey: CryptoKey;
+    beforeAll(async () => {
+      aesKey = await generateKey("A256KW");
+    });
+
+    async function tamperedCompact(index: number): Promise<string> {
+      const jwe = await encrypt(plaintextObj, aesKey, { alg: "A256KW", enc: "A256GCM" });
+      const parts = jwe.split(".");
+      parts[index] = `${parts[index]}=`;
+      return parts.join(".");
+    }
+
+    it.each([
+      [1, "Invalid JWE: Encrypted key could not be decoded."],
+      [2, "Invalid JWE: Initialization vector could not be decoded."],
+      [3, "Invalid JWE: Ciphertext could not be decoded."],
+      [4, "Invalid JWE: Authentication tag could not be decoded."],
+    ])(
+      "ERR_JWE_INVALID — malformed segment %i carries the UnsecureError cause",
+      async (index, message) => {
+        const error = await decrypt(await tamperedCompact(index as number), aesKey).catch((e) => e);
+        expect(error).toBeInstanceOf(JWTError);
+        expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+        expect(error.message).toBe(message);
+        expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+      },
+    );
+
+    it("ERR_JWE_INVALID — malformed protected header carries the UnsecureError cause", async () => {
+      const error = await decrypt(await tamperedCompact(0), aesKey).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Protected header could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
     });
   });
 });

@@ -21,6 +21,9 @@ import {
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
+  JWTError,
+  isJWTError,
+  isUnsecureError,
 } from "../src/core/jwk";
 import { isCryptoKey, isCryptoKeyPair } from "../src/core/utils";
 import type {
@@ -1504,6 +1507,89 @@ describe.concurrent("JWK Utilities", () => {
         expect(sets[0]![0]).toBe(jwk.privateKey);
         expect(sets[0]![1]).toBe("RS256");
       });
+    });
+  });
+
+  describe("codec failures wrap into JWTError", () => {
+    const b64 = (n: number) => base64UrlStringify(secureRandomBytes(n));
+
+    it('importKey — malformed "k" is ERR_JWK_INVALID with an UnsecureError cause', async () => {
+      const jwk: JWK_oct<"HS256"> = { kty: "oct", alg: "HS256", k: `${b64(32)}=` };
+      const error = await importKey(jwk).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWK: "k" could not be decoded.');
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it('unwrapKey — malformed "iv" is ERR_JWE_INVALID with an UnsecureError cause', async () => {
+      const wrappingKey = await generateKey("A256GCMKW");
+      const error = await unwrapKey("A256GCMKW", secureRandomBytes(32), wrappingKey, {
+        iv: `${b64(12)}=`,
+        tag: b64(16),
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWE: "iv" could not be decoded.');
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it('unwrapKey — malformed "tag" is ERR_JWE_INVALID with an UnsecureError cause', async () => {
+      const wrappingKey = await generateKey("A256GCMKW");
+      const error = await unwrapKey("A256GCMKW", secureRandomBytes(32), wrappingKey, {
+        iv: b64(12),
+        tag: `${b64(16)}=`,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWE: "tag" could not be decoded.');
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it('unwrapKey — malformed "p2s" is ERR_JWE_INVALID with an UnsecureError cause', async () => {
+      const error = await unwrapKey("PBES2-HS256+A128KW", secureRandomBytes(24), "password", {
+        p2s: `${b64(16)}=`,
+        p2c: 1000,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWE: "p2s" could not be decoded.');
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it.each(["apu", "apv"] as const)(
+      'unwrapKey — malformed "%s" is ERR_JWE_INVALID with an UnsecureError cause',
+      async (param) => {
+        const recipient = (await generateKey("ECDH-ES", {
+          namedCurve: "P-256",
+        })) as CryptoKeyPair;
+        const sender = (await generateKey("ECDH-ES", { namedCurve: "P-256" })) as CryptoKeyPair;
+        const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+          epk: sender.publicKey,
+          enc: "A256GCM",
+          [param]: `${b64(8)}=`,
+        }).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+        expect(error.message).toBe(`Invalid JWE: "${param}" could not be decoded.`);
+        expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+      },
+    );
+
+    it("importPEM — a non-base64 PEM body is ERR_JWK_INVALID with an UnsecureError cause", async () => {
+      const pem = "-----BEGIN PUBLIC KEY-----\n!!! not base64 !!!\n-----END PUBLIC KEY-----\n";
+      const error = await importPEM(pem, "RS256").catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid PEM: body could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("importPEM — a garbage X.509 body is ERR_JWK_INVALID with a chained cause", async () => {
+      const pem = "-----BEGIN CERTIFICATE-----\n!!! not base64 !!!\n-----END CERTIFICATE-----\n";
+      const error = await importPEM(pem, "RS256").catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe("Failed to parse the X.509 certificate.");
+      expect(isJWTError(error.cause, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.cause.message).toBe("Invalid X.509 certificate: body could not be decoded.");
+      expect(isUnsecureError(error.cause.cause, "MALFORMED")).toBe(true);
     });
   });
 });

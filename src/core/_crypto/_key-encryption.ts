@@ -1,5 +1,6 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { base64UrlStringify, base64UrlParse } from "../utils/base64";
+import { JWTError } from "../error";
 
 import type {
   JWEKeyManagementHeaderParameters,
@@ -175,7 +176,11 @@ export async function normalizeKey(
 
   if (isJWK(key)) {
     if ("k" in key && key.k) {
-      return base64UrlParse(key.k as string, { returnAs: "uint8array" });
+      try {
+        return base64UrlParse(key.k as string, { returnAs: "uint8array" });
+      } catch (error) {
+        throw new JWTError('Invalid JWK: "k" could not be decoded.', "ERR_JWK_INVALID", error);
+      }
     }
     return jwkTokey(key.alg ? key : { ...key, alg });
   }

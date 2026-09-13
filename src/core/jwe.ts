@@ -1,7 +1,7 @@
 import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify, base64UrlParse } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -42,10 +42,19 @@ import {
   decodeProtectedHeader,
   parseEphemeralKey,
   validateJwtClaimsIfJsonPayload,
+  decodeSegment,
 } from "./_internal";
 
 export type * from "./types/jwe";
-export { type JWTErrorCode, type JWTErrorCauseMap, JWTError, isJWTError } from "./error";
+export {
+  type JWTErrorCode,
+  type JWTErrorCauseMap,
+  type UnsecureErrorCode,
+  JWTError,
+  isJWTError,
+  UnsecureError,
+  isUnsecureError,
+} from "./error";
 export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi";
 
 /**
@@ -259,10 +268,19 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   const algError = checkAlgAllowed(alg, rawKeyMaterial, options?.algorithms, JWE_ALG_CTX);
   if (algError) throw algError;
 
-  const encryptedKeyBytes = base64UrlParse(encryptedKeyEncoded, { returnAs: "uint8array" });
-  const contentIVBytes = base64UrlParse(ivEncoded, { returnAs: "uint8array" });
-  const contentAuthTagBytes = base64UrlParse(authTagEncoded, { returnAs: "uint8array" });
-  const ciphertextBytes = base64UrlParse(ciphertextEncoded, { returnAs: "uint8array" });
+  const encryptedKeyBytes = decodeSegment(encryptedKeyEncoded, {
+    family: "JWE",
+    what: "Encrypted key",
+  });
+  const contentIVBytes = decodeSegment(ivEncoded, {
+    family: "JWE",
+    what: "Initialization vector",
+  });
+  const contentAuthTagBytes = decodeSegment(authTagEncoded, {
+    family: "JWE",
+    what: "Authentication tag",
+  });
+  const ciphertextBytes = decodeSegment(ciphertextEncoded, { family: "JWE", what: "Ciphertext" });
 
   const unwrapKeyOpts: UnwrapKeyOptions = {
     enc,

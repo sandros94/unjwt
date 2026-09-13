@@ -8,6 +8,7 @@ import {
   generalToFlattened,
   JWTError,
   isJWTError,
+  isUnsecureError,
 } from "../src/core/jwe";
 import { generateJWK } from "../src/core/jwk";
 import type {
@@ -719,6 +720,67 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
 
       const { payload } = await decryptMulti(jwe, keys.a256kw);
       expect(payload).toEqual({ sub: "u1" });
+    });
+  });
+
+  describe("codec failures wrap into JWTError", () => {
+    async function general(): Promise<JWEGeneralSerialization> {
+      return encryptMulti({ sub: "u1" }, [{ key: keys.a256kw }], { enc: "A256GCM" });
+    }
+
+    it("ERR_JWE_INVALID — malformed iv carries the UnsecureError cause", async () => {
+      const jwe = await general();
+      const error = await decryptMulti({ ...jwe, iv: `${jwe.iv}=` }, keys.a256kw).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Initialization vector could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("ERR_JWE_INVALID — malformed ciphertext carries the UnsecureError cause", async () => {
+      const jwe = await general();
+      const error = await decryptMulti(
+        { ...jwe, ciphertext: `${jwe.ciphertext}=` },
+        keys.a256kw,
+      ).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Ciphertext could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("ERR_JWE_INVALID — malformed tag carries the UnsecureError cause", async () => {
+      const jwe = await general();
+      const error = await decryptMulti({ ...jwe, tag: `${jwe.tag}=` }, keys.a256kw).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Authentication tag could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("ERR_JWE_INVALID — malformed encrypted_key carries the UnsecureError cause", async () => {
+      const jwe = await general();
+      const tampered: JWEGeneralSerialization = {
+        ...jwe,
+        recipients: [
+          {
+            ...jwe.recipients[0]!,
+            encrypted_key: `${jwe.recipients[0]!.encrypted_key}=`,
+          },
+        ],
+      };
+      const error = await decryptMulti(tampered, keys.a256kw).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Encrypted key could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("ERR_JWE_INVALID — malformed Flattened encrypted_key carries the cause", async () => {
+      const flattened = generalToFlattened(await general());
+      const error = await decryptMulti(
+        { ...flattened, encrypted_key: `${flattened.encrypted_key}=` },
+        keys.a256kw,
+      ).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
     });
   });
 });

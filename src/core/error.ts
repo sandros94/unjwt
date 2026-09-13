@@ -1,3 +1,16 @@
+import { UnsecureError, type UnsecureErrorCode } from "unsecure/errors";
+
+/**
+ * The `UnsecureError` class unjwt itself throws.
+ *
+ * `unsecure` is inlined into unjwt's dist, so the class a consumer gets from
+ * their own `unsecure` dependency is a *different* class — `instanceof` against
+ * it never matches what unjwt throws. This re-export is the identity that does
+ * match, both for errors thrown directly by the `unjwt/utils` primitives and
+ * for the `cause` carried by a {@link JWTError}.
+ */
+export { UnsecureError, type UnsecureErrorCode };
+
 /**
  * All known error codes thrown by unjwt.
  *
@@ -101,5 +114,33 @@ export function isJWTError<T extends JWTErrorCode>(error: unknown, code: T): err
 export function isJWTError(error: unknown): error is JWTError;
 export function isJWTError(error: unknown, code?: string): boolean {
   if (!(error instanceof JWTError)) return false;
+  return code === undefined || error.code === code;
+}
+
+/**
+ * Type guard that narrows `error` to the bundled {@link UnsecureError}, the
+ * class thrown by unjwt's codec / JSON / random primitives and carried as the
+ * `cause` of a {@link JWTError} when a wire segment or key field fails to
+ * decode. Pass a `code` to narrow further.
+ *
+ * Check against this export rather than a `UnsecureError` imported from a
+ * consumer-installed `unsecure`: unjwt bundles its own copy, so the two classes
+ * are distinct and `instanceof` against the latter is always `false`.
+ *
+ * @example
+ * import { isJWTError, isUnsecureError } from "unjwt/jws";
+ *
+ * const error = await verify(token, key).catch((e) => e);
+ * if (isJWTError(error, "ERR_JWS_INVALID") && isUnsecureError(error.cause, "MALFORMED")) {
+ *   // a segment of the token is not canonical base64url
+ * }
+ */
+export function isUnsecureError<T extends UnsecureErrorCode>(
+  error: unknown,
+  code: T,
+): error is UnsecureError & { code: T };
+export function isUnsecureError(error: unknown): error is UnsecureError;
+export function isUnsecureError(error: unknown, code?: string): boolean {
+  if (!(error instanceof UnsecureError)) return false;
   return code === undefined || error.code === code;
 }

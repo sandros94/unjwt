@@ -1,7 +1,7 @@
 import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify, base64UrlParse } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -52,6 +52,7 @@ import {
   decodeProtectedHeader,
   parseEphemeralKey,
   validateJwtClaimsIfJsonPayload,
+  decodeSegment,
 } from "./_internal";
 
 const DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);
@@ -232,9 +233,12 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     | JWEHeaderParameters
     | undefined;
 
-  const ivBytes = base64UrlParse(general.iv, { returnAs: "uint8array" });
-  const ciphertextBytes = base64UrlParse(general.ciphertext, { returnAs: "uint8array" });
-  const tagBytes = base64UrlParse(general.tag, { returnAs: "uint8array" });
+  const ivBytes = decodeSegment(general.iv, { family: "JWE", what: "Initialization vector" });
+  const ciphertextBytes = decodeSegment(general.ciphertext, {
+    family: "JWE",
+    what: "Ciphertext",
+  });
+  const tagBytes = decodeSegment(general.tag, { family: "JWE", what: "Authentication tag" });
   const contentAadBytes = textEncoder.encode(
     general.aad ? `${protectedHeaderEncoded}.${general.aad}` : protectedHeaderEncoded,
   );
@@ -277,8 +281,9 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const encryptedKeyBytes = base64UrlParse(wireRecipient.encrypted_key ?? "", {
-      returnAs: "uint8array",
+    const encryptedKeyBytes = decodeSegment(wireRecipient.encrypted_key ?? "", {
+      family: "JWE",
+      what: "Encrypted key",
     });
     const unwrapKeyOpts = _buildUnwrapKeyOptions(effective, enc, options);
 

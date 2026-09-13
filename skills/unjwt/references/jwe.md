@@ -216,6 +216,21 @@ JWE's multi-recipient model has one more moving part than JWS's multi-signature 
 - **External AAD support (RFC 7516 §5.1).** The `aad` field binds the ciphertext to out-of-band context (document hash, request URL). JWS has no analog — signatures already cover the whole payload.
 - **"First recipient that decrypts" semantics.** One recipient's key unlocks the ciphertext; the others are invisible to that recipient. By contrast, JWS signatures are independently verifiable — any verifier can check any subset (see `verifyMulti` in the JWS reference).
 
+## Errors
+
+Every JOSE operation in this module throws `JWTError` — a single `instanceof` is enough. When the root cause is one of the bundled [`unsecure`](https://github.com/sandros94/unsecure) primitives (base64url codec, JSON parse), it is preserved as `cause`:
+
+```ts
+import { decrypt, isJWTError, isUnsecureError } from "unjwt/jwe";
+
+const error = await decrypt(jwe, key).catch((e) => e);
+if (isJWTError(error, "ERR_JWE_INVALID") && isUnsecureError(error.cause, "MALFORMED")) {
+  // a segment of the wire format is not canonical base64url
+}
+```
+
+`unsecure` is inlined into unjwt's dist, so `instanceof` against a consumer-installed `unsecure` never matches. Use the `UnsecureError` / `isUnsecureError` that unjwt re-exports. The `unjwt/utils` primitives themselves still throw `UnsecureError` directly — only the JOSE operations wrap.
+
 ## Types
 
 ```ts

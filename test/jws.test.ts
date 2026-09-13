@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 
-import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
+import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
 import type { JWTClaims, JWK, JWK_RSA_Private, JWKSet } from "../src/core/types";
 
@@ -1390,6 +1390,57 @@ describe.concurrent("JWS Utilities", () => {
       ).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWS_ALG_MISSING")).toBe(true);
+    });
+  });
+
+  describe("codec failures wrap into JWTError", () => {
+    let hs256Key: CryptoKey;
+    beforeAll(async () => {
+      hs256Key = await generateKey("HS256");
+    });
+
+    const headerEncoded = base64UrlStringify(JSON.stringify({ alg: "HS256" }));
+
+    async function signCompact(payloadEncoded: string): Promise<string> {
+      const signature = new Uint8Array(
+        await crypto.subtle.sign(
+          "HMAC",
+          hs256Key,
+          textEncoder.encode(`${headerEncoded}.${payloadEncoded}`),
+        ),
+      );
+      return `${headerEncoded}.${payloadEncoded}.${base64UrlStringify(signature)}`;
+    }
+
+    it("ERR_JWS_INVALID — malformed protected header, cause is the UnsecureError", async () => {
+      const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
+      const [, payloadEncoded, signatureEncoded] = jws.split(".");
+      const error = await verify(
+        `${headerEncoded}=.${payloadEncoded}.${signatureEncoded}`,
+        hs256Key,
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Protected header could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("ERR_JWS_INVALID — malformed signature segment, cause is the UnsecureError", async () => {
+      const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
+      const error = await verify(`${jws}=`, hs256Key).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Signature could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("ERR_JWS_INVALID — malformed payload segment, cause is the UnsecureError", async () => {
+      const jws = await signCompact(`${base64UrlStringify(JSON.stringify(payloadObj))}=`);
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Payload could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
     });
   });
 });

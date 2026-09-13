@@ -228,6 +228,21 @@ JWS JSON Serialization is structurally simpler than JWE's:
 - **No shared unprotected header at the top level** — only per-signature `header` fields (RFC 7515 §7.2.1).
 - **RFC 7797 `b64: false` constraint** — all signers must agree on `b64`; inconsistency throws `ERR_JWS_B64_INCONSISTENT`.
 
+## Errors
+
+Every JOSE operation in this module throws `JWTError` — a single `instanceof` is enough. When the root cause is one of the bundled [`unsecure`](https://github.com/sandros94/unsecure) primitives (base64url codec, JSON parse), it is preserved as `cause`:
+
+```ts
+import { verify, isJWTError, isUnsecureError } from "unjwt/jws";
+
+const error = await verify(token, key).catch((e) => e);
+if (isJWTError(error, "ERR_JWS_INVALID") && isUnsecureError(error.cause, "MALFORMED")) {
+  // a segment of the wire format is not canonical base64url
+}
+```
+
+`unsecure` is inlined into unjwt's dist, so `instanceof` against a consumer-installed `unsecure` never matches. Use the `UnsecureError` / `isUnsecureError` that unjwt re-exports. The `unjwt/utils` primitives themselves still throw `UnsecureError` directly — only the JOSE operations wrap.
+
 ## Types
 
 ```ts

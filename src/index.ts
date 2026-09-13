@@ -1,7 +1,7 @@
 export type * from "./core/types";
 
-export { JWTError, isJWTError } from "./core/error";
-export type { JWTErrorCode, JWTErrorCauseMap } from "./core/error";
+export { JWTError, isJWTError, UnsecureError, isUnsecureError } from "./core/error";
+export type { JWTErrorCode, JWTErrorCauseMap, UnsecureErrorCode } from "./core/error";
 
 export {
   sign,

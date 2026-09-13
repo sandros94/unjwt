@@ -7,6 +7,7 @@ import {
   verifyMultiAll,
   generalToFlattenedJWS,
   isJWTError,
+  isUnsecureError,
 } from "../src/core/jws";
 import { generateJWK } from "../src/core/jwk";
 import type {
@@ -688,6 +689,43 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
       const { payload } = await verifyMulti(jws, keys.hs256);
       expect(payload).toEqual({ sub: "u1" });
+    });
+  });
+
+  describe("codec failures wrap into JWTError", () => {
+    it("verifyMulti — malformed signature is ERR_JWS_INVALID with an UnsecureError cause", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const tampered: JWSGeneralSerialization = {
+        ...jws,
+        signatures: [{ ...jws.signatures[0]!, signature: `${jws.signatures[0]!.signature}=` }],
+      };
+      const error = await verifyMulti(tampered, keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Signature could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("verifyMultiAll — malformed signature is ERR_JWS_INVALID with an UnsecureError cause", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const tampered: JWSGeneralSerialization = {
+        ...jws,
+        signatures: [{ ...jws.signatures[0]!, signature: `${jws.signatures[0]!.signature}=` }],
+      };
+      const error = await verifyMultiAll(tampered, () => keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Signature could not be decoded.");
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+
+    it("verifyMulti — malformed Flattened signature is ERR_JWS_INVALID with a cause", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const flattened = generalToFlattenedJWS(jws);
+      const error = await verifyMulti(
+        { ...flattened, signature: `${flattened.signature}=` },
+        keys.hs256,
+      ).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
     });
   });
 });
