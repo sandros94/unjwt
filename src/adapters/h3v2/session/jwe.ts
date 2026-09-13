@@ -4,6 +4,7 @@ import {
   type H3EventContext,
   getEventContext,
   setChunkedCookie,
+  deleteChunkedCookie,
 } from "h3v2";
 
 import type { CookieSerializeOptions } from "cookie-esv3";
@@ -265,11 +266,9 @@ export async function getJWESession<
       delete context.sessions![sessionName];
       if (config.cookie !== false) {
         if (hasWritableResponse(event)) {
-          setChunkedCookie(event, sessionName, "", {
+          deleteChunkedCookie(event, sessionName, {
             ...DEFAULT_COOKIE,
             ...config.cookie,
-            expires: new Date(0),
-            maxAge: undefined,
           });
           stageSessionErrCookies(event, sessionName);
         } else {
@@ -623,11 +622,9 @@ export async function clearJWESession<
   }
 
   if (config.cookie !== false && canWriteCookie) {
-    setChunkedCookie(event, sessionName, "", {
+    deleteChunkedCookie(event, sessionName, {
       ...DEFAULT_COOKIE,
       ...config.cookie,
-      expires: new Date(0),
-      maxAge: undefined,
     });
     stageSessionErrCookies(event, sessionName);
   }
