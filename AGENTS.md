@@ -2,7 +2,7 @@
 
 # unjwt - Agent Guide
 
-`unjwt` is a low-level JWT library using the Web Crypto API. It implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517) with framework adapters for H3 v1/v2 (Nuxt/Nitro). Zero runtime dependencies for core; optional peer deps for adapters (`h3`, `cookie-es`, `rou3`).
+`unjwt` is a low-level JWT library using the Web Crypto API. It implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517) with framework adapters for H3 v1/v2 (Nuxt/Nitro) and Elysia. Zero runtime dependencies for core; optional peer deps for adapters (`h3`, `cookie-es`, `elysia`).
 
 ## Core Principle — Ask First
 
