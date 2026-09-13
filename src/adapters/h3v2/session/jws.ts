@@ -1,11 +1,4 @@
-import {
-  type H3Event,
-  type HTTPEvent,
-  type H3EventContext,
-  getEventContext,
-  getChunkedCookie,
-  setChunkedCookie,
-} from "h3v2";
+import { type HTTPEvent, type H3EventContext, getEventContext, setChunkedCookie } from "h3v2";
 
 import type { CookieSerializeOptions } from "cookie-esv3";
 
@@ -31,6 +24,7 @@ import {
   computeDurationInSeconds,
 } from "../../../core/utils";
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
+import { getSessionFromContext, hasWritableResponse, readSessionToken } from "./_shared";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jws_getSession");
 
@@ -186,21 +180,23 @@ export async function useJWSSession<
 
   const sessionManager: SessionManager<T, MaxAge> = {
     get id() {
-      return getSessionFromContext<T, MaxAge>(event, sessionName)?.id;
+      return getSessionFromContext<SessionJWS<T, MaxAge>>(event, sessionName)?.id;
     },
     get createdAt() {
-      return getSessionFromContext<T, MaxAge>(event, sessionName)?.createdAt ?? Date.now();
+      return (
+        getSessionFromContext<SessionJWS<T, MaxAge>>(event, sessionName)?.createdAt ?? Date.now()
+      );
     },
     get expiresAt() {
-      return getSessionFromContext<T, MaxAge>(event, sessionName)
+      return getSessionFromContext<SessionJWS<T, MaxAge>>(event, sessionName)
         ?.expiresAt as MaxAge extends ExpiresIn ? number : T["exp"];
     },
     get data() {
-      return (getSessionFromContext<T, MaxAge>(event, sessionName)?.data || {}) as T;
+      return (getSessionFromContext<SessionJWS<T, MaxAge>>(event, sessionName)?.data || {}) as T;
     },
     get token() {
       return (
-        getSessionFromContext<T, MaxAge>(event, sessionName)?.token ??
+        getSessionFromContext<SessionJWS<T, MaxAge>>(event, sessionName)?.token ??
         getJWSSessionToken(event, config)
       );
     },
@@ -375,34 +371,7 @@ export function getJWSSessionToken<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): string | undefined {
-  const sessionName = config.name || DEFAULT_NAME;
-
-  let token: string | undefined;
-
-  if (config.sessionHeader !== false) {
-    const headerName =
-      typeof config.sessionHeader === "string"
-        ? config.sessionHeader.toLowerCase()
-        : `x-${sessionName.toLowerCase()}-session`;
-    const headerValue = event.req.headers.get(headerName);
-    if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ") ? headerValue.slice(7).trim() : headerValue;
-    }
-  }
-
-  // Set-Cookie header may carry a freshly-minted session on redirect responses.
-  if (config.cookie !== false && hasWritableResponse(event)) {
-    const setCookie = event.res.headers.get("set-cookie");
-    if (typeof setCookie === "string") {
-      token = findSetCookie(setCookie, sessionName);
-    }
-  }
-
-  if (!token) {
-    token = getChunkedCookie(event, sessionName);
-  }
-
-  return token;
+  return readSessionToken(event, config.name || DEFAULT_NAME, config);
 }
 
 /**
@@ -649,18 +618,6 @@ export async function clearJWSSession<
   });
 }
 
-function getSessionFromContext<
-  T extends Record<string, any> = SessionClaims,
-  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(event: HTTPEvent, sessionName: string): SessionJWS<T, MaxAge> | undefined {
-  const context = getEventContext<H3EventContext>(event);
-  return context.sessions?.[sessionName] as SessionJWS<T, MaxAge> | undefined;
-}
-
-function hasWritableResponse(event: HTTPEvent): event is H3Event {
-  return Boolean((event as H3Event).res);
-}
-
 function getSignKey(key: SessionConfigJWS["key"] | undefined): JWSSignJWK {
   if (!key) {
     throw new Error("Session: JWS key is required.");
@@ -718,10 +675,4 @@ function getVerifyKey(key: SessionConfigJWS["key"] | undefined): JWSVerifyJWK | 
   }
 
   return _key;
-}
-function findSetCookie(setCookie: string, name: string): string | undefined {
-  const regex = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`);
-  const match = setCookie.match(regex);
-
-  return match ? match[1] : undefined;
 }

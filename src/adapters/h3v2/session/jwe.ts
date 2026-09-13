@@ -3,7 +3,6 @@ import {
   type HTTPEvent,
   type H3EventContext,
   getEventContext,
-  getChunkedCookie,
   setChunkedCookie,
 } from "h3v2";
 
@@ -28,6 +27,7 @@ import {
   computeDurationInSeconds,
 } from "../../../core/utils";
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
+import { getSessionFromContext, hasWritableResponse, readSessionToken } from "./_shared";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
 
@@ -182,22 +182,23 @@ export async function useJWESession<
 
   const sessionManager: SessionManager<T, MaxAge> = {
     get id() {
-      return getSessionFromContext(event, sessionName)?.id;
+      return getSessionFromContext<SessionJWE<T, MaxAge>>(event, sessionName)?.id;
     },
     get createdAt() {
-      return getSessionFromContext(event, sessionName)?.createdAt ?? Date.now();
+      return (
+        getSessionFromContext<SessionJWE<T, MaxAge>>(event, sessionName)?.createdAt ?? Date.now()
+      );
     },
     get expiresAt() {
-      return getSessionFromContext(event, sessionName)?.expiresAt as MaxAge extends ExpiresIn
-        ? number
-        : T["exp"];
+      return getSessionFromContext<SessionJWE<T, MaxAge>>(event, sessionName)
+        ?.expiresAt as MaxAge extends ExpiresIn ? number : T["exp"];
     },
     get data() {
-      return (getSessionFromContext(event, sessionName)?.data || {}) as T;
+      return (getSessionFromContext<SessionJWE<T, MaxAge>>(event, sessionName)?.data || {}) as T;
     },
     get token() {
       return (
-        getSessionFromContext<T, MaxAge>(event, sessionName)?.token ??
+        getSessionFromContext<SessionJWE<T, MaxAge>>(event, sessionName)?.token ??
         getJWESessionToken(event, config)
       );
     },
@@ -377,34 +378,7 @@ export function getJWESessionToken<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): string | undefined {
-  const sessionName = config.name || DEFAULT_NAME;
-
-  let token: string | undefined;
-
-  if (config.sessionHeader !== false) {
-    const headerName =
-      typeof config.sessionHeader === "string"
-        ? config.sessionHeader.toLowerCase()
-        : `x-${sessionName.toLowerCase()}-session`;
-    const headerValue = event.req.headers.get(headerName);
-    if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ") ? headerValue.slice(7).trim() : headerValue;
-    }
-  }
-
-  // Set-Cookie header may carry a freshly-minted session on redirect responses.
-  if (config.cookie !== false && hasWritableResponse(event)) {
-    const setCookie = event.res.headers.get("set-cookie");
-    if (typeof setCookie === "string") {
-      token = findSetCookie(setCookie, sessionName);
-    }
-  }
-
-  if (!token) {
-    token = getChunkedCookie(event, sessionName);
-  }
-
-  return token;
+  return readSessionToken(event, config.name || DEFAULT_NAME, config);
 }
 
 /**
@@ -657,18 +631,6 @@ export async function clearJWESession<
   });
 }
 
-function getSessionFromContext<
-  T extends Record<string, any> = SessionClaims,
-  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(event: HTTPEvent, sessionName: string): SessionJWE<T, MaxAge> | undefined {
-  const context = getEventContext<H3EventContext>(event);
-  return context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;
-}
-
-function hasWritableResponse(event: HTTPEvent): event is H3Event {
-  return Boolean((event as H3Event).res);
-}
-
 function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWEEncryptJWK {
   if (!key) {
     throw new Error("Session: JWE key is required.");
@@ -717,10 +679,4 @@ function getDecryptKey(key: SessionConfigJWE["key"] | undefined): string | JWEDe
   }
 
   return _key;
-}
-function findSetCookie(setCookie: string, name: string): string | undefined {
-  const regex = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`);
-  const match = setCookie.match(regex);
-
-  return match ? match[1] : undefined;
 }
