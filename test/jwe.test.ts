@@ -384,9 +384,9 @@ describe.concurrent("JWE Utilities", () => {
     it("rejects p2c below the default minimum of 1000 iterations", async () => {
       const cek = secureRandomBytes(32);
       const p2s = secureRandomBytes(16);
-      const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 500, p2s });
+      const { encryptedKey } = await wrapKey(cek, password, { alg, p2c: 500, p2s });
       await expect(
-        unwrapKey(alg, encryptedKey, password, { p2c: 500, p2s, format: "raw" }),
+        unwrapKey(encryptedKey, password, { alg, p2c: 500, p2s, format: "raw" }),
       ).rejects.toThrow(/"p2c" below the minimum of 1000/);
     });
 
@@ -394,19 +394,16 @@ describe.concurrent("JWE Utilities", () => {
       // The bounds check fires before PBKDF2, so no need to actually wrap at that iteration count.
       const p2s = secureRandomBytes(16);
       await expect(
-        unwrapKey(alg, secureRandomBytes(40), password, {
-          p2c: 1_000_001,
-          p2s,
-          format: "raw",
-        }),
+        unwrapKey(secureRandomBytes(40), password, { alg, p2c: 1_000_001, p2s, format: "raw" }),
       ).rejects.toThrow(/"p2c" above the maximum of 1000000/);
     });
 
     it("accepts p2c at the default floor of 1000 iterations", async () => {
       const cek = secureRandomBytes(32);
       const p2s = secureRandomBytes(16);
-      const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 1000, p2s });
-      const unwrapped = await unwrapKey(alg, encryptedKey, password, {
+      const { encryptedKey } = await wrapKey(cek, password, { alg, p2c: 1000, p2s });
+      const unwrapped = await unwrapKey(encryptedKey, password, {
+        alg,
         p2c: 1000,
         p2s,
         format: "raw",
@@ -417,9 +414,10 @@ describe.concurrent("JWE Utilities", () => {
     it("honours caller-supplied minIterations override", async () => {
       const cek = secureRandomBytes(32);
       const p2s = secureRandomBytes(16);
-      const { encryptedKey } = await wrapKey(alg, cek, password, { p2c: 500, p2s });
+      const { encryptedKey } = await wrapKey(cek, password, { alg, p2c: 500, p2s });
       // Below default floor (1000), but a caller-supplied floor of 100 accepts it.
-      const unwrapped = await unwrapKey(alg, encryptedKey, password, {
+      const unwrapped = await unwrapKey(encryptedKey, password, {
+        alg,
         p2c: 500,
         p2s,
         format: "raw",
@@ -1044,7 +1042,8 @@ describe.concurrent("JWE Utilities", () => {
       expect(encryptedKeyBytes).toBeInstanceOf(Uint8Array);
       expect(encryptedKeyBytes.length).toBeGreaterThan(0);
 
-      const expectedCek = await unwrapKey(ecdhAlg, encryptedKeyBytes, recipientKeyPair.privateKey, {
+      const expectedCek = await unwrapKey(encryptedKeyBytes, recipientKeyPair.privateKey, {
+        alg: ecdhAlg,
         epk: protectedHeader.epk!,
         apu: protectedHeader.apu,
         apv: protectedHeader.apv,
@@ -1109,10 +1108,10 @@ describe.concurrent("JWE Utilities", () => {
       expect(decryptResult.payload).toEqual(plaintextObj);
 
       const derivedCek = await unwrapKey(
-        ecdhAlg,
         base64UrlParse(encryptedKeyEncoded, { returnAs: "uint8array" }),
         recipientKeyPair.privateKey,
         {
+          alg: ecdhAlg,
           epk: protectedHeader.epk!,
           apu: protectedHeader.apu,
           apv: protectedHeader.apv,

@@ -248,7 +248,8 @@ describe.concurrent("JWK Utilities", () => {
     const iterations = 2000; // Keep low for tests
 
     it("should derive CryptoKey (PBES2-HS256+A128KW)", async () => {
-      const key = await deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
+      const key = await deriveKeyFromPassword(password, {
+        alg: "PBES2-HS256+A128KW",
         salt,
         iterations,
       });
@@ -259,7 +260,8 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("should derive JWK (PBES2-HS384+A192KW, toJWK: true)", async () => {
-      const jwk = await deriveKeyFromPassword(password, "PBES2-HS384+A192KW", {
+      const jwk = await deriveKeyFromPassword(password, {
+        alg: "PBES2-HS384+A192KW",
         salt,
         iterations,
         toJWK: true,
@@ -272,7 +274,8 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should derive JWK with custom `kid`", async () => {
       const kid = "custom-key-id";
-      const jwk = await deriveJWKFromPassword(password, "PBES2-HS256+A128KW", {
+      const jwk = await deriveJWKFromPassword(password, {
+        alg: "PBES2-HS256+A128KW",
         salt,
         iterations,
         kid,
@@ -285,7 +288,8 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("should respect extractable and keyUsage options", async () => {
-      const key = await deriveKeyFromPassword(password, "PBES2-HS512+A256KW", {
+      const key = await deriveKeyFromPassword(password, {
+        alg: "PBES2-HS512+A256KW",
         salt,
         iterations,
         extractable: true,
@@ -298,7 +302,8 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw for invalid salt length", async () => {
       await expect(
-        deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
+        deriveKeyFromPassword(password, {
+          alg: "PBES2-HS256+A128KW",
           salt: secureRandomBytes(7),
           iterations,
         }),
@@ -307,16 +312,14 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw for invalid iterations", async () => {
       await expect(
-        deriveKeyFromPassword(password, "PBES2-HS256+A128KW", {
-          salt,
-          iterations: 0,
-        }),
+        deriveKeyFromPassword(password, { alg: "PBES2-HS256+A128KW", salt, iterations: 0 }),
       ).rejects.toThrow("must be a positive integer");
     });
 
     it("should derive JWK with custom `kid`", async () => {
       const kid = "custom-key-id";
-      const jwk = await deriveJWKFromPassword(password, "PBES2-HS256+A128KW", {
+      const jwk = await deriveJWKFromPassword(password, {
+        alg: "PBES2-HS256+A128KW",
         salt,
         iterations,
         kid,
@@ -625,15 +628,17 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should wrap/unwrap with AES-KW (A128KW)", async () => {
       const wrappingKey = await generateKey("A128KW");
-      const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
+      const { encryptedKey } = await wrapKey(cek, wrappingKey, { alg: "A128KW" });
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
 
-      const unwrappedBytes = await unwrapKey("A128KW", encryptedKey, wrappingKey, {
+      const unwrappedBytes = await unwrapKey(encryptedKey, wrappingKey, {
+        alg: "A128KW",
         format: "raw",
       });
       expect(unwrappedBytes).toEqual(cek);
 
-      const unwrappedKey = await unwrapKey("A128KW", encryptedKey, wrappingKey, {
+      const unwrappedKey = await unwrapKey(encryptedKey, wrappingKey, {
+        alg: "A128KW",
         format: "cryptokey",
         unwrappedKeyAlgorithm: { name: "AES-GCM" },
       });
@@ -645,10 +650,11 @@ describe.concurrent("JWK Utilities", () => {
       const { publicKey, privateKey } = await generateKey("RSA-OAEP", {
         modulusLength: 2048,
       });
-      const { encryptedKey } = await wrapKey("RSA-OAEP", cekCryptoKey, publicKey);
+      const { encryptedKey } = await wrapKey(cekCryptoKey, publicKey, { alg: "RSA-OAEP" });
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
 
-      const unwrappedKey = await unwrapKey("RSA-OAEP", encryptedKey, privateKey, {
+      const unwrappedKey = await unwrapKey(encryptedKey, privateKey, {
+        alg: "RSA-OAEP",
         format: "cryptokey",
         unwrappedKeyAlgorithm: { name: "AES-GCM" },
       });
@@ -680,7 +686,8 @@ describe.concurrent("JWK Utilities", () => {
           const cekBytes = secureRandomBytes(32);
           const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
-          const unwrapped = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+          const unwrapped = await unwrapKey(encryptedKey, pair.privateKey, {
+            alg,
             enc: "A128GCM",
             format: "raw",
           });
@@ -697,7 +704,8 @@ describe.concurrent("JWK Utilities", () => {
           const cekBytes = secureRandomBytes(32);
           const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
-          const unwrappedKey = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+          const unwrappedKey = await unwrapKey(encryptedKey, pair.privateKey, {
+            alg,
             enc: "A256GCM",
           });
 
@@ -712,7 +720,8 @@ describe.concurrent("JWK Utilities", () => {
         const cekBytes = secureRandomBytes(32); // 256 bits → infers AES-GCM-256
         const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
-        const unwrappedKey = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+        const unwrappedKey = await unwrapKey(encryptedKey, pair.privateKey, {
+          alg,
           format: "cryptokey",
           // no enc, no unwrappedKeyAlgorithm — hits inferAesImportAlgorithm bitLength branch
         });
@@ -729,7 +738,8 @@ describe.concurrent("JWK Utilities", () => {
         const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
         await expect(
-          unwrapKey(alg, encryptedKey, pair.privateKey, {
+          unwrapKey(encryptedKey, pair.privateKey, {
+            alg,
             format: "cryptokey",
             // no enc, no unwrappedKeyAlgorithm — inferAesImportAlgorithm returns undefined
           }),
@@ -743,12 +753,11 @@ describe.concurrent("JWK Utilities", () => {
         const encryptedKey = await encryptRSAES(alg, pair.publicKey, cekBytes);
 
         await expect(
-          unwrapKey(alg, encryptedKey, pair.privateKey, {
-            enc: "A256CBC-HS512",
-          }),
+          unwrapKey(encryptedKey, pair.privateKey, { alg, enc: "A256CBC-HS512" }),
         ).rejects.toThrow(/Unable to infer algorithm for RSA-OAEP unwrapped key/i);
 
-        const unwrapped = await unwrapKey(alg, encryptedKey, pair.privateKey, {
+        const unwrapped = await unwrapKey(encryptedKey, pair.privateKey, {
+          alg,
           enc: "A256CBC-HS512",
           format: "raw",
         });
@@ -761,19 +770,21 @@ describe.concurrent("JWK Utilities", () => {
     it("should wrap/unwrap with AES-GCMKW (A128GCMKW)", async () => {
       // AES-GCMKW uses an AES-GCM key to wrap another AES-GCM CEK.
       const wrappingKey = await generateKey("A128GCM", { extractable: true });
-      const { encryptedKey, iv, tag } = await wrapKey("A128GCMKW", cek, wrappingKey);
+      const { encryptedKey, iv, tag } = await wrapKey(cek, wrappingKey, { alg: "A128GCMKW" });
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
       expect(typeof iv).toBe("string");
       expect(typeof tag).toBe("string");
 
-      const unwrappedBytes = await unwrapKey("A128GCMKW", encryptedKey, wrappingKey, {
+      const unwrappedBytes = await unwrapKey(encryptedKey, wrappingKey, {
+        alg: "A128GCMKW",
         iv,
         tag,
         format: "raw",
       });
       expect(unwrappedBytes).toEqual(cek);
 
-      const unwrappedKey = await unwrapKey("A128GCMKW", encryptedKey, wrappingKey, {
+      const unwrappedKey = await unwrapKey(encryptedKey, wrappingKey, {
+        alg: "A128GCMKW",
         iv,
         tag,
         format: "cryptokey",
@@ -790,20 +801,22 @@ describe.concurrent("JWK Utilities", () => {
         encryptedKey,
         p2s: returnedP2s,
         p2c: returnedP2c,
-      } = await wrapKey("PBES2-HS256+A128KW", cek, password, { p2s, p2c });
+      } = await wrapKey(cek, password, { alg: "PBES2-HS256+A128KW", p2s, p2c });
 
       expect(encryptedKey).toBeInstanceOf(Uint8Array);
       expect(returnedP2s).toBeDefined();
       expect(returnedP2c).toBe(p2c);
 
-      const unwrappedBytes = await unwrapKey("PBES2-HS256+A128KW", encryptedKey, password, {
+      const unwrappedBytes = await unwrapKey(encryptedKey, password, {
+        alg: "PBES2-HS256+A128KW",
         p2s: returnedP2s!,
         p2c: returnedP2c!,
         format: "raw",
       });
       expect(unwrappedBytes).toEqual(cek);
 
-      const unwrappedKey = await unwrapKey("PBES2-HS256+A128KW", encryptedKey, password, {
+      const unwrappedKey = await unwrapKey(encryptedKey, password, {
+        alg: "PBES2-HS256+A128KW",
         p2s: returnedP2s!,
         p2c: returnedP2c!,
         format: "cryptokey",
@@ -813,56 +826,57 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("should throw wrapKey if PBES2 options missing", async () => {
-      await expect(wrapKey("PBES2-HS256+A128KW", cek, "password")).rejects.toThrow(
+      await expect(wrapKey(cek, "password", { alg: "PBES2-HS256+A128KW" })).rejects.toThrow(
         "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
       );
     });
 
     it("should throw unwrapKey if AES-GCMKW options missing", async () => {
       const wrappingKey = await generateKey("A128GCM", { extractable: true });
-      const { encryptedKey } = await wrapKey("A128GCMKW", cek, wrappingKey);
-      await expect(unwrapKey("A128GCMKW", encryptedKey, wrappingKey)).rejects.toThrow(
+      const { encryptedKey } = await wrapKey(cek, wrappingKey, { alg: "A128GCMKW" });
+      await expect(unwrapKey(encryptedKey, wrappingKey, { alg: "A128GCMKW" })).rejects.toThrow(
         "AES-GCMKW requires 'iv' and 'tag' options",
       );
     });
 
     it("should throw unwrapKey if PBES2 options missing", async () => {
-      const { encryptedKey } = await wrapKey("PBES2-HS256+A128KW", cek, "password", {
+      const { encryptedKey } = await wrapKey(cek, "password", {
+        alg: "PBES2-HS256+A128KW",
         p2s: secureRandomBytes(8),
         p2c: 1000,
       });
-      await expect(unwrapKey("PBES2-HS256+A128KW", encryptedKey, "password")).rejects.toThrow(
-        "PBES2 requires 'p2s' (salt) and 'p2c' (count) options",
-      );
+      await expect(
+        unwrapKey(encryptedKey, "password", { alg: "PBES2-HS256+A128KW" }),
+      ).rejects.toThrow("PBES2 requires 'p2s' (salt) and 'p2c' (count) options");
     });
 
     it("should throw unwrapKey for wrong key/tag", async () => {
       const wrappingKey1 = await generateKey("A128KW");
       const wrappingKey2 = await generateKey("A128KW");
-      const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey1);
+      const { encryptedKey } = await wrapKey(cek, wrappingKey1, { alg: "A128KW" });
       // eslint-disable-next-line vitest/require-to-throw-message -- Subtle crypto (AES-KW) unwrap errors vary by runtime; assert only that it rejects
-      await expect(unwrapKey("A128KW", encryptedKey, wrappingKey2)).rejects.toThrow();
+      await expect(unwrapKey(encryptedKey, wrappingKey2, { alg: "A128KW" })).rejects.toThrow();
     });
 
     it("should throw wrapKey for invalid key type", async () => {
       const stringKeyError = await wrapKey(
-        "A128KW",
         cek,
         // @ts-expect-error A128KW requires a CryptoKey or JWK_oct<"A128KW">; exercises runtime guard
         "not-a-key-object",
+        { alg: "A128KW" },
       ).catch((e) => e);
       expect(isJWTError(stringKeyError, "ERR_JWK_INVALID")).toBe(true);
       expect(stringKeyError.message).toBe(STRING_KEY_MESSAGE);
       await expect(
         // @ts-expect-error RSA-OAEP requires a CryptoKey or JWK_RSA_Public; exercises runtime guard
-        wrapKey("RSA-OAEP", cek, secureRandomBytes(32)),
+        wrapKey(cek, secureRandomBytes(32), { alg: "RSA-OAEP" }),
       ).rejects.toThrow(TypeError); // RSA needs a CryptoKey
     });
 
     it("should throw wrapKey for unsupported algorithm", async () => {
       await expect(
         // @ts-expect-error intentionally invalid algorithm
-        wrapKey("UNSUPPORTED-WRAP-ALG", cek, secureRandomBytes(16)),
+        wrapKey(cek, secureRandomBytes(16), { alg: "UNSUPPORTED-WRAP-ALG" }),
       ).rejects.toThrow("Unsupported key wrapping algorithm");
     });
 
@@ -870,14 +884,15 @@ describe.concurrent("JWK Utilities", () => {
       const recipientKeys = (await generateKey("ECDH-ES", {
         namedCurve: "P-256",
       })) as CryptoKeyPair;
-      await expect(wrapKey("ECDH-ES", cek, recipientKeys.publicKey)).rejects.toThrow(
+      await expect(wrapKey(cek, recipientKeys.publicKey, { alg: "ECDH-ES" })).rejects.toThrow(
         "options.ecdh.enc",
       );
     });
 
     it("should throw unwrapKey RSA-OAEP when unwrapping key is not a CryptoKey", async () => {
       await expect(
-        unwrapKey("RSA-OAEP", new Uint8Array(32), secureRandomBytes(32) as any, {
+        unwrapKey(new Uint8Array(32), secureRandomBytes(32) as any, {
+          alg: "RSA-OAEP",
           format: "raw",
         }),
       ).rejects.toThrow("RSA-OAEP requires the unwrapping key to be provided as a CryptoKey");
@@ -885,12 +900,12 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw unwrapKey for invalid key type", async () => {
       const wrappingKey = await generateKey("A128KW");
-      const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
+      const { encryptedKey } = await wrapKey(cek, wrappingKey, { alg: "A128KW" });
       const error = await unwrapKey(
-        "A128KW",
         encryptedKey,
         // @ts-expect-error A128KW requires a CryptoKey or JWK_oct<"A128KW">; exercises runtime guard
         "not-a-key-object",
+        { alg: "A128KW" },
       ).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toBe(STRING_KEY_MESSAGE);
@@ -899,7 +914,7 @@ describe.concurrent("JWK Utilities", () => {
     it("should throw unwrapKey for unsupported algorithm", async () => {
       await expect(
         // @ts-expect-error intentionally invalid algorithm
-        unwrapKey("UNSUPPORTED-ALG", new Uint8Array(0), new Uint8Array(0)),
+        unwrapKey(new Uint8Array(0), new Uint8Array(0), { alg: "UNSUPPORTED-ALG" }),
       ).rejects.toThrow("Unsupported key unwrapping algorithm");
     });
 
@@ -909,7 +924,8 @@ describe.concurrent("JWK Utilities", () => {
       })) as CryptoKeyPair;
 
       await expect(
-        unwrapKey("ECDH-ES", new Uint8Array(0), recipientKeys.privateKey, {
+        unwrapKey(new Uint8Array(0), recipientKeys.privateKey, {
+          alg: "ECDH-ES",
           enc: "A128GCM",
           // no epk — triggers "ECDH-ES requires 'epk'"
         }),
@@ -922,7 +938,8 @@ describe.concurrent("JWK Utilities", () => {
       })) as CryptoKeyPair;
 
       await expect(
-        unwrapKey("ECDH-ES", new Uint8Array(0), secureRandomBytes(32) as any, {
+        unwrapKey(new Uint8Array(0), secureRandomBytes(32) as any, {
+          alg: "ECDH-ES",
           epk: senderKeys.publicKey,
           enc: "A128GCM",
         }),
@@ -936,7 +953,8 @@ describe.concurrent("JWK Utilities", () => {
       const aesKey = (await generateKey("A128GCM")) as CryptoKey;
 
       await expect(
-        unwrapKey("ECDH-ES", new Uint8Array(0), aesKey as any, {
+        unwrapKey(new Uint8Array(0), aesKey as any, {
+          alg: "ECDH-ES",
           epk: senderKeys.publicKey,
           enc: "A128GCM",
         }),
@@ -952,7 +970,8 @@ describe.concurrent("JWK Utilities", () => {
       })) as CryptoKeyPair;
 
       await expect(
-        unwrapKey("ECDH-ES", new Uint8Array(0), recipientKeys.privateKey, {
+        unwrapKey(new Uint8Array(0), recipientKeys.privateKey, {
+          alg: "ECDH-ES",
           epk: senderKeys.publicKey,
           // no enc — triggers "ECDH-ES requires content encryption algorithm"
         }),
@@ -968,7 +987,8 @@ describe.concurrent("JWK Utilities", () => {
       })) as CryptoKeyPair;
 
       await expect(
-        unwrapKey("ECDH-ES+A128KW", new Uint8Array(0), recipientKeys.privateKey, {
+        unwrapKey(new Uint8Array(0), recipientKeys.privateKey, {
+          alg: "ECDH-ES+A128KW",
           epk: senderKeys.publicKey,
           enc: "A128GCM",
           // empty wrappedKey — triggers "requires an encrypted key"
@@ -996,7 +1016,8 @@ describe.concurrent("JWK Utilities", () => {
         apv,
       );
 
-      const unwrapped = await unwrapKey("ECDH-ES", new Uint8Array(0), recipientKeys.privateKey, {
+      const unwrapped = await unwrapKey(new Uint8Array(0), recipientKeys.privateKey, {
+        alg: "ECDH-ES",
         epk: senderKeys.publicKey,
         apu: base64UrlStringify(apu),
         apv: base64UrlStringify(apv),
@@ -1050,7 +1071,8 @@ describe.concurrent("JWK Utilities", () => {
         await crypto.subtle.wrapKey("raw", cekCryptoKey, sharedSecretKey, "AES-KW"),
       );
 
-      const unwrapped = await unwrapKey("ECDH-ES+A128KW", encryptedKey, recipientKeys.privateKey, {
+      const unwrapped = await unwrapKey(encryptedKey, recipientKeys.privateKey, {
+        alg: "ECDH-ES+A128KW",
         epk: senderKeys.publicKey,
         apu: base64UrlStringify(apu),
         apv: base64UrlStringify(apv),
@@ -1071,16 +1093,17 @@ describe.concurrent("JWK Utilities", () => {
       const enc = "A128GCM";
 
       const { encryptedKey, epk, apu, apv } = await wrapKey(
-        "ECDH-ES",
-        secureRandomBytes(16), // ignored for direct ECDH-ES
+        // the CEK is ignored for direct ECDH-ES
+        secureRandomBytes(16),
         recipientKP.publicKey,
-        { ecdh: { enc } },
+        { alg: "ECDH-ES", ecdh: { enc } },
       );
 
       expect(encryptedKey.length).toBe(0); // no encrypted key for direct agreement
       expect(epk).toBeDefined();
 
-      const derived = await unwrapKey("ECDH-ES", encryptedKey, recipientKP.privateKey, {
+      const derived = await unwrapKey(encryptedKey, recipientKP.privateKey, {
+        alg: "ECDH-ES",
         epk: epk!,
         apu,
         apv,
@@ -1100,15 +1123,14 @@ describe.concurrent("JWK Utilities", () => {
       );
       const cekToWrap = secureRandomBytes(16);
 
-      const { encryptedKey, epk, apu, apv } = await wrapKey(
-        "ECDH-ES+A128KW",
-        cekToWrap,
-        recipientKP.publicKey,
-      );
+      const { encryptedKey, epk, apu, apv } = await wrapKey(cekToWrap, recipientKP.publicKey, {
+        alg: "ECDH-ES+A128KW",
+      });
 
       expect(encryptedKey.length).toBeGreaterThan(0);
 
-      const unwrapped = await unwrapKey("ECDH-ES+A128KW", encryptedKey, recipientKP.privateKey, {
+      const unwrapped = await unwrapKey(encryptedKey, recipientKP.privateKey, {
+        alg: "ECDH-ES+A128KW",
         epk: epk!,
         apu,
         apv,
@@ -1125,13 +1147,12 @@ describe.concurrent("JWK Utilities", () => {
       ])) as CryptoKeyPair;
       const cekToWrap = secureRandomBytes(32);
 
-      const { encryptedKey, epk, apu, apv } = await wrapKey(
-        "ECDH-ES+A256KW",
-        cekToWrap,
-        recipientKP.publicKey,
-      );
+      const { encryptedKey, epk, apu, apv } = await wrapKey(cekToWrap, recipientKP.publicKey, {
+        alg: "ECDH-ES+A256KW",
+      });
 
-      const unwrapped = await unwrapKey("ECDH-ES+A256KW", encryptedKey, recipientKP.privateKey, {
+      const unwrapped = await unwrapKey(encryptedKey, recipientKP.privateKey, {
+        alg: "ECDH-ES+A256KW",
         epk: epk!,
         apu,
         apv,
@@ -1146,7 +1167,7 @@ describe.concurrent("JWK Utilities", () => {
     // fail the typecheck run if the conditional narrowing regresses.
     it("wrapKey result narrows by alg at the type level", async () => {
       const aesKw = await generateKey("A128KW");
-      const aesKwRes = await wrapKey("A128KW", cek, aesKw);
+      const aesKwRes = await wrapKey(cek, aesKw, { alg: "A128KW" });
       expect(aesKwRes.encryptedKey).toBeInstanceOf(Uint8Array);
       // @ts-expect-error AES-KW result has no `p2s` field.
       void aesKwRes.p2s;
@@ -1155,7 +1176,8 @@ describe.concurrent("JWK Utilities", () => {
       // @ts-expect-error AES-KW result has no `epk` field.
       void aesKwRes.epk;
 
-      const pbes2Res = await wrapKey("PBES2-HS256+A128KW", cek, "password", {
+      const pbes2Res = await wrapKey(cek, "password", {
+        alg: "PBES2-HS256+A128KW",
         p2s: secureRandomBytes(16),
         p2c: 2000,
       });
@@ -1164,7 +1186,7 @@ describe.concurrent("JWK Utilities", () => {
       void _pbes2p2s;
       void _pbes2p2c;
 
-      const gcmKwRes = await wrapKey("A128GCMKW", cek, await generateKey("A128GCM"));
+      const gcmKwRes = await wrapKey(cek, await generateKey("A128GCM"), { alg: "A128GCMKW" });
       const _gcmIv: string = gcmKwRes.iv;
       const _gcmTag: string = gcmKwRes.tag;
       void _gcmIv;
@@ -1173,7 +1195,8 @@ describe.concurrent("JWK Utilities", () => {
       const ecdhKP = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
         "deriveBits",
       ]);
-      const ecdhRes = await wrapKey("ECDH-ES", cek, ecdhKP.publicKey, {
+      const ecdhRes = await wrapKey(cek, ecdhKP.publicKey, {
+        alg: "ECDH-ES",
         ecdh: { enc: "A128GCM" },
       });
       const _epk: JWK_EC_Public = ecdhRes.epk;
@@ -1189,8 +1212,12 @@ describe.concurrent("JWK Utilities", () => {
       ]);
 
       const [sender, recipient] = await Promise.all([
-        deriveSharedSecret(recipientKP.publicKey, ephemeralKP.privateKey, "ECDH-ES+A128KW"),
-        deriveSharedSecret(ephemeralKP.publicKey, recipientKP.privateKey, "ECDH-ES+A128KW"),
+        deriveSharedSecret(recipientKP.publicKey, ephemeralKP.privateKey, {
+          enc: "ECDH-ES+A128KW",
+        }),
+        deriveSharedSecret(ephemeralKP.publicKey, recipientKP.privateKey, {
+          enc: "ECDH-ES+A128KW",
+        }),
       ]);
 
       expect(sender).toEqual(recipient);
@@ -1208,8 +1235,8 @@ describe.concurrent("JWK Utilities", () => {
       ]);
 
       const [sender, recipient] = await Promise.all([
-        deriveSharedSecret(recipientKP.publicKey, ephemeralKP.privateKey, "A256GCM"),
-        deriveSharedSecret(ephemeralKP.publicKey, recipientKP.privateKey, "A256GCM"),
+        deriveSharedSecret(recipientKP.publicKey, ephemeralKP.privateKey, { enc: "A256GCM" }),
+        deriveSharedSecret(ephemeralKP.publicKey, recipientKP.privateKey, { enc: "A256GCM" }),
       ]);
 
       expect(sender).toEqual(recipient);
@@ -1218,14 +1245,15 @@ describe.concurrent("JWK Utilities", () => {
 
     it("throws when alg is ECDH-ES without keyLength", async () => {
       const kp = await generateKey("ECDH-ES", { namedCurve: "P-256" });
-      await expect(deriveSharedSecret(kp.publicKey, kp.privateKey, "ECDH-ES")).rejects.toThrow(
-        "keyLength",
-      );
+      await expect(
+        deriveSharedSecret(kp.publicKey, kp.privateKey, { enc: "ECDH-ES" }),
+      ).rejects.toThrow("keyLength");
     });
 
     it("accepts explicit keyLength for ECDH-ES direct", async () => {
       const kp = await generateKey("ECDH-ES", { namedCurve: "P-256" });
-      const secret = await deriveSharedSecret(kp.publicKey, kp.privateKey, "ECDH-ES", {
+      const secret = await deriveSharedSecret(kp.publicKey, kp.privateKey, {
+        enc: "ECDH-ES",
         keyLength: 256,
       });
       expect(secret.length).toBe(32);
@@ -1640,7 +1668,8 @@ describe.concurrent("JWK Utilities", () => {
 
     it('unwrapKey — malformed "iv" is ERR_JWE_INVALID with an UnsecureError cause', async () => {
       const wrappingKey = await generateKey("A256GCMKW");
-      const error = await unwrapKey("A256GCMKW", secureRandomBytes(32), wrappingKey, {
+      const error = await unwrapKey(secureRandomBytes(32), wrappingKey, {
+        alg: "A256GCMKW",
         iv: `${b64(12)}=`,
         tag: b64(16),
       }).catch((e) => e);
@@ -1651,7 +1680,8 @@ describe.concurrent("JWK Utilities", () => {
 
     it('unwrapKey — malformed "tag" is ERR_JWE_INVALID with an UnsecureError cause', async () => {
       const wrappingKey = await generateKey("A256GCMKW");
-      const error = await unwrapKey("A256GCMKW", secureRandomBytes(32), wrappingKey, {
+      const error = await unwrapKey(secureRandomBytes(32), wrappingKey, {
+        alg: "A256GCMKW",
         iv: b64(12),
         tag: `${b64(16)}=`,
       }).catch((e) => e);
@@ -1661,7 +1691,8 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it('unwrapKey — malformed "p2s" is ERR_JWE_INVALID with an UnsecureError cause', async () => {
-      const error = await unwrapKey("PBES2-HS256+A128KW", secureRandomBytes(24), "password", {
+      const error = await unwrapKey(secureRandomBytes(24), "password", {
+        alg: "PBES2-HS256+A128KW",
         p2s: `${b64(16)}=`,
         p2c: 1000,
       }).catch((e) => e);
@@ -1677,7 +1708,8 @@ describe.concurrent("JWK Utilities", () => {
           namedCurve: "P-256",
         })) as CryptoKeyPair;
         const sender = (await generateKey("ECDH-ES", { namedCurve: "P-256" })) as CryptoKeyPair;
-        const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+        const error = await unwrapKey(new Uint8Array(0), recipient.privateKey, {
+          alg: "ECDH-ES",
           epk: sender.publicKey,
           enc: "A256GCM",
           [param]: `${b64(8)}=`,
@@ -1848,14 +1880,16 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it.each([0, -8, 12, 8200, 1.5, Number.NaN])("rejects keyLength %s", async (keyLength) => {
-      const error = await deriveSharedSecret(pair.publicKey, pair.privateKey, "ECDH-ES", {
+      const error = await deriveSharedSecret(pair.publicKey, pair.privateKey, {
+        enc: "ECDH-ES",
         keyLength,
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     });
 
     it("still accepts a valid keyLength", async () => {
-      const secret = await deriveSharedSecret(pair.publicKey, pair.privateKey, "ECDH-ES", {
+      const secret = await deriveSharedSecret(pair.publicKey, pair.privateKey, {
+        enc: "ECDH-ES",
         keyLength: 256,
       });
       expect(secret.length).toBe(32);
@@ -1938,7 +1972,8 @@ describe.concurrent("JWK Utilities", () => {
       const sender = await ecdhPair("P-256");
       const epk = await exportKey<JWK_EC_Private>(sender.privateKey);
 
-      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+      const error = await unwrapKey(new Uint8Array(0), recipient.privateKey, {
+        alg: "ECDH-ES",
         epk: epk as unknown as JWK_EC_Public,
         enc: "A128GCM",
       }).catch((e) => e);
@@ -1951,7 +1986,8 @@ describe.concurrent("JWK Utilities", () => {
       const sender = await ecdhPair("P-384");
       const epk = await exportKey<JWK_EC_Public>(sender.publicKey);
 
-      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+      const error = await unwrapKey(new Uint8Array(0), recipient.privateKey, {
+        alg: "ECDH-ES",
         epk,
         enc: "A128GCM",
       }).catch((e) => e);
@@ -1964,7 +2000,8 @@ describe.concurrent("JWK Utilities", () => {
     it('rejects an "epk" that is not an EC or OKP key', async () => {
       const recipient = await ecdhPair("P-256");
 
-      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+      const error = await unwrapKey(new Uint8Array(0), recipient.privateKey, {
+        alg: "ECDH-ES",
         epk: {
           kty: "oct",
           k: base64UrlStringify(secureRandomBytes(32)),
@@ -1980,8 +2017,11 @@ describe.concurrent("JWK Utilities", () => {
       const sender = await ecdhPair("P-256");
       const epk = await exportKey<JWK_EC_Public>(sender.publicKey);
 
-      const expected = await deriveSharedSecret(recipient.publicKey, sender.privateKey, "A128GCM");
-      const unwrapped = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+      const expected = await deriveSharedSecret(recipient.publicKey, sender.privateKey, {
+        enc: "A128GCM",
+      });
+      const unwrapped = await unwrapKey(new Uint8Array(0), recipient.privateKey, {
+        alg: "ECDH-ES",
         epk: { ...epk, alg: "RS256", key_ops: ["sign"], ext: false } as unknown as JWK_EC_Public,
         enc: "A128GCM",
         format: "raw",
@@ -1994,7 +2034,8 @@ describe.concurrent("JWK Utilities", () => {
       const sender = await ecdhPair("P-256");
       const epk = await exportKey<JWK_EC_Public>(sender.publicKey);
 
-      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+      const error = await unwrapKey(new Uint8Array(0), recipient.privateKey, {
+        alg: "ECDH-ES",
         epk,
         enc: "A128GCM",
         apu: base64UrlStringify(new Uint8Array(3 * 1024 * 1024)),
@@ -2006,9 +2047,10 @@ describe.concurrent("JWK Utilities", () => {
     it("rejects AES-GCMKW iv and tag of the wrong length", async () => {
       const wrappingKey = (await generateKey("A128GCM")) as CryptoKey;
       const cek = secureRandomBytes(32);
-      const wrapped = await wrapKey("A128GCMKW", cek, wrappingKey);
+      const wrapped = await wrapKey(cek, wrappingKey, { alg: "A128GCMKW" });
 
-      const badIv = await unwrapKey("A128GCMKW", wrapped.encryptedKey, wrappingKey, {
+      const badIv = await unwrapKey(wrapped.encryptedKey, wrappingKey, {
+        alg: "A128GCMKW",
         iv: base64UrlStringify(secureRandomBytes(16)),
         tag: wrapped.tag,
         format: "raw",
@@ -2016,7 +2058,8 @@ describe.concurrent("JWK Utilities", () => {
       expect(isJWTError(badIv, "ERR_JWE_INVALID")).toBe(true);
       expect(badIv.message).toBe('Invalid JWE: "iv" must be 12 bytes for A128GCMKW (got 16).');
 
-      const badTag = await unwrapKey("A128GCMKW", wrapped.encryptedKey, wrappingKey, {
+      const badTag = await unwrapKey(wrapped.encryptedKey, wrappingKey, {
+        alg: "A128GCMKW",
         iv: wrapped.iv,
         tag: base64UrlStringify(secureRandomBytes(20)),
         format: "raw",

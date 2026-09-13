@@ -338,6 +338,7 @@ export async function decrypt<T extends JOSEPayload>(
   if (algError) throw algError;
 
   const unwrapKeyOpts: UnwrapKeyOptions = {
+    alg,
     enc,
     format: cekFormatForEnc(enc),
     keyUsage: options?.keyUsage || ["decrypt"],
@@ -383,7 +384,7 @@ export async function decrypt<T extends JOSEPayload>(
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
         const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
-        const candidateCek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
+        const candidateCek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
         plaintextBytes = await joseDecrypt(
           enc,
           candidateCek,
@@ -409,7 +410,7 @@ export async function decrypt<T extends JOSEPayload>(
       expect: "private",
     });
     try {
-      cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
+      cek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
       plaintextBytes = await joseDecrypt(
         enc,
         cek,

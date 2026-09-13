@@ -395,7 +395,8 @@ For advanced control over the session lifecycle:
 import { useJWESession, deriveJWKFromPassword } from "unjwt/adapters/h3v2";
 
 // Derive once at boot — the adapters never take a password.
-const key = await deriveJWKFromPassword(process.env.SESSION_SECRET!, "PBES2-HS256+A128KW", {
+const key = await deriveJWKFromPassword(process.env.SESSION_SECRET!, {
+  alg: "PBES2-HS256+A128KW",
   salt: process.env.SESSION_SALT!,
   iterations: 600_000,
 });
@@ -501,7 +502,8 @@ import {
 
 const atKeys = await generateJWK("RS256");
 
-const refreshKey = await deriveJWKFromPassword(process.env.REFRESH_SECRET!, "PBES2-HS256+A128KW", {
+const refreshKey = await deriveJWKFromPassword(process.env.REFRESH_SECRET!, {
+  alg: "PBES2-HS256+A128KW",
   salt: process.env.REFRESH_SALT!,
   iterations: 600_000,
 });

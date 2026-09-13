@@ -9,7 +9,6 @@ import type {
   JWKSet,
   JWK_Pair,
   JWK_oct,
-  JWK_PBES2,
   JWK_EC,
   JWK_EC_Public,
   JWK_EC_Private,
@@ -30,6 +29,7 @@ import type {
   WrapKeyResult,
   WrappingKeyFor,
   UnwrapKeyOptions,
+  UnwrapKeyResult,
   UnwrappingKeyFor,
   JoseHeaderParameters,
 } from "./types";
@@ -228,24 +228,24 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
  * Derives a key from a password using PBKDF2 as specified by PBES2 algorithms.
  *
  * @param password The password to derive the key from (string or Uint8Array).
- * @param alg The PBES2 algorithm identifier (e.g., "PBES2-HS256+A128KW").
- * @param options Configuration options including salt and iterations.
+ * @param options
+ *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`).
+ *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets.
+ *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
+ *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
+ *   - `extractable?` — defaults to `false`. Ignored when `toJWK` is set.
+ *   - `toJWK?` — return the derived key as a `JWK_oct` instead of a `CryptoKey`.
  * @returns A Promise resolving to the derived key (CryptoKey) or its JWK_oct representation.
  */
-export async function deriveKeyFromPassword<
-  TAlg extends JWK_PBES2,
-  TOptions extends DeriveKeyOptions,
->(
+export async function deriveKeyFromPassword<TOptions extends DeriveKeyOptions>(
   password: string | Uint8Array<ArrayBuffer>,
-  alg: TAlg,
   options: TOptions,
-): Promise<DeriveKeyReturn<TOptions>>;
+): Promise<DeriveKeyReturn<TOptions, TOptions["alg"]>>;
 export async function deriveKeyFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
-  alg: JWK_PBES2,
   options: DeriveKeyOptions,
 ): Promise<CryptoKey | JWK_oct> {
-  const { salt, iterations, extractable, keyUsage } = options;
+  const { alg, salt, iterations, extractable, keyUsage } = options;
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
 
   if (!(salt instanceof Uint8Array) || salt.length < 8) {
@@ -292,8 +292,8 @@ export async function deriveKeyFromPassword(
  * For a `CryptoKey` result without JWK metadata, use {@link deriveKeyFromPassword}.
  *
  * @param password The password to derive the key from (string or `Uint8Array`).
- * @param alg The PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`).
  * @param options
+ *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`).
  *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets (RFC 7518 §4.8.1.1).
  *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
  *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
@@ -303,12 +303,12 @@ export async function deriveKeyFromPassword(
  */
 export async function deriveJWKFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
-  alg: JWK_PBES2,
   options: Omit<DeriveKeyOptions, "toJWK" | "extractable"> &
     Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<JWK_oct> {
-  const { salt, iterations, keyUsage, ...jwkParams } = options;
-  const result = await deriveKeyFromPassword(password, alg, {
+  const { alg, salt, iterations, keyUsage, ...jwkParams } = options;
+  const result = await deriveKeyFromPassword(password, {
+    alg,
     salt,
     iterations,
     keyUsage,
@@ -393,6 +393,17 @@ export function clearJWKCache(): void {
  * A `string` is not key material and throws `ERR_JWK_INVALID`: PEM text belongs in
  * {@link importPEM}, a shared secret in an `oct` JWK or a `Uint8Array`, and a password in
  * {@link deriveJWKFromPassword} or the PBES2 `alg` of a JWE.
+ *
+ * ### Which option applies to which key
+ *
+ * The overloads cannot express it, so the split is stated here:
+ *
+ * - `asCryptoKey` (with its `algorithm` and `usage`) applies only to an `oct` JWK — it is what
+ *   turns the raw secret into a `CryptoKey` instead of the default `Uint8Array`.
+ * - `expect` applies only to asymmetric key material; it is a no-op on `oct` JWKs and on
+ *   `CryptoKey` instances of type `"secret"`.
+ * - `alg` is required for an asymmetric JWK without its own `alg`, and optional elsewhere.
+ * - `extractable` applies to asymmetric JWK imports; the `asCryptoKey` overload carries its own.
  *
  * ### `expect` option (asymmetric only)
  *
@@ -620,24 +631,24 @@ async function resolveWrappingKey(
  *
  * The return shape is narrowed by `alg` — see {@link WrapKeyResult}.
  *
- * @param alg The JWA key management algorithm (e.g., "A128KW", "RSA-OAEP", "PBES2-HS256+A128KW").
  * @param keyToWrap The key to be wrapped (CEK), typically a symmetric key as Uint8Array or CryptoKey.
  * @param wrappingKey The key used to wrap the CEK (CryptoKey, JWK, or password string/Uint8Array for PBES2).
- * @param options Additional options required by certain algorithms (e.g., p2s, p2c for PBES2).
+ * @param options
+ *   - `alg` — the JWA key management algorithm (e.g. `"A128KW"`, `"RSA-OAEP"`, `"PBES2-HS256+A128KW"`).
+ *   - plus the options certain algorithms require (`p2s`/`p2c` for PBES2, `ecdh` for ECDH-ES, …).
  * @returns A Promise resolving to an alg-specific {@link WrapKeyResult}.
  */
 export async function wrapKey<TAlg extends KeyManagementAlgorithm>(
-  alg: TAlg,
   keyToWrap: CryptoKey | Uint8Array<ArrayBuffer>,
   wrappingKey: WrappingKeyFor<TAlg>,
-  options?: WrapKeyOptions,
+  options: WrapKeyOptions<TAlg>,
 ): Promise<WrapKeyResult<TAlg>>;
 export async function wrapKey(
-  alg: KeyManagementAlgorithm,
   keyToWrap: CryptoKey | Uint8Array<ArrayBuffer>,
   wrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
-  options: WrapKeyOptions = {},
+  options: WrapKeyOptions,
 ): Promise<WrapKeyResult> {
+  const { alg } = options;
   const cekBytes =
     keyToWrap instanceof Uint8Array
       ? keyToWrap
@@ -765,36 +776,25 @@ export async function wrapKey(
 /**
  * Unwraps a Content Encryption Key (CEK) using the specified algorithm and unwrapping key.
  *
- * @param alg The JWA key management algorithm (e.g., "A128KW", "RSA-OAEP", "PBES2-HS256+A128KW").
  * @param wrappedKey The wrapped key (ciphertext) as Uint8Array.
  * @param unwrappingKey The key used to unwrap the CEK (CryptoKey, JWK, or password string/Uint8Array for PBES2).
- * @param options Additional options required by certain algorithms (e.g., iv, tag, p2s, p2c, epk).
+ * @param options
+ *   - `alg` — the JWA key management algorithm (e.g. `"A128KW"`, `"RSA-OAEP"`, `"PBES2-HS256+A128KW"`).
+ *   - `format?` — `"cryptokey"` (default) or `"raw"`; it narrows the result type.
+ *   - plus the options certain algorithms require (`iv`/`tag`, `p2s`/`p2c`, `epk`, …).
  * @returns A Promise resolving to the unwrapped key (CEK) as a CryptoKey or Uint8Array.
  */
-export async function unwrapKey<TAlg extends KeyManagementAlgorithm>(
-  alg: TAlg,
+export async function unwrapKey<TOptions extends UnwrapKeyOptions>(
   wrappedKey: Uint8Array<ArrayBuffer>,
-  unwrappingKey: UnwrappingKeyFor<TAlg>,
-  options: UnwrapKeyOptions & { format: "raw" },
-): Promise<Uint8Array<ArrayBuffer>>;
-export async function unwrapKey<TAlg extends KeyManagementAlgorithm>(
-  alg: TAlg,
-  wrappedKey: Uint8Array<ArrayBuffer>,
-  unwrappingKey: UnwrappingKeyFor<TAlg>,
-  options?: UnwrapKeyOptions & { format?: "cryptokey" },
-): Promise<CryptoKey>;
-export async function unwrapKey<TAlg extends KeyManagementAlgorithm>(
-  alg: TAlg,
-  wrappedKey: Uint8Array<ArrayBuffer>,
-  unwrappingKey: UnwrappingKeyFor<TAlg>,
-  options: UnwrapKeyOptions,
-): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
+  unwrappingKey: UnwrappingKeyFor<TOptions["alg"]>,
+  options: TOptions,
+): Promise<UnwrapKeyResult<TOptions>>;
 export async function unwrapKey(
-  alg: KeyManagementAlgorithm,
   wrappedKey: Uint8Array<ArrayBuffer>,
   unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
-  options: UnwrapKeyOptions = {},
+  options: UnwrapKeyOptions,
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
+  const { alg } = options;
   const returnRaw = options.format === "raw";
   const defaultExtractable = options.extractable !== false; // Default true
 
@@ -1245,18 +1245,19 @@ function inferPEMType(pem: string): "pkcs8" | "spki" | "x509" | undefined {
  *   ephemeral public key on the decryption side).
  * @param privateKey The sender's ephemeral private key (or the recipient's
  *   static private key on the decryption side).
- * @param alg The algorithm identifier used as the `AlgorithmID` in the
- *   concat KDF info structure. Pass a {@link JWK_ECDH_ES} variant
- *   (e.g. `"ECDH-ES+A128KW"`) or a {@link ContentEncryptionAlgorithm}
- *   (e.g. `"A256GCM"`) for direct key agreement.
- * @param options Optional overrides for key length and party info.
+ * @param options
+ *   - `enc` — the algorithm identifier used as the `AlgorithmID` in the concat KDF
+ *     info structure. Pass a {@link JWK_ECDH_ES} variant (e.g. `"ECDH-ES+A128KW"`)
+ *     or a {@link ContentEncryptionAlgorithm} (e.g. `"A256GCM"`) for direct key agreement.
+ *   - `keyLength?` / `partyUInfo?` / `partyVInfo?` — overrides for key length and party info.
  */
 export async function deriveSharedSecret(
   publicKey: CryptoKey | JWK_EC_Public,
   privateKey: CryptoKey | JWK_EC_Private,
-  alg: JWK_ECDH_ES | ContentEncryptionAlgorithm,
-  options?: {
-    /** Override the derived key length in bits. Defaults to the standard length for `alg`. */
+  options: {
+    /** Algorithm identifier fed to the concat KDF as `AlgorithmID`. */
+    enc: JWK_ECDH_ES | ContentEncryptionAlgorithm;
+    /** Override the derived key length in bits. Defaults to the standard length for `enc`. */
     keyLength?: number;
     /** Agreement PartyUInfo (apu). */
     partyUInfo?: Uint8Array<ArrayBuffer>;
@@ -1264,8 +1265,9 @@ export async function deriveSharedSecret(
     partyVInfo?: Uint8Array<ArrayBuffer>;
   },
 ): Promise<Uint8Array<ArrayBuffer>> {
-  if (options?.keyLength !== undefined) {
-    assertDerivedKeyLength(options.keyLength);
+  const { enc: alg, keyLength: requestedKeyLength, partyUInfo, partyVInfo } = options;
+  if (requestedKeyLength !== undefined) {
+    assertDerivedKeyLength(requestedKeyLength);
   }
 
   const pubCryptoKey = isCryptoKey(publicKey)
@@ -1276,11 +1278,11 @@ export async function deriveSharedSecret(
     : ((await importKey(privateKey as JWK, { alg: "ECDH-ES", expect: "private" })) as CryptoKey);
 
   let keyLength: number;
-  if (options?.keyLength !== undefined) {
-    keyLength = options.keyLength;
+  if (requestedKeyLength !== undefined) {
+    keyLength = requestedKeyLength;
   } else if (alg === "ECDH-ES") {
     throw new JWTError(
-      'deriveSharedSecret with alg "ECDH-ES" requires an explicit keyLength in options',
+      'deriveSharedSecret with enc "ECDH-ES" requires an explicit keyLength in options',
       "ERR_JWK_INVALID",
     );
   } else if ((alg as string).startsWith("ECDH-ES+")) {
@@ -1294,8 +1296,8 @@ export async function deriveSharedSecret(
     privCryptoKey,
     alg,
     keyLength,
-    options?.partyUInfo ?? new Uint8Array(0),
-    options?.partyVInfo ?? new Uint8Array(0),
+    partyUInfo ?? new Uint8Array(0),
+    partyVInfo ?? new Uint8Array(0),
   );
 }
 

@@ -379,7 +379,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const unwrapKeyOpts = _buildUnwrapKeyOptions(effective, enc, options);
+    const unwrapKeyOpts = _buildUnwrapKeyOptions(effective, { alg, enc }, options);
 
     cryptoAttempted = true;
     let cek: Uint8Array<ArrayBuffer> | CryptoKey;
@@ -660,10 +660,12 @@ function _asJWTError(error: unknown): JWTError {
 
 function _buildUnwrapKeyOptions(
   effectiveHeader: JWEHeaderParameters,
-  enc: ContentEncryptionAlgorithm,
+  algorithms: { alg: KeyManagementAlgorithm; enc: ContentEncryptionAlgorithm },
   options: JWEMultiDecryptOptions,
 ): UnwrapKeyOptions {
+  const { alg, enc } = algorithms;
   const opts: UnwrapKeyOptions = {
+    alg,
     enc,
     format: cekFormatForEnc(enc),
     keyUsage: options.keyUsage || ["decrypt"],
@@ -721,7 +723,7 @@ async function _unwrapAndDecrypt(
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
         const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
-        const cek = await unwrapKey(alg, encryptedKey, unwrappingKey, unwrapKeyOptions);
+        const cek = await unwrapKey(encryptedKey, unwrappingKey, unwrapKeyOptions);
         const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
         return { cek, plaintextBytes };
       } catch (err) {
@@ -737,7 +739,7 @@ async function _unwrapAndDecrypt(
     expect: "private",
   });
   try {
-    const cek = await unwrapKey(alg, encryptedKey, unwrappingKey, unwrapKeyOptions);
+    const cek = await unwrapKey(encryptedKey, unwrappingKey, unwrapKeyOptions);
     const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
     return { cek, plaintextBytes };
   } catch (err) {

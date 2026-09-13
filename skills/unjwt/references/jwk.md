@@ -164,15 +164,15 @@ Returns `Promise<JWK>`.
 
 ## Key Wrapping
 
-### `wrapKey(alg, keyToWrap, wrappingKey, options?)`
+### `wrapKey(keyToWrap, wrappingKey, { alg, ...options })`
 
 Wraps a Content Encryption Key using the specified key management algorithm.
 
-- `alg: KeyManagementAlgorithm` — including `"dir"` (returns empty `encryptedKey`)
 - `keyToWrap: CryptoKey | Uint8Array`
 - `wrappingKey: CryptoKey | JWK | string | Uint8Array` — a `string` is a PBES2 password and is
   rejected with `ERR_JWK_INVALID` under any other `alg`
-- `options?: WrapKeyOptions`
+- `options: WrapKeyOptions`
+  - `alg: KeyManagementAlgorithm` — **required**; including `"dir"` (returns empty `encryptedKey`)
   - `iv?` — AES-GCMKW initialization vector; auto-generated when omitted (always omit in
     production — reusing an IV under the same key breaks AES-GCM; intended only for tests
     and known-vector reproduction, never derive it from external input)
@@ -195,22 +195,24 @@ For `"ECDH-ES"` (direct), `encryptedKey` is an empty `Uint8Array` per RFC 7516 �
 
 ```ts
 // AES Key Wrap
-const { encryptedKey } = await wrapKey("A256KW", cek, aesKey);
+const { encryptedKey } = await wrapKey(cek, aesKey, { alg: "A256KW" });
 
 // ECDH-ES with key wrapping
-const { encryptedKey, epk } = await wrapKey("ECDH-ES+A256KW", cek, recipientPublicKey);
+const { encryptedKey, epk } = await wrapKey(cek, recipientPublicKey, { alg: "ECDH-ES+A256KW" });
 
 // ECDH-ES direct (encryptedKey is empty — derived secret IS the CEK)
-const { epk, apu, apv } = await wrapKey("ECDH-ES", rawCek, recipientPublicKey, {
+const { epk, apu, apv } = await wrapKey(rawCek, recipientPublicKey, {
+  alg: "ECDH-ES",
   ecdh: { enc: "A256GCM" },
 });
 ```
 
-### `unwrapKey(alg, wrappedKey, unwrappingKey, options?)`
+### `unwrapKey(wrappedKey, unwrappingKey, { alg, ...options })`
 
 Unwraps a CEK.
 
-- `options?: UnwrapKeyOptions`
+- `options: UnwrapKeyOptions`
+  - `alg: KeyManagementAlgorithm` — **required**
   - `format?: "cryptokey" | "raw"` — `"cryptokey"` (default) returns `CryptoKey`; `"raw"` returns `Uint8Array`
   - `unwrappedKeyAlgorithm?`, `keyUsage?`, `extractable?` — for CryptoKey import
   - `iv?`, `tag?` — AES-GCMKW
@@ -220,23 +222,23 @@ Unwraps a CEK.
 
 ```ts
 // Returns CryptoKey by default
-const cek = await unwrapKey("A256KW", encryptedKey, aesKey);
+const cek = await unwrapKey(encryptedKey, aesKey, { alg: "A256KW" });
 
 // Returns raw bytes
-const raw = await unwrapKey("A256KW", encryptedKey, aesKey, { format: "raw" });
+const raw = await unwrapKey(encryptedKey, aesKey, { alg: "A256KW", format: "raw" });
 ```
 
 ## ECDH-ES Shared Secret
 
-### `deriveSharedSecret(publicKey, privateKey, alg, options?)`
+### `deriveSharedSecret(publicKey, privateKey, { enc, ...options })`
 
 Low-level ECDH-ES key derivation (Concat KDF, NIST SP 800-56A). Useful for multi-recipient JWE, custom hybrid protocols, and future JWE JSON Serialization.
 
 - `publicKey: CryptoKey | JWK_EC_Public` — recipient's static public key (sender side), or sender's ephemeral public key (recipient side)
 - `privateKey: CryptoKey | JWK_EC_Private` — sender's ephemeral private key (sender side), or recipient's static private key (recipient side)
-- `alg: JWK_ECDH_ES | ContentEncryptionAlgorithm` — used as the `AlgorithmID` in the KDF info structure
-- `options?`
-  - `keyLength?: number` — derived key length in bits; required when `alg` is `"ECDH-ES"`, inferred
+- `options`
+  - `enc: JWK_ECDH_ES | ContentEncryptionAlgorithm` — **required**; used as the `AlgorithmID` in the KDF info structure
+  - `keyLength?: number` — derived key length in bits; required when `enc` is `"ECDH-ES"`, inferred
     otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
   - `partyUInfo?`, `partyVInfo?` — agreement party info
 
@@ -244,22 +246,18 @@ Returns `Promise<Uint8Array>` — the derived key material.
 
 ```ts
 // Derive the same secret on both sides
-const senderSecret = await deriveSharedSecret(
-  recipientPublic,
-  senderEphemeralPrivate,
-  "ECDH-ES+A256KW",
-);
-const recipientSecret = await deriveSharedSecret(
-  senderEphemeralPublic,
-  recipientPrivate,
-  "ECDH-ES+A256KW",
-);
+const senderSecret = await deriveSharedSecret(recipientPublic, senderEphemeralPrivate, {
+  enc: "ECDH-ES+A256KW",
+});
+const recipientSecret = await deriveSharedSecret(senderEphemeralPublic, recipientPrivate, {
+  enc: "ECDH-ES+A256KW",
+});
 // senderSecret === recipientSecret ✓
 
 // Multi-recipient: derive a KEK per recipient to wrap a shared CEK
 const cek = crypto.getRandomValues(new Uint8Array(32));
 for (const recipient of recipients) {
-  const { encryptedKey, epk } = await wrapKey("ECDH-ES+A256KW", cek, recipient.publicKey);
+  const { encryptedKey, epk } = await wrapKey(cek, recipient.publicKey, { alg: "ECDH-ES+A256KW" });
   // store encryptedKey + epk per recipient
 }
 ```
@@ -318,25 +316,26 @@ unchanged and will see an IDE deprecation hint until they migrate.
 
 Prefer `deriveJWKFromPassword()` for most cases. Use `deriveKeyFromPassword()` when a raw `CryptoKey` output is needed.
 
-### `deriveKeyFromPassword(password, alg, options)`
+### `deriveKeyFromPassword(password, { alg, ...options })`
 
 PBKDF2 derivation for PBES2 algorithms.
 
 - `password: string | Uint8Array`
-- `alg: JWK_PBES2` — `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`
-- `options: DeriveKeyOptions` — `{ salt: Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
-  (`extractable` is ignored when `toJWK: true` — the JWK output requires exporting the derived key)
+- `options: DeriveKeyOptions` — `{ alg: JWK_PBES2, salt: Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
+  - `alg` is **required**: `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`
+  - `extractable` is ignored when `toJWK: true` — the JWK output requires exporting the derived key
 
 Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
 
-### `deriveJWKFromPassword(password, alg, options)`
+### `deriveJWKFromPassword(password, { alg, ...options })`
 
-Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 derivation
-knobs (`salt`, `iterations`, `keyUsage`) with JWK metadata fields (`kid`, `use`, …).
-`alg`, `kty`, `key_ops`, and `ext` are managed by the library.
+Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 algorithm and
+derivation knobs (`alg`, `salt`, `iterations`, `keyUsage`) with JWK metadata fields (`kid`,
+`use`, …). The resulting JWK's `alg`, `kty`, `key_ops`, and `ext` are managed by the library.
 
 ```ts
-const jwk = await deriveJWKFromPassword("my-password", "PBES2-HS256+A128KW", {
+const jwk = await deriveJWKFromPassword("my-password", {
+  alg: "PBES2-HS256+A128KW",
   salt: crypto.getRandomValues(new Uint8Array(16)),
   iterations: 600_000,
   kid: "derived-key",

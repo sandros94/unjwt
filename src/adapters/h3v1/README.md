@@ -24,7 +24,8 @@ import {
 } from "unjwt/adapters/h3v1";
 
 const keys = await generateJWK("RS256"); // Make sure to persist these keys somewhere!
-const sessionKey = await deriveJWKFromPassword(process.env.SESSION_SECRET!, "PBES2-HS256+A128KW", {
+const sessionKey = await deriveJWKFromPassword(process.env.SESSION_SECRET!, {
+  alg: "PBES2-HS256+A128KW",
   salt: process.env.SESSION_SALT!,
   iterations: 600_000,
 });

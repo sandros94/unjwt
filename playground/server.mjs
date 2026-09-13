@@ -10,7 +10,8 @@ import {
 } from "unjwt/adapters/h3v2";
 
 const atJwk = await generateJWK("RS256");
-const rtJwk = await deriveJWKFromPassword("refresh_token_secret", "PBES2-HS256+A128KW", {
+const rtJwk = await deriveJWKFromPassword("refresh_token_secret", {
+  alg: "PBES2-HS256+A128KW",
   salt: "playground-salt",
   iterations: 600_000,
 });

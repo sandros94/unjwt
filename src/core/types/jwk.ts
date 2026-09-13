@@ -120,6 +120,8 @@ export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GenerateKeyRe
 
 /** Options for the deriveKeyFromPassword function. */
 export interface DeriveKeyOptions {
+  /** The PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`). */
+  alg: JWK_PBES2;
   /** Salt value (p2s). Must be at least 8 bytes. */
   salt: Uint8Array<ArrayBuffer>;
   /** Iteration count (p2c). Must be a positive integer. */
@@ -208,7 +210,9 @@ export type UnwrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_R
             : never;
 
 /** Options for the wrapKey function. */
-export interface WrapKeyOptions {
+export interface WrapKeyOptions<TAlg extends KeyManagementAlgorithm = KeyManagementAlgorithm> {
+  /** The JWA key management algorithm (e.g. `"A128KW"`, `"RSA-OAEP"`, `"PBES2-HS256+A128KW"`). */
+  alg: TAlg;
   /**
    * Initialization Vector for AES-GCMKW. A fresh random IV is generated when
    * not provided — production code should always omit this option.
@@ -286,7 +290,9 @@ export type WrapKeyResult<TAlg extends KeyManagementAlgorithm = KeyManagementAlg
         : { encryptedKey: Uint8Array<ArrayBuffer> };
 
 /** Options for the unwrapKey function. */
-export interface UnwrapKeyOptions {
+export interface UnwrapKeyOptions<TAlg extends KeyManagementAlgorithm = KeyManagementAlgorithm> {
+  /** The JWA key management algorithm (e.g. `"A128KW"`, `"RSA-OAEP"`, `"PBES2-HS256+A128KW"`). */
+  alg: TAlg;
   /**
    * Output format of the unwrapped key.
    * - `"cryptokey"` (default) — returns a `CryptoKey` ready for use with WebCrypto.
@@ -327,6 +333,20 @@ export interface UnwrapKeyOptions {
   /** Mark the unwrapped key as extractable. Defaults to true. */
   extractable?: boolean;
 }
+
+/**
+ * Result of {@link unwrapKey}, discriminated by `options.format`:
+ * `"raw"` yields the key bytes, `"cryptokey"` (the default) a `CryptoKey`.
+ * A `format` that is not a literal keeps both shapes.
+ */
+export type UnwrapKeyResult<TOptions extends { format?: "cryptokey" | "raw" }> =
+  "format" extends keyof TOptions
+    ? [TOptions["format"]] extends ["raw"]
+      ? Uint8Array<ArrayBuffer>
+      : [TOptions["format"]] extends ["cryptokey" | undefined]
+        ? CryptoKey
+        : CryptoKey | Uint8Array<ArrayBuffer>
+    : CryptoKey;
 
 /**
  * Forked from https://github.com/panva/jose/tree/v6.0.10
