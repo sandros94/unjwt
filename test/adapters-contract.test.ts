@@ -534,25 +534,24 @@ describe("session adapters — shared contract", () => {
       expect(new Date(session.expiresAt).getUTCFullYear()).toBe(new Date().getUTCFullYear());
     });
 
-    it("keeps a JWS and a JWE session that share a name apart", async () => {
+    it("refuses a JWE session under a name a JWS session already holds", async () => {
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
         const jws = await useJWSSessionV2(event, { name: "shared", key: jwsKey });
         await jws.update({ family: "jws" });
-        const jwe = await useJWESessionV2(event, { name: "shared", key: jweKey });
-        await jwe.update({ family: "jwe" });
+        const error = await caught(() => useJWESessionV2(event, { name: "shared", key: jweKey }));
         return {
+          config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
+          message: (error as Error).message,
           jws: (jws.data as Record<string, unknown>).family,
-          jwe: (jwe.data as Record<string, unknown>).family,
-          distinct: jws.id !== jwe.id,
         };
       });
 
-      expect(await (await app.request("/")).json()).toEqual({
-        jws: "jws",
-        jwe: "jwe",
-        distinct: true,
-      });
+      const body = (await (await app.request("/")).json()) as Record<string, unknown>;
+      expect(body.config).toBe(true);
+      expect(body.message).toContain('"shared"');
+      expect(body.message).toContain("already used by a JWS session");
+      expect(body.jws).toBe("jws");
     });
   });
   // #endregion
@@ -644,20 +643,20 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(error, "ERR_SESSION_READONLY_EVENT")).toBe(true);
     });
 
-    it("keeps a JWS and a JWE session that share a name apart", async () => {
+    it("refuses a JWE session under a name a JWS session already holds", async () => {
       const app = h3v1App(async (event) => {
         const jws = await useJWSSessionV1(event, { name: "shared", key: jwsKey });
         await jws.update({ family: "jws" });
-        const jwe = await useJWESessionV1(event, { name: "shared", key: jweKey });
-        await jwe.update({ family: "jwe" });
+        const error = await caught(() => useJWESessionV1(event, { name: "shared", key: jweKey }));
         return {
-          jws: (jws.data as Record<string, unknown>).family,
-          jwe: (jwe.data as Record<string, unknown>).family,
+          config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
+          message: (error as Error).message,
         };
       });
 
       const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.body).toEqual({ jws: "jws", jwe: "jwe" });
+      expect(response.body.config).toBe(true);
+      expect(response.body.message).toContain("already used by a JWS session");
     });
   });
   // #endregion
@@ -826,6 +825,26 @@ describe("session adapters — shared contract", () => {
 
       const { context } = elysiaContext({ cookies: { "elysia-jwe": first.token! } });
       const second = await createJWESession(context, pinned);
+
+      expect(second.id).toBe(first.id);
+    });
+
+    it("refuses a JWE session under a name a JWS session already holds", async () => {
+      const { context } = elysiaContext();
+      const jws = await createJWSSession(context, { name: "shared", key: jwsKey });
+      await jws.update({ family: "jws" });
+
+      const error = await caught(() => createJWESession(context, { name: "shared", key: jweKey }));
+
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toContain("already used by a JWS session");
+    });
+
+    it("lets a second JWS session under the same name keep the name", async () => {
+      const { context } = elysiaContext();
+      const first = await createJWSSession(context, { name: "shared", key: jwsKey });
+      await first.update({ who: "first" });
+      const second = await createJWSSession(context, { name: "shared", key: jwsKey });
 
       expect(second.id).toBe(first.id);
     });
@@ -1193,6 +1212,301 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
+  // #region elysia cookie chunk bounds
+  describe("elysia cookie chunk bounds", () => {
+    const chunkMaxLength = 64;
+    const chunked = {
+      name: "chunk-jws",
+      key: jwsKey,
+      cookie: { chunkMaxLength, secure: false },
+    } as const;
+
+    it("refuses a token needing more chunks than the limit", async () => {
+      const { context } = elysiaContext();
+      const session = await createJWSSession(context, chunked);
+      const error = await caught(() =>
+        session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
+      );
+
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toContain(String(MAX_CHUNK_COUNT));
+    });
+
+    it.each(["__chunked__99", "__chunked__0", "__chunked__abc"])(
+      "reads a forged %s marker as no session",
+      async (marker) => {
+        const { context } = elysiaContext({ cookies: { "chunk-jws": marker } });
+        const session = await createJWSSession(context, chunked);
+
+        expect(session.id).toBeUndefined();
+        expect(session.token).toBeUndefined();
+      },
+    );
+
+    it("bounds cleanup of a forged chunk marker", async () => {
+      const { context, store } = elysiaContext({ cookies: { "chunk-jws": "__chunked__100" } });
+      const session = await createJWSSession(context, chunked);
+      await session.update({ user: "alice" });
+
+      const written = [...store.keys()].filter((name) => name.startsWith("chunk-jws"));
+      expect(written.length).toBeLessThanOrEqual(MAX_CHUNK_COUNT + 1);
+    });
+
+    it("round-trips a token across the chunks it needs", async () => {
+      const minted = elysiaContext();
+      const session = await createJWSSession(minted.context, chunked);
+      await session.update(bulkyData(3, chunkMaxLength));
+
+      const cookies: Record<string, string> = {};
+      for (const [name, entry] of minted.store) cookies[name] = entry.value as string;
+      const { context } = elysiaContext({ cookies });
+      const again = await createJWSSession(context, chunked);
+
+      expect(again.id).toBe(session.id);
+    });
+  });
+  // #endregion
+
+  // #region cookie attribute parity
+  describe("cookie attributes", () => {
+    const expected = {
+      jws: { path: "/", secure: true, httpOnly: false, sameSite: "lax" },
+      jwe: { path: "/", secure: true, httpOnly: true, sameSite: "lax" },
+    } as const;
+
+    it.each(["jws", "jwe"] as const)("h3 v2 writes the %s defaults", async (family) => {
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const session =
+          family === "jws"
+            ? await useJWSSessionV2(event, { name: `attr-${family}`, key: jwsKey })
+            : await useJWESessionV2(event, { name: `attr-${family}`, key: jweKey });
+        await session.update({ user: "alice" });
+        return { ok: true };
+      });
+
+      const setCookie = (await app.request("/")).headers.getSetCookie()[0]!;
+      expect(setCookieAttributes(setCookie)).toEqual(expected[family]);
+    });
+
+    it.each(["jws", "jwe"] as const)("h3 v1 writes the %s defaults", async (family) => {
+      const router = createRouter({ preemptive: true });
+      const app = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const session =
+            family === "jws"
+              ? await useJWSSessionV1(event, { name: `attr-${family}`, key: jwsKey })
+              : await useJWESessionV1(event, { name: `attr-${family}`, key: jweKey });
+          await session.update({ user: "alice" });
+          return { ok: true };
+        }),
+      );
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      const setCookie = (response.headers["set-cookie"] as unknown as string[])[0]!;
+      expect(setCookieAttributes(setCookie)).toEqual(expected[family]);
+    });
+
+    it.each(["jws", "jwe"] as const)("elysia writes the %s defaults", async (family) => {
+      const { context, store } = elysiaContext();
+      const session =
+        family === "jws"
+          ? await createJWSSession(context, { name: `attr-${family}`, key: jwsKey })
+          : await createJWESession(context, { name: `attr-${family}`, key: jweKey });
+      await session.update({ user: "alice" });
+
+      const write = store.get(`attr-${family}`)!.lastWrite!;
+      expect({
+        path: write.path,
+        secure: Boolean(write.secure),
+        httpOnly: Boolean(write.httpOnly),
+        sameSite: write.sameSite,
+      }).toEqual(expected[family]);
+    });
+  });
+  // #endregion
+
+  // #region one contract across adapters and families
+  describe("one contract across adapters and families", () => {
+    it.each(portFamilyCases())("$label: a token that does not open is invalid", async (port) => {
+      const body = await port.run(
+        port.family,
+        { name: port.name, key: port.key, cookie: { secure: false }, hooks: {} },
+        async (open) => {
+          const session = await open();
+          return { id: session.id ?? null, token: session.token ?? null };
+        },
+        { cookies: { [port.name]: "not.a.token" } },
+      );
+
+      expect(body).toEqual({ id: null, token: null });
+    });
+
+    it.each(portFamilyCases())("$label: reports an unopenable token to onError", async (port) => {
+      let seen: unknown;
+      const body = await port.run(
+        port.family,
+        {
+          name: port.name,
+          key: port.key,
+          cookie: { secure: false },
+          hooks: {
+            onError: ({ error }: { error: unknown }) => {
+              seen = error;
+            },
+          },
+        },
+        async (open) => {
+          await open();
+          return { code: isJWTError(seen, "ERR_SESSION_TOKEN_INVALID") };
+        },
+        { cookies: { [port.name]: "not.a.token" } },
+      );
+
+      expect(body).toEqual({ code: true });
+    });
+
+    it.each(portFamilyCases())("$label: a missing key fails the read", async (port) => {
+      const body = await port.run(
+        port.family,
+        { name: port.name, key: undefined, cookie: { secure: false } },
+        async (open) => {
+          const error = await caught(open);
+          return { code: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
+        },
+      );
+
+      expect(body).toEqual({ code: true });
+    });
+
+    it.each(portFamilyCases())("$label: an unusable name is a config failure", async (port) => {
+      const body = await port.run(
+        port.family,
+        { name: "bad name", key: port.key, cookie: { secure: false } },
+        async (open) => {
+          const error = await caught(open);
+          return { code: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
+        },
+      );
+
+      expect(body).toEqual({ code: true });
+    });
+
+    it.each(portFamilyCases())("$label: three concurrent reads share one jti", async (port) => {
+      const config = { name: port.name, key: port.key, cookie: { secure: false } };
+
+      const minted = await port.run(port.family, config, async (open) => {
+        const session = await open();
+        await session.update({ user: "alice" });
+        return { token: session.token! };
+      });
+
+      const body = await port.run(
+        port.family,
+        config,
+        async (open) => {
+          const sessions = await Promise.all([open(), open(), open()]);
+          const ids = sessions.map((session) => session.id);
+          return { ids, distinct: new Set(ids).size };
+        },
+        { cookies: { [port.name]: minted.token as string } },
+      );
+
+      expect(body.distinct).toBe(1);
+      expect((body.ids as (string | undefined)[])[0]).toBeDefined();
+    });
+  });
+  // #endregion
+
+  // #region elysia session lifecycle
+  describe("elysia session lifecycle", () => {
+    it("reads a cleared session back as empty", async () => {
+      const { context, store } = elysiaContext();
+      const session = await createJWSSession(context, { key: jwsKey, cookie: { secure: false } });
+      await session.update({ user: "alice" });
+      await session.clear();
+
+      expect(session.id).toBeUndefined();
+      expect(session.data).toEqual({});
+      expect(store.get("elysia-jws")?.lastWrite?.maxAge).toBe(0);
+
+      const again = await createJWSSession(context, { key: jwsKey, cookie: { secure: false } });
+      expect(again.id).toBeUndefined();
+    });
+
+    it("gives an issue after a clear a lifetime of its own", async () => {
+      const { context } = elysiaContext();
+      const session = await createJWSSession(context, {
+        key: jwsKey,
+        maxAge: 60,
+        cookie: { secure: false },
+      });
+      await session.update({ user: "alice" });
+      await session.clear();
+      await session.update({ user: "bob" }, { maxAge: 3600 });
+
+      expect(session.id).toBeDefined();
+      expect({ ...session.data }).toEqual({ user: "bob" });
+      expect(session.expiresAt - session.createdAt).toBe(3600 * SECOND);
+    });
+  });
+  // #endregion
+
+  // #region re-entrant hook matrix
+  describe("re-entrant hook matrix", () => {
+    it.each(hookMatrix())("h3 v2: $hook may $operation the same session", async (entry) => {
+      const seen: unknown[] = [];
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const config: Record<string, unknown> = {
+          name: "matrix-jws",
+          key: jwsKey,
+          maxAge: "1h",
+          cookie: { secure: false },
+        };
+        config.hooks = reentrantHooks(entry, () => useJWSSessionV2(event, config as never), seen);
+        const session = await useJWSSessionV2(event, config as never);
+        await triggerHook(entry, session);
+        return { ok: true };
+      });
+
+      const cookie = await matrixCookie(entry.hook);
+      const response = await within(
+        app.request("/", { headers: cookie ? { cookie: `matrix-jws=${cookie}` } : {} }),
+        `h3 v2 ${entry.hook} / ${entry.operation}`,
+      );
+
+      expect(await response.json()).toEqual({ ok: true });
+      expect(seen).toHaveLength(1);
+    });
+
+    it.each(hookMatrix())("elysia: $hook may $operation the same session", async (entry) => {
+      const seen: unknown[] = [];
+      const cookie = await matrixCookie(entry.hook);
+      const { context } = elysiaContext({
+        cookies: cookie ? { "matrix-jws": cookie } : {},
+      });
+      const config: Record<string, unknown> = {
+        name: "matrix-jws",
+        key: jwsKey,
+        maxAge: "1h",
+        cookie: { secure: false },
+      };
+      config.hooks = reentrantHooks(entry, () => createJWSSession(context, config as never), seen);
+
+      const session = await within(
+        createJWSSession(context, config as never),
+        `elysia ${entry.hook} read`,
+      );
+      await within(triggerHook(entry, session), `elysia ${entry.hook} / ${entry.operation}`);
+
+      expect(seen).toHaveLength(1);
+    });
+  });
+  // #endregion
+
   // #region cookie expiry precedence
   describe("cookie expiry", () => {
     it("lets the token lifetime decide the cookie expiry on every port", async () => {
@@ -1239,3 +1553,158 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 });
+
+/** The attributes a `Set-Cookie` header carries, normalized for comparison. */
+function setCookieAttributes(setCookie: string): Record<string, unknown> {
+  const attributes = setCookie
+    .split(";")
+    .slice(1)
+    .map((part) => part.trim().toLowerCase());
+  return {
+    path: attributes.find((a) => a.startsWith("path="))?.slice("path=".length),
+    secure: attributes.includes("secure"),
+    httpOnly: attributes.includes("httponly"),
+    sameSite: attributes.find((a) => a.startsWith("samesite="))?.slice("samesite=".length),
+  };
+}
+
+type Family = "jws" | "jwe";
+
+interface PortFamilyCase {
+  label: string;
+  family: Family;
+  name: string;
+  key: unknown;
+  run: (
+    family: Family,
+    config: Record<string, unknown>,
+    body: (open: () => Promise<any>) => Promise<Record<string, unknown>>,
+    options?: { cookies?: Record<string, string> },
+  ) => Promise<Record<string, unknown>>;
+}
+
+/** The same session case on every adapter and both families. */
+function portFamilyCases(): PortFamilyCase[] {
+  const runners: [string, PortFamilyCase["run"]][] = [
+    [
+      "h3 v2",
+      async (family, config, body, options) => {
+        const app = new H3({ debug: true });
+        app.get("/", async (event) =>
+          body(() =>
+            family === "jws"
+              ? useJWSSessionV2(event, config as never)
+              : useJWESessionV2(event, config as never),
+          ),
+        );
+        const response = await app.request("/", { headers: cookieHeader(options?.cookies) });
+        return (await response.json()) as Record<string, unknown>;
+      },
+    ],
+    [
+      "h3 v1",
+      async (family, config, body, options) => {
+        const router = createRouter({ preemptive: true });
+        const app = createApp({ debug: true }).use(router);
+        router.use(
+          "/",
+          eventHandler(async (event) =>
+            body(() =>
+              family === "jws"
+                ? useJWSSessionV1(event, config as never)
+                : useJWESessionV1(event, config as never),
+            ),
+          ),
+        );
+        let request = supertest(toNodeListener(app)).get("/");
+        const headers = cookieHeader(options?.cookies);
+        if (headers.cookie) request = request.set("cookie", headers.cookie);
+        const response = await request;
+        return response.body as Record<string, unknown>;
+      },
+    ],
+    [
+      "elysia",
+      async (family, config, body, options) => {
+        const { context } = elysiaContext({ cookies: options?.cookies });
+        return body(() =>
+          family === "jws"
+            ? createJWSSession(context, config as never)
+            : createJWESession(context, config as never),
+        );
+      },
+    ],
+  ];
+
+  return runners.flatMap(([port, run]) =>
+    (["jws", "jwe"] as const).map((family) => ({
+      label: `${port} ${family}`,
+      family,
+      name: `contract-${family}`,
+      key: family === "jws" ? jwsKey : jweKey,
+      run,
+    })),
+  );
+}
+
+function cookieHeader(cookies: Record<string, string> | undefined): Record<string, string> {
+  if (!cookies) return {};
+  const cookie = Object.entries(cookies)
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+  return cookie ? { cookie } : {};
+}
+
+const HOOK_NAMES = ["onRead", "onUpdate", "onClear", "onExpire", "onError"] as const;
+const HOOK_OPERATIONS = ["read", "update", "clear", "token"] as const;
+
+interface MatrixEntry {
+  hook: (typeof HOOK_NAMES)[number];
+  operation: (typeof HOOK_OPERATIONS)[number];
+}
+
+/** Every hook against every operation it might perform on its own session. */
+function hookMatrix(): MatrixEntry[] {
+  return HOOK_NAMES.flatMap((hook) => HOOK_OPERATIONS.map((operation) => ({ hook, operation })));
+}
+
+/** The cookie a request must carry for `hook` to be dispatched at all. */
+async function matrixCookie(hook: MatrixEntry["hook"]): Promise<string | undefined> {
+  if (hook === "onRead") {
+    return foreignJWS(
+      { jti: "matrix", iat: nowSeconds(), exp: nowSeconds() + 3600 },
+      { cty: "application/json" },
+    );
+  }
+  if (hook === "onExpire") return foreignJWS(EXPIRED_CLAIMS, { cty: "application/json" });
+  if (hook === "onError") return "not.a.token";
+  return undefined;
+}
+
+/**
+ * Hooks that run their operation against the session they were dispatched from,
+ * once — a hook that updated on every `onUpdate` would never stop.
+ */
+function reentrantHooks(
+  entry: MatrixEntry,
+  open: () => Promise<any>,
+  seen: unknown[],
+): Record<string, () => Promise<void>> {
+  let entered = false;
+  return {
+    [entry.hook]: async () => {
+      if (entered) return;
+      entered = true;
+      const session = await open();
+      if (entry.operation === "update") await session.update({ hook: entry.hook });
+      else if (entry.operation === "clear") await session.clear();
+      seen.push(entry.operation === "token" ? (session.token ?? null) : entry.operation);
+    },
+  };
+}
+
+/** The call that dispatches `hook` once the request has been read. */
+async function triggerHook(entry: MatrixEntry, session: any): Promise<void> {
+  if (entry.hook === "onUpdate") await session.update({ user: "alice" });
+  else if (entry.hook === "onClear") await session.clear();
+}

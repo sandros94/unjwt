@@ -41,6 +41,9 @@ export const elysiaSessionPort: SessionPort<SessionContext> = {
 
   readToken: readSessionToken,
 
+  /** The request is the one object every session of it is created from. */
+  scope: (context) => context.request,
+
   /** Elysia hands the cookie jar to every handler, so the response is always writable. */
   writable: () => true,
 

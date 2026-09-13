@@ -44,6 +44,8 @@ export const h3SessionPort: SessionPort<CompatEvent | H3Event> = {
 
   readToken: readSessionToken,
 
+  scope: getSessionsContext,
+
   writable: hasWritableResponse,
 
   setCookie: (event, sessionName, token, options) => {

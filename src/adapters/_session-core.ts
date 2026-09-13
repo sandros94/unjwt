@@ -5,7 +5,12 @@
  */
 
 import type { ExpiresIn } from "../core/types";
-import { type SessionTokenSource, assertSessionName, resolveExpiresAt } from "./_session";
+import {
+  type SessionTokenSource,
+  assertSessionName,
+  invalidConfigError,
+  resolveExpiresAt,
+} from "./_session";
 import type { SessionData } from "./_session-types";
 
 /**
@@ -97,6 +102,12 @@ export interface SessionPort<TCarrier> {
     sessionName: string,
     source: SessionTokenSource,
   ) => string | undefined;
+  /**
+   * The object that stands for one request, under which the session names bound
+   * during it are registered. Framework-owned and reached from any binding of
+   * that request, however many sessions it opens.
+   */
+  scope: (carrier: TCarrier) => object;
   /** Whether the response can still take a `Set-Cookie`. */
   writable: (carrier: TCarrier) => boolean;
   setCookie: (
@@ -131,6 +142,7 @@ export function bindSession<TCarrier, Config extends SessionCoreConfig>(
   const { port, codec } = options;
   const name = config.name || codec.defaultName;
   assertSessionName(name, { prefix: port.prefix });
+  claimSessionName(port.scope(carrier), name, codec.family, port.prefix);
   return {
     carrier,
     config,
@@ -181,4 +193,37 @@ export function dropSessionCookie<TCarrier, Config extends SessionCoreConfig>(
     defaults: codec.defaultCookie,
     cookie: config.cookie,
   });
+}
+
+/** The families holding each session name, per request. */
+const SESSION_NAMES = /* @__PURE__ */ new WeakMap<object, Map<string, "jws" | "jwe">>();
+
+/**
+ * A session `name` spells one cookie, and one cookie carries one token: a JWS
+ * and a JWE session bound under the same name on one request keep separate
+ * state but write over each other's cookie, so the next request reads one of
+ * them back as the other's token. The first family to bind a name on a request
+ * holds it; a second family under that name is a configuration the application
+ * cannot serve.
+ */
+function claimSessionName(
+  scope: object,
+  name: string,
+  family: "jws" | "jwe",
+  prefix: string,
+): void {
+  let registry = SESSION_NAMES.get(scope);
+  if (!registry) {
+    registry = new Map();
+    SESSION_NAMES.set(scope, registry);
+  }
+  const holder = registry.get(name);
+  if (holder === undefined) {
+    registry.set(name, family);
+    return;
+  }
+  if (holder === family) return;
+  throw invalidConfigError(
+    `${prefix} Session name "${name}" is already used by a ${holder.toUpperCase()} session on this request; a name is one cookie, so give this session a "name" of its own.`,
+  );
 }

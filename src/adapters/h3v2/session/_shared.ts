@@ -55,6 +55,8 @@ export const h3SessionPort: SessionPort<HTTPEvent> = {
 
   readToken: readSessionToken,
 
+  scope: (event) => getEventContext<H3EventContext>(event),
+
   writable: hasWritableResponse,
 
   setCookie: (event, sessionName, token, options) => {

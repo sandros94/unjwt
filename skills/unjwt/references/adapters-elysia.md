@@ -86,6 +86,13 @@ With defaults, two plugins would both expose `ctx.session` (later wins) — alwa
 `contextKey` + `name` when combining. Each plugin's Elysia identity is seeded from `name` and
 `contextKey`, so two differently-named sessions register side by side instead of deduplicating.
 
+A `name` spells one cookie and one cookie carries one token, so a name belongs to one session
+across the whole application — families included. Binding a second family under a name already
+bound on the same request throws `ERR_SESSION_CONFIG_INVALID`
+(`'[unjwt/elysia] Session name "app" is already used by a JWS session on this request; …'`).
+Re-creating the same family under the same name — a hook re-reading its own session — is the same
+session and is always allowed.
+
 ## SessionManager Interface
 
 Same shape as the H3 adapters:
