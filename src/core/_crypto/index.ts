@@ -14,13 +14,15 @@ export {
   generateIV,
   generateCEK,
   bitLengthCEK,
+  bitLengthIV,
+  bitLengthTag,
   gcmkwEncrypt,
   gcmkwDecrypt,
   aesKwWrap,
   aesKwUnwrap,
   assertOctKeyLength,
 } from "./_aes";
-export { encryptKey, normalizeKey } from "./_key-encryption";
+export { encryptKey, normalizeKey, normalizeEpk } from "./_key-encryption";
 export { jwkTokey, keyToJWK } from "./_key-codec";
 export { deriveKey as deriveKeyPBES2, pbes2Wrap, pbes2Unwrap } from "./_pbes2";
 export { deriveECDHESKey, isECDHKeyAllowed } from "./_ecdh";

@@ -87,7 +87,7 @@ export interface JWEHeaderParameters extends JoseHeaderParameters {
   /**
    * "epk" (Ephemeral Public Key) Header Parameter for ECDH-ES.
    */
-  epk?: JWK_EC_Public;
+  epk?: JWK_EC_Public | JWK_OKP_Public;
   /**
    * "apu" (Agreement PartyUInfo) Header Parameter for ECDH-ES. Base64URL encoded.
    */
@@ -96,6 +96,15 @@ export interface JWEHeaderParameters extends JoseHeaderParameters {
    * "apv" (Agreement PartyVInfo) Header Parameter for ECDH-ES. Base64URL encoded.
    */
   apv?: string;
+  /**
+   * `zip` (Compression Algorithm): Header Parameter — not supported.
+   *
+   * RFC 7516 §4.1.3 compression is not implemented: it is a decompression-bomb
+   * surface with no authenticated size bound, so a token carrying `zip` is
+   * rejected rather than silently decrypted without decompression. Typed as
+   * `never` so the index signature below cannot let it back in.
+   */
+  zip?: never;
 
   /** Any other JWE Header member. */
   [propName: string]: unknown;
@@ -293,11 +302,11 @@ export interface JWEFlattenedSerialization {
   /** Base64URL-encoded external Additional Authenticated Data. */
   aad?: string;
   /** Base64URL-encoded IV (Initialization Vector). */
-  iv?: string;
+  iv: string;
   /** Base64URL-encoded ciphertext. */
   ciphertext: string;
   /** Base64URL-encoded authentication tag. */
-  tag?: string;
+  tag: string;
 }
 
 /**
@@ -332,8 +341,9 @@ export interface JWEMultiRecipient {
   key: JWEEncryptJWK;
   /**
    * Extra per-recipient JWE Unprotected Header parameters (RFC 7516 §7.2.1).
-   * Excludes fields the library writes automatically: `alg`, `enc`, `iv`,
-   * `tag`, `p2s`, `p2c`, `epk`, `apu`, `apv`.
+   * Excludes fields the library writes automatically — `alg`, `enc`, `iv`,
+   * `tag`, `p2s`, `p2c`, `epk`, `apu`, `apv` — and `zip`, which is not
+   * supported.
    *
    * Typical use: `x5c`, `x5t`, custom routing metadata.
    */

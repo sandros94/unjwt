@@ -1818,6 +1818,104 @@ describe.concurrent("JWK Utilities", () => {
       expect(error.message).toContain("secp256k1");
     });
   });
+
+  describe("unwrapKey — attacker-controlled ECDH parameters", () => {
+    async function ecdhPair(namedCurve: "P-256" | "P-384"): Promise<CryptoKeyPair> {
+      return (await generateKey("ECDH-ES", { namedCurve })) as CryptoKeyPair;
+    }
+
+    it('rejects an "epk" carrying private key material', async () => {
+      const recipient = await ecdhPair("P-256");
+      const sender = await ecdhPair("P-256");
+      const epk = await exportKey<JWK_EC_Private>(sender.privateKey);
+
+      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+        epk: epk as unknown as JWK_EC_Public,
+        enc: "A128GCM",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWE: "epk" must not contain private key material.');
+    });
+
+    it('rejects an "epk" on a different curve than the recipient key', async () => {
+      const recipient = await ecdhPair("P-256");
+      const sender = await ecdhPair("P-384");
+      const epk = await exportKey<JWK_EC_Public>(sender.publicKey);
+
+      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+        epk,
+        enc: "A128GCM",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'Invalid JWE: "epk" curve "P-384" does not match the recipient key curve "P-256".',
+      );
+    });
+
+    it('rejects an "epk" that is not an EC or OKP key', async () => {
+      const recipient = await ecdhPair("P-256");
+
+      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+        epk: {
+          kty: "oct",
+          k: base64UrlStringify(secureRandomBytes(32)),
+        } as unknown as JWK_EC_Public,
+        enc: "A128GCM",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWE: "epk" must be an EC or OKP public key.');
+    });
+
+    it('ignores forged "alg", "key_ops" and "ext" members on the "epk"', async () => {
+      const recipient = await ecdhPair("P-256");
+      const sender = await ecdhPair("P-256");
+      const epk = await exportKey<JWK_EC_Public>(sender.publicKey);
+
+      const expected = await deriveSharedSecret(recipient.publicKey, sender.privateKey, "A128GCM");
+      const unwrapped = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+        epk: { ...epk, alg: "RS256", key_ops: ["sign"], ext: false } as unknown as JWK_EC_Public,
+        enc: "A128GCM",
+        format: "raw",
+      });
+      expect(unwrapped).toEqual(expected);
+    });
+
+    it('rejects an oversized "apu"', async () => {
+      const recipient = await ecdhPair("P-256");
+      const sender = await ecdhPair("P-256");
+      const epk = await exportKey<JWK_EC_Public>(sender.publicKey);
+
+      const error = await unwrapKey("ECDH-ES", new Uint8Array(0), recipient.privateKey, {
+        epk,
+        enc: "A128GCM",
+        apu: base64UrlStringify(new Uint8Array(3 * 1024 * 1024)),
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWE: "apu" must not exceed 1024 bytes (got 3145728).');
+    });
+
+    it("rejects AES-GCMKW iv and tag of the wrong length", async () => {
+      const wrappingKey = (await generateKey("A128GCM")) as CryptoKey;
+      const cek = secureRandomBytes(32);
+      const wrapped = await wrapKey("A128GCMKW", cek, wrappingKey);
+
+      const badIv = await unwrapKey("A128GCMKW", wrapped.encryptedKey, wrappingKey, {
+        iv: base64UrlStringify(secureRandomBytes(16)),
+        tag: wrapped.tag,
+        format: "raw",
+      }).catch((e) => e);
+      expect(isJWTError(badIv, "ERR_JWE_INVALID")).toBe(true);
+      expect(badIv.message).toBe('Invalid JWE: "iv" must be 12 bytes for A128GCMKW (got 16).');
+
+      const badTag = await unwrapKey("A128GCMKW", wrapped.encryptedKey, wrappingKey, {
+        iv: wrapped.iv,
+        tag: base64UrlStringify(secureRandomBytes(20)),
+        format: "raw",
+      }).catch((e) => e);
+      expect(isJWTError(badTag, "ERR_JWE_INVALID")).toBe(true);
+      expect(badTag.message).toBe('Invalid JWE: "tag" must be 16 bytes for A128GCMKW (got 20).');
+    });
+  });
 });
 
 /**

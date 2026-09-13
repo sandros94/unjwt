@@ -44,6 +44,34 @@ export function checkIvLength(enc: string, iv: Uint8Array<ArrayBuffer>): void {
   }
 }
 
+// RFC 7518 §5.2.2.1 / §5.3: AES-GCM always authenticates with a 128-bit tag;
+// AES-CBC-HMAC truncates the HMAC to half the digest, i.e. half the CEK size.
+const TAG_BIT_LENGTHS: Record<string, number> = {
+  "A128GCM": 128,
+  "A128GCMKW": 128,
+  "A192GCM": 128,
+  "A192GCMKW": 128,
+  "A256GCM": 128,
+  "A256GCMKW": 128,
+  "A128CBC-HS256": 128,
+  "A192CBC-HS384": 192,
+  "A256CBC-HS512": 256,
+};
+
+export function bitLengthTag(alg: string): number {
+  const length = TAG_BIT_LENGTHS[alg];
+  if (length === undefined) {
+    throw new Error(`Unsupported JWE Algorithm: ${alg}`);
+  }
+  return length;
+}
+
+export function checkTagLength(enc: string, tag: Uint8Array<ArrayBuffer>): void {
+  if (tag.length << 3 !== bitLengthTag(enc)) {
+    throw new Error("Invalid Authentication Tag length");
+  }
+}
+
 export function bitLengthCEK(alg: string): number {
   const length = CEK_BIT_LENGTHS[alg];
   if (length === undefined) {
@@ -257,6 +285,7 @@ export async function decrypt(
   }
 
   checkIvLength(enc, iv);
+  checkTagLength(enc, tag);
 
   switch (enc) {
     case "A128CBC-HS256":

@@ -307,7 +307,7 @@ export interface UnwrapKeyOptions {
   /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
   maxIterations?: number;
   /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
-  epk?: JWK_EC_Public | CryptoKey;
+  epk?: JWK_EC_Public | JWK_OKP_Public | CryptoKey;
   /** ECDH-ES Agreement PartyUInfo. Base64URL encoded or Uint8Array. */
   apu?: Uint8Array<ArrayBuffer> | string;
   /** ECDH-ES Agreement PartyVInfo. Base64URL encoded or Uint8Array. */

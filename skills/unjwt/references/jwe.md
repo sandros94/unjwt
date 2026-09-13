@@ -43,7 +43,7 @@ Produces a JWE Compact Serialization token.
 - `options?: JWEEncryptOptions`
   - `alg?: KeyManagementAlgorithm`
   - `enc?: ContentEncryptionAlgorithm` — required when `alg` is `"dir"`
-  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`)
+  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`)
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `currentDate?: Date`
   - `cek?: Uint8Array` — custom Content Encryption Key
@@ -110,6 +110,17 @@ Decrypts a JWE token.
 
 **Returns:** `Promise<JWEDecryptResult<T>>`
 
+**Header and segment validation.** Everything the protected header alone decides is settled before a key is resolved or imported, so a malformed token never reaches key management:
+
+- `alg` — `"none"` and any algorithm outside the key-management table are rejected with `ERR_JWE_ALG_NOT_ALLOWED` before the `algorithms` allowlist is consulted.
+- `enc` — an unsupported value is `ERR_JWE_INVALID` (`Invalid JWE: unsupported "enc" …`). The same table decides whether the unwrapped CEK is imported as a `CryptoKey` (AES-GCM) or kept as raw bytes (AES-CBC-HMAC).
+- `zip` — compression is not implemented, and a token carrying `zip` is rejected with `ERR_JWE_INVALID` rather than decrypted without decompressing.
+- `crit` — validated on the protected header before key management, so a `crit` violation surfaces as `ERR_JWE_INVALID` regardless of whether the key would have worked.
+- `typ` — compared under RFC 7515 §4.1.9 media-type semantics: case-insensitive, `application/` optional. `typ: "at+jwt"` matches a header carrying `"application/AT+JWT"`.
+- **Empty encrypted key for direct algorithms** — `dir` and bare `ECDH-ES` agree on the CEK directly (RFC 7516 §5.2 step 6), so a non-empty encrypted-key segment is `ERR_JWE_INVALID` instead of silently discarded bytes.
+- **IV and tag lengths** — both are fixed by `enc` (12/16 bytes IV, 16/16/24/32 bytes tag) and checked before the AEAD primitive runs. Without it, `ciphertext ‖ tag` could be re-split by an attacker for AES-GCM, or the AES-CBC-HMAC tag compared truncated.
+- **ECDH-ES `epk`** — the ephemeral public key is wire data: it must be an EC or OKP _public_ key (a `d` member is refused), on a curve the library supports _and_ the same curve as the recipient key, and only `kty`/`crv`/coordinates are carried into the import — a forged `alg`, `key_ops`, `ext` or `use` is ignored. `apu` and `apv` are bounded at 1024 bytes each (`ERR_JWE_INVALID` beyond).
+
 ```ts
 import { decrypt } from "unjwt/jwe";
 
@@ -137,7 +148,7 @@ Produces a `JWEGeneralSerialization` object — one shared CEK encrypts the payl
 **Parameters:**
 
 - `payload` — `string | Uint8Array | Record<string, any>`
-- `recipients: JWEMultiRecipient[]` — non-empty. Each recipient is `{ key: JWEEncryptJWK, header?, ecdh?, p2s?, p2c?, keyManagementIV? }`. `key.alg` is required (inferred per-recipient; throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent).
+- `recipients: JWEMultiRecipient[]` — non-empty. Each recipient is `{ key: JWEEncryptJWK, header?, ecdh?, p2s?, p2c?, keyManagementIV? }`. `key.alg` is required (inferred per-recipient; throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent). A `zip` in any header tier (protected, shared unprotected, per-recipient) throws `ERR_INVALID_OPTION`.
 - `options?: JWEMultiEncryptOptions` — extends `JWEEncryptOptions` minus the per-recipient fields (`alg`, `ecdh`, `p2s`, `p2c`, `keyManagementIV`). Adds:
   - `sharedUnprotectedHeader?: Record<string, unknown>` — surfaces as top-level `unprotected`.
   - `aad?: Uint8Array | string` — external AAD (RFC 7516 §5.1); content cipher AAD becomes `BASE64URL(protected) || '.' || BASE64URL(aad)`.
@@ -167,7 +178,9 @@ Accepts a General or Flattened serialization object and returns the first recipi
 - `jwe` — `JWEGeneralSerialization | JWEFlattenedSerialization`. Flattened input is auto-normalized to General in memory.
 - `keyOrLookup` — same shape as `decrypt()` (`JWK | JWKSet | CryptoKey | Uint8Array | string | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per recipient until one succeeds.
 - `options?: JWEMultiDecryptOptions` — extends `JWEDecryptOptions`. Adds:
-  - `strictRecipientMatch?: boolean` — when `true`, skip any recipient whose header does not unambiguously match the provided key (by `kid` or kty/curve/length). Throws `ERR_JWE_NO_MATCHING_RECIPIENT` if nothing matches; no trial decryption fallback.
+  - `strictRecipientMatch?: boolean` — when `true`, a recipient is attempted only when the key material could plausibly open it; nothing matching means `ERR_JWE_NO_MATCHING_RECIPIENT` with no trial-decryption fallback. A recipient is skipped only on a _definite_ mismatch: a different `kid` on both sides, key material whose `kty` / curve / length cannot serve the recipient's `alg`, or an `epk` on a different curve than the key. Key material that carries no identity of its own (a `CryptoKey`, raw bytes, a password) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out.
+
+**Recipient isolation.** `recipients[]` is not covered by the AAD, so anyone can append or rewrite an entry. Every failure scoped to a single recipient — a header tier overlap, a `crit` or `zip` in its header, missing PBES2 `p2s`/`p2c`, a missing `epk`, missing AES-GCMKW `iv`/`tag`, an unsupported `alg`, a failed unwrap — only means "try the next recipient" and is kept as the error to report if no recipient works. A verdict on the token as a whole — the protected header, the shared unprotected header, the content segments, and (after a successful decryption) `crit` and JWT claim validation — is thrown immediately.
 
 **Returns:** `JWEMultiDecryptResult<T>` — extends `JWEDecryptResult` with:
 
@@ -272,9 +285,10 @@ interface JWEHeaderParameters {
   p2s?: string;
   iv?: string;
   tag?: string;
-  epk?: JWK_EC_Public;
+  epk?: JWK_EC_Public | JWK_OKP_Public;
   apu?: string;
   apv?: string;
+  zip?: never; // compression is not supported
   [propName: string]: unknown;
 }
 
@@ -296,9 +310,10 @@ interface JWEProtectedHeader {
   p2s?: string;
   iv?: string;
   tag?: string;
-  epk?: JWK_EC_Public;
+  epk?: JWK_EC_Public | JWK_OKP_Public;
   apu?: string;
   apv?: string;
+  zip?: never; // compression is not supported
   [propName: string]: unknown;
 }
 
@@ -391,9 +406,9 @@ interface JWEFlattenedSerialization {
   protected?: string;
   unprotected?: JWEHeaderParameters;
   aad?: string;
-  iv?: string;
+  iv: string;
   ciphertext: string;
-  tag?: string;
+  tag: string;
 }
 
 interface JWEGeneralSerialization {
@@ -401,9 +416,9 @@ interface JWEGeneralSerialization {
   unprotected?: JWEHeaderParameters;
   recipients: JWEGeneralRecipient[];
   aad?: string;
-  iv?: string;
+  iv: string;
   ciphertext: string;
-  tag?: string;
+  tag: string;
 }
 
 interface JWEGeneralRecipient {

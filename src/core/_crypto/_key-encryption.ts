@@ -8,6 +8,7 @@ import type {
   JWK,
   JWK_EC,
   JWK_EC_Public,
+  JWK_OKP_Public,
 } from "../types";
 import { isJWK, isAsymmetricJWK, assertCryptoKey, isCryptoKey } from "../utils";
 import { bitLengthCEK, generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes";
@@ -188,7 +189,79 @@ export async function normalizeKey(
   throw new Error("unreachable");
 }
 
+/**
+ * Import a wire-supplied ECDH-ES `"epk"` (RFC 7518 §4.6.1.1) as a public
+ * CryptoKey.
+ *
+ * The ephemeral public key travels inside the JWE header, so every member of it
+ * is attacker-controlled: only `kty`, `crv` and the public coordinates are
+ * carried into the import, the curve must be one the library agrees on *and*
+ * the one the recipient key uses (a mismatched curve would otherwise reach
+ * WebCrypto as a cross-curve derivation attempt), and private key material is
+ * refused outright.
+ */
+export async function normalizeEpk(
+  epk: JWK_EC_Public | JWK_OKP_Public | CryptoKey,
+  options: { alg: string; recipientKey: CryptoKey },
+): Promise<CryptoKey> {
+  const recipientCurve = cryptoKeyCurve(options.recipientKey);
+
+  if (isCryptoKey(epk)) {
+    if (epk.type !== "public") throw invalidEpk("must not contain private key material.");
+    assertEpkCurve(cryptoKeyCurve(epk), recipientCurve);
+    return epk;
+  }
+
+  if (!isJWK(epk) || (epk.kty !== "EC" && epk.kty !== "OKP")) {
+    throw invalidEpk("must be an EC or OKP public key.");
+  }
+  if ((epk as { d?: unknown }).d !== undefined) {
+    throw invalidEpk("must not contain private key material.");
+  }
+
+  const crv = (epk as { crv?: unknown }).crv;
+  const allowed = epk.kty === "EC" ? EC_ECDH_CURVES : OKP_ECDH_CURVES;
+  if (typeof crv !== "string" || !allowed.has(crv)) {
+    throw invalidEpk(`curve ${JSON.stringify(crv ?? null)} is not supported for ${options.alg}.`);
+  }
+  assertEpkCurve(crv, recipientCurve);
+
+  const { x, y } = epk as { x?: unknown; y?: unknown };
+  if (typeof x !== "string" || (epk.kty === "EC" && typeof y !== "string")) {
+    throw invalidEpk("is missing its public coordinates.");
+  }
+
+  // Only the public key material crosses into the import — `alg`, `key_ops`,
+  // `ext`, `use` and any extension member are the library's to decide.
+  const publicJwk =
+    epk.kty === "EC"
+      ? { kty: "EC" as const, crv, x, y: y as string, alg: options.alg }
+      : { kty: "OKP" as const, crv, x, alg: options.alg };
+
+  return jwkTokey(publicJwk as unknown as JWK);
+}
+
 // --- Internal helpers ---
+
+const EC_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["P-256", "P-384", "P-521"]);
+const OKP_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["X25519"]);
+
+function invalidEpk(detail: string): JWTError {
+  return new JWTError(`Invalid JWE: "epk" ${detail}`, "ERR_JWE_INVALID");
+}
+
+function cryptoKeyCurve(key: CryptoKey): string | undefined {
+  const algorithm = key.algorithm as EcKeyAlgorithm;
+  if (typeof algorithm.namedCurve === "string") return algorithm.namedCurve;
+  return algorithm.name === "X25519" || algorithm.name === "X448" ? algorithm.name : undefined;
+}
+
+function assertEpkCurve(epkCurve: string | undefined, recipientCurve: string | undefined): void {
+  if (!recipientCurve || !epkCurve || epkCurve === recipientCurve) return;
+  throw invalidEpk(
+    `curve "${epkCurve}" does not match the recipient key curve "${recipientCurve}".`,
+  );
+}
 
 function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
   const filtered: Record<string, unknown> = {};

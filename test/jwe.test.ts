@@ -951,11 +951,12 @@ describe.concurrent("JWE Utilities", () => {
         base64UrlParse(protectedHeaderEncoded),
       ) as JWEHeaderParameters;
 
-      expect(protectedHeader.epk).toBeDefined();
-      expect(protectedHeader.epk?.kty).toBe("EC");
-      expect(protectedHeader.epk?.x).toBe(providedEphemeralJwk.x);
-      expect(protectedHeader.epk?.y).toBe(providedEphemeralJwk.y);
-      expect(protectedHeader.epk?.crv).toBe(providedEphemeralJwk.crv);
+      const epk = protectedHeader.epk as JWK_EC_Public | undefined;
+      expect(epk).toBeDefined();
+      expect(epk?.kty).toBe("EC");
+      expect(epk?.x).toBe(providedEphemeralJwk.x);
+      expect(epk?.y).toBe(providedEphemeralJwk.y);
+      expect(epk?.crv).toBe(providedEphemeralJwk.crv);
       expect(protectedHeader.apu).toBe(base64UrlStringify(apu));
       expect(protectedHeader.apv).toBe(base64UrlStringify(apv));
 
@@ -1175,6 +1176,167 @@ describe.concurrent("JWE Utilities", () => {
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
       expect(error.message).toBe("Invalid JWE: Protected header could not be decoded.");
       expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+  });
+
+  describe("RFC 7516 strictness — headers and segments", () => {
+    let kwKey: CryptoKey;
+    let dirKey: CryptoKey;
+    let cbcKey: CryptoKey;
+    let ecdhPair: CryptoKeyPair;
+
+    beforeAll(async () => {
+      const [kw, dir, cbc, ecdh] = await Promise.all([
+        generateKey("A256KW"),
+        generateKey("A256GCM"),
+        generateKey("A128GCM"),
+        generateKey("ECDH-ES", { namedCurve: "P-256" }),
+      ]);
+      kwKey = kw;
+      dirKey = dir;
+      cbcKey = cbc;
+      ecdhPair = ecdh as CryptoKeyPair;
+    });
+
+    function replaceHeader(token: string, header: Record<string, unknown>): string {
+      const parts = token.split(".");
+      parts[0] = base64UrlStringify(JSON.stringify(header));
+      return parts.join(".");
+    }
+
+    function readHeader(token: string): Record<string, unknown> {
+      return JSON.parse(base64UrlParse(token.split(".")[0]!) as string);
+    }
+
+    it("rejects a non-empty encrypted key for dir", async () => {
+      const token = await encrypt(plaintextObj, dirKey, { alg: "dir", enc: "A256GCM" });
+      const parts = token.split(".");
+      parts[1] = base64UrlStringify(secureRandomBytes(40));
+      const error = await decrypt(parts.join("."), dirKey, { algorithms: ["dir"] }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Encrypted key must be empty for dir.");
+    });
+
+    it("rejects a non-empty encrypted key for ECDH-ES", async () => {
+      const token = await encrypt(plaintextObj, ecdhPair.publicKey, {
+        alg: "ECDH-ES",
+        enc: "A256GCM",
+      });
+      const parts = token.split(".");
+      parts[1] = base64UrlStringify(secureRandomBytes(40));
+      const error = await decrypt(parts.join("."), ecdhPair.privateKey, {
+        algorithms: ["ECDH-ES"],
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Encrypted key must be empty for ECDH-ES.");
+    });
+
+    it("rejects an authentication tag grown out of the ciphertext", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const parts = token.split(".");
+      const ciphertext = base64UrlParse(parts[3]!, { returnAs: "uint8array" });
+      const tag = base64UrlParse(parts[4]!, { returnAs: "uint8array" });
+      const shifted = ciphertext.subarray(ciphertext.length - 4);
+      parts[3] = base64UrlStringify(ciphertext.subarray(0, ciphertext.length - 4));
+      parts[4] = base64UrlStringify(new Uint8Array([...shifted, ...tag]));
+      const error = await decrypt(parts.join("."), kwKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        "Invalid JWE: Authentication tag must be 16 bytes for A256GCM (got 20).",
+      );
+    });
+
+    it("rejects an initialization vector of the wrong length", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const parts = token.split(".");
+      parts[2] = base64UrlStringify(secureRandomBytes(16));
+      const error = await decrypt(parts.join("."), kwKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        "Invalid JWE: Initialization vector must be 12 bytes for A256GCM (got 16).",
+      );
+    });
+
+    it("rejects a truncated CBC authentication tag", async () => {
+      const token = await encrypt(plaintextObj, cbcKey, {
+        alg: "A128GCMKW",
+        enc: "A128CBC-HS256",
+      });
+      const parts = token.split(".");
+      const tag = base64UrlParse(parts[4]!, { returnAs: "uint8array" });
+      parts[4] = base64UrlStringify(tag.subarray(0, 8));
+      const error = await decrypt(parts.join("."), cbcKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        "Invalid JWE: Authentication tag must be 16 bytes for A128CBC-HS256 (got 8).",
+      );
+    });
+
+    it("rejects a protected header carrying zip", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const tampered = replaceHeader(token, { ...readHeader(token), zip: "DEF" });
+      const error = await decrypt(tampered, kwKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: compression is not supported.");
+    });
+
+    it("refuses zip on encrypt", async () => {
+      const error = await encrypt(plaintextObj, kwKey, {
+        alg: "A256KW",
+        enc: "A256GCM",
+        // @ts-expect-error `zip` is not an accepted protected header parameter
+        protectedHeader: { zip: "DEF" },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+
+    it("validates crit before key management", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const tampered = replaceHeader(token, { ...readHeader(token), crit: ["myparam"] });
+      const wrongKey = await generateKey("A256KW");
+      const error = await decrypt(tampered, wrongKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toMatch(/"myparam"/);
+    });
+
+    it("rejects an unsupported enc before key management", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const tampered = replaceHeader(token, { alg: "A256KW", enc: "A256CBC" });
+      const wrongKey = await generateKey("A256KW");
+      const error = await decrypt(tampered, wrongKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWE: unsupported "enc" A256CBC');
+    });
+
+    it('rejects alg "none" even when allowlisted', async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const tampered = replaceHeader(token, { alg: "none", enc: "A256GCM" });
+      const error = await decrypt(tampered, kwKey, {
+        algorithms: ["none" as KeyManagementAlgorithm],
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+    });
+
+    it("rejects an unknown key management alg even when allowlisted", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const tampered = replaceHeader(token, { alg: "A256KW+HACK", enc: "A256GCM" });
+      const error = await decrypt(tampered, kwKey, {
+        algorithms: ["A256KW+HACK" as KeyManagementAlgorithm],
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe("Key management algorithm not supported: A256KW+HACK");
+    });
+
+    it("compares typ under media-type normalization", async () => {
+      const token = await encrypt(plaintextObj, kwKey, {
+        alg: "A256KW",
+        enc: "A256GCM",
+        protectedHeader: { typ: "application/AT+JWT" },
+      });
+      await expect(decrypt(token, kwKey, { typ: "at+jwt" })).resolves.toBeDefined();
+      const error = await decrypt(token, kwKey, { typ: "other+jwt" }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toMatch(/"typ"/);
     });
   });
 });

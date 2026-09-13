@@ -37,10 +37,18 @@ import {
 } from "./utils";
 import {
   JWE_ALG_CTX,
+  assertNoZipOption,
   buildJWKSetFilter,
+  cekFormatForEnc,
   checkAlgAllowed,
+  checkJWEAlgSupported,
+  checkJWEContentSegments,
+  checkJWEDirectEncryptedKey,
+  checkJWEEncSupported,
+  checkJWEZip,
   decodeProtectedHeader,
   parseEphemeralKey,
+  typMatches,
   validateJwtClaimsIfJsonPayload,
   decodeSegment,
 } from "./_internal";
@@ -48,6 +56,7 @@ import {
 export type * from "./types/jwe";
 export {
   type JWTErrorCode,
+  type KnownJWTErrorCode,
   type JWTErrorCauseMap,
   type UnsecureErrorCode,
   JWTError,
@@ -106,6 +115,8 @@ export async function encrypt(
     ecdh,
   } = options;
   let { alg, enc } = options;
+
+  assertNoZipOption(userHeader, "protected");
 
   if (!alg) {
     if (typeof key === "string" || key instanceof Uint8Array) {
@@ -256,6 +267,13 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   const alg = protectedHeader.alg as KeyManagementAlgorithm;
   const enc = protectedHeader.enc as ContentEncryptionAlgorithm;
 
+  // Everything the protected header alone decides — algorithm support, `enc`,
+  // compression, `crit`, `typ` — is settled before any key is resolved or
+  // imported, so a malformed token never reaches key management.
+  const headerError =
+    checkJWEAlgSupported(alg) ?? checkJWEEncSupported(enc) ?? checkJWEZip(protectedHeader);
+  if (headerError) throw headerError;
+
   if (options?.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
     throw new JWTError(
       `Content encryption algorithm not allowed: ${enc}`,
@@ -263,10 +281,17 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     );
   }
 
-  const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
+  validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
 
-  const algError = checkAlgAllowed(alg, rawKeyMaterial, options?.algorithms, JWE_ALG_CTX);
-  if (algError) throw algError;
+  if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
+    throw new JWTError(
+      `Invalid JWE: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
+      "ERR_JWE_INVALID",
+    );
+  }
+
+  const directKeyError = checkJWEDirectEncryptedKey(alg, encryptedKeyEncoded);
+  if (directKeyError) throw directKeyError;
 
   const encryptedKeyBytes = decodeSegment(encryptedKeyEncoded, {
     family: "JWE",
@@ -282,9 +307,17 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   });
   const ciphertextBytes = decodeSegment(ciphertextEncoded, { family: "JWE", what: "Ciphertext" });
 
+  const segmentError = checkJWEContentSegments(enc, contentIVBytes, contentAuthTagBytes);
+  if (segmentError) throw segmentError;
+
+  const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
+
+  const algError = checkAlgAllowed(alg, rawKeyMaterial, options?.algorithms, JWE_ALG_CTX);
+  if (algError) throw algError;
+
   const unwrapKeyOpts: UnwrapKeyOptions = {
     enc,
-    format: enc.includes("GCM") ? "cryptokey" : "raw",
+    format: cekFormatForEnc(enc),
     keyUsage: options?.keyUsage || ["decrypt"],
   };
   if (protectedHeader.iv) unwrapKeyOpts.iv = protectedHeader.iv;
@@ -357,10 +390,6 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   }
 
   const payload = decodePayloadFromBytes<T>(plaintextBytes, options?.forceUint8Array) as T;
-
-  if (protectedHeader.crit || options?.recognizedHeaders?.length) {
-    validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
-  }
 
   validateJwtClaimsIfJsonPayload(payload, options);
 

@@ -4,6 +4,7 @@ import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
 
 import type {
+  JWK,
   JWKSet,
   JWKLookupFunction,
   KeyManagementAlgorithm,
@@ -39,6 +40,7 @@ import {
   isJWK,
   isJWKSet,
   isCryptoKey,
+  inferJWEAllowedAlgorithms,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
@@ -47,15 +49,23 @@ import {
 } from "./utils";
 import {
   JWE_ALG_CTX,
+  JWE_DIRECT_ALGS,
+  assertNoZipOption,
   buildJWKSetFilter,
+  cekFormatForEnc,
   checkAlgAllowed,
+  checkJWEAlgSupported,
+  checkJWEContentSegments,
+  checkJWEDirectEncryptedKey,
+  checkJWEEncSupported,
+  checkJWEUnprotectedCrit,
+  checkJWEZip,
   decodeProtectedHeader,
   parseEphemeralKey,
+  typMatches,
   validateJwtClaimsIfJsonPayload,
   decodeSegment,
 } from "./_internal";
-
-const DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);
 
 /**
  * Encrypt a payload to multiple recipients using JWE General JSON Serialization
@@ -84,6 +94,10 @@ export async function encryptMulti(
   if (!Array.isArray(recipients) || recipients.length === 0) {
     throw new JWTError("encryptMulti requires at least one recipient.", "ERR_JWE_INVALID");
   }
+
+  assertNoZipOption(options.protectedHeader, "protected");
+  assertNoZipOption(options.sharedUnprotectedHeader, "shared unprotected");
+  for (const recipient of recipients) assertNoZipOption(recipient?.header, "per-recipient");
 
   const resolvedAlgs: KeyManagementAlgorithm[] = recipients.map((r, i) =>
     _resolveRecipientAlg(r.key, i),
@@ -179,9 +193,16 @@ export async function encryptMulti(
  * Decrypt a JWE in JSON Serialization object form (General RFC 7516 §7.2.1 or
  * Flattened §7.2.2 — both accepted).
  *
- * Matches recipients by, in order: `kid` equality, `kty`/`crv`/length
- * compatibility, then trial decryption. Set `strictRecipientMatch: true` to
- * disable the trial fallback.
+ * Recipients are tried in order until one unwraps. `recipients[]` is outside the
+ * AAD, so any failure scoped to a single recipient only means "try the next one"
+ * and surfaces just when no recipient works; the protected header, the shared
+ * unprotected header, the content segments and the decrypted claims are verdicts
+ * on the token itself and throw immediately.
+ *
+ * `strictRecipientMatch: true` restricts the loop to recipients the key material
+ * could plausibly open — a differing `kid`, an incompatible `kty`/curve/length
+ * for the recipient's `alg`, or a mismatched `epk` curve skips it — and throws
+ * `ERR_JWE_NO_MATCHING_RECIPIENT` when none qualifies.
  *
  * For compact (string) tokens, use {@link decrypt}.
  */
@@ -222,6 +243,20 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     throw new JWTError('Invalid JWE: Protected header is missing "enc".', "ERR_JWE_INVALID");
   }
 
+  const sharedUnprotected = sanitizeObjectCopy(general.unprotected) as
+    | JWEHeaderParameters
+    | undefined;
+
+  // Token-wide verdicts: the protected header, the shared unprotected header and
+  // the single content ciphertext are the same for every recipient, so they are
+  // settled once, before any recipient is tried.
+  const tokenError =
+    checkJWEEncSupported(enc) ??
+    checkJWEZip(protectedHeader) ??
+    checkJWEUnprotectedCrit(sharedUnprotected) ??
+    checkJWEZip(sharedUnprotected);
+  if (tokenError) throw tokenError;
+
   if (options.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
     throw new JWTError(
       `Content encryption algorithm not allowed: ${enc}`,
@@ -229,9 +264,14 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     );
   }
 
-  const sharedUnprotected = sanitizeObjectCopy(general.unprotected) as
-    | JWEHeaderParameters
-    | undefined;
+  validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
+
+  if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
+    throw new JWTError(
+      `Invalid JWE: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
+      "ERR_JWE_INVALID",
+    );
+  }
 
   const ivBytes = decodeSegment(general.iv, { family: "JWE", what: "Initialization vector" });
   const ciphertextBytes = decodeSegment(general.ciphertext, {
@@ -239,6 +279,10 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     what: "Ciphertext",
   });
   const tagBytes = decodeSegment(general.tag, { family: "JWE", what: "Authentication tag" });
+
+  const segmentError = checkJWEContentSegments(enc, ivBytes, tagBytes);
+  if (segmentError) throw segmentError;
+
   const contentAadBytes = textEncoder.encode(
     general.aad ? `${protectedHeaderEncoded}.${general.aad}` : protectedHeaderEncoded,
   );
@@ -246,12 +290,26 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   let lastError: JWTError | undefined;
   let cryptoAttempted = false;
   for (let i = 0; i < general.recipients.length; i++) {
+    // `recipients[]` is outside the AAD: anyone can append or rewrite an entry.
+    // Every failure scoped to one recipient therefore only means "try the next
+    // one" — it is collected as `lastError` and never aborts the loop.
     const wireRecipient = general.recipients[i]!;
     const recipientHeader = sanitizeObjectCopy(wireRecipient.header) as
       | JWEHeaderParameters
       | undefined;
 
-    _assertDisjointHeaders(protectedHeader, sharedUnprotected, recipientHeader);
+    const recipientError = checkJWEUnprotectedCrit(recipientHeader) ?? checkJWEZip(recipientHeader);
+    if (recipientError) {
+      lastError = recipientError;
+      continue;
+    }
+
+    try {
+      _assertDisjointHeaders(protectedHeader, sharedUnprotected, recipientHeader);
+    } catch (err) {
+      lastError = _asJWTError(err);
+      continue;
+    }
 
     const effective = _mergeHeaders(protectedHeader, sharedUnprotected, recipientHeader);
     const alg = effective.alg as KeyManagementAlgorithm | undefined;
@@ -260,6 +318,13 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
         `Recipient[${i}] has no "alg" in the effective header.`,
         "ERR_JWE_INVALID",
       );
+      continue;
+    }
+
+    const algSupportError =
+      checkJWEAlgSupported(alg) ?? checkJWEDirectEncryptedKey(alg, wireRecipient.encrypted_key);
+    if (algSupportError) {
+      lastError = algSupportError;
       continue;
     }
 
@@ -281,15 +346,24 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const encryptedKeyBytes = decodeSegment(wireRecipient.encrypted_key ?? "", {
-      family: "JWE",
-      what: "Encrypted key",
-    });
+    let encryptedKeyBytes: Uint8Array<ArrayBuffer>;
+    try {
+      encryptedKeyBytes = decodeSegment(wireRecipient.encrypted_key ?? "", {
+        family: "JWE",
+        what: "Encrypted key",
+      });
+    } catch (err) {
+      lastError = _asJWTError(err);
+      continue;
+    }
+
     const unwrapKeyOpts = _buildUnwrapKeyOptions(effective, enc, options);
 
     cryptoAttempted = true;
+    let cek: Uint8Array<ArrayBuffer> | CryptoKey;
+    let plaintextBytes: Uint8Array<ArrayBuffer>;
     try {
-      const { cek, plaintextBytes } = await _unwrapAndDecrypt(
+      ({ cek, plaintextBytes } = await _unwrapAndDecrypt(
         alg,
         enc,
         rawKeyMaterial,
@@ -300,40 +374,32 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
         tagBytes,
         contentAadBytes,
         effective.kid,
-      );
-
-      const payload = decodePayloadFromBytes<T>(plaintextBytes, options.forceUint8Array) as T;
-
-      if (protectedHeader.crit || options.recognizedHeaders?.length) {
-        validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
-      }
-
-      validateJwtClaimsIfJsonPayload(payload, options);
-
-      const result: JWEMultiDecryptResult<T> = {
-        payload,
-        protectedHeader: { ...protectedHeader, alg, enc } as JWEProtectedHeader,
-        recipientIndex: i,
-      };
-      if (sharedUnprotected) result.sharedUnprotectedHeader = sharedUnprotected;
-      if (recipientHeader) result.recipientHeader = recipientHeader;
-      if (options.returnCek) {
-        result.cek = isCryptoKey(cek)
-          ? new Uint8Array(await crypto.subtle.exportKey("raw", cek))
-          : cek;
-        result.aad = contentAadBytes;
-      }
-      return result;
+      ));
     } catch (err) {
-      if (
-        err instanceof JWTError &&
-        err.code !== "ERR_JWE_DECRYPTION_FAILED" &&
-        err.code !== "ERR_JWK_KEY_NOT_FOUND"
-      ) {
-        throw err;
-      }
-      lastError = err instanceof JWTError ? err : undefined;
+      lastError = _asJWTError(err);
+      continue;
     }
+
+    // The content cipher authenticated the token: from here a failure is a
+    // verdict on the token itself, not on this recipient, and propagates.
+    const payload = decodePayloadFromBytes<T>(plaintextBytes, options.forceUint8Array) as T;
+
+    validateJwtClaimsIfJsonPayload(payload, options);
+
+    const result: JWEMultiDecryptResult<T> = {
+      payload,
+      protectedHeader: { ...protectedHeader, alg, enc } as JWEProtectedHeader,
+      recipientIndex: i,
+    };
+    if (sharedUnprotected) result.sharedUnprotectedHeader = sharedUnprotected;
+    if (recipientHeader) result.recipientHeader = recipientHeader;
+    if (options.returnCek) {
+      result.cek = isCryptoKey(cek)
+        ? new Uint8Array(await crypto.subtle.exportKey("raw", cek))
+        : cek;
+      result.aad = contentAadBytes;
+    }
+    return result;
   }
 
   // Strict mode: if no crypto was ever attempted (every recipient filtered out
@@ -390,7 +456,7 @@ function _resolveRecipientAlg(key: JWEEncryptJWK, index: number): KeyManagementA
       "ERR_JWE_RECIPIENT_ALG_INFERENCE",
     );
   }
-  if (DIRECT_ALGS.has(alg)) {
+  if (JWE_DIRECT_ALGS.has(alg)) {
     throw new JWTError(
       `Recipient[${index}] resolves to "${alg}", which requires exactly one recipient. Use encrypt() instead.`,
       "ERR_JWE_ALG_FORBIDDEN_IN_MULTI",
@@ -510,16 +576,62 @@ function _normalizeSerialization(
   );
 }
 
+/**
+ * `strictRecipientMatch` gate: is this recipient one the key material could
+ * possibly open?
+ *
+ * A recipient is skipped only on a *definite* mismatch — a different `kid` on
+ * both sides, or key material whose shape cannot serve the recipient's `alg`
+ * (`kty` / curve / length, plus the `epk` curve for ECDH-ES). Key material that
+ * carries no identity of its own (a `CryptoKey`, raw bytes, a password) is
+ * unknown, not mismatched: it falls through to the compatibility check rather
+ * than being filtered out.
+ */
 function _recipientKeyMatches(effectiveHeader: JWEHeaderParameters, keyMaterial: unknown): boolean {
-  const headerKid = effectiveHeader.kid;
   if (isJWKSet(keyMaterial)) {
-    return keyMaterial.keys.some((k) => !headerKid || k.kid === headerKid);
+    return keyMaterial.keys.some((k) => _jwkMatchesRecipient(effectiveHeader, k));
   }
-  if (isJWK(keyMaterial)) {
-    if (headerKid && keyMaterial.kid && headerKid !== keyMaterial.kid) return false;
-    return true;
+  if (isJWK(keyMaterial)) return _jwkMatchesRecipient(effectiveHeader, keyMaterial);
+  if (isCryptoKey(keyMaterial)) return _keyServesRecipientAlg(effectiveHeader, keyMaterial);
+  // Raw bytes and passwords carry neither a `kid` nor an unambiguous shape.
+  return true;
+}
+
+function _jwkMatchesRecipient(effectiveHeader: JWEHeaderParameters, jwk: JWK): boolean {
+  const headerKid = effectiveHeader.kid;
+  if (headerKid && jwk.kid && headerKid !== jwk.kid) return false;
+  return _keyServesRecipientAlg(effectiveHeader, jwk);
+}
+
+function _keyServesRecipientAlg(
+  effectiveHeader: JWEHeaderParameters,
+  key: JWK | CryptoKey,
+): boolean {
+  const alg = effectiveHeader.alg;
+  if (!alg) return false;
+
+  const inferred = inferJWEAllowedAlgorithms(key);
+  if (inferred && !inferred.includes(alg as KeyManagementAlgorithm)) return false;
+
+  if (!alg.startsWith("ECDH-ES")) return true;
+  const epkCurve = (effectiveHeader.epk as { crv?: string } | undefined)?.crv;
+  const keyCurve = _keyCurve(key);
+  return !epkCurve || !keyCurve || epkCurve === keyCurve;
+}
+
+function _keyCurve(key: JWK | CryptoKey): string | undefined {
+  if (isCryptoKey(key)) {
+    const algorithm = key.algorithm as EcKeyAlgorithm;
+    if (typeof algorithm.namedCurve === "string") return algorithm.namedCurve;
+    return algorithm.name === "X25519" || algorithm.name === "X448" ? algorithm.name : undefined;
   }
-  return !headerKid;
+  return (key as { crv?: string }).crv;
+}
+
+/** Normalize anything thrown while trying one recipient into a collectable error. */
+function _asJWTError(error: unknown): JWTError {
+  if (error instanceof JWTError) return error;
+  return new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error);
 }
 
 function _buildUnwrapKeyOptions(
@@ -529,7 +641,7 @@ function _buildUnwrapKeyOptions(
 ): UnwrapKeyOptions {
   const opts: UnwrapKeyOptions = {
     enc,
-    format: enc.includes("GCM") ? "cryptokey" : "raw",
+    format: cekFormatForEnc(enc),
     keyUsage: options.keyUsage || ["decrypt"],
   };
   if (effectiveHeader.iv) opts.iv = effectiveHeader.iv;

@@ -400,8 +400,8 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms({ kty: "EC", crv: "P-384", x: "", y: "" })).toEqual(["ES384"]);
     expect(inferJWSAllowedAlgorithms({ kty: "EC", crv: "P-521", x: "", y: "" })).toEqual(["ES512"]);
     expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed25519", x: "" })).toEqual([
-      "Ed25519",
       "EdDSA",
+      "Ed25519",
     ]);
     expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed448", x: "" })).toEqual(["EdDSA"]);
   });
@@ -421,7 +421,7 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms(ec.publicKey)).toEqual(["ES384"]);
 
     const ed = await generateKey("Ed25519");
-    expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["Ed25519", "EdDSA"]);
+    expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["EdDSA", "Ed25519"]);
   });
 
   it("returns undefined for a JWKSet where any key lacks alg and kty-based inference fails", () => {

@@ -8,6 +8,7 @@ import {
   generateIV,
   generateCEK,
   bitLengthCEK,
+  bitLengthTag,
   aesKwWrap,
   aesKwUnwrap,
   gcmkwEncrypt,
@@ -112,6 +113,28 @@ describe.concurrent("_crypto primitives", () => {
     it("generateIV produces correct bit lengths", () => {
       expect(generateIV("A128GCM").length).toBe(12);
       expect(generateIV("A128CBC-HS256").length).toBe(16);
+    });
+
+    it("bitLengthTag reports the authentication tag size", () => {
+      expect(bitLengthTag("A128GCM")).toBe(128);
+      expect(bitLengthTag("A256GCM")).toBe(128);
+      expect(bitLengthTag("A128CBC-HS256")).toBe(128);
+      expect(bitLengthTag("A256CBC-HS512")).toBe(256);
+    });
+
+    // The GCM primitive concatenates ciphertext and tag, so an over-long tag would
+    // otherwise move the segment boundary and leave the split attacker-controlled.
+    it("AES-GCM decrypt rejects a tag of the wrong length", async () => {
+      const cek = generateCEK("A256GCM");
+      const iv = generateIV("A256GCM");
+      const plaintext = textEncoder.encode("secret message");
+      const aad = textEncoder.encode("header");
+
+      const { ciphertext, tag } = await encrypt("A256GCM", plaintext, cek, iv, aad);
+      const grown = new Uint8Array([...tag!, ...ciphertext.subarray(0, 4)]);
+      await expect(decrypt("A256GCM", cek, ciphertext, iv, grown, aad)).rejects.toThrow(
+        "Invalid Authentication Tag length",
+      );
     });
   });
 

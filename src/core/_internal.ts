@@ -4,12 +4,14 @@ import { base64UrlParse } from "./utils/base64";
 
 import type {
   JWK,
+  ContentEncryptionAlgorithm,
   JWEEncryptOptions,
   JWK_EC_Public,
   JWK_EC_Private,
   JWTClaimValidationOptions,
   JWTClaims,
   JWSAlgorithm,
+  KeyManagementAlgorithm,
 } from "./types";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
@@ -22,7 +24,7 @@ import {
   isJWK,
   validateJwtClaims,
 } from "./utils";
-import { assertOctKeyLength } from "./_crypto";
+import { assertOctKeyLength, bitLengthIV, bitLengthTag } from "./_crypto";
 
 // -----------------------------------------------------------------------------
 // JWKSet candidate filter — used by JWS verify + JWE decrypt (compact & multi).
@@ -318,6 +320,148 @@ export function applyB64Crit(header: { b64?: boolean; crit?: string[] }): void {
 export function asKeyUsageError(error: unknown, alg: string): JWTError {
   if (error instanceof JWTError) return error;
   return new JWTError(`Key is not usable for ${alg}.`, "ERR_JWK_INVALID", error);
+}
+
+// -----------------------------------------------------------------------------
+// JWE algorithm, header and segment gates (compact decrypt + multi decrypt).
+// -----------------------------------------------------------------------------
+
+// The key management algorithms `unwrapKey` implements. `KeyManagementAlgorithm`
+// is wider — it also carries the bare `A*GCM` spellings an `oct` JWK may declare
+// for its `A*GCMKW` / `dir` use — so the guard is `Partial<Record<…>>`: a stray
+// or misspelled entry fails the type check, a deliberate omission does not.
+const JWE_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
+  Object.keys({
+    "dir": true,
+    "A128KW": true,
+    "A192KW": true,
+    "A256KW": true,
+    "A128GCMKW": true,
+    "A192GCMKW": true,
+    "A256GCMKW": true,
+    "PBES2-HS256+A128KW": true,
+    "PBES2-HS384+A192KW": true,
+    "PBES2-HS512+A256KW": true,
+    "RSA-OAEP": true,
+    "RSA-OAEP-256": true,
+    "RSA-OAEP-384": true,
+    "RSA-OAEP-512": true,
+    "ECDH-ES": true,
+    "ECDH-ES+A128KW": true,
+    "ECDH-ES+A192KW": true,
+    "ECDH-ES+A256KW": true,
+  } satisfies Partial<Record<KeyManagementAlgorithm, true>>),
+);
+
+// The content encryption algorithms the library implements, each mapped to the
+// form its CEK takes: AES-GCM decrypts from a `CryptoKey`, AES-CBC-HMAC needs
+// the raw bytes to split into MAC and encryption halves.
+const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
+  "A128GCM": "cryptokey",
+  "A192GCM": "cryptokey",
+  "A256GCM": "cryptokey",
+  "A128CBC-HS256": "raw",
+  "A192CBC-HS384": "raw",
+  "A256CBC-HS512": "raw",
+} satisfies Record<ContentEncryptionAlgorithm, "cryptokey" | "raw">);
+
+/** `dir` and bare `ECDH-ES` agree on the CEK directly — RFC 7516 §4.5 / §5.2. */
+export const JWE_DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);
+
+/**
+ * Reject a header-declared key management `alg` the library cannot unwrap —
+ * `"none"` and anything outside the implemented set — before the caller's
+ * allowlist, any key import or WebCrypto call.
+ */
+export function checkJWEAlgSupported(alg: string): JWTError | undefined {
+  if (alg === "none") {
+    return new JWTError(
+      '"none" is not a valid key management algorithm',
+      "ERR_JWE_ALG_NOT_ALLOWED",
+    );
+  }
+  if (!JWE_ALGORITHM_SET.has(alg)) {
+    return new JWTError(
+      `Key management algorithm not supported: ${alg}`,
+      "ERR_JWE_ALG_NOT_ALLOWED",
+    );
+  }
+  return undefined;
+}
+
+/** Reject an `enc` outside {@link ContentEncryptionAlgorithm}. */
+export function checkJWEEncSupported(enc: string): JWTError | undefined {
+  if (Object.hasOwn(JWE_ENC_CEK_FORMAT, enc)) return undefined;
+  return new JWTError(`Invalid JWE: unsupported "enc" ${enc}`, "ERR_JWE_INVALID");
+}
+
+/** The CEK form `enc` consumes. Call only after {@link checkJWEEncSupported}. */
+export function cekFormatForEnc(enc: ContentEncryptionAlgorithm): "cryptokey" | "raw" {
+  return JWE_ENC_CEK_FORMAT[enc];
+}
+
+/**
+ * RFC 7516 §5.2 step 6 / §7.2.1 — direct key agreement carries no wrapped CEK,
+ * so a non-empty encrypted key is a forgery attempt rather than ignorable bytes.
+ */
+export function checkJWEDirectEncryptedKey(
+  alg: string,
+  encryptedKey: string | undefined,
+): JWTError | undefined {
+  if (!JWE_DIRECT_ALGS.has(alg) || !encryptedKey) return undefined;
+  return new JWTError(`Invalid JWE: Encrypted key must be empty for ${alg}.`, "ERR_JWE_INVALID");
+}
+
+/**
+ * RFC 7518 §5.2 / §5.3 — the IV and authentication tag sizes are fixed by `enc`.
+ * Without this the AES-GCM primitive would accept any split of
+ * `ciphertext ‖ tag`, leaving the segment boundary attacker-controlled, and the
+ * AES-CBC-HMAC comparison would run against a truncated tag.
+ */
+export function checkJWEContentSegments(
+  enc: ContentEncryptionAlgorithm,
+  iv: Uint8Array<ArrayBuffer>,
+  tag: Uint8Array<ArrayBuffer>,
+): JWTError | undefined {
+  const ivBytes = bitLengthIV(enc) >> 3;
+  if (iv.length !== ivBytes) {
+    return new JWTError(
+      `Invalid JWE: Initialization vector must be ${ivBytes} bytes for ${enc} (got ${iv.length}).`,
+      "ERR_JWE_INVALID",
+    );
+  }
+  const tagBytes = bitLengthTag(enc) >> 3;
+  if (tag.length !== tagBytes) {
+    return new JWTError(
+      `Invalid JWE: Authentication tag must be ${tagBytes} bytes for ${enc} (got ${tag.length}).`,
+      "ERR_JWE_INVALID",
+    );
+  }
+  return undefined;
+}
+
+/** RFC 7516 §4.1.3 — the library does not implement compression. */
+export function checkJWEZip(header: object | undefined): JWTError | undefined {
+  if (!header || !Object.hasOwn(header, "zip")) return undefined;
+  return new JWTError("Invalid JWE: compression is not supported.", "ERR_JWE_INVALID");
+}
+
+/** Producer-side counterpart of {@link checkJWEZip}. */
+export function assertNoZipOption(header: object | undefined, tier: string): void {
+  if (!header || !Object.hasOwn(header, "zip")) return;
+  throw new JWTError(
+    `JWE compression ("zip") is not supported; remove it from the ${tier} header.`,
+    "ERR_INVALID_OPTION",
+  );
+}
+
+/** RFC 7516 §4.1.13 — `crit` is only meaningful when it is integrity protected. */
+export function checkJWEUnprotectedCrit(header: object | undefined): JWTError | undefined {
+  if (!header || !Object.hasOwn(header, "crit")) return undefined;
+  return new JWTError(
+    'Invalid JWE: "crit" must be integrity protected (RFC 7516 §4.1.13).',
+    "ERR_JWE_INVALID",
+  );
 }
 
 // -----------------------------------------------------------------------------

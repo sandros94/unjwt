@@ -45,7 +45,9 @@ import {
   pbes2Unwrap,
   deriveECDHESKey,
   isECDHKeyAllowed,
-  normalizeKey,
+  normalizeEpk,
+  bitLengthIV,
+  bitLengthTag,
   aesKwWrap,
   aesKwUnwrap,
   gcmkwEncrypt,
@@ -822,6 +824,8 @@ export async function unwrapKey(
         typeof options.tag === "string"
           ? decodeSegment(options.tag, { family: "JWE", what: '"tag"' })
           : options.tag;
+      assertKeyWrapSegmentLength("iv", ivBytes, bitLengthIV(alg) >> 3, alg);
+      assertKeyWrapSegmentLength("tag", tagBytes, bitLengthTag(alg) >> 3, alg);
       unwrappedCekBytes = await gcmkwDecrypt(
         alg,
         importedUnwrappingKey,
@@ -888,14 +892,10 @@ export async function unwrapKey(
         );
       }
 
-      const epkCandidate =
-        options.epk instanceof CryptoKey
-          ? options.epk
-          : ((await normalizeKey(options.epk, alg)) as CryptoKey);
-
-      if (!(epkCandidate instanceof CryptoKey)) {
-        throw new JWTError("Failed to normalize ECDH ephemeral public key", "ERR_JWK_INVALID");
-      }
+      const epkCandidate = await normalizeEpk(options.epk, {
+        alg,
+        recipientKey: importedUnwrappingKey,
+      });
 
       const apuBytes =
         typeof options.apu === "string"
@@ -905,6 +905,8 @@ export async function unwrapKey(
         typeof options.apv === "string"
           ? decodeSegment(options.apv, { family: "JWE", what: '"apv"' })
           : (options.apv ?? new Uint8Array(0));
+      assertPartyInfoLength("apu", apuBytes);
+      assertPartyInfoLength("apv", apvBytes);
 
       const infoAlg = alg === "ECDH-ES" ? options.enc : alg;
 
@@ -1643,6 +1645,35 @@ function assertModulusLength(modulusLength: number | undefined): number {
     );
   }
   return length;
+}
+
+const MAX_PARTY_INFO_BYTES = 1024;
+
+/**
+ * RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` are attacker-supplied and feed
+ * the Concat KDF input verbatim, so their size is bounded.
+ */
+function assertPartyInfoLength(name: "apu" | "apv", bytes: Uint8Array<ArrayBuffer>): void {
+  if (bytes.length > MAX_PARTY_INFO_BYTES) {
+    throw new JWTError(
+      `Invalid JWE: "${name}" must not exceed ${MAX_PARTY_INFO_BYTES} bytes (got ${bytes.length}).`,
+      "ERR_JWE_INVALID",
+    );
+  }
+}
+
+function assertKeyWrapSegmentLength(
+  name: "iv" | "tag",
+  bytes: Uint8Array<ArrayBuffer>,
+  expected: number,
+  alg: string,
+): void {
+  if (bytes.length !== expected) {
+    throw new JWTError(
+      `Invalid JWE: "${name}" must be ${expected} bytes for ${alg} (got ${bytes.length}).`,
+      "ERR_JWE_INVALID",
+    );
+  }
 }
 
 function assertDerivedKeyLength(keyLength: number): void {
