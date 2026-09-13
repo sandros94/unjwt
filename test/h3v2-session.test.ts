@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { H3 } from "h3v2";
+import { H3, HTTPError } from "h3v2";
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
@@ -1153,6 +1153,91 @@ describe("adapter h3 v2", () => {
       expect(await readResult.json()).toMatchObject({
         session: { data: { baz: "qux" } },
       });
+    });
+  });
+  describe("error responses", () => {
+    const jwsConfig: SessionConfigJWS = { name: "h3-jws-err", key: jwsOctKey };
+    const jweConfig: SessionConfigJWE = { name: "h3-jwe-err", key: jweOctKey };
+
+    it("JWS: a session written before the handler throws still reaches the response", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        await session.update({ user: "bob" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jws-err="));
+
+      expect(res.status).toBe(418);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^h3-jws-err=[\w-]+\.[\w-]+\.[\w-]+;/);
+    });
+
+    it("JWE: a session written before the handler throws still reaches the response", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWESession(event, jweConfig);
+        await session.update({ user: "alice" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jwe-err="));
+
+      expect(res.status).toBe(418);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0].split(";")[0].split(".")).toHaveLength(5);
+    });
+
+    it("a session cleared before the handler throws is still expired on the client", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        await session.clear();
+        throw new HTTPError({ status: 500 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jws-err="));
+
+      expect(res.status).toBe(500);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^h3-jws-err=;/);
+    });
+
+    it("keeps unrelated cookies already staged for the error response", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        event.res.errHeaders.append("set-cookie", "other=1; Path=/");
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie();
+
+      expect(cookies.filter((c) => c.startsWith("other="))).toHaveLength(1);
+      expect(cookies.filter((c) => c.startsWith("h3-jws-err="))).toHaveLength(1);
+    });
+
+    it("a successful response is unaffected", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        return "ok";
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jws-err="));
+
+      expect(res.status).toBe(200);
+      expect(cookies).toHaveLength(1);
     });
   });
 });

@@ -24,7 +24,12 @@ import {
   computeDurationInSeconds,
 } from "../../../core/utils";
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
-import { getSessionFromContext, hasWritableResponse, readSessionToken } from "./_shared";
+import {
+  getSessionFromContext,
+  hasWritableResponse,
+  readSessionToken,
+  stageSessionErrCookies,
+} from "./_shared";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jws_getSession");
 
@@ -259,6 +264,7 @@ export async function getJWSSession<
             expires: new Date(0),
             maxAge: undefined,
           });
+          stageSessionErrCookies(event, sessionName);
         } else {
           console.warn(
             "[unjwt/h3] Session expired but cookie cannot be cleared on a read-only event.",
@@ -446,6 +452,7 @@ export async function updateJWSSession<
           : new Date(session.createdAt + computeDurationInSeconds(config.maxAge) * 1000),
       ...config.cookie,
     });
+    stageSessionErrCookies(event, sessionName);
   }
 
   // Fires after signing so the hook receives the definitive new token, jti, and
@@ -609,6 +616,7 @@ export async function clearJWSSession<
       expires: new Date(0),
       maxAge: undefined,
     });
+    stageSessionErrCookies(event, sessionName);
   }
 
   await config.hooks?.onClear?.({

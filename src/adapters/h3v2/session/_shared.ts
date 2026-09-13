@@ -61,6 +61,24 @@ export function readSessionToken(
   return token;
 }
 
+/**
+ * h3 v2 builds a thrown handler's response from `res.errHeaders` alone, so a
+ * session cookie written to `res.headers` would be lost when the handler
+ * throws. Mirror the session's `Set-Cookie` entries there, replacing any
+ * earlier ones for the same session.
+ */
+export function stageSessionErrCookies(event: H3Event, sessionName: string): void {
+  const isSessionCookie = (cookie: string) =>
+    cookie.startsWith(`${sessionName}=`) || cookie.startsWith(`${sessionName}.`);
+  const errHeaders = event.res.errHeaders;
+  const staged = [
+    ...errHeaders.getSetCookie().filter((cookie) => !isSessionCookie(cookie)),
+    ...event.res.headers.getSetCookie().filter((cookie) => isSessionCookie(cookie)),
+  ];
+  errHeaders.delete("set-cookie");
+  for (const cookie of staged) errHeaders.append("set-cookie", cookie);
+}
+
 function findSetCookie(setCookie: string, name: string): string | undefined {
   const regex = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`);
   const match = setCookie.match(regex);
