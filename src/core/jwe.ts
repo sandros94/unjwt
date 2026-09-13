@@ -1,7 +1,7 @@
 import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlEncode, base64UrlDecode } from "./utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -159,7 +159,7 @@ export async function encrypt(
   const plaintextBytes = getPlaintextBytes(computedPayload || payload);
 
   const protectedHeaderSerialized = JSON.stringify(protectedHeader);
-  const protectedHeaderEncoded = base64UrlEncode(protectedHeaderSerialized);
+  const protectedHeaderEncoded = base64UrlStringify(protectedHeaderSerialized);
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
   const contentIVBytes = providedContentIV ?? generateIV(enc);
@@ -181,14 +181,14 @@ export async function encrypt(
   }
 
   // `dir` and `ECDH-ES` (direct key agreement) have no encrypted key — RFC 7516 §4.5.
-  const encryptedKeyEncoded = jweEncryptedKey ? base64UrlEncode(jweEncryptedKey) : "";
+  const encryptedKeyEncoded = jweEncryptedKey ? base64UrlStringify(jweEncryptedKey) : "";
 
   const jweParts: string[] = [
     protectedHeaderEncoded,
     encryptedKeyEncoded,
-    base64UrlEncode(actualContentIV),
-    base64UrlEncode(contentCiphertext),
-    base64UrlEncode(contentAuthTag),
+    base64UrlStringify(actualContentIV),
+    base64UrlStringify(contentCiphertext),
+    base64UrlStringify(contentAuthTag),
   ];
 
   return jweParts.join(".");
@@ -259,10 +259,10 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
   const algError = checkAlgAllowed(alg, rawKeyMaterial, options?.algorithms, JWE_ALG_CTX);
   if (algError) throw algError;
 
-  const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, { returnAs: "uint8array" });
-  const contentIVBytes = base64UrlDecode(ivEncoded, { returnAs: "uint8array" });
-  const contentAuthTagBytes = base64UrlDecode(authTagEncoded, { returnAs: "uint8array" });
-  const ciphertextBytes = base64UrlDecode(ciphertextEncoded, { returnAs: "uint8array" });
+  const encryptedKeyBytes = base64UrlParse(encryptedKeyEncoded, { returnAs: "uint8array" });
+  const contentIVBytes = base64UrlParse(ivEncoded, { returnAs: "uint8array" });
+  const contentAuthTagBytes = base64UrlParse(authTagEncoded, { returnAs: "uint8array" });
+  const ciphertextBytes = base64UrlParse(ciphertextEncoded, { returnAs: "uint8array" });
 
   const unwrapKeyOpts: UnwrapKeyOptions = {
     enc,

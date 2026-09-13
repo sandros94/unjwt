@@ -1,4 +1,4 @@
-import { base64UrlEncode } from "../utils/encoding";
+import { base64UrlStringify } from "../utils/base64";
 
 import { concatUint8Arrays, isCryptoKey } from "../utils";
 import { JWTError } from "../error";
@@ -175,8 +175,8 @@ export async function gcmkwEncrypt(
 
   return {
     encryptedKey: wrapped.ciphertext,
-    iv: base64UrlEncode(wrapped.iv!),
-    tag: base64UrlEncode(wrapped.tag!),
+    iv: base64UrlStringify(wrapped.iv!),
+    tag: base64UrlStringify(wrapped.tag!),
   };
 }
 

@@ -1,6 +1,6 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, textDecoder } from "unsecure/utils";
-import { base64UrlEncode, base64UrlDecode } from "./utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -80,7 +80,7 @@ export async function signMulti(
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
   const payloadBytes = getPlaintextBytes(computedPayload || payload);
 
-  const payloadEncoded = b64 ? base64UrlEncode(payloadBytes) : textDecoder.decode(payloadBytes);
+  const payloadEncoded = b64 ? base64UrlStringify(payloadBytes) : textDecoder.decode(payloadBytes);
 
   const wireSignatures: JWSGeneralSignature[] = [];
   for (let i = 0; i < signers.length; i++) {
@@ -94,7 +94,7 @@ export async function signMulti(
 
     _assertDisjointHeaders(protectedHeader, unprotectedHeader);
 
-    const protectedHeaderEncoded = base64UrlEncode(JSON.stringify(protectedHeader));
+    const protectedHeaderEncoded = base64UrlStringify(JSON.stringify(protectedHeader));
     const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
 
     const signingKey = await resolveSigningKey(
@@ -106,7 +106,7 @@ export async function signMulti(
 
     const wireSig: JWSGeneralSignature = {
       protected: protectedHeaderEncoded,
-      signature: base64UrlEncode(signatureBytes),
+      signature: base64UrlStringify(signatureBytes),
     };
     if (unprotectedHeader && Object.keys(unprotectedHeader).length > 0) {
       wireSig.header = unprotectedHeader;
@@ -209,7 +209,7 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const signatureBytes = base64UrlDecode(wireSig.signature, { returnAs: "uint8array" });
+    const signatureBytes = base64UrlParse(wireSig.signature, { returnAs: "uint8array" });
     const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${general.payload}`);
 
     cryptoAttempted = true;
@@ -601,7 +601,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWS_ALG_CTX);
   if (algError) return fail(algError, protectedHeader, unprotectedHeader);
 
-  const signatureBytes = base64UrlDecode(wireSig.signature, { returnAs: "uint8array" });
+  const signatureBytes = base64UrlParse(wireSig.signature, { returnAs: "uint8array" });
   const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${payload}`);
 
   let verified: boolean;

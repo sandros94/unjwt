@@ -1,5 +1,5 @@
 import { textEncoder } from "unsecure/utils";
-import { base64UrlEncode } from "../utils/encoding";
+import { base64UrlStringify } from "../utils/base64";
 
 import { concatUint8Arrays } from "../utils";
 import { JWTError } from "../error";
@@ -17,7 +17,7 @@ export async function pbes2Wrap(
 ): Promise<{ encryptedKey: Uint8Array<ArrayBuffer>; p2c: number; p2s: string }> {
   const derived = await deriveKey(p2s, alg, p2c, key);
   const encryptedKey = await aesKwWrap(alg.slice(-6), derived, cek);
-  return { encryptedKey, p2c, p2s: base64UrlEncode(p2s) };
+  return { encryptedKey, p2c, p2s: base64UrlStringify(p2s) };
 }
 
 export async function pbes2Unwrap(

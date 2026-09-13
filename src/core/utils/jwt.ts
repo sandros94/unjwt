@@ -1,5 +1,5 @@
 import { textDecoder, textEncoder } from "unsecure/utils";
-import { base64UrlDecode } from "./encoding";
+import { base64UrlParse } from "./base64";
 import { safeJsonParse } from "unsecure/sanitize";
 
 import type { JWTClaims, JWTClaimValidationOptions, Duration, ExpiresIn } from "../types";
@@ -68,7 +68,7 @@ export function decodePayloadFromB64UrlSegment<T = unknown>(
   forceUint8Array?: boolean,
 ): T | Uint8Array<ArrayBuffer> | string {
   return decodePayloadFromBytes<T>(
-    base64UrlDecode(payloadEncoded, { returnAs: "uint8array" }),
+    base64UrlParse(payloadEncoded, { returnAs: "uint8array" }),
     forceUint8Array,
   );
 }

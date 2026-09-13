@@ -1,4 +1,4 @@
-import { base64Encode, base64Decode } from "../utils/encoding";
+import { base64Stringify, base64Parse } from "../utils/base64";
 
 import { isCryptoKey } from "../utils";
 import { JWTError } from "../error";
@@ -99,7 +99,7 @@ const genericExport = async (
   }
 
   return formatPEM(
-    base64Encode(new Uint8Array(await crypto.subtle.exportKey(keyFormat, key))),
+    base64Stringify(new Uint8Array(await crypto.subtle.exportKey(keyFormat, key))),
     `${keyType.toUpperCase()} KEY`,
   );
 };
@@ -117,7 +117,7 @@ const genericImport = async (
 
   assertPEMLabel(pem, descriptor);
   const cleanedPem = pem.replace(replace, "");
-  const keyData = base64Decode(cleanedPem, { returnAs: "uint8array" });
+  const keyData = base64Parse(cleanedPem, { returnAs: "uint8array" });
 
   const isPublic = keyFormat === "spki";
 
@@ -287,7 +287,7 @@ const parseElement = (bytes: Uint8Array<ArrayBuffer>) => {
 
 const spkiFromX509 = (buf: Uint8Array<ArrayBuffer>) => {
   const tbsCertificate = getElement(getElement(parseElement(buf).contents)[0]!.contents);
-  return base64Encode(tbsCertificate[tbsCertificate[0]!.raw[0] === 0xa0 ? 6 : 5]!.raw);
+  return base64Stringify(tbsCertificate[tbsCertificate[0]!.raw[0] === 0xa0 ? 6 : 5]!.raw);
 };
 
 let createPublicKey: any;
@@ -306,6 +306,6 @@ const getSPKI = (x509: string): string => {
     } catch {}
   }
   const pem = x509.replace(/(?:-----(?:BEGIN|END) CERTIFICATE-----|\s)/g, "");
-  const raw = base64Decode(pem, { returnAs: "uint8array" });
+  const raw = base64Parse(pem, { returnAs: "uint8array" });
   return formatPEM(spkiFromX509(raw), "PUBLIC KEY");
 };

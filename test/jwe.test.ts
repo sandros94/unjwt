@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError } from "../src/core/jwe";
 import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
-import { base64UrlEncode, base64UrlDecode } from "../src/core/utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import type {
   JWK,
   JWK_EC_Public,
@@ -278,7 +278,7 @@ describe.concurrent("JWE Utilities", () => {
       const jwk = await generateJWK("A256GCMKW");
       expect(jwk.alg).toBe("A256GCMKW");
       const jwe = await encrypt("payload", jwk, { enc: "A256GCM" });
-      const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
+      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]));
       expect(header.alg).toBe("A256GCMKW");
       const { payload } = await decrypt(jwe, jwk);
       expect(payload).toBe("payload");
@@ -291,7 +291,7 @@ describe.concurrent("JWE Utilities", () => {
       expect(jwk.alg).toBe("A256GCM");
       await expect(encrypt("payload", jwk)).rejects.toThrow(/Invalid or unsupported "alg"/i);
       const jwe = await encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" });
-      const header = JSON.parse(base64UrlDecode(jwe.split(".")[0]));
+      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]));
       expect(header.alg).toBe("A256GCMKW");
     });
 
@@ -315,7 +315,7 @@ describe.concurrent("JWE Utilities", () => {
       // Only the IV is verifiable here; the CEK is wrapped so its bytes aren't visible
       // without a manual unwrap.
       const jweParts = jwe.split(".");
-      const decodedIv = base64UrlDecode(jweParts[2], { returnAs: "uint8array" });
+      const decodedIv = base64UrlParse(jweParts[2], { returnAs: "uint8array" });
       expect(decodedIv).toEqual(customIv);
     });
 
@@ -535,7 +535,7 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should throw if protected header is missing alg or enc", async () => {
-      const invalidHeader = base64UrlEncode(JSON.stringify({ foo: "bar" }));
+      const invalidHeader = base64UrlStringify(JSON.stringify({ foo: "bar" }));
       const parts = jwe.split(".");
       parts[0] = invalidHeader;
       await expect(decrypt(parts.join("."), key)).rejects.toThrow(
@@ -564,7 +564,7 @@ describe.concurrent("JWE Utilities", () => {
       await expect(decrypt(token, kwJwk)).resolves.toBeDefined();
       // A forged header claiming a different key management alg is rejected.
       const [, encKeyPart, ivPart, ctPart, tagPart] = token.split(".");
-      const forgedHeader = base64UrlEncode(JSON.stringify({ alg: "A256KW", enc: "A128GCM" }));
+      const forgedHeader = base64UrlStringify(JSON.stringify({ alg: "A256KW", enc: "A128GCM" }));
       await expect(
         decrypt(`${forgedHeader}.${encKeyPart}.${ivPart}.${ctPart}.${tagPart}`, kwJwk),
       ).rejects.toThrow("Key management algorithm not allowed: A256KW");
@@ -885,7 +885,7 @@ describe.concurrent("JWE Utilities", () => {
       const protectedHeaderEncoded = parts[0];
       const encryptedKeyEncoded = parts[1];
       const protectedHeader = JSON.parse(
-        base64UrlDecode(protectedHeaderEncoded),
+        base64UrlParse(protectedHeaderEncoded),
       ) as JWEHeaderParameters;
 
       expect(protectedHeader.alg).toBe(ecdhAlg);
@@ -893,10 +893,10 @@ describe.concurrent("JWE Utilities", () => {
       expect(protectedHeader.epk).toBeDefined();
       expect(protectedHeader.epk?.kty).toBe("EC");
       expect(protectedHeader.epk?.crv).toBe(recipientPublicKeyJwk.crv);
-      expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
-      expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
+      expect(protectedHeader.apu).toBe(base64UrlStringify(apu));
+      expect(protectedHeader.apv).toBe(base64UrlStringify(apv));
 
-      const encryptedKeyBytes = base64UrlDecode(encryptedKeyEncoded, { returnAs: "uint8array" });
+      const encryptedKeyBytes = base64UrlParse(encryptedKeyEncoded, { returnAs: "uint8array" });
       expect(encryptedKeyBytes).toBeInstanceOf(Uint8Array);
       expect(encryptedKeyBytes.length).toBeGreaterThan(0);
 
@@ -917,8 +917,8 @@ describe.concurrent("JWE Utilities", () => {
         returnCek: true,
       });
 
-      expect(base64UrlDecode(protectedHeader.apu!, { returnAs: "uint8array" })).toEqual(apu);
-      expect(base64UrlDecode(protectedHeader.apv!, { returnAs: "uint8array" })).toEqual(apv);
+      expect(base64UrlParse(protectedHeader.apu!, { returnAs: "uint8array" })).toEqual(apu);
+      expect(base64UrlParse(protectedHeader.apv!, { returnAs: "uint8array" })).toEqual(apv);
       expect(cek).toEqual(expectedCek);
       expect(aad).toEqual(textEncoder.encode(protectedHeaderEncoded));
       expect(decryptedPayload).toEqual(plaintextObj);
@@ -947,7 +947,7 @@ describe.concurrent("JWE Utilities", () => {
 
       const [protectedHeaderEncoded, encryptedKeyEncoded] = jwe.split(".");
       const protectedHeader = JSON.parse(
-        base64UrlDecode(protectedHeaderEncoded),
+        base64UrlParse(protectedHeaderEncoded),
       ) as JWEHeaderParameters;
 
       expect(protectedHeader.epk).toBeDefined();
@@ -955,8 +955,8 @@ describe.concurrent("JWE Utilities", () => {
       expect(protectedHeader.epk?.x).toBe(providedEphemeralJwk.x);
       expect(protectedHeader.epk?.y).toBe(providedEphemeralJwk.y);
       expect(protectedHeader.epk?.crv).toBe(providedEphemeralJwk.crv);
-      expect(protectedHeader.apu).toBe(base64UrlEncode(apu));
-      expect(protectedHeader.apv).toBe(base64UrlEncode(apv));
+      expect(protectedHeader.apu).toBe(base64UrlStringify(apu));
+      expect(protectedHeader.apv).toBe(base64UrlStringify(apv));
 
       const decryptResult = await decrypt(jwe, recipientKeyPair.privateKey, {
         returnCek: true,
@@ -965,7 +965,7 @@ describe.concurrent("JWE Utilities", () => {
 
       const derivedCek = await unwrapKey(
         ecdhAlg,
-        base64UrlDecode(encryptedKeyEncoded, { returnAs: "uint8array" }),
+        base64UrlParse(encryptedKeyEncoded, { returnAs: "uint8array" }),
         recipientKeyPair.privateKey,
         {
           epk: protectedHeader.epk!,

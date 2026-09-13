@@ -1,7 +1,7 @@
 import supertest from "supertest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { type App, createApp, createRouter, toNodeListener, eventHandler, readBody } from "h3v1";
-import { base64UrlDecode } from "../src/core/utils/encoding";
+import { base64UrlParse } from "../src/core/utils/base64";
 
 import {
   type SessionConfigJWE,
@@ -787,8 +787,8 @@ describe("adapter h3 v1", () => {
           .split("=")[1]!
           .split(".")[0]!;
 
-        const accessDecoded = JSON.parse(base64UrlDecode(accessHeader));
-        const refreshDecoded = JSON.parse(base64UrlDecode(refreshHeader));
+        const accessDecoded = JSON.parse(base64UrlParse(accessHeader));
+        const refreshDecoded = JSON.parse(base64UrlParse(refreshHeader));
 
         expect(accessDecoded.typ).toBe("at+jwt");
         expect(refreshDecoded.typ).toBe("rt+jwt");

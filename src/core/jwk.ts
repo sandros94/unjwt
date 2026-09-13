@@ -1,7 +1,7 @@
 import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlEncode, base64UrlDecode } from "./utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "./utils/base64";
 
 import type {
   JWK,
@@ -450,7 +450,7 @@ export async function importKey(
 
   if (isJWK(key)) {
     if ("k" in key && typeof key.k === "string") {
-      const rawBytes = base64UrlDecode(key.k as string, { returnAs: "uint8array" });
+      const rawBytes = base64UrlParse(key.k as string, { returnAs: "uint8array" });
       assertOctKeyLength(rawBytes, key.alg || alg);
       if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
         const { algorithm, usage, extractable = false } = algOrOptions;
@@ -690,8 +690,8 @@ export async function wrapKey(
         encryptedKey: new Uint8Array(0),
         epk: epkJwk,
       };
-      if (apu.length > 0) wrapResult.apu = base64UrlEncode(apu);
-      if (apv.length > 0) wrapResult.apv = base64UrlEncode(apv);
+      if (apu.length > 0) wrapResult.apu = base64UrlStringify(apu);
+      if (apv.length > 0) wrapResult.apv = base64UrlStringify(apv);
 
       if (alg === "ECDH-ES") {
         return wrapResult;
@@ -781,7 +781,7 @@ export async function unwrapKey(
         );
       }
       const p2sBytes =
-        typeof p2s === "string" ? base64UrlDecode(p2s, { returnAs: "uint8array" }) : p2s;
+        typeof p2s === "string" ? base64UrlParse(p2s, { returnAs: "uint8array" }) : p2s;
       unwrappedCekBytes = await pbes2Unwrap(
         alg,
         importedUnwrappingKey,
@@ -805,11 +805,11 @@ export async function unwrapKey(
       }
       const ivBytes =
         typeof options.iv === "string"
-          ? base64UrlDecode(options.iv, { returnAs: "uint8array" })
+          ? base64UrlParse(options.iv, { returnAs: "uint8array" })
           : options.iv;
       const tagBytes =
         typeof options.tag === "string"
-          ? base64UrlDecode(options.tag, { returnAs: "uint8array" })
+          ? base64UrlParse(options.tag, { returnAs: "uint8array" })
           : options.tag;
       unwrappedCekBytes = await gcmkwDecrypt(
         alg,
@@ -888,11 +888,11 @@ export async function unwrapKey(
 
       const apuBytes =
         typeof options.apu === "string"
-          ? base64UrlDecode(options.apu, { returnAs: "uint8array" })
+          ? base64UrlParse(options.apu, { returnAs: "uint8array" })
           : (options.apu ?? new Uint8Array(0));
       const apvBytes =
         typeof options.apv === "string"
-          ? base64UrlDecode(options.apv, { returnAs: "uint8array" })
+          ? base64UrlParse(options.apv, { returnAs: "uint8array" })
           : (options.apv ?? new Uint8Array(0));
 
       const infoAlg = alg === "ECDH-ES" ? options.enc : alg;

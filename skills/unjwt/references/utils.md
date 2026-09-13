@@ -8,28 +8,29 @@ Import: `import { ... } from "unjwt/utils"`
 
 ## Encoding / Decoding
 
-### `base64UrlEncode(data)`
+unjwt's own base64 helpers, built on [`unsecure`](https://github.com/sandros94/unsecure)'s `base64Stringify`/`base64Parse` with the alphabet and padding policy fixed. Strict: decoding accepts only the canonical encoding of a byte string and throws `UnsecureError` (`code: "MALFORMED"`; `"INVALID_TYPE"` for a non text/bytes input) otherwise. `{ loose: true }` drops what cannot be used — application data only, never token material; `verify`/`decrypt` have no such option.
 
-Encodes `string | ArrayBuffer | ArrayBufferView` to Base64URL (no padding). Returns `string`. Empty inputs return `""`. Throws `UnsecureError` (`INVALID_TYPE`) on anything that is not text or bytes.
+### `base64UrlStringify(data)` / `base64UrlParse(data, options?)`
 
-### `base64UrlDecode(data, options?)`
+base64url per RFC 7515 §2: URL-safe alphabet, **no `=` padding** (padded input is rejected), no whitespace. `data`: `string | ArrayBuffer | ArrayBufferView`.
 
-Decodes a Base64URL string (or raw bytes). The second argument is an options object, **not** a boolean.
-
-- When `options` is omitted the return type **mirrors the input**: `string` input decodes to `string`, `Uint8Array<ArrayBuffer>` input decodes to `Uint8Array<ArrayBuffer>`.
-- Pass `{ returnAs: "uint8array" }` (or `"bytes"`) to always get raw bytes, or `{ returnAs: "string" }` to always get a UTF-8 string.
-- **Strict by default**: only the canonical encoding of a byte string is accepted (padding optional, no whitespace, no stray bits); a `string` result must be valid UTF-8. Anything else throws `UnsecureError` (`MALFORMED`). Pass `{ loose: true }` to drop unusable characters and substitute U+FFFD instead.
+- Without `options` the return type **mirrors the input**: `string` → `string` (must be valid UTF-8), `Uint8Array` → `Uint8Array<ArrayBuffer>`.
+- `{ returnAs: "uint8array" }` (alias `"bytes"`) forces bytes, `{ returnAs: "string" }` forces a UTF-8 string.
 
 ```ts
-base64UrlDecode("SGVsbG8"); // → "Hello"
-base64UrlDecode("SGVsbG8", { returnAs: "uint8array" }); // → Uint8Array<ArrayBuffer>
-base64UrlDecode(bytesInput); // → Uint8Array<ArrayBuffer>
-base64UrlDecode(bytesInput, { returnAs: "string" }); // → "Hello"
+base64UrlParse("SGVsbG8"); // → "Hello"
+base64UrlParse("SGVsbG8", { returnAs: "uint8array" }); // → Uint8Array<ArrayBuffer>
+base64UrlParse(bytesInput); // → Uint8Array<ArrayBuffer>
+base64UrlParse("SGVsbG8="); // throws UnsecureError MALFORMED
 ```
 
-### `base64Encode(data)` / `base64Decode(data, options?)`
+### `base64Stringify(data)` / `base64Parse(data, options?)`
 
-Standard (non-URL-safe) Base64 variants. Same shape as the URL-safe versions above.
+Standard base64 per RFC 4648 §4: `+/` alphabet, **`=` padding required**. Same options as the URL-safe pair.
+
+### Deprecated aliases (removed in v0.9)
+
+`base64UrlEncode` → `base64UrlStringify`, `base64UrlDecode` → `base64UrlParse`, `base64Encode` → `base64Stringify`, `base64Decode` → `base64Parse`. Same behaviour, same signatures.
 
 ### `secureRandomBytes(length)`
 

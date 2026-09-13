@@ -1,7 +1,7 @@
 import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlEncode, base64UrlDecode } from "./utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -131,18 +131,18 @@ export async function encryptMulti(
     if (Object.keys(perRecipientHeader).length > 0) {
       wireRecipient.header = perRecipientHeader;
     }
-    if (encryptedKey) wireRecipient.encrypted_key = base64UrlEncode(encryptedKey);
+    if (encryptedKey) wireRecipient.encrypted_key = base64UrlStringify(encryptedKey);
     wireRecipients.push(wireRecipient);
   }
 
-  const protectedHeaderEncoded = base64UrlEncode(JSON.stringify(protectedHeader));
+  const protectedHeaderEncoded = base64UrlStringify(JSON.stringify(protectedHeader));
 
   let aadEncoded: string | undefined;
   let aadForCipher: string = protectedHeaderEncoded;
   if (options.aad !== undefined) {
     const aadBytes =
       typeof options.aad === "string" ? textEncoder.encode(options.aad) : options.aad;
-    aadEncoded = base64UrlEncode(aadBytes);
+    aadEncoded = base64UrlStringify(aadBytes);
     aadForCipher = `${protectedHeaderEncoded}.${aadEncoded}`;
   }
 
@@ -162,9 +162,9 @@ export async function encryptMulti(
   const output: JWEGeneralSerialization = {
     protected: protectedHeaderEncoded,
     recipients: wireRecipients,
-    iv: base64UrlEncode(actualContentIV),
-    ciphertext: base64UrlEncode(contentCiphertext),
-    tag: base64UrlEncode(contentAuthTag),
+    iv: base64UrlStringify(actualContentIV),
+    ciphertext: base64UrlStringify(contentCiphertext),
+    tag: base64UrlStringify(contentAuthTag),
   };
   if (sharedUnprotected && Object.keys(sharedUnprotected).length > 0) {
     output.unprotected = sharedUnprotected;
@@ -232,9 +232,9 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     | JWEHeaderParameters
     | undefined;
 
-  const ivBytes = base64UrlDecode(general.iv, { returnAs: "uint8array" });
-  const ciphertextBytes = base64UrlDecode(general.ciphertext, { returnAs: "uint8array" });
-  const tagBytes = base64UrlDecode(general.tag, { returnAs: "uint8array" });
+  const ivBytes = base64UrlParse(general.iv, { returnAs: "uint8array" });
+  const ciphertextBytes = base64UrlParse(general.ciphertext, { returnAs: "uint8array" });
+  const tagBytes = base64UrlParse(general.tag, { returnAs: "uint8array" });
   const contentAadBytes = textEncoder.encode(
     general.aad ? `${protectedHeaderEncoded}.${general.aad}` : protectedHeaderEncoded,
   );
@@ -277,7 +277,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const encryptedKeyBytes = base64UrlDecode(wireRecipient.encrypted_key ?? "", {
+    const encryptedKeyBytes = base64UrlParse(wireRecipient.encrypted_key ?? "", {
       returnAs: "uint8array",
     });
     const unwrapKeyOpts = _buildUnwrapKeyOptions(effective, enc, options);

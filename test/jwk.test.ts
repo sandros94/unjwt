@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { secureRandomBytes } from "unsecure";
-import { base64UrlEncode, base64UrlDecode } from "../src/core/utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import * as jose from "jose";
 import {
   generateKey,
@@ -71,7 +71,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe("A128KW");
       expect(typeof jwk.k).toBe("string");
-      expect(base64UrlDecode(jwk.k, { returnAs: "uint8array" }).length).toBe(16); // 128 bits
+      expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(16); // 128 bits
 
       await expect(jose.importJWK(jwk)).resolves.toBeInstanceOf(Object);
     });
@@ -163,7 +163,7 @@ describe.concurrent("JWK Utilities", () => {
       });
       expect(jwk.kty).toBe("oct");
       expect(typeof jwk.k).toBe("string");
-      expect(base64UrlDecode(jwk.k, { returnAs: "uint8array" }).length).toBe(32);
+      expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(32);
 
       // Verify with jose (note: jose doesn't directly use this alg, but can import raw oct keys)
       const imported = await jose.importJWK(jwk);
@@ -225,7 +225,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe("HS256");
       expect(typeof jwk.k).toBe("string");
-      expect(base64UrlDecode(jwk.k, { returnAs: "uint8array" }).length).toBe(64);
+      expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(64);
     });
   });
 
@@ -254,7 +254,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe("A192KW");
       expect(typeof jwk.k).toBe("string");
-      expect(base64UrlDecode(jwk.k, { returnAs: "uint8array" }).length).toBe(24); // 192 bits
+      expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(24); // 192 bits
     });
 
     it("should derive JWK with custom `kid`", async () => {
@@ -268,7 +268,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.alg).toBe("A128KW");
       expect(jwk.kid).toBe(kid);
       expect(typeof jwk.k).toBe("string");
-      expect(base64UrlDecode(jwk.k, { returnAs: "uint8array" }).length).toBe(16); // 128 bits
+      expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(16); // 128 bits
     });
 
     it("should respect extractable and keyUsage options", async () => {
@@ -311,7 +311,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.kty).toBe("oct");
       expect(jwk.alg).toBe("A128KW");
       expect(typeof jwk.k).toBe("string");
-      expect(base64UrlDecode(jwk.k, { returnAs: "uint8array" }).length).toBe(16); // 128 bits
+      expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(16); // 128 bits
     });
   });
 
@@ -346,7 +346,7 @@ describe.concurrent("JWK Utilities", () => {
       expect(keyBytes).toBeInstanceOf(Uint8Array);
       expect(keyBytes.length).toBe(64); // HS512 example key
 
-      const decodedByKey = base64UrlDecode(jwk.k, { returnAs: "uint8array" });
+      const decodedByKey = base64UrlParse(jwk.k, { returnAs: "uint8array" });
       expect(keyBytes).toEqual(decodedByKey);
     });
 
@@ -375,7 +375,7 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     describe("oct key length validation", () => {
-      const shortK = base64UrlEncode(secureRandomBytes(8));
+      const shortK = base64UrlStringify(secureRandomBytes(8));
 
       it("rejects an undersized HS256 key (RFC 7518 §3.2)", async () => {
         await expect(importKey({ kty: "oct", k: shortK, alg: "HS256" })).rejects.toThrow(
@@ -384,7 +384,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("accepts an HS256 key at the minimum size", async () => {
-        const k = base64UrlEncode(secureRandomBytes(32));
+        const k = base64UrlStringify(secureRandomBytes(32));
         const bytes = await importKey({ kty: "oct", k, alg: "HS256" });
         expect(bytes).toBeInstanceOf(Uint8Array);
       });
@@ -472,7 +472,7 @@ describe.concurrent("JWK Utilities", () => {
       const jwk = await exportKey<JWK_oct>(cryptoKey);
       expect(jwk.kty).toBe("oct");
       expect(typeof jwk.k).toBe("string");
-      expect(base64UrlDecode(jwk.k, { returnAs: "uint8array" }).length).toBe(16);
+      expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(16);
 
       await expect(jose.importJWK(jwk)).resolves.toBeInstanceOf(Object);
     });
@@ -888,8 +888,8 @@ describe.concurrent("JWK Utilities", () => {
 
       const unwrapped = await unwrapKey("ECDH-ES", new Uint8Array(0), recipientKeys.privateKey, {
         epk: senderKeys.publicKey,
-        apu: base64UrlEncode(apu),
-        apv: base64UrlEncode(apv),
+        apu: base64UrlStringify(apu),
+        apv: base64UrlStringify(apv),
         enc: "A128GCM",
         format: "raw",
       });
@@ -942,8 +942,8 @@ describe.concurrent("JWK Utilities", () => {
 
       const unwrapped = await unwrapKey("ECDH-ES+A128KW", encryptedKey, recipientKeys.privateKey, {
         epk: senderKeys.publicKey,
-        apu: base64UrlEncode(apu),
-        apv: base64UrlEncode(apv),
+        apu: base64UrlStringify(apu),
+        apv: base64UrlStringify(apv),
         enc: "A128GCM",
         format: "raw",
       });

@@ -16,7 +16,7 @@ export { secureRandomBytes } from "unsecure/random";
 export { safeJsonParse, sanitizeObject, sanitizeObjectCopy } from "unsecure/sanitize";
 export { textEncoder, textDecoder } from "unsecure/utils";
 
-export * from "./encoding";
+export * from "./base64";
 
 export * from "./algorithms";
 export * from "./jwt";

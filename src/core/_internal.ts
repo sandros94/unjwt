@@ -1,6 +1,6 @@
 import { safeJsonParse } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlDecode } from "./utils/encoding";
+import { base64UrlParse } from "./utils/base64";
 
 import type {
   JWK,
@@ -254,7 +254,7 @@ export function decodeProtectedHeader<T extends object>(
 ): T {
   if (!encoded) return {} as T;
   try {
-    return safeJsonParse<T>(base64UrlDecode(encoded));
+    return safeJsonParse<T>(base64UrlParse(encoded));
   } catch {
     throw new JWTError(
       `Invalid ${family}: Protected header could not be decoded.`,

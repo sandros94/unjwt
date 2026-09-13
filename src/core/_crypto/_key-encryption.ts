@@ -1,5 +1,5 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
-import { base64UrlEncode, base64UrlDecode } from "../utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "../utils/base64";
 
 import type {
   JWEKeyManagementHeaderParameters,
@@ -97,8 +97,8 @@ export async function encryptKey(
         apv,
       );
       parameters = { epk: epkHeader };
-      if (apu) parameters.apu = base64UrlEncode(apu);
-      if (apv) parameters.apv = base64UrlEncode(apv);
+      if (apu) parameters.apu = base64UrlStringify(apu);
+      if (apv) parameters.apv = base64UrlStringify(apv);
 
       if (alg === "ECDH-ES") {
         cek = sharedSecret;
@@ -175,7 +175,7 @@ export async function normalizeKey(
 
   if (isJWK(key)) {
     if ("k" in key && key.k) {
-      return base64UrlDecode(key.k as string, { returnAs: "uint8array" });
+      return base64UrlParse(key.k as string, { returnAs: "uint8array" });
     }
     return jwkTokey(key.alg ? key : { ...key, alg });
   }

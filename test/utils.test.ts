@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { secureRandomBytes, textEncoder } from "unsecure";
 import {
+  base64UrlStringify,
+  base64UrlParse,
+  base64Stringify,
+  base64Parse,
+  base64UrlEncode,
+  base64UrlDecode,
+  base64Encode,
+  base64Decode,
   concatUint8Arrays,
   maybeArray,
   isJWK,
@@ -472,5 +480,62 @@ describe("inferJWEAllowedAlgorithms", () => {
     const ecdh = await generateKey("ECDH-ES+A128KW", { namedCurve: "P-256" });
     expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES");
     expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES+A128KW");
+  });
+});
+
+describe("base64 tooling", () => {
+  const bytes = new Uint8Array([0xfb, 0xff, 0xfe]);
+
+  describe("base64url (RFC 7515 §2)", () => {
+    it("stringifies without padding on the URL-safe alphabet", () => {
+      expect(base64UrlStringify(bytes)).toBe("-__-");
+      expect(base64UrlStringify("hello")).toBe("aGVsbG8");
+      expect(base64UrlStringify(new Uint8Array(0))).toBe("");
+    });
+
+    it("parses canonical unpadded input, mirroring the input type", () => {
+      expect(base64UrlParse("aGVsbG8")).toBe("hello");
+      expect(base64UrlParse("-__-", { returnAs: "uint8array" })).toEqual(bytes);
+      expect(base64UrlParse(textEncoder.encode("aGVsbG8"))).toEqual(textEncoder.encode("hello"));
+      expect(base64UrlParse(textEncoder.encode("aGVsbG8"), { returnAs: "string" })).toBe("hello");
+    });
+
+    it("rejects padding, the standard alphabet, whitespace and stray bits", () => {
+      for (const bad of ["aGVsbG8=", "+__+", "aGVs bG8", "aGVsbG9", "aGVsb"]) {
+        expect(() => base64UrlParse(bad)).toThrowError(
+          expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
+        );
+      }
+    });
+
+    it("loose drops what it cannot use", () => {
+      expect(base64UrlParse("aGVs bG8=", { loose: true })).toBe("hello");
+      expect(base64UrlParse("+__+", { loose: true, returnAs: "bytes" })).toEqual(bytes);
+    });
+  });
+
+  describe("standard base64 (RFC 4648 §4)", () => {
+    it("stringifies padded on the standard alphabet", () => {
+      expect(base64Stringify(bytes)).toBe("+//+");
+      expect(base64Stringify("hello")).toBe("aGVsbG8=");
+    });
+
+    it("parses only padded canonical input", () => {
+      expect(base64Parse("aGVsbG8=")).toBe("hello");
+      expect(base64Parse("+//+", { returnAs: "uint8array" })).toEqual(bytes);
+      for (const bad of ["aGVsbG8", "-__-", "aGVsbG8=="]) {
+        expect(() => base64Parse(bad)).toThrowError(
+          expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
+        );
+      }
+      expect(base64Parse("aGVsbG8", { loose: true })).toBe("hello");
+    });
+  });
+
+  it("keeps the deprecated aliases pointing at the new functions", () => {
+    expect(base64UrlEncode).toBe(base64UrlStringify);
+    expect(base64UrlDecode).toBe(base64UrlParse);
+    expect(base64Encode).toBe(base64Stringify);
+    expect(base64Decode).toBe(base64Parse);
   });
 });

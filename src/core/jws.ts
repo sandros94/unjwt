@@ -1,6 +1,6 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder, textDecoder } from "unsecure/utils";
-import { base64UrlEncode, base64UrlDecode } from "./utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "./utils/base64";
 
 import type {
   JWKSet,
@@ -93,7 +93,7 @@ export async function sign(
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
 
   const protectedHeaderString = JSON.stringify(protectedHeader);
-  const protectedHeaderEncoded = base64UrlEncode(protectedHeaderString);
+  const protectedHeaderEncoded = base64UrlStringify(protectedHeaderString);
 
   let payloadBytes: Uint8Array<ArrayBuffer>;
   if (payload instanceof Uint8Array) {
@@ -108,13 +108,15 @@ export async function sign(
 
   // RFC 7797: when `b64: false`, the payload is not base64url-encoded in the signing input.
   const useB64 = protectedHeader.b64 !== false;
-  const payloadEncoded = useB64 ? base64UrlEncode(payloadBytes) : textDecoder.decode(payloadBytes);
+  const payloadEncoded = useB64
+    ? base64UrlStringify(payloadBytes)
+    : textDecoder.decode(payloadBytes);
 
   const signingInputString = `${protectedHeaderEncoded}.${payloadEncoded}`;
   const signingInputBytes = textEncoder.encode(signingInputString);
 
   const signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
-  const signatureEncoded = base64UrlEncode(signatureBytes);
+  const signatureEncoded = base64UrlStringify(signatureBytes);
 
   return `${signingInputString}.${signatureEncoded}`;
 }
@@ -172,7 +174,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   let signatureBytes: Uint8Array<ArrayBuffer>;
   try {
-    signatureBytes = base64UrlDecode(signatureEncoded, { returnAs: "uint8array" });
+    signatureBytes = base64UrlParse(signatureEncoded, { returnAs: "uint8array" });
   } catch {
     throw new JWTError("Invalid JWS: Signature could not be decoded.", "ERR_JWS_INVALID");
   }

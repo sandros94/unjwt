@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
-import { base64UrlEncode, base64UrlDecode } from "../src/core/utils/encoding";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 
 import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
@@ -40,7 +40,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, key, { alg: "HS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBe("JWT"); // Default for object
 
@@ -53,10 +53,10 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadBytes, key, { alg: "HS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded, payloadEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBeUndefined(); // No default typ for bytes
-      expect(base64UrlDecode(payloadEncoded, { returnAs: "uint8array" })).toEqual(payloadBytes);
+      expect(base64UrlParse(payloadEncoded, { returnAs: "uint8array" })).toEqual(payloadBytes);
 
       const { payload: josePayload } = await jose.compactVerify(jws, key);
       expect(josePayload).toEqual(payloadBytes);
@@ -67,10 +67,10 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadString, key, { alg: "HS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded, payloadEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBeUndefined(); // No default typ for string
-      expect(base64UrlDecode(payloadEncoded, { returnAs: "string" })).toEqual(payloadString);
+      expect(base64UrlParse(payloadEncoded, { returnAs: "string" })).toEqual(payloadString);
 
       const { payload: josePayload } = await jose.compactVerify(jws, key);
       expect(textDecoder.decode(josePayload)).toEqual(payloadString);
@@ -83,7 +83,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, privateKey, { alg: "RS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("RS256");
 
       const { payload: josePayload } = await jose.compactVerify(jws, publicKey);
@@ -95,7 +95,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, privateKey, { alg: "ES256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("ES256");
 
       const { payload: josePayload } = await jose.compactVerify(jws, publicKey);
@@ -109,7 +109,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, privateKey, { alg: "PS256" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("PS256");
 
       const { payload: josePayload } = await jose.compactVerify(jws, publicKey);
@@ -121,7 +121,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, privateKey, { alg: "Ed25519" });
       expect(jws.split(".").length).toBe(3);
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("Ed25519");
 
       const { payload: josePayload } = await jose.compactVerify(jws, publicKey);
@@ -137,7 +137,7 @@ describe.concurrent("JWS Utilities", () => {
       const parts = jws.split(".");
       expect(parts.length).toBe(3);
       const [headerEncoded, payloadRaw] = parts;
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.b64).toBe(false);
       expect(payloadRaw).toBe(payloadString);
@@ -150,7 +150,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "test-key-1", typ: "custom" },
       });
       const [headerEncoded] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("HS256");
       expect(header.kid).toBe("test-key-1");
       expect(header.typ).toBe("custom"); // Overrides default
@@ -174,7 +174,7 @@ describe.concurrent("JWS Utilities", () => {
       // @ts-expect-error `alg` is forbidden inside protectedHeader.
       const jws = await sign(payloadObj, key, jwsOptions);
 
-      const header = JSON.parse(base64UrlDecode(jws.split(".")[0]));
+      const header = JSON.parse(base64UrlParse(jws.split(".")[0]));
       expect(header.alg).toBe("HS256");
     });
 
@@ -184,7 +184,7 @@ describe.concurrent("JWS Utilities", () => {
         expiresIn: "1m", // 1 minute expiration
       });
       const [_headerEncoded, payloadEncoded] = jws.split(".");
-      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      const payload = JSON.parse(base64UrlParse(payloadEncoded));
       expect(payload.iat).toBeDefined();
       expect(payload.exp).toBeDefined();
 
@@ -200,7 +200,7 @@ describe.concurrent("JWS Utilities", () => {
         expiresAt,
       });
       const [, payloadEncoded] = jws.split(".");
-      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      const payload = JSON.parse(base64UrlParse(payloadEncoded));
       expect(payload.exp).toBe(Math.floor(expiresAt.getTime() / 1000));
       expect(payload.iat).toBeDefined();
     });
@@ -232,7 +232,7 @@ describe.concurrent("JWS Utilities", () => {
         notBeforeAt,
       });
       const [, payloadEncoded] = jws.split(".");
-      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      const payload = JSON.parse(base64UrlParse(payloadEncoded));
       expect(payload.nbf).toBe(Math.floor(notBeforeAt.getTime() / 1000));
       expect(payload.iat).toBeDefined();
       expect(payload.exp).toBeDefined();
@@ -245,7 +245,7 @@ describe.concurrent("JWS Utilities", () => {
         notBeforeAt: new Date("2030-01-01T00:00:00Z"),
       });
       const [, payloadEncoded] = jws.split(".");
-      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      const payload = JSON.parse(base64UrlParse(payloadEncoded));
       expect(payload.nbf).toBe(999);
     });
 
@@ -285,7 +285,7 @@ describe.concurrent("JWS Utilities", () => {
         notBeforeIn: "5m",
       });
       const [, payloadEncoded] = jws.split(".");
-      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      const payload = JSON.parse(base64UrlParse(payloadEncoded));
       expect(payload.iat).toBe(0);
       expect(payload.nbf).toBe(300);
     });
@@ -298,7 +298,7 @@ describe.concurrent("JWS Utilities", () => {
         notBeforeIn: 0,
       });
       const [, payloadEncoded] = jws.split(".");
-      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      const payload = JSON.parse(base64UrlParse(payloadEncoded));
       expect(payload.iat).toBe(0);
       expect(payload.nbf).toBe(0);
     });
@@ -341,7 +341,7 @@ describe.concurrent("JWS Utilities", () => {
         },
       );
       const [_headerEncoded, payloadEncoded] = jws.split(".");
-      const payload = JSON.parse(base64UrlDecode(payloadEncoded));
+      const payload = JSON.parse(base64UrlParse(payloadEncoded));
       expect(payload.exp).toEqual(Math.round(creationDate.getTime() / 1000) + 60);
 
       await expect(
@@ -370,7 +370,7 @@ describe.concurrent("JWS Utilities", () => {
         expiresIn: 60,
       });
       const [, payloadEncoded] = jws.split(".");
-      const { exp, iat } = JSON.parse(base64UrlDecode(payloadEncoded));
+      const { exp, iat } = JSON.parse(base64UrlParse(payloadEncoded));
 
       const error = await verify(jws, key, { currentDate: date }).catch((e) => e);
 
@@ -390,7 +390,7 @@ describe.concurrent("JWS Utilities", () => {
         expiresIn: 3600,
       });
       const [, payloadEncoded] = jws.split(".");
-      const { iat } = JSON.parse(base64UrlDecode(payloadEncoded));
+      const { iat } = JSON.parse(base64UrlParse(payloadEncoded));
 
       const error = await verify(jws, key, {
         currentDate: date,
@@ -408,9 +408,9 @@ describe.concurrent("JWS Utilities", () => {
         expiresIn: 60, // 1 minute expiration
       });
       const [headerEncoded, payload] = jws.split(".");
-      const header = JSON.parse(base64UrlDecode(headerEncoded));
+      const header = JSON.parse(base64UrlParse(headerEncoded));
       expect(header.alg).toBe("HS256");
-      expect(base64UrlDecode(payload)).toEqual(payloadString);
+      expect(base64UrlParse(payload)).toEqual(payloadString);
 
       const { payload: josePayload } = await jose.compactVerify(jws, key);
       expect(textDecoder.decode(josePayload)).toEqual(payloadString);
@@ -1156,8 +1156,8 @@ describe.concurrent("JWS Utilities", () => {
           sub: "abc",
           exp: Math.floor(Date.now() / 1000) - 60,
         };
-        const headerEncoded = base64UrlEncode(JSON.stringify(header));
-        const payloadEncoded = base64UrlEncode(JSON.stringify(payload));
+        const headerEncoded = base64UrlStringify(JSON.stringify(header));
+        const payloadEncoded = base64UrlStringify(JSON.stringify(payload));
         const signingInput = textEncoder.encode(`${headerEncoded}.${payloadEncoded}`);
         const rawKey = await crypto.subtle.exportKey("raw", hs256Key as CryptoKey);
         const macKey = await crypto.subtle.importKey(
@@ -1170,7 +1170,7 @@ describe.concurrent("JWS Utilities", () => {
         const signatureBytes = new Uint8Array(
           await crypto.subtle.sign("HMAC", macKey, signingInput),
         );
-        const jws = `${headerEncoded}.${payloadEncoded}.${base64UrlEncode(signatureBytes)}`;
+        const jws = `${headerEncoded}.${payloadEncoded}.${base64UrlStringify(signatureBytes)}`;
 
         await expect(verify(jws, hs256Key)).rejects.toThrow("Token has expired");
       });
@@ -1205,7 +1205,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
       await expect(verify(jws, hs256Key)).resolves.toBeDefined();
       const [, payloadPart, sigPart] = jws.split(".");
-      const forgedHeader = base64UrlEncode(JSON.stringify({ alg: "HS512", typ: "JWT" }));
+      const forgedHeader = base64UrlStringify(JSON.stringify({ alg: "HS512", typ: "JWT" }));
       await expect(verify(`${forgedHeader}.${payloadPart}.${sigPart}`, hs256Key)).rejects.toThrow(
         "Algorithm not allowed: HS512",
       );
@@ -1269,7 +1269,7 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should throw for header missing alg", async () => {
-      const headerWithoutAlg = base64UrlEncode(JSON.stringify({ typ: "JWT" }));
+      const headerWithoutAlg = base64UrlStringify(JSON.stringify({ typ: "JWT" }));
       await expect(verify(`${headerWithoutAlg}.payload.sig`, hs256Key)).rejects.toThrow(
         'Protected header must be an object with an "alg" property',
       );
@@ -1306,8 +1306,8 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should throw if payload decoding fails (e.g., invalid base64)", async () => {
-      const header = base64UrlEncode(JSON.stringify({ alg: "HS256" }));
-      const sig = base64UrlEncode(new Uint8Array(32)); // Dummy sig
+      const header = base64UrlStringify(JSON.stringify({ alg: "HS256" }));
+      const sig = base64UrlStringify(new Uint8Array(32)); // Dummy sig
       await expect(verify(`${header}.invalid?payload.${sig}`, hs256Key)).rejects.toThrow(
         "JWS signature verification failed.",
       );

@@ -1,4 +1,4 @@
-import { base64UrlEncode } from "../utils/encoding";
+import { base64UrlStringify } from "../utils/base64";
 
 import type { JWK, JWK_RSA_Private, JWK_EC_Private, JWK_OKP_Private } from "../types";
 import { isCryptoKey } from "../utils";
@@ -25,7 +25,7 @@ export async function keyToJWK<T extends JWK>(
   if (key instanceof Uint8Array) {
     return {
       kty: "oct",
-      k: base64UrlEncode(key),
+      k: base64UrlStringify(key),
     } as T;
   }
   if (!isCryptoKey(key)) {
