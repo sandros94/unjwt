@@ -2,7 +2,12 @@ import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
-import { assertDirectKeyRole, decodeSegment, stringKeyError } from "./_internal";
+import {
+  MAX_PARTY_INFO_BYTES,
+  assertDirectKeyRole,
+  decodeSegment,
+  stringKeyError,
+} from "./_internal";
 
 import type {
   JWK,
@@ -105,10 +110,15 @@ export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error"
  *   - `toJWK?` — when `true`, return JWK / JWK pair instead of `CryptoKey` / `CryptoKeyPair`.
  *   - `extractable?` — forwarded to `crypto.subtle.generateKey`. Defaults to `true`.
  *     Ignored when `toJWK` is set — the JWK output requires exporting the intermediate key.
- *   - `keyUsage?` — override the default usages derived from `alg`.
+ *   - `keyUsage?` — narrow the usages derived from `alg`. A pair splits them between
+ *     its halves (private: `sign`/`decrypt`/`unwrapKey`/`deriveBits`/`deriveKey`,
+ *     public: `verify`/`encrypt`/`wrapKey`), so a narrowing that would leave a half
+ *     the algorithm populates with no usage at all throws `ERR_INVALID_OPTION`.
  *   - `modulusLength?` — RSA only; defaults to `2048`.
- *   - `publicExponent?` — RSA only; defaults to `0x010001`.
+ *   - `publicExponent?` — RSA only; the exponent's big-endian bytes, defaulting to `0x010001`.
  *   - `namedCurve?` — EC and OKP only; defaults to `"P-256"` for EC and `"Ed25519"` for OKP.
+ *     `ES*` and `Ed25519` name their own curve, so one that contradicts theirs throws
+ *     `ERR_INVALID_OPTION`.
  *
  * @example
  * ```ts
@@ -199,10 +209,14 @@ export async function generateKey(
  *            `"A128GCM"`, `"A256CBC-HS512"`). PBES2, `"dir"`, and `"none"` are
  *            not accepted.
  * @param options
- *   - `keyUsage?` — override the default usages derived from `alg`.
+ *   - `keyUsage?` — narrow the usages derived from `alg`. A pair splits them between
+ *     its halves, so a narrowing that empties either half throws `ERR_INVALID_OPTION`:
+ *     `generateJWK("ES256", { keyUsage: ["sign"] })` would emit a public key no
+ *     verification accepts.
  *   - `modulusLength?` — RSA only; defaults to `2048`.
- *   - `publicExponent?` — RSA only; defaults to `0x010001`.
+ *   - `publicExponent?` — RSA only; the exponent's big-endian bytes, defaulting to `0x010001`.
  *   - `namedCurve?` — EC and OKP only; defaults to `"P-256"` for EC and `"Ed25519"` for OKP.
+ *     A curve that contradicts the one `alg` names throws `ERR_INVALID_OPTION`.
  *   - JWK metadata (`kid`, `use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the
  *     result. `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot
  *     be overridden here.
@@ -267,7 +281,8 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
  *
  * @param password The password to derive the key from (string or Uint8Array).
  * @param options
- *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`).
+ *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`). Any other
+ *     algorithm throws `ERR_JWK_UNSUPPORTED`: a password derives a key under PBES2 alone.
  *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets.
  *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
  *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
@@ -283,7 +298,12 @@ export async function deriveKeyFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
   options: DeriveKeyOptions,
 ): Promise<CryptoKey | JWK_oct> {
+  assertObjectArg(options, "options");
+  if (typeof password !== "string" && !(password instanceof Uint8Array)) {
+    throw new JWTError('"password" must be a string or a Uint8Array.', "ERR_INVALID_OPTION");
+  }
   const { alg, salt, iterations, extractable, keyUsage } = options;
+  assertPBES2Algorithm(alg);
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
 
   const saltBytes = typeof salt === "string" ? textEncoder.encode(salt) : salt;
@@ -332,7 +352,8 @@ export async function deriveKeyFromPassword(
  *
  * @param password The password to derive the key from (string or `Uint8Array`).
  * @param options
- *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`).
+ *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`). Any other
+ *     algorithm throws `ERR_JWK_UNSUPPORTED`.
  *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets (RFC 7518 §4.8.1.1).
  *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
  *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
@@ -345,6 +366,7 @@ export async function deriveJWKFromPassword(
   options: Omit<DeriveKeyOptions, "toJWK" | "extractable"> &
     Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<JWK_oct> {
+  assertObjectArg(options, "options");
   const {
     alg,
     salt,
@@ -647,6 +669,12 @@ function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | 
 /**
  * Exports a CryptoKey to a JWK (JSON Web Key) format.
  *
+ * The `alg` is the one WebCrypto names for the key, which knows nothing of JOSE
+ * roles: an AES-GCM key minted for `A128GCMKW` exports as `alg: "A128GCM"`, the
+ * CEK role, and `importKey(jwk, { alg: "A128GCMKW" })` then refuses it as a key
+ * declared for something else. Mint key-wrapping keys with `generateJWK` or
+ * `generateKey(alg, { toJWK: true })`, which stamp the `alg` that was asked for.
+ *
  * @param key The CryptoKey to export.
  * @param jwkParams Optional JWK metadata (`kid`, `use`, `x5c`, …) merged onto the exported key.
  *        `alg`, `kty`, `key_ops`, `ext` and the key material members are reserved.
@@ -720,6 +748,8 @@ export async function wrapKey(
   wrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: WrapKeyOptions,
 ): Promise<WrapKeyResult> {
+  assertObjectArg(options, "options");
+  assertKeyBytesArg(keyToWrap, "keyToWrap");
   const { alg } = options;
   const cekBytes =
     keyToWrap instanceof Uint8Array
@@ -867,6 +897,14 @@ export async function wrapKey(
  *   - `format?` — `"cryptokey"` (default) or `"raw"`; it narrows the result type.
  *   - plus the options certain algorithms require (`iv`/`tag`, `p2s`/`p2c`, `epk`, …).
  * @returns A Promise resolving to the unwrapped key (CEK) as a CryptoKey or Uint8Array.
+ * @throws `JWTError("ERR_JWE_DECRYPTION_FAILED")` when the unwrap itself does not
+ *         succeed. A key the CEK was not wrapped to, a corrupt encrypted key and a
+ *         forged authentication tag are one verdict under every algorithm, carrying
+ *         no detail that would tell them apart (RFC 7516 §11.5).
+ * @throws `JWTError("ERR_INVALID_OPTION")` when `wrappedKey` is not bytes or
+ *         `options` is not an object, and `JWTError("ERR_JWE_INVALID")` when the
+ *         algorithm's own parameters (`iv`/`tag`, `p2s`/`p2c`, `epk`) are missing
+ *         or malformed.
  */
 export async function unwrapKey<TOptions extends UnwrapKeyOptions>(
   wrappedKey: Uint8Array<ArrayBuffer>,
@@ -878,6 +916,10 @@ export async function unwrapKey(
   unwrappingKey: CryptoKey | JWK | string | Uint8Array<ArrayBuffer>,
   options: UnwrapKeyOptions,
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
+  assertObjectArg(options, "options");
+  if (!(wrappedKey instanceof Uint8Array)) {
+    throw new JWTError('"wrappedKey" must be a Uint8Array.', "ERR_INVALID_OPTION");
+  }
   const { alg } = options;
   const returnRaw = options.format === "raw";
   const defaultExtractable = options.extractable !== false; // Default true
@@ -906,7 +948,7 @@ export async function unwrapKey(
     case "A128KW":
     case "A192KW":
     case "A256KW": {
-      unwrappedCekBytes = await aesKwUnwrap(alg, importedUnwrappingKey, wrappedKey);
+      unwrappedCekBytes = await unwrapping(aesKwUnwrap(alg, importedUnwrappingKey, wrappedKey));
       break;
     }
 
@@ -922,14 +964,16 @@ export async function unwrapKey(
       }
       const p2sBytes =
         typeof p2s === "string" ? decodeSegment(p2s, { family: "JWE", what: '"p2s"' }) : p2s;
-      unwrappedCekBytes = await pbes2Unwrap(
-        alg,
-        importedUnwrappingKey,
-        wrappedKey,
-        p2c,
-        p2sBytes,
-        minIterations,
-        maxIterations,
+      unwrappedCekBytes = await unwrapping(
+        pbes2Unwrap(
+          alg,
+          importedUnwrappingKey,
+          wrappedKey,
+          p2c,
+          p2sBytes,
+          minIterations,
+          maxIterations,
+        ),
       );
       break;
     }
@@ -953,12 +997,8 @@ export async function unwrapKey(
           : options.tag;
       assertKeyWrapSegmentLength("iv", ivBytes, bitLengthIV(alg) >> 3, alg);
       assertKeyWrapSegmentLength("tag", tagBytes, bitLengthTag(alg) >> 3, alg);
-      unwrappedCekBytes = await gcmkwDecrypt(
-        alg,
-        importedUnwrappingKey,
-        wrappedKey,
-        ivBytes,
-        tagBytes,
+      unwrappedCekBytes = await unwrapping(
+        gcmkwDecrypt(alg, importedUnwrappingKey, wrappedKey, ivBytes, tagBytes),
       );
       break;
     }
@@ -974,7 +1014,7 @@ export async function unwrapKey(
         );
       }
 
-      unwrappedCekBytes = await decryptRSAES(alg, importedUnwrappingKey, wrappedKey);
+      unwrappedCekBytes = await unwrapping(decryptRSAES(alg, importedUnwrappingKey, wrappedKey));
 
       if (returnRaw) {
         break;
@@ -1053,13 +1093,15 @@ export async function unwrapKey(
       const keyLength =
         alg === "ECDH-ES" ? bitLengthCEK(infoAlg) : Number.parseInt(alg.slice(-5, -2), 10);
 
-      const sharedSecret = await deriveECDHESKey(
-        epkCandidate,
-        importedUnwrappingKey,
-        infoAlg,
-        keyLength,
-        apuBytes,
-        apvBytes,
+      const sharedSecret = await unwrapping(
+        deriveECDHESKey(
+          epkCandidate,
+          importedUnwrappingKey,
+          infoAlg,
+          keyLength,
+          apuBytes,
+          apvBytes,
+        ),
       );
 
       if (alg === "ECDH-ES") {
@@ -1072,7 +1114,7 @@ export async function unwrapKey(
             "ERR_JWE_INVALID",
           );
         }
-        unwrappedCekBytes = await aesKwUnwrap(kwAlg, sharedSecret, wrappedKey);
+        unwrappedCekBytes = await unwrapping(aesKwUnwrap(kwAlg, sharedSecret, wrappedKey));
       }
 
       break;
@@ -1146,6 +1188,13 @@ export async function importPEM<T extends JWK>(
     jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
   },
 ): Promise<T> {
+  if (typeof pem !== "string") {
+    throw new JWTError(
+      `"pem" must be a PEM-encoded string, got ${pem === null ? "null" : typeof pem}.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+  if (options !== undefined) assertObjectArg(options, "options");
   // The intermediate CryptoKey must be extractable: the JWK output requires exporting it.
   const extractable = true;
   const pemType = options?.pemType ?? inferPEMType(pem);
@@ -1223,6 +1272,8 @@ export async function exportPEM(
     alg?: JWKPEMAlgorithm;
   },
 ): Promise<string> {
+  assertObjectArg(jwk, "jwk");
+  if (options !== undefined) assertObjectArg(options, "options");
   if (jwk.kty === "oct") {
     throw new JWTError(
       "Octet (symmetric) JWKs (kty: 'oct') cannot be exported to PKCS8 or SPKI PEM formats.",
@@ -1330,6 +1381,7 @@ export async function deriveSharedSecret(
     partyVInfo?: Uint8Array<ArrayBuffer>;
   },
 ): Promise<Uint8Array<ArrayBuffer>> {
+  assertObjectArg(options, "options");
   const { enc: alg, keyLength: requestedKeyLength, partyUInfo, partyVInfo } = options;
   if (requestedKeyLength !== undefined) {
     assertDerivedKeyLength(requestedKeyLength);
@@ -1406,6 +1458,8 @@ function getGenerateKeyParams(
   const requested = options?.keyUsage;
   const usage = (allowed: readonly KeyUsage[], fallback: KeyUsage[]): KeyUsage[] =>
     resolveKeyUsage(requested, { allowed, fallback, alg });
+  const pairUsage = (allowed: readonly KeyUsage[], fallback: KeyUsage[]): KeyUsage[] =>
+    assertPairUsages(usage(allowed, fallback), { fallback, alg });
 
   switch (alg) {
     case "HS256":
@@ -1425,10 +1479,10 @@ function getGenerateKeyParams(
       algorithm = {
         name: "RSASSA-PKCS1-v1_5",
         modulusLength: assertModulusLength(options?.modulusLength),
-        publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        publicExponent: assertPublicExponent(options?.publicExponent),
         hash: `SHA-${alg.slice(2)}`,
       };
-      keyUsages = usage(SIGNATURE_USAGES, ["sign", "verify"]);
+      keyUsages = pairUsage(SIGNATURE_USAGES, ["sign", "verify"]);
       break;
     }
 
@@ -1438,10 +1492,10 @@ function getGenerateKeyParams(
       algorithm = {
         name: "RSA-PSS",
         modulusLength: assertModulusLength(options?.modulusLength),
-        publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        publicExponent: assertPublicExponent(options?.publicExponent),
         hash: `SHA-${alg.slice(2)}`,
       };
-      keyUsages = usage(SIGNATURE_USAGES, ["sign", "verify"]);
+      keyUsages = pairUsage(SIGNATURE_USAGES, ["sign", "verify"]);
       break;
     }
 
@@ -1452,10 +1506,10 @@ function getGenerateKeyParams(
       algorithm = {
         name: "RSA-OAEP",
         modulusLength: assertModulusLength(options?.modulusLength),
-        publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
+        publicExponent: assertPublicExponent(options?.publicExponent),
         hash: `SHA-${Number.parseInt(alg.slice(9), 10) || 1}`,
       };
-      keyUsages = usage(KEY_ENCRYPTION_USAGES, ["encrypt", "decrypt", "wrapKey", "unwrapKey"]);
+      keyUsages = pairUsage(KEY_ENCRYPTION_USAGES, ["encrypt", "decrypt", "wrapKey", "unwrapKey"]);
       break;
     }
 
@@ -1477,27 +1531,29 @@ function getGenerateKeyParams(
       const baseAlg = alg.replace("KW", "");
       const length = Number.parseInt(baseAlg.slice(1, 4), 10);
       algorithm = { name: "AES-GCM", length };
-      keyUsages = usage(
-        KEY_ENCRYPTION_USAGES,
-        alg.endsWith("KW") ? ["wrapKey", "unwrapKey"] : ["encrypt", "decrypt"],
-      );
+      // AES-GCMKW wraps the CEK through AES-GCM encryption (RFC 7518 §4.7), so
+      // the key it is generated for encrypts and decrypts rather than wraps.
+      keyUsages = usage(KEY_ENCRYPTION_USAGES, ["encrypt", "decrypt"]);
       break;
     }
 
     case "ES256":
     case "ES384":
     case "ES512": {
-      algorithm = { name: "ECDSA", namedCurve: `P-${alg.slice(2)}` };
-      keyUsages = usage(SIGNATURE_USAGES, ["sign", "verify"]);
+      const namedCurve = ECDSA_CURVES[alg];
+      assertNamedCurve(options?.namedCurve, namedCurve, alg);
+      algorithm = { name: "ECDSA", namedCurve };
+      keyUsages = pairUsage(SIGNATURE_USAGES, ["sign", "verify"]);
       break;
     }
     case "Ed25519": {
-      keyUsages = usage(SIGNATURE_USAGES, ["sign", "verify"]);
+      assertNamedCurve(options?.namedCurve, "Ed25519", alg);
+      keyUsages = pairUsage(SIGNATURE_USAGES, ["sign", "verify"]);
       algorithm = { name: "Ed25519" };
       break;
     }
     case "EdDSA": {
-      keyUsages = usage(SIGNATURE_USAGES, ["sign", "verify"]);
+      keyUsages = pairUsage(SIGNATURE_USAGES, ["sign", "verify"]);
       const namedCurve = options?.namedCurve ?? "Ed25519";
       switch (namedCurve) {
         case "Ed25519":
@@ -1519,7 +1575,7 @@ function getGenerateKeyParams(
     case "ECDH-ES+A128KW":
     case "ECDH-ES+A192KW":
     case "ECDH-ES+A256KW": {
-      keyUsages = usage(DERIVATION_USAGES, ["deriveBits"]);
+      keyUsages = pairUsage(DERIVATION_USAGES, ["deriveBits"]);
       const namedCurve = options?.namedCurve ?? "P-256";
       switch (namedCurve) {
         case "P-256":
@@ -1687,6 +1743,40 @@ function assertNoReservedJWKParams(jwkParams: object): void {
   }
 }
 
+/** The curve each ECDSA algorithm is defined over — RFC 7518 §3.4. */
+const ECDSA_CURVES = /* @__PURE__ */ Object.freeze({
+  ES256: "P-256",
+  ES384: "P-384",
+  ES512: "P-521",
+} as const);
+
+/**
+ * An `alg` whose curve is fixed by its own definition admits no `namedCurve` of
+ * its own: a contradicting one describes a key the algorithm cannot be used
+ * with, so it is refused rather than ignored.
+ */
+function assertNamedCurve(requested: string | undefined, expected: string, alg: string): void {
+  if (requested === undefined || requested === expected) return;
+  throw new JWTError(
+    `"namedCurve" ${requested} contradicts ${alg}, which is defined over ${expected}.`,
+    "ERR_INVALID_OPTION",
+  );
+}
+
+/** RSA public exponents are big-endian byte strings — RFC 7518 §6.3.1.2. */
+function assertPublicExponent(
+  publicExponent: Uint8Array<ArrayBuffer> | undefined,
+): Uint8Array<ArrayBuffer> {
+  if (publicExponent === undefined) return new Uint8Array([0x01, 0x00, 0x01]);
+  if (!(publicExponent instanceof Uint8Array) || publicExponent.length === 0) {
+    throw new JWTError(
+      '"publicExponent" must be the exponent\'s big-endian bytes as a Uint8Array.',
+      "ERR_INVALID_OPTION",
+    );
+  }
+  return publicExponent;
+}
+
 /** `key_ops` each algorithm family admits — a caller's `keyUsage` may narrow it. */
 const SIGNATURE_USAGES: readonly KeyUsage[] = ["sign", "verify"];
 const KEY_WRAPPING_USAGES: readonly KeyUsage[] = ["wrapKey", "unwrapKey"];
@@ -1718,6 +1808,45 @@ function resolveKeyUsage(
     );
   }
   return requested;
+}
+
+/** The half of a generated pair each usage belongs to — RFC 7517 §4.3. */
+const PRIVATE_KEY_USAGES: readonly KeyUsage[] = [
+  "sign",
+  "decrypt",
+  "unwrapKey",
+  "deriveBits",
+  "deriveKey",
+];
+const PUBLIC_KEY_USAGES: readonly KeyUsage[] = ["verify", "encrypt", "wrapKey"];
+
+/**
+ * A pair-producing algorithm splits its usages between the two halves, so a
+ * `keyUsage` naming only one side mints the other unable to do anything: the
+ * `ES256` public key of a `["sign"]` request carries `key_ops: []` and no
+ * verification accepts it. Each half the default would have populated has to
+ * survive the caller's narrowing.
+ *
+ * The halves are not symmetric: ECDH public keys carry no usage at all, so an
+ * `ECDH-ES` pair is complete with its private half alone.
+ */
+function assertPairUsages(
+  usages: KeyUsage[],
+  options: { fallback: KeyUsage[]; alg: string },
+): KeyUsage[] {
+  const { fallback, alg } = options;
+  for (const [half, side] of [
+    [PRIVATE_KEY_USAGES, "private"],
+    [PUBLIC_KEY_USAGES, "public"],
+  ] as const) {
+    const wanted = fallback.filter((entry) => half.includes(entry));
+    if (wanted.length === 0 || usages.some((entry) => half.includes(entry))) continue;
+    throw new JWTError(
+      `"keyUsage" leaves the ${side} half of a ${alg} key pair with no usage; include one of ${wanted.join(", ")}.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+  return usages;
 }
 
 /** Name a freshly generated JWK by its RFC 7638 thumbprint. */
@@ -1766,6 +1895,59 @@ function assertWrappableCEK(cek: Uint8Array<ArrayBuffer>, alg: string): void {
   );
 }
 
+/**
+ * RFC 7516 §11.5 — an unwrap says only that it failed. A key the token was not
+ * encrypted to, a corrupt encrypted key and a forged authentication tag are one
+ * outcome under every algorithm, so nothing an attacker submits is answered
+ * with a distinguishable reason.
+ */
+async function unwrapping<T>(operation: Promise<T>): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    if (error instanceof JWTError) throw error;
+    throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error);
+  }
+}
+
+/** The PBES2 algorithms {@link deriveKeyFromPassword} implements — RFC 7518 §4.8. */
+const PBES2_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "PBES2-HS256+A128KW",
+  "PBES2-HS384+A192KW",
+  "PBES2-HS512+A256KW",
+]);
+
+/**
+ * A password derives a key under PBES2 alone: every other `alg` names a key the
+ * derivation cannot produce, so it is refused before any PBKDF2 work.
+ */
+function assertPBES2Algorithm(alg: unknown): void {
+  if (typeof alg === "string" && PBES2_ALGORITHMS.has(alg)) return;
+  throw new JWTError(
+    `Password derivation is defined for ${[...PBES2_ALGORITHMS].join(", ")}, not ${String(alg)}.`,
+    "ERR_JWK_UNSUPPORTED",
+  );
+}
+
+/** The rejection an entry point raises for an argument that is not an object. */
+function assertObjectArg(value: unknown, name: string): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new JWTError(
+      `"${name}" must be an object, got ${value === null ? "null" : typeof value}.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/** The rejection an entry point raises for key material of the wrong shape. */
+function assertKeyBytesArg(value: unknown, name: string): void {
+  if (value instanceof Uint8Array || isCryptoKey(value)) return;
+  throw new JWTError(
+    `"${name}" must be a Uint8Array or a CryptoKey, got ${value === null ? "null" : typeof value}.`,
+    "ERR_INVALID_OPTION",
+  );
+}
+
 function assertModulusLength(modulusLength: number | undefined): number {
   const length = modulusLength ?? 2048;
   if (!Number.isInteger(length) || length < 2048) {
@@ -1776,8 +1958,6 @@ function assertModulusLength(modulusLength: number | undefined): number {
   }
   return length;
 }
-
-const MAX_PARTY_INFO_BYTES = 1024;
 
 /**
  * RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` are attacker-supplied and feed

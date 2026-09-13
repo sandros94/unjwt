@@ -26,8 +26,6 @@ import {
   encrypt as joseEncrypt,
   decrypt as joseDecrypt,
   assertPBES2Params,
-  bitLengthCEK,
-  bitLengthIV,
   generateIV,
   encryptKey,
 } from "./_crypto";
@@ -44,12 +42,17 @@ import {
   validateCriticalHeadersJWE,
 } from "./utils";
 import {
+  DEFAULT_PBES2_ITERATIONS,
   JWE_ALG_CTX,
   assertCompactToken,
   assertDirectKeyRole,
   assertJWETyp,
   assertJWKSetCandidates,
   assertNoZipOption,
+  assertProducerCEK,
+  assertProducerCrit,
+  assertProducerIV,
+  assertProducerPartyInfo,
   asKeyLookupError,
   asKeyUsageError,
   buildJWKSetFilter,
@@ -66,6 +69,7 @@ import {
   resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
+  serializeProtectedHeader,
   validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
@@ -191,8 +195,14 @@ export async function encrypt(
   else if (alg.startsWith("PBES2")) jweKeyManagementParams.p2s = secureRandomBytes(16);
   if (p2c !== undefined) jweKeyManagementParams.p2c = p2c;
   else if (alg.startsWith("PBES2")) jweKeyManagementParams.p2c = DEFAULT_PBES2_ITERATIONS;
-  if (ecdh?.partyUInfo) jweKeyManagementParams.apu = ecdh.partyUInfo;
-  if (ecdh?.partyVInfo) jweKeyManagementParams.apv = ecdh.partyVInfo;
+  if (ecdh?.partyUInfo !== undefined) {
+    assertProducerPartyInfo("apu", ecdh.partyUInfo);
+    jweKeyManagementParams.apu = ecdh.partyUInfo;
+  }
+  if (ecdh?.partyVInfo !== undefined) {
+    assertProducerPartyInfo("apv", ecdh.partyVInfo);
+    jweKeyManagementParams.apv = ecdh.partyVInfo;
+  }
   if (ecdh?.ephemeralKey) {
     const parsed = parseEphemeralKey(ecdh.ephemeralKey);
     jweKeyManagementParams.epk = parsed.epk;
@@ -224,7 +234,7 @@ export async function encrypt(
 
   const plaintextBytes = getPlaintextBytes(computedPayload || payload);
 
-  const protectedHeaderSerialized = JSON.stringify(protectedHeader);
+  const protectedHeaderSerialized = serializeProtectedHeader(protectedHeader);
   const protectedHeaderEncoded = base64UrlStringify(protectedHeaderSerialized);
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
@@ -470,42 +480,6 @@ export async function decrypt<T extends JOSEPayload>(
   return result;
 }
 
-/** The PBKDF2 work a PBES2 token is minted with when the caller names none. */
-const DEFAULT_PBES2_ITERATIONS = 600_000;
-
-/**
- * RFC 7518 §5 — the CEK size is fixed by `enc`. A caller-supplied key of any
- * other size is a malformed option, not a token or key-material failure.
- */
-function assertProducerCEK(
-  cek: Uint8Array<ArrayBuffer> | undefined,
-  enc: ContentEncryptionAlgorithm,
-): void {
-  if (cek === undefined) return;
-  const expected = bitLengthCEK(enc) >> 3;
-  if (!(cek instanceof Uint8Array) || cek.length !== expected) {
-    throw new JWTError(
-      `"cek" must be ${expected} bytes for ${enc} (got ${cek instanceof Uint8Array ? cek.length : typeof cek}).`,
-      "ERR_INVALID_OPTION",
-    );
-  }
-}
-
-/** RFC 7518 §5.2 / §5.3 — the content IV length is fixed by `enc`. */
-function assertProducerIV(
-  iv: Uint8Array<ArrayBuffer> | undefined,
-  enc: ContentEncryptionAlgorithm,
-): void {
-  if (iv === undefined) return;
-  const expected = bitLengthIV(enc) >> 3;
-  if (!(iv instanceof Uint8Array) || iv.length !== expected) {
-    throw new JWTError(
-      `"contentEncryptionIV" must be ${expected} bytes for ${enc} (got ${iv instanceof Uint8Array ? iv.length : typeof iv}).`,
-      "ERR_INVALID_OPTION",
-    );
-  }
-}
-
 function _buildJWEHeader(
   alg: KeyManagementAlgorithm,
   enc: ContentEncryptionAlgorithm,
@@ -525,5 +499,7 @@ function _buildJWEHeader(
   if (keyManagementParams) Object.assign(header, keyManagementParams);
   header.alg = alg;
   header.enc = enc;
-  return applyTypCtyDefaults(header, payload);
+  applyTypCtyDefaults(header, payload);
+  assertProducerCrit(header as Record<string, unknown>, "JWE");
+  return header;
 }

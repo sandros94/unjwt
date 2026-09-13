@@ -39,6 +39,7 @@ import {
 import {
   JWS_ALG_CTX,
   applyB64Crit,
+  assertProducerCrit,
   asKeyLookupError,
   asKeyUsageError,
   assertJWKSetCandidates,
@@ -54,6 +55,7 @@ import {
   resolveLimit,
   resolvePayloadMode,
   resolveSigningKey,
+  serializeProtectedHeader,
   stringKeyError,
   typMatches,
   validateClaimsIfJson,
@@ -113,7 +115,7 @@ export async function signMulti(
 
     _assertDisjointHeaders(protectedHeader, unprotectedHeader);
 
-    const protectedHeaderEncoded = base64UrlStringify(JSON.stringify(protectedHeader));
+    const protectedHeaderEncoded = base64UrlStringify(serializeProtectedHeader(protectedHeader));
     const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
 
     const signingKey = await resolveSigningKey(
@@ -575,6 +577,7 @@ function _buildSignerProtectedHeader(
   if (!b64) header.b64 = false;
   else delete header.b64;
   applyB64Crit(header);
+  assertProducerCrit(header as Record<string, unknown>, "JWS");
   return header;
 }
 

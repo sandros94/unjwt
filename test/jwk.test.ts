@@ -30,6 +30,8 @@ import {
   isJWTError,
   isUnsecureError,
 } from "../src/core/jwk";
+import { sign, verify } from "../src/core/jws";
+import { encrypt, decrypt } from "../src/core/jwe";
 import { isCryptoKey, isCryptoKeyPair } from "../src/core/utils";
 import type {
   JWKSet,
@@ -2168,6 +2170,274 @@ describe.concurrent("salt as a string", () => {
   });
 });
 
+describe.concurrent("key generation and the direct JWK API", () => {
+  describe("ES512 curve", () => {
+    it("generates a CryptoKeyPair on P-521 that signs and verifies", async () => {
+      const pair = (await generateKey("ES512")) as CryptoKeyPair;
+      expect((pair.privateKey.algorithm as EcKeyAlgorithm).namedCurve).toBe("P-521");
+      expect((pair.publicKey.algorithm as EcKeyAlgorithm).namedCurve).toBe("P-521");
+
+      const jws = await sign({ sub: "es512" }, pair.privateKey, { alg: "ES512" });
+      const { payload } = await verify(jws, pair.publicKey, { algorithms: ["ES512"] });
+      expect(payload).toEqual({ sub: "es512" });
+    });
+
+    it("generateJWK reports crv P-521 and round-trips a signature", async () => {
+      const { privateKey, publicKey } = await generateJWK("ES512");
+      expect(privateKey.crv).toBe("P-521");
+      expect(publicKey.crv).toBe("P-521");
+
+      const jws = await sign({ sub: "es512" }, privateKey);
+      const { payload } = await verify(jws, publicKey);
+      expect(payload).toEqual({ sub: "es512" });
+    });
+  });
+
+  describe("AES-GCMKW generated keys", () => {
+    const gcmkw = ["A128GCMKW", "A192GCMKW", "A256GCMKW"] as const;
+
+    it.each(gcmkw)("%s is generated for encrypt/decrypt", async (alg) => {
+      const kek = (await generateKey(alg)) as CryptoKey;
+      expect([...kek.usages].sort()).toEqual(["decrypt", "encrypt"]);
+    });
+
+    it.each(gcmkw)("%s wraps and unwraps a CEK", async (alg) => {
+      const kek = (await generateKey(alg)) as CryptoKey;
+      const cek = secureRandomBytes(32);
+      const wrapped = await wrapKey(cek, kek, { alg });
+      const unwrapped = await unwrapKey(wrapped.encryptedKey, kek, {
+        alg,
+        iv: wrapped.iv,
+        tag: wrapped.tag,
+        format: "raw",
+      });
+      expect(unwrapped).toEqual(cek);
+    });
+
+    it.each(gcmkw)("%s encrypts and decrypts a JWE", async (alg) => {
+      const kek = (await generateKey(alg)) as CryptoKey;
+      const jwe = await encrypt({ sub: "gcmkw" }, kek, { alg, enc: "A128GCM" });
+      const { payload } = await decrypt(jwe, kek, { algorithms: [alg] });
+      expect(payload).toEqual({ sub: "gcmkw" });
+    });
+
+    it("exports an A*GCMKW CryptoKey under the bare A*GCM name", async () => {
+      const kek = (await generateKey("A128GCMKW")) as CryptoKey;
+      const jwk = await exportKey<JWK_oct>(kek);
+      expect(jwk.alg).toBe("A128GCM");
+
+      const error = await importKey(jwk, { alg: "A128GCMKW" }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    });
+  });
+
+  describe("keyUsage across a generated pair", () => {
+    it("splits the requested usages between the two halves", async () => {
+      const { privateKey, publicKey } = await generateJWK("ES256", {
+        keyUsage: ["sign", "verify"],
+      });
+      expect(privateKey.key_ops).toEqual(["sign"]);
+      expect(publicKey.key_ops).toEqual(["verify"]);
+
+      const jws = await sign({ sub: "split" }, privateKey);
+      const { payload } = await verify(jws, publicKey);
+      expect(payload).toEqual({ sub: "split" });
+    });
+
+    it("refuses a narrowing that leaves the public half with no usage", async () => {
+      const error = await generateJWK("ES256", { keyUsage: ["sign"] }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain("verify");
+    });
+
+    it("refuses a narrowing that leaves the private half with no usage", async () => {
+      const error = await generateKey("RSA-OAEP-256", {
+        keyUsage: ["encrypt", "wrapKey"],
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toMatch(/decrypt|unwrapKey/);
+    });
+
+    it("keeps an ECDH-ES pair whose public half carries no usage", async () => {
+      const pair = (await generateKey("ECDH-ES", { keyUsage: ["deriveBits"] })) as CryptoKeyPair;
+      expect([...pair.privateKey.usages]).toEqual(["deriveBits"]);
+      expect([...pair.publicKey.usages]).toEqual([]);
+    });
+  });
+
+  describe("namedCurve on ES*", () => {
+    it.each([
+      ["ES256", "P-384"],
+      ["ES384", "P-521"],
+      ["ES512", "P-256"],
+    ] as const)("%s refuses the contradicting curve %s", async (alg, namedCurve) => {
+      const error = await generateKey(alg, { namedCurve } as never).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain(namedCurve);
+    });
+
+    it("accepts the curve the algorithm names", async () => {
+      const pair = (await generateKey("ES384", { namedCurve: "P-384" })) as CryptoKeyPair;
+      expect((pair.privateKey.algorithm as EcKeyAlgorithm).namedCurve).toBe("P-384");
+    });
+  });
+
+  describe("generateKey publicExponent", () => {
+    it.each([[3 as never], ["AQAB" as never], [null as never]])(
+      "refuses a malformed publicExponent (%s)",
+      async (publicExponent) => {
+        const error = await generateKey("RS256", { publicExponent }).catch((e) => e);
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      },
+    );
+
+    it("accepts the three-byte 65537 exponent", async () => {
+      const pair = (await generateKey("RS256", {
+        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+      })) as CryptoKeyPair;
+      expect(pair.privateKey.type).toBe("private");
+    });
+  });
+
+  describe("password derivation algorithm gate", () => {
+    it.each(["HS256", "A128KW", "dir", "not-an-alg"] as const)(
+      "deriveKeyFromPassword refuses %s",
+      async (alg) => {
+        const error = await deriveKeyFromPassword("password123", {
+          alg: alg as never,
+          salt: secureRandomBytes(16),
+          iterations: 2000,
+        }).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWK_UNSUPPORTED")).toBe(true);
+      },
+    );
+
+    it("deriveJWKFromPassword refuses a non-PBES2 algorithm", async () => {
+      const error = await deriveJWKFromPassword("password123", {
+        alg: "A128KW" as never,
+        salt: secureRandomBytes(16),
+        iterations: 2000,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_UNSUPPORTED")).toBe(true);
+    });
+  });
+
+  describe("unwrapKey failures are one verdict", () => {
+    it("reports a wrong AES-KW key as a decryption failure", async () => {
+      const cek = secureRandomBytes(32);
+      const [mine, theirs] = await Promise.all([generateJWK("A128KW"), generateJWK("A128KW")]);
+      const { encryptedKey } = await wrapKey(cek, mine, { alg: "A128KW" });
+      const error = await unwrapKey(encryptedKey, theirs, {
+        alg: "A128KW",
+        format: "raw",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    });
+
+    it("reports a corrupt AES-GCMKW ciphertext as a decryption failure", async () => {
+      const kek = await generateJWK("A128GCMKW");
+      const wrapped = await wrapKey(secureRandomBytes(32), kek, { alg: "A128GCMKW" });
+      wrapped.encryptedKey[0] ^= 0xff;
+      const error = await unwrapKey(wrapped.encryptedKey, kek, {
+        alg: "A128GCMKW",
+        iv: wrapped.iv,
+        tag: wrapped.tag,
+        format: "raw",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    });
+
+    it("reports a wrong RSA-OAEP key as a decryption failure", async () => {
+      const [mine, theirs] = (await Promise.all([
+        generateKey("RSA-OAEP-256"),
+        generateKey("RSA-OAEP-256"),
+      ])) as CryptoKeyPair[];
+      const { encryptedKey } = await wrapKey(secureRandomBytes(32), mine!.publicKey, {
+        alg: "RSA-OAEP-256",
+      });
+      const error = await unwrapKey(encryptedKey, theirs!.privateKey, {
+        alg: "RSA-OAEP-256",
+        format: "raw",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    });
+
+    it("reports a wrong PBES2 password as a decryption failure", async () => {
+      const salt = secureRandomBytes(16);
+      const wrapped = await wrapKey(secureRandomBytes(32), "password123", {
+        alg: "PBES2-HS256+A128KW",
+        p2s: salt,
+        p2c: 2000,
+      });
+      const error = await unwrapKey(wrapped.encryptedKey, "wrong-password", {
+        alg: "PBES2-HS256+A128KW",
+        p2s: salt,
+        p2c: 2000,
+        format: "raw",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    });
+
+    it("reports a corrupt ECDH-ES+A128KW encrypted key as a decryption failure", async () => {
+      const pair = (await generateKey("ECDH-ES+A128KW")) as CryptoKeyPair;
+      const wrapped = await wrapKey(secureRandomBytes(32), pair.publicKey, {
+        alg: "ECDH-ES+A128KW",
+      });
+      wrapped.encryptedKey[0] ^= 0xff;
+      const error = await unwrapKey(wrapped.encryptedKey, pair.privateKey, {
+        alg: "ECDH-ES+A128KW",
+        epk: wrapped.epk,
+        format: "raw",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    });
+  });
+
+  describe("arguments the direct JWK API names", () => {
+    it.each([
+      ["wrapKey options", () => wrapKey(secureRandomBytes(32), octKey(), null as never)],
+      ["wrapKey keyToWrap", () => wrapKey(null as never, octKey(), { alg: "A128KW" })],
+      [
+        "unwrapKey options",
+        () => unwrapKey(secureRandomBytes(40), octKey() as never, null as never),
+      ],
+      ["unwrapKey wrappedKey", () => unwrapKey(null as never, octKey(), { alg: "A128KW" })],
+      ["deriveKeyFromPassword options", () => deriveKeyFromPassword("password123", null as never)],
+      [
+        "deriveKeyFromPassword password",
+        () =>
+          deriveKeyFromPassword(null as never, {
+            alg: "PBES2-HS256+A128KW",
+            salt: secureRandomBytes(16),
+            iterations: 2000,
+          }),
+      ],
+      ["deriveJWKFromPassword options", () => deriveJWKFromPassword("password123", null as never)],
+      ["importPEM pem", () => importPEM(null as never, "RS256")],
+      ["importPEM options", () => importPEM("-----BEGIN PUBLIC KEY-----", "RS256", null as never)],
+      ["exportPEM jwk", () => exportPEM(null as never)],
+      ["thumbprint jwk", () => thumbprint(null as never)],
+    ])("refuses a null %s", async (_label, run) => {
+      const error = await (run() as Promise<unknown>).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+
+    it("refuses a null deriveSharedSecret options", async () => {
+      const pair = (await generateKey("ECDH-ES")) as CryptoKeyPair;
+      const error = await deriveSharedSecret(pair.publicKey, pair.privateKey, null as never).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+
+    it("refuses a null thumbprint options", async () => {
+      const jwk = await generateJWK("HS256");
+      const error = await thumbprint(jwk, null as never).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+  });
+});
+
 /**
  * The canonical form of RFC 7638 §3.2 — the required members, lexicographically
  * ordered, with no whitespace — digested through Node's `crypto` so the vector
@@ -2182,4 +2452,13 @@ function digestOfCanonical(
     .map((name) => `${JSON.stringify(name)}:${JSON.stringify(members[name])}`)
     .join(",")}}`;
   return createHash(hash).update(canonical, "utf8").digest("base64url");
+}
+
+/** A throwaway `A128KW` JWK, for calls whose other argument is what is on trial. */
+function octKey(): JWK_oct<"A128KW"> {
+  return {
+    kty: "oct",
+    alg: "A128KW",
+    k: base64UrlStringify(new Uint8Array(16).fill(7)),
+  };
 }

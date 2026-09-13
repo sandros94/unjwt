@@ -1055,3 +1055,81 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
     });
   });
 });
+
+describe.concurrent("encryptMulti producer option gates", () => {
+  let aesKey: JWK_oct<"A256KW">;
+  let ecdhKey: JWK_Pair<"ECDH-ES+A256KW">;
+
+  beforeAll(async () => {
+    [aesKey, ecdhKey] = await Promise.all([generateJWK("A256KW"), generateJWK("ECDH-ES+A256KW")]);
+  });
+
+  it.each([
+    ["too short", secureRandomBytes(16)],
+    ["not bytes", "a cek" as never],
+  ])("refuses a cek that is %s", async (_label, cek) => {
+    const error = await encryptMulti("payload", [{ key: aesKey }], {
+      enc: "A256GCM",
+      cek,
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"cek"');
+  });
+
+  it("refuses a content encryption IV of the wrong length", async () => {
+    const error = await encryptMulti("payload", [{ key: aesKey }], {
+      enc: "A256GCM",
+      contentEncryptionIV: secureRandomBytes(16),
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"contentEncryptionIV"');
+  });
+
+  it("accepts a cek of the size enc names", async () => {
+    const cek = secureRandomBytes(32);
+    const jwe = await encryptMulti("payload", [{ key: aesKey }], { enc: "A256GCM", cek });
+    const { payload } = await decryptMulti(jwe, aesKey, { payload: "string" });
+    expect(payload).toBe("payload");
+  });
+
+  it("refuses a crit the protected header does not carry", async () => {
+    const error = await encryptMulti("payload", [{ key: aesKey }], {
+      protectedHeader: { crit: ["app"] },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("app");
+  });
+
+  it("refuses a crit listing a registered header parameter", async () => {
+    const error = await encryptMulti("payload", [{ key: aesKey }], {
+      protectedHeader: { crit: ["enc"] },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it("refuses a protected header that cannot be serialized", async () => {
+    const error = await encryptMulti("payload", [{ key: aesKey }], {
+      protectedHeader: { n: 1n } as never,
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("protected header");
+  });
+
+  it.each(["partyUInfo", "partyVInfo"] as const)(
+    "refuses a recipient %s that is not bytes",
+    async (name) => {
+      const error = await encryptMulti("payload", [
+        { key: ecdhKey.publicKey, ecdh: { [name]: "not-bytes" } as never },
+      ]).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    },
+  );
+
+  it("refuses recipient party info over 1024 bytes", async () => {
+    const error = await encryptMulti("payload", [
+      { key: ecdhKey.publicKey, ecdh: { partyVInfo: secureRandomBytes(1025) } },
+    ]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("1024");
+  });
+});

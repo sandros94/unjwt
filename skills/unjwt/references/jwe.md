@@ -49,14 +49,14 @@ Produces a JWE Compact Serialization token.
 - `options?: JWEEncryptOptions`
   - `alg?: KeyManagementAlgorithm`
   - `enc?: ContentEncryptionAlgorithm` — defaults to `A256GCM`; under `alg: "dir"` it comes from the CEK's own `alg` (or its `enc` hint) and is required when the key carries neither
-  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`)
+  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`). A `crit` is held to the rules `decrypt` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no registered parameter, and every entry present in the header being built. A header that `JSON.stringify` refuses (a `BigInt`, a circular reference) is `ERR_INVALID_OPTION` too
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `currentDate?: Date`
   - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`
   - `contentEncryptionIV?: Uint8Array` — custom IV; must be exactly the length `enc` names, or `ERR_INVALID_OPTION`
   - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `1_000_000` — the bounds `decrypt` enforces — or the call throws `ERR_INVALID_OPTION`. `p2c: 0` is rejected, never replaced by the default
   - `keyManagementIV?: Uint8Array` — IV for AES-GCM key wrapping
-  - `ecdh?` — `{ ephemeralKey?, partyUInfo?, partyVInfo? }` for ECDH-ES. The content encryption algorithm is the top-level `enc`; `wrapKey` is the one that takes `ecdh.enc`.
+  - `ecdh?` — `{ ephemeralKey?, partyUInfo?, partyVInfo? }` for ECDH-ES. The content encryption algorithm is the top-level `enc`; `wrapKey` is the one that takes `ecdh.enc`. `partyUInfo` / `partyVInfo` must be `Uint8Array`s of at most `1024` bytes — the bound `decrypt` applies to the `apu` / `apv` it reads — else `ERR_INVALID_OPTION`.
 
 An unsupported or misspelled `alg` / `enc` is refused before any key work, with the same code and message `decrypt` uses for the same string: `ERR_JWE_ALG_NOT_ALLOWED` for a key management algorithm (including `"none"`), `ERR_JWE_INVALID` for a content encryption algorithm.
 
@@ -121,7 +121,7 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - `returnCek?: boolean` — include raw `cek` and `aad` in result
 - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
 - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `1_000_000` to cap PBKDF2 DoS potential. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
-- `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `1_000_000` and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 1000000 exhausted."`) and spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
+- `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `2_400_000` — four attempts at the `600_000` `p2c` a producer mints by default, so an envelope written entirely at the defaults is still openable by its fourth PBES2 recipient — and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 2400000 exhausted."`) and spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
 - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 
@@ -172,6 +172,10 @@ Produces a `JWEGeneralSerialization` object — one shared CEK encrypts the payl
   - `aad?: Uint8Array | string` — external AAD (RFC 7516 §5.1); content cipher AAD becomes `BASE64URL(protected) || '.' || BASE64URL(aad)`.
 
 Throws `ERR_JWE_ALG_FORBIDDEN_IN_MULTI` when any recipient resolves to `dir` or bare `ECDH-ES` (these algorithms require exactly one recipient — use `encrypt()`). Throws `ERR_JWE_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in more than one header tier.
+
+The producer-side option gates of `encrypt` apply here too, each as `ERR_INVALID_OPTION`: `cek` and `contentEncryptionIV` must be the lengths `enc` fixes, `options.protectedHeader`'s `crit` must list extensions the header carries, a recipient's `ecdh.partyUInfo` / `partyVInfo` must be `Uint8Array`s of at most `1024` bytes, and the protected header must serialize to JSON.
+
+A PBES2 recipient that names no `p2c` is minted at `600_000` iterations, and the default `limits.pbes2Iterations` budget of `2_400_000` covers four such attempts — so an envelope written entirely at the defaults is openable by its fourth PBES2 recipient without the reader raising anything.
 
 ```ts
 import { encryptMulti } from "unjwt/jwe";
@@ -286,7 +290,7 @@ interface JOSELimits {
   signatures?: number; // JWS `signatures[]` entries — default 16
   recipients?: number; // JWE `recipients[]` entries — default 16
   keyCandidates?: number; // JWK Set candidates per token — default 8
-  pbes2Iterations?: number; // PBKDF2 iterations per call — default 1_000_000
+  pbes2Iterations?: number; // PBKDF2 iterations per call — default 2_400_000 (4 × the default p2c)
 }
 
 type Duration =

@@ -30,6 +30,7 @@ import {
 import {
   JWS_ALG_CTX,
   applyB64Crit,
+  assertProducerCrit,
   asKeyLookupError,
   asKeyUsageError,
   assertCompactToken,
@@ -44,6 +45,7 @@ import {
   resolveLimit,
   resolvePayloadMode,
   resolveSigningKey,
+  serializeProtectedHeader,
   typMatches,
   validateClaimsIfJson,
   decodeSegment,
@@ -122,7 +124,7 @@ export async function sign(
 
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
 
-  const protectedHeaderString = JSON.stringify(protectedHeader);
+  const protectedHeaderString = serializeProtectedHeader(protectedHeader);
   const protectedHeaderEncoded = base64UrlStringify(protectedHeaderString);
 
   const payloadBytes = getPlaintextBytes(computedPayload || payload);
@@ -339,5 +341,6 @@ function _buildJWSHeader(
   applyTypCtyDefaults(header, payload);
   if (header.b64 === true) delete header.b64;
   applyB64Crit(header);
+  assertProducerCrit(header as Record<string, unknown>, "JWS");
   return header;
 }

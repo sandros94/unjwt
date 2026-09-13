@@ -13,6 +13,8 @@ import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import type {
   JWK,
+  JWK_oct,
+  JWK_Pair,
   JWK_EC_Public,
   JWEEncryptJWK,
   JWEDecryptJWK,
@@ -800,10 +802,9 @@ describe.concurrent("JWE Utilities", () => {
     it.each(["jwk", "jku", "x5c", "x5t", "x5u"])(
       "rejects the registered parameter '%s' in crit",
       async (param) => {
-        const jweCrit = await encrypt(plaintextString, key, {
-          alg,
-          enc,
-          protectedHeader: { crit: [param], [param]: "irrelevant" },
+        const jweCrit = withProtectedHeader(await encrypt(plaintextString, key, { alg, enc }), {
+          crit: [param],
+          [param]: "irrelevant",
         });
         const message = 'Invalid JWE: "crit" must not list registered header parameters.';
         await expect(decrypt(jweCrit, key)).rejects.toThrow(message);
@@ -1616,3 +1617,101 @@ describe.concurrent("JWE string keys are passwords only", () => {
     expect(error.message).toBe(message);
   });
 });
+
+describe.concurrent("JWE producer option gates", () => {
+  let aesKey: JWK_oct<"A256KW">;
+  let ecdhKey: JWK_Pair<"ECDH-ES+A256KW">;
+
+  beforeAll(async () => {
+    [aesKey, ecdhKey] = await Promise.all([generateJWK("A256KW"), generateJWK("ECDH-ES+A256KW")]);
+  });
+
+  it.each([
+    ["an empty array", []],
+    ["a string", "app"],
+    ["an array with a non-string entry", ["app", 1]],
+  ])("refuses a crit that is %s", async (_label, crit) => {
+    const error = await encrypt("payload", aesKey, {
+      protectedHeader: { crit, app: "web" } as never,
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it.each(["alg", "enc", "epk", "apu", "apv", "iv", "tag", "p2s", "p2c"])(
+    "refuses the registered parameter %s in crit",
+    async (param) => {
+      const error = await encrypt("payload", aesKey, {
+        protectedHeader: { crit: [param], [param]: "irrelevant" },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    },
+  );
+
+  it("refuses a crit naming a parameter the header does not carry", async () => {
+    const error = await encrypt("payload", aesKey, {
+      protectedHeader: { crit: ["app"] },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("app");
+  });
+
+  it("accepts a crit whose parameters the header carries", async () => {
+    const jwe = await encrypt("payload", aesKey, {
+      protectedHeader: { crit: ["app"], app: "web" },
+    });
+    const { payload } = await decrypt(jwe, aesKey, {
+      payload: "string",
+      recognizedHeaders: ["app"],
+    });
+    expect(payload).toBe("payload");
+  });
+
+  it("refuses a protected header that cannot be serialized", async () => {
+    const circular: Record<string, unknown> = { app: "web" };
+    circular.self = circular;
+
+    for (const header of [{ n: 1n } as never, circular as never]) {
+      const error = await encrypt("payload", aesKey, { protectedHeader: header }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain("protected header");
+    }
+  });
+
+  it.each(["partyUInfo", "partyVInfo"] as const)("refuses a %s that is not bytes", async (name) => {
+    const error = await encrypt("payload", ecdhKey.publicKey, {
+      enc: "A128GCM",
+      ecdh: { [name]: "not-bytes" } as never,
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain(name === "partyUInfo" ? "apu" : "apv");
+  });
+
+  it.each(["partyUInfo", "partyVInfo"] as const)("refuses a %s over 1024 bytes", async (name) => {
+    const error = await encrypt("payload", ecdhKey.publicKey, {
+      enc: "A128GCM",
+      ecdh: { [name]: secureRandomBytes(1025) },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("1024");
+  });
+
+  it("accepts party info at the bound", async () => {
+    const jwe = await encrypt("payload", ecdhKey.publicKey, {
+      enc: "A128GCM",
+      ecdh: { partyUInfo: secureRandomBytes(1024) },
+    });
+    const { payload } = await decrypt(jwe, ecdhKey.privateKey, { payload: "string" });
+    expect(payload).toBe("payload");
+  });
+});
+
+/**
+ * A JWE whose protected header carries members the producer refuses to write.
+ * The header gates run before key management, so the token never needs to open.
+ */
+function withProtectedHeader(token: string, members: Record<string, unknown>): string {
+  const parts = token.split(".");
+  const header = JSON.parse(base64UrlParse(parts[0]!) as string) as Record<string, unknown>;
+  parts[0] = base64UrlStringify(JSON.stringify({ ...header, ...members }));
+  return parts.join(".");
+}

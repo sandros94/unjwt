@@ -164,12 +164,26 @@ describe.concurrent("Utility Functions", () => {
     });
 
     it("throws on invalid expiresAt / notBeforeAt Dates", () => {
-      expect(() => computeJwtTimeClaims({}, { expiresAt: new Date("not-a-date") })).toThrow(
-        /valid Date/i,
-      );
-      expect(() => computeJwtTimeClaims({}, { notBeforeAt: new Date("not-a-date") })).toThrow(
-        /valid Date/i,
-      );
+      for (const options of [
+        { expiresAt: new Date("not-a-date") },
+        { notBeforeAt: new Date("not-a-date") },
+      ]) {
+        const error = catchError(() => computeJwtTimeClaims({}, options));
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect((error as Error).message).toMatch(/valid Date/i);
+      }
+    });
+
+    it.each([
+      ["a number", 1_900_000_000],
+      ["a string", "2030-01-01T00:00:00Z"],
+      ["null", null],
+    ])("throws when expiresAt / notBeforeAt is %s", (_label, value) => {
+      for (const name of ["expiresAt", "notBeforeAt"] as const) {
+        const error = catchError(() => computeJwtTimeClaims({}, { [name]: value } as never));
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect((error as Error).message).toContain(name);
+      }
     });
   });
 });

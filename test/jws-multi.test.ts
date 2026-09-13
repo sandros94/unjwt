@@ -989,3 +989,41 @@ describe.concurrent("JWS multi-signature hardening", () => {
     });
   });
 });
+
+describe.concurrent("signMulti producer header gates", () => {
+  let key: JWK_oct<"HS256">;
+
+  beforeAll(async () => {
+    key = await generateJWK("HS256");
+  });
+
+  it("refuses a crit that is not a non-empty array of strings", async () => {
+    const error = await signMulti("payload", [
+      { key, protectedHeader: { crit: [] as never } },
+    ]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it("refuses a crit listing a registered header parameter", async () => {
+    const error = await signMulti("payload", [
+      { key, protectedHeader: { crit: ["kid"], kid: "k1" } },
+    ]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it("refuses a crit naming a parameter the signer header does not carry", async () => {
+    const error = await signMulti("payload", [{ key, protectedHeader: { crit: ["app"] } }]).catch(
+      (e) => e,
+    );
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("app");
+  });
+
+  it("refuses a protected header that cannot be serialized", async () => {
+    const error = await signMulti("payload", [{ key, protectedHeader: { n: 1n } as never }]).catch(
+      (e) => e,
+    );
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("protected header");
+  });
+});

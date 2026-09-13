@@ -104,7 +104,12 @@ export interface JOSELimits {
   recipients?: number;
   /** JWK Set candidates tried for one token after `kid`/`alg`/`use` filtering. @default 8 */
   keyCandidates?: number;
-  /** Total PBKDF2 iterations one call may spend across every PBES2 attempt. @default 1_000_000 */
+  /**
+   * Total PBKDF2 iterations one call may spend across every PBES2 attempt —
+   * four attempts at the `p2c` a producer mints by default.
+   *
+   * @default 2_400_000
+   */
   pbes2Iterations?: number;
 }
 

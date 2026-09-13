@@ -27,24 +27,42 @@ import {
   isCryptoKey,
   isCryptoKeyPair,
   isJWK,
+  assertCritShape,
   validateJwtClaims,
 } from "./utils";
-import { assertOctKeyLength, bitLengthIV, bitLengthTag } from "./_crypto";
+import { assertOctKeyLength, bitLengthCEK, bitLengthIV, bitLengthTag } from "./_crypto";
+
+/**
+ * RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` feed the Concat KDF input
+ * verbatim and arrive from the wire, so their size is bounded on both sides.
+ */
+export const MAX_PARTY_INFO_BYTES = 1024;
 
 // -----------------------------------------------------------------------------
 // Bounded work per call (JWS verify + JWE decrypt, compact & multi).
 // -----------------------------------------------------------------------------
 
+/** The PBKDF2 work a PBES2 token is minted with when the caller names none. */
+export const DEFAULT_PBES2_ITERATIONS = 600_000;
+
 /**
  * The work one JOSE call does when the caller names no {@link JOSELimits}:
- * 16 signatures, 16 recipients, 8 JWK Set candidates, and a million PBKDF2
- * iterations for the whole call. Exported so the numbers have one source.
+ * 16 signatures, 16 recipients, 8 JWK Set candidates, and the PBKDF2 iterations
+ * of four default-strength attempts for the whole call. Exported so the numbers
+ * have one source.
+ *
+ * `pbes2Iterations` is four times {@link DEFAULT_PBES2_ITERATIONS}, so a token
+ * whose recipients were all minted at the default cost is openable by the
+ * fourth of them: a budget under that would refuse the holder of a key the
+ * producer wrote. The worst case stays bounded by two other numbers — the
+ * `recipients` limit caps how many attempts are made at all, and `maxIterations`
+ * caps what any single attempt may claim.
  */
 export const DEFAULT_JOSE_LIMITS: Readonly<Required<JOSELimits>> = /* @__PURE__ */ Object.freeze({
   signatures: 16,
   recipients: 16,
   keyCandidates: 8,
-  pbes2Iterations: 1_000_000,
+  pbes2Iterations: 4 * DEFAULT_PBES2_ITERATIONS,
 });
 
 /**
@@ -139,6 +157,101 @@ export function createPBES2Budget(limit: number): PBES2Budget {
       remaining -= p2c;
     },
   };
+}
+
+// -----------------------------------------------------------------------------
+// Producer option gates (JWS sign + JWE encrypt, compact & multi).
+// -----------------------------------------------------------------------------
+
+/**
+ * Serialize a protected header that is about to be signed or encrypted. A
+ * header carrying a BigInt or a circular reference has no JSON form, which is
+ * the caller's own option rather than a failure of the token being built.
+ */
+export function serializeProtectedHeader(header: object): string {
+  try {
+    return JSON.stringify(header);
+  } catch (error) {
+    throw new JWTError(
+      "The protected header is not JSON-serializable.",
+      "ERR_INVALID_OPTION",
+      error,
+    );
+  }
+}
+
+/**
+ * RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` names the extension parameters a
+ * recipient must understand. The producer holds itself to what every consumer
+ * checks: the same shape, and an entry for every parameter the header being
+ * built actually carries. `"b64"` is the one exception a JWS makes, since its
+ * absence from the header means `true` (RFC 7797 §3).
+ */
+export function assertProducerCrit(header: Record<string, unknown>, family: "JWS" | "JWE"): void {
+  const crit = header.crit;
+  if (crit === undefined) return;
+  assertCritShape(crit, { family, code: "ERR_INVALID_OPTION" });
+  for (const param of crit) {
+    if (family === "JWS" && param === "b64") continue;
+    if (Object.hasOwn(header, param)) continue;
+    throw new JWTError(
+      `"crit" lists "${param}", which the protected header does not carry.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/**
+ * RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` are bytes, and the consumer
+ * bounds their size (see {@link MAX_PARTY_INFO_BYTES}), so a producer that
+ * exceeds it would mint a token nothing can open.
+ */
+export function assertProducerPartyInfo(name: "apu" | "apv", value: unknown): void {
+  if (!(value instanceof Uint8Array)) {
+    throw new JWTError(
+      `"${name === "apu" ? "partyUInfo" : "partyVInfo"}" (${name}) must be a Uint8Array.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+  if (value.length > MAX_PARTY_INFO_BYTES) {
+    throw new JWTError(
+      `"${name === "apu" ? "partyUInfo" : "partyVInfo"}" (${name}) must not exceed ${MAX_PARTY_INFO_BYTES} bytes (got ${value.length}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/**
+ * RFC 7518 §5 — the CEK size is fixed by `enc`. A caller-supplied key of any
+ * other size is a malformed option, not a token or key-material failure.
+ */
+export function assertProducerCEK(
+  cek: Uint8Array<ArrayBuffer> | undefined,
+  enc: ContentEncryptionAlgorithm,
+): void {
+  if (cek === undefined) return;
+  const expected = bitLengthCEK(enc) >> 3;
+  if (!(cek instanceof Uint8Array) || cek.length !== expected) {
+    throw new JWTError(
+      `"cek" must be ${expected} bytes for ${enc} (got ${cek instanceof Uint8Array ? cek.length : typeof cek}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/** RFC 7518 §5.2 / §5.3 — the content IV length is fixed by `enc`. */
+export function assertProducerIV(
+  iv: Uint8Array<ArrayBuffer> | undefined,
+  enc: ContentEncryptionAlgorithm,
+): void {
+  if (iv === undefined) return;
+  const expected = bitLengthIV(enc) >> 3;
+  if (!(iv instanceof Uint8Array) || iv.length !== expected) {
+    throw new JWTError(
+      `"contentEncryptionIV" must be ${expected} bytes for ${enc} (got ${iv instanceof Uint8Array ? iv.length : typeof iv}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
 }
 
 // -----------------------------------------------------------------------------

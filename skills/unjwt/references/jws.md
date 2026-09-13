@@ -41,7 +41,8 @@ Creates a JWS Compact Serialization token.
 **Behavior:**
 
 - The `alg` is settled before any key work: `"none"` and anything outside `JWSAlgorithm` are refused with `ERR_JWS_ALG_NOT_ALLOWED`, carrying the same message `verify` reports for the same string
-- A payload that is neither text, bytes nor an object, and one `JSON.stringify` refuses (a `BigInt`, a circular reference), throw `ERR_INVALID_OPTION`
+- A payload that is neither text, bytes nor an object, and one `JSON.stringify` refuses (a `BigInt`, a circular reference), throw `ERR_INVALID_OPTION` — as does a `protectedHeader` that will not serialize
+- A caller `crit` is held to the rules `verify` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no parameter registered by RFC 7515/7516/7518, and every entry present in the protected header being built (`"b64"` excepted — its absence means `true`). The same gate runs per signer in `signMulti`
 - A key that cannot serve the declared `alg` throws `ERR_JWK_INVALID` with the WebCrypto failure as its `cause`
 - If payload is an object and `typ` is not set, defaults to `"JWT"`
 - If `expiresIn` is set and `iat` is missing, `iat` is set to current time
@@ -300,7 +301,7 @@ interface JOSELimits {
   signatures?: number; // JWS `signatures[]` entries — default 16
   recipients?: number; // JWE `recipients[]` entries — default 16
   keyCandidates?: number; // JWK Set candidates per token — default 8
-  pbes2Iterations?: number; // PBKDF2 iterations per call — default 1_000_000
+  pbes2Iterations?: number; // PBKDF2 iterations per call — default 2_400_000
 }
 
 type ExpiresIn = Duration;

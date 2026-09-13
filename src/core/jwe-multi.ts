@@ -50,6 +50,7 @@ import {
   validateCriticalHeadersJWE,
 } from "./utils";
 import {
+  DEFAULT_PBES2_ITERATIONS,
   JWE_ALG_CTX,
   JWE_DIRECT_ALGS,
   assertDirectKeyRole,
@@ -57,6 +58,10 @@ import {
   assertJWKSetCandidates,
   assertEntryLimit,
   assertNoZipOption,
+  assertProducerCEK,
+  assertProducerCrit,
+  assertProducerIV,
+  assertProducerPartyInfo,
   asKeyLookupError,
   assertSerializationObject,
   buildJWKSetFilter,
@@ -74,6 +79,7 @@ import {
   resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
+  serializeProtectedHeader,
   validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
@@ -118,6 +124,9 @@ export async function encryptMulti(
   const encError = checkJWEEncSupported(enc);
   if (encError) throw encError;
 
+  assertProducerCEK(options.cek, enc);
+  assertProducerIV(options.contentEncryptionIV, enc);
+
   for (const [index, recipient] of recipients.entries()) {
     if (resolvedAlgs[index]!.startsWith("PBES2")) {
       assertPBES2Params({ p2s: recipient.p2s, p2c: recipient.p2c });
@@ -135,6 +144,7 @@ export async function encryptMulti(
   if (userProtected) Object.assign(protectedHeader, userProtected);
   protectedHeader.enc = enc;
   applyTypCtyDefaults(protectedHeader, payload);
+  assertProducerCrit(protectedHeader as Record<string, unknown>, "JWE");
 
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
   const plaintextBytes = getPlaintextBytes(computedPayload || payload);
@@ -169,7 +179,7 @@ export async function encryptMulti(
     wireRecipients.push(wireRecipient);
   }
 
-  const protectedHeaderEncoded = base64UrlStringify(JSON.stringify(protectedHeader));
+  const protectedHeaderEncoded = base64UrlStringify(serializeProtectedHeader(protectedHeader));
 
   let aadEncoded: string | undefined;
   let aadForCipher: string = protectedHeaderEncoded;
@@ -504,9 +514,6 @@ export function generalToFlattened(jwe: JWEGeneralSerialization): JWEFlattenedSe
 
 // --- Internal helpers ---
 
-/** The PBKDF2 work a PBES2 recipient is minted with when none is named. */
-const DEFAULT_PBES2_ITERATIONS = 600_000;
-
 function _resolveRecipientAlg(key: JWEEncryptJWK, index: number): KeyManagementAlgorithm {
   if (!isJWK(key)) {
     throw new JWTError(`Recipient[${index}] key is not a JWK.`, "ERR_JWE_RECIPIENT_ALG_INFERENCE");
@@ -542,8 +549,14 @@ function _buildRecipientKeyMgmtParams(
   else if (alg.startsWith("PBES2")) params.p2s = secureRandomBytes(16);
   if (recipient.p2c !== undefined) params.p2c = recipient.p2c;
   else if (alg.startsWith("PBES2")) params.p2c = DEFAULT_PBES2_ITERATIONS;
-  if (recipient.ecdh?.partyUInfo) params.apu = recipient.ecdh.partyUInfo;
-  if (recipient.ecdh?.partyVInfo) params.apv = recipient.ecdh.partyVInfo;
+  if (recipient.ecdh?.partyUInfo !== undefined) {
+    assertProducerPartyInfo("apu", recipient.ecdh.partyUInfo);
+    params.apu = recipient.ecdh.partyUInfo;
+  }
+  if (recipient.ecdh?.partyVInfo !== undefined) {
+    assertProducerPartyInfo("apv", recipient.ecdh.partyVInfo);
+    params.apv = recipient.ecdh.partyVInfo;
+  }
   if (recipient.ecdh?.ephemeralKey) {
     const { epk, epkPrivateKey } = parseEphemeralKey(recipient.ecdh.ephemeralKey);
     params.epk = epk;

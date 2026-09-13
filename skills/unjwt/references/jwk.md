@@ -27,11 +27,11 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
 - `options?: GenerateKeyOptions`
   - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`, with the key's RFC 7638 thumbprint as its `kid` (one `kid` for both halves of a pair). Composite `A*CBC-HS*` keys carry `alg`, `ext` and `key_ops` like every other symmetric JWK, so the result infers `alg: "dir"` on its own
   - `extractable?: boolean` — default `true`; ignored when `toJWK: true` (the JWK output requires exporting the intermediate key)
-  - `keyUsage?: KeyUsage[]` — narrows the usages derived from `alg`, for every algorithm including `ECDH-ES*` (which admits `deriveBits` / `deriveKey`). A usage the algorithm cannot serve throws `ERR_INVALID_OPTION`
+  - `keyUsage?: KeyUsage[]` — narrows the usages derived from `alg`, for every algorithm including `ECDH-ES*` (which admits `deriveBits` / `deriveKey`). A usage the algorithm cannot serve throws `ERR_INVALID_OPTION`. A key pair splits the list between its halves — private takes `sign` / `decrypt` / `unwrapKey` / `deriveBits` / `deriveKey`, public takes `verify` / `encrypt` / `wrapKey` — so a narrowing that empties a half the algorithm would have populated is `ERR_INVALID_OPTION` as well: `generateJWK("ES256", { keyUsage: ["sign"] })` would emit a public JWK with `key_ops: []` that no `verify` accepts. `ECDH-ES*` is complete with its private half alone, since ECDH public keys carry no usage
   - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw
     `ERR_INVALID_OPTION` (RFC 7518 §3.3 / §3.5 set 2048 as the floor for `RS*`, `PS*` and `RSA-OAEP*`)
-  - `publicExponent?: Uint8Array` — RSA only, default `0x010001`
-  - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`
+  - `publicExponent?: Uint8Array` — RSA only, the exponent's big-endian bytes, default `0x010001`. Anything that is not a non-empty `Uint8Array` throws `ERR_INVALID_OPTION`
+  - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`. `ES256` / `ES384` / `ES512` are defined over `P-256` / `P-384` / `P-521` and `Ed25519` over its own curve, so a `namedCurve` contradicting them throws `ERR_INVALID_OPTION`; `EdDSA` (`Ed25519` default, `Ed448`) and `ECDH-ES*` (`P-256` default) choose among theirs
 
 PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriveJWKFromPassword`.
 
@@ -183,6 +183,12 @@ Exports a `CryptoKey` to JWK format. `jwkParams` optionally merges metadata fiel
 `crv`) throws `ERR_INVALID_OPTION` naming the offending members. The key's own values come
 from Web Crypto's authoritative export.
 
+The `alg` is the one Web Crypto holds, which knows nothing of JOSE roles: an AES-GCM key
+generated for `A128GCMKW` exports as `alg: "A128GCM"` — the CEK role — and
+`importKey(jwk, { alg: "A128GCMKW" })` then refuses it, since a JWK's `alg` is authoritative.
+Mint key-wrapping keys with `generateJWK(alg)` or `generateKey(alg, { toJWK: true })`, which
+stamp the `alg` that was asked for.
+
 Returns `Promise<JWK>`.
 
 ## Key Wrapping
@@ -242,6 +248,13 @@ Unwraps a CEK.
   - `p2s?`, `p2c?` — PBES2
   - `minIterations?`, `maxIterations?` — PBES2 `p2c` bounds. Default floor `1000` (RFC 7518 §4.8.1.2), default ceiling `1_000_000`
   - `epk?`, `apu?`, `apv?`, `enc?` — ECDH-ES
+
+An unwrap that does not succeed is one verdict under every algorithm:
+`ERR_JWE_DECRYPTION_FAILED` (`"JWE decryption failed."`), carrying nothing that separates a key
+the CEK was not wrapped to from a corrupt encrypted key or a forged authentication tag
+(RFC 7516 §11.5). What the caller can still fix names itself: a `wrappedKey` that is not bytes
+or an `options` that is not an object are `ERR_INVALID_OPTION`, and missing or malformed
+algorithm parameters (`iv`/`tag`, `p2s`/`p2c`, `epk`) are `ERR_JWE_INVALID`.
 
 ```ts
 // Returns CryptoKey by default
@@ -341,7 +354,7 @@ PBKDF2 derivation for PBES2 algorithms.
 
 - `password: string | Uint8Array`
 - `options: DeriveKeyOptions` — `{ alg: JWK_PBES2, salt: string | Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
-  - `alg` is **required**: `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`
+  - `alg` is **required**: `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`. Any other algorithm throws `ERR_JWK_UNSUPPORTED` before a single PBKDF2 round — a password derives a key under PBES2 alone
   - `salt` accepts text or raw bytes; a `string` is UTF-8 encoded, and the 8-octet minimum (RFC 7518 §4.8.1.1) is measured on the encoded bytes — a 3-character salt throws `ERR_JWE_INVALID`
   - `extractable` is ignored when `toJWK: true` — the JWK output requires exporting the derived key
 
@@ -448,6 +461,11 @@ interface JWKCacheAdapter {
 ```
 
 ## Errors
+
+`wrapKey`, `unwrapKey`, `deriveKeyFromPassword`, `deriveJWKFromPassword`, `deriveSharedSecret`,
+`importPEM`, `exportPEM` and `thumbprint` name the argument that was wrong rather than letting a
+`TypeError` out: `null`, `undefined` or a value of the wrong shape in any of their key, `pem`,
+`password` or `options` positions throws `ERR_INVALID_OPTION` quoting the parameter name.
 
 Every JOSE operation in this module throws `JWTError` — a single `instanceof` is enough. When the root cause is one of the bundled [`unsecure`](https://github.com/sandros94/unsecure) primitives (base64url codec, JSON parse), it is preserved as `cause`:
 

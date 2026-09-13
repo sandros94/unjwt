@@ -264,7 +264,7 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
    * `ERR_JWK_KEY_NOT_FOUND` before the first key is imported; a `p2c` that no
    * longer fits in the budget is `ERR_JWE_INVALID` before the derivation runs.
    *
-   * @default { keyCandidates: 8, pbes2Iterations: 1_000_000 }
+   * @default { keyCandidates: 8, pbes2Iterations: 2_400_000 }
    */
   limits?: Pick<JOSELimits, "keyCandidates" | "pbes2Iterations">;
   /** A list of allowed JWE "enc" (Encryption Algorithm) Header Parameter values for content encryption. */
@@ -457,7 +457,7 @@ export interface JWEMultiDecryptOptions extends JWEDecryptOptions {
    * `ERR_JWE_INVALID` before any of them is read, and the PBES2 budget is
    * summed across every recipient rather than weighed per recipient.
    *
-   * @default { recipients: 16, keyCandidates: 8, pbes2Iterations: 1_000_000 }
+   * @default { recipients: 16, keyCandidates: 8, pbes2Iterations: 2_400_000 }
    */
   limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
   /**

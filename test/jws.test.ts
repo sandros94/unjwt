@@ -784,10 +784,7 @@ describe.concurrent("JWS Utilities", () => {
       // RFC 7515 §4.1.11 — `crit` carries extensions only; a registered parameter such as
       // `alg` must never appear in it, even though the library processes it.
       it("should throw if 'crit' lists a registered header parameter (e.g. alg)", async () => {
-        const jws = await sign(payloadString, hs256Key, {
-          alg: "HS256",
-          protectedHeader: { crit: ["alg"] },
-        });
+        const jws = await signRawHeader({ alg: "HS256", crit: ["alg"] }, payloadString, hs256Key);
         await expect(verify(jws, hs256Key)).rejects.toThrow(
           'Invalid JWS: "crit" must not list registered header parameters.',
         );
@@ -812,10 +809,11 @@ describe.concurrent("JWS Utilities", () => {
       it.each(["jwk", "jku", "x5c", "x5t", "x5u"])(
         "rejects the registered parameter '%s' in crit",
         async (param) => {
-          const jws = await sign(payloadString, hs256Key, {
-            alg: "HS256",
-            protectedHeader: { crit: [param], [param]: "irrelevant" },
-          });
+          const jws = await signRawHeader(
+            { alg: "HS256", crit: [param], [param]: "irrelevant" },
+            payloadString,
+            hs256Key,
+          );
           const message = 'Invalid JWS: "crit" must not list registered header parameters.';
           await expect(verify(jws, hs256Key)).rejects.toThrow(message);
           await expect(verify(jws, hs256Key, { recognizedHeaders: [param] })).rejects.toThrow(
@@ -825,10 +823,11 @@ describe.concurrent("JWS Utilities", () => {
       );
 
       it("should throw if a header listed in 'crit' is not present", async () => {
-        const jwsNoExt = await sign(payloadString, hs256Key, {
-          alg: "HS256",
-          protectedHeader: { crit: ["app"] },
-        });
+        const jwsNoExt = await signRawHeader(
+          { alg: "HS256", crit: ["app"] },
+          payloadString,
+          hs256Key,
+        );
         await expect(verify(jwsNoExt, hs256Key)).rejects.toThrow(
           "Missing critical header parameters: app",
         );
@@ -1846,3 +1845,87 @@ describe.concurrent("JWS string keys are rejected", () => {
     expect(error.message).toBe(message);
   });
 });
+
+describe.concurrent("JWS producer header gates", () => {
+  let key: JWK_oct<"HS256">;
+
+  beforeAll(async () => {
+    key = await generateJWK("HS256");
+  });
+
+  it.each([
+    ["an empty array", []],
+    ["a string", "b64"],
+    ["an array with a non-string entry", ["app", 1]],
+  ])("refuses a crit that is %s", async (_label, crit) => {
+    const error = await sign("payload", key, {
+      protectedHeader: { crit, app: "web" } as never,
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"crit"');
+  });
+
+  it.each(["alg", "typ", "cty", "kid", "jwk", "jku", "x5c", "x5t", "x5u"])(
+    "refuses the registered parameter %s in crit",
+    async (param) => {
+      const error = await sign("payload", key, {
+        protectedHeader: { crit: [param], [param]: "irrelevant" },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain("registered header parameters");
+    },
+  );
+
+  it("refuses a crit naming a parameter the header does not carry", async () => {
+    const error = await sign("payload", key, {
+      protectedHeader: { crit: ["app"] },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("app");
+  });
+
+  it("accepts a crit whose parameters the header carries", async () => {
+    const jws = await sign("payload", key, {
+      protectedHeader: { crit: ["app"], app: "web" },
+    });
+    const { payload } = await verify(jws, key, { payload: "string", recognizedHeaders: ["app"] });
+    expect(payload).toBe("payload");
+  });
+
+  it('accepts "b64" in crit, whose absence from the header means true', async () => {
+    const unencoded = await sign("payload", key, {
+      protectedHeader: { crit: ["b64"], b64: false },
+    });
+    expect(unencoded.split(".")[1]).toBe("payload");
+
+    const encoded = await sign("payload", key, {
+      protectedHeader: { crit: ["b64"], b64: true },
+    });
+    await expect(verify(encoded, key, { payload: "string" })).resolves.toBeDefined();
+  });
+
+  it("refuses a protected header that cannot be serialized", async () => {
+    const circular: Record<string, unknown> = { app: "web" };
+    circular.self = circular;
+
+    for (const header of [{ n: 1n } as never, circular as never]) {
+      const error = await sign("payload", key, { protectedHeader: header }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain("protected header");
+    }
+  });
+});
+
+/**
+ * A JWS signed over a protected header the producer refuses to write, so the
+ * verification gates can be read on a token whose signature is valid.
+ */
+async function signRawHeader(
+  header: Record<string, unknown>,
+  payload: string,
+  key: CryptoKey,
+): Promise<string> {
+  const signingInput = `${base64UrlStringify(JSON.stringify(header))}.${base64UrlStringify(textEncoder.encode(payload))}`;
+  const signature = await crypto.subtle.sign("HMAC", key, textEncoder.encode(signingInput));
+  return `${signingInput}.${base64UrlStringify(new Uint8Array(signature))}`;
+}

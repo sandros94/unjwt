@@ -46,6 +46,18 @@ export async function thumbprint(
   jwk: JWK,
   options: { hash?: ThumbprintHash } = {},
 ): Promise<string> {
+  if (typeof jwk !== "object" || jwk === null) {
+    throw new JWTError(
+      `"jwk" must be a JWK object, got ${jwk === null ? "null" : typeof jwk}.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+  if (typeof options !== "object" || options === null) {
+    throw new JWTError(
+      `"options" must be an object, got ${options === null ? "null" : typeof options}.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
   const hash = options.hash ?? "SHA-256";
   if (!THUMBPRINT_HASHES.has(hash)) {
     throw new JWTError('"hash" must be "SHA-256", "SHA-384" or "SHA-512".', "ERR_INVALID_OPTION");

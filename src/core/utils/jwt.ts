@@ -265,11 +265,7 @@ export function computeJwtTimeClaims(
 
   if (wantsExp) {
     if (expiresAt !== undefined) {
-      const expMs = expiresAt.getTime();
-      if (!Number.isFinite(expMs)) {
-        throw new JWTError('"expiresAt" must be a valid Date.', "ERR_JWT_CLAIM_INVALID");
-      }
-      claims.exp = Math.floor(expMs / 1000);
+      claims.exp = Math.floor(_instantOf(expiresAt, "expiresAt") / 1000);
     } else {
       claims.exp = claims.iat + computeDurationInSeconds(expiresIn!);
     }
@@ -277,11 +273,7 @@ export function computeJwtTimeClaims(
 
   if (wantsNbf) {
     if (notBeforeAt !== undefined) {
-      const nbfMs = notBeforeAt.getTime();
-      if (!Number.isFinite(nbfMs)) {
-        throw new JWTError('"notBeforeAt" must be a valid Date.', "ERR_JWT_CLAIM_INVALID");
-      }
-      claims.nbf = Math.floor(nbfMs / 1000);
+      claims.nbf = Math.floor(_instantOf(notBeforeAt, "notBeforeAt") / 1000);
     } else {
       const offset = _parseDurationSeconds(notBeforeIn!);
       if (offset < 0) {
@@ -418,7 +410,7 @@ export function validateCriticalHeadersJWS(
   recognizedHeaders: string[] = [],
 ): void {
   if (protectedHeader.crit === undefined) return;
-  _assertCritShape(protectedHeader.crit, "JWS");
+  assertCritShape(protectedHeader.crit, { family: "JWS" });
   const missingHeaderParams = new Set<string>();
   const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_PROCESSED_JWS]);
 
@@ -444,7 +436,7 @@ export function validateCriticalHeadersJWE(
   recognizedHeaders?: string[],
 ): void {
   if (protectedHeader.crit === undefined) return;
-  _assertCritShape(protectedHeader.crit, "JWE");
+  assertCritShape(protectedHeader.crit, { family: "JWE" });
   const understoodParams = new Set<string>([...(recognizedHeaders || []), ...BASE_PROCESSED_JWE]);
 
   for (const critParam of protectedHeader.crit) {
@@ -486,9 +478,18 @@ const REGISTERED_HEADER_PARAMS = new Set([
   "p2c",
 ]);
 
-/** Shared `crit` shape gate for JWS and JWE (RFC 7515 §4.1.11 / RFC 7516 §4.1.13). */
-function _assertCritShape(crit: unknown, family: "JWS" | "JWE"): asserts crit is string[] {
-  const code = `ERR_${family}_INVALID`;
+/**
+ * Shared `crit` shape gate for JWS and JWE (RFC 7515 §4.1.11 / RFC 7516 §4.1.13):
+ * a non-empty array of strings, none of them a parameter the JOSE specs
+ * register. The `code` decides whose mistake it is — a token's on the consumer
+ * side, the caller's options on the producer side.
+ */
+export function assertCritShape(
+  crit: unknown,
+  options: { family: "JWS" | "JWE"; code?: JWTErrorCode },
+): asserts crit is string[] {
+  const { family } = options;
+  const code = options.code ?? (`ERR_${family}_INVALID` as JWTErrorCode);
   if (
     !Array.isArray(crit) ||
     crit.length === 0 ||
@@ -504,6 +505,19 @@ function _assertCritShape(crit: unknown, family: "JWS" | "JWE"): asserts crit is
       );
     }
   }
+}
+
+/**
+ * The instant an absolute time option names. Only a `Date` names one — a number
+ * of seconds, an ISO string or anything else is a malformed option rather than
+ * a claim the token could carry.
+ */
+function _instantOf(value: Date, name: "expiresAt" | "notBeforeAt"): number {
+  const ms = value instanceof Date ? value.getTime() : Number.NaN;
+  if (!Number.isFinite(ms)) {
+    throw new JWTError(`"${name}" must be a valid Date.`, "ERR_INVALID_OPTION");
+  }
+  return ms;
 }
 
 /** Normalize `clockTolerance` (seconds or a {@link Duration}) into non-negative seconds. */

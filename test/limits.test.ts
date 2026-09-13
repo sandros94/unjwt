@@ -11,6 +11,7 @@ import {
 } from "../src/core/jws";
 import { encrypt, decrypt, encryptMulti, decryptMulti } from "../src/core/jwe";
 import { generateJWK } from "../src/core/jwk";
+import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal";
 import { base64UrlStringify } from "../src/core/utils/base64";
 import { textEncoder } from "unsecure/utils";
 import type {
@@ -70,8 +71,12 @@ describe("limits", () => {
         signatures: 16,
         recipients: 16,
         keyCandidates: 8,
-        pbes2Iterations: 1_000_000,
+        pbes2Iterations: 2_400_000,
       });
+    });
+
+    it("covers four recipients minted at the default PBES2 cost", () => {
+      expect(DEFAULT_JOSE_LIMITS.pbes2Iterations).toBe(4 * DEFAULT_PBES2_ITERATIONS);
     });
   });
 
@@ -280,6 +285,20 @@ describe("limits", () => {
       await expect(
         decryptMulti(jwe, holder, { limits: { pbes2Iterations: 5999 } }),
       ).rejects.toThrow("PBES2 iteration budget of 5999 exhausted.");
+    });
+
+    it("opens the second of two recipients minted at the defaults", async () => {
+      const holder = passwordJWK("the real one");
+      const jwe = await encryptMulti({ sub: "u1" }, [
+        { key: passwordJWK("decoy one") },
+        { key: holder },
+      ]);
+
+      expect((jwe.recipients[1]!.header as { p2c: number }).p2c).toBe(DEFAULT_PBES2_ITERATIONS);
+
+      const { payload, recipientIndex } = await decryptMulti<{ sub: string }>(jwe, holder);
+      expect(payload.sub).toBe("u1");
+      expect(recipientIndex).toBe(1);
     });
 
     it("leaves a decoy's iterations unspent when it exceeds the whole budget", async () => {
