@@ -48,8 +48,10 @@ import {
   checkJWEZip,
   decodeProtectedHeader,
   parseEphemeralKey,
+  resolvePasswordKey,
+  resolvePayloadMode,
   typMatches,
-  validateJwtClaimsIfJsonPayload,
+  validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
 
@@ -157,7 +159,10 @@ export async function encrypt(
     jweKeyManagementParams.epkPrivateKey = parsed.epkPrivateKey;
   }
 
-  const wrappingKeyMaterial = await importKey(key, { alg, expect: "public" });
+  const wrappingKeyMaterial = await importKey(resolvePasswordKey(alg, key), {
+    alg,
+    expect: "public",
+  });
 
   const {
     cek: finalCek,
@@ -223,23 +228,33 @@ export async function encrypt(
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-export async function decrypt<T extends JOSEPayload>(
+export async function decrypt(
+  jwe: string,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options: JWEDecryptOptions & { payload: "bytes" },
+): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
+export async function decrypt(
+  jwe: string,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options: JWEDecryptOptions & { payload: "string" },
+): Promise<JWEDecryptResult<string>>;
+export async function decrypt(
+  jwe: string,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options: JWEDecryptOptions & { forceUint8Array: true },
+): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
+export async function decrypt<T extends Record<string, unknown> = JWTClaims>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options?: JWEDecryptOptions,
 ): Promise<JWEDecryptResult<T>>;
-export async function decrypt(
-  jwe: string,
-  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options: JWEDecryptOptions & {
-    forceUint8Array: true;
-  },
-): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Record<string, unknown>>(
+export async function decrypt<T extends JOSEPayload>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult<T>> {
+  const payloadMode = resolvePayloadMode(options);
+
   const parts = jwe.split(".");
   if (parts.length !== 5) {
     throw new JWTError(
@@ -372,7 +387,10 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
       throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
     }
   } else {
-    const unwrappingKey = await importKey(rawKeyMaterial, { alg, expect: "private" });
+    const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial), {
+      alg,
+      expect: "private",
+    });
     try {
       cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
       plaintextBytes = await joseDecrypt(
@@ -389,9 +407,12 @@ export async function decrypt<T extends string | Uint8Array<ArrayBuffer> | Recor
     }
   }
 
-  const payload = decodePayloadFromBytes<T>(plaintextBytes, options?.forceUint8Array) as T;
+  const payload = decodePayloadFromBytes<T>(plaintextBytes, {
+    payload: payloadMode,
+    family: "JWE",
+  }) as T;
 
-  validateJwtClaimsIfJsonPayload(payload, options);
+  validateClaimsIfJson(payload, payloadMode, options);
 
   const result: JWEDecryptResult<T> = {
     payload,

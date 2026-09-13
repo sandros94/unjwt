@@ -44,6 +44,19 @@ export interface JoseHeaderParameters {
  */
 export type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
 
+/**
+ * How the payload of a verified JWS or a decrypted JWE is decoded.
+ *
+ * - `"json"` — the payload bytes are UTF-8 JSON naming a non-null, non-array
+ *   object; anything else is rejected. JWT claim validation applies.
+ * - `"string"` — the payload bytes are returned as a UTF-8 string.
+ * - `"bytes"` — the payload bytes are returned verbatim.
+ *
+ * The mode is the caller's declaration of what the payload is: the decoded
+ * content never decides its own shape.
+ */
+export type JOSEPayloadMode = "json" | "string" | "bytes";
+
 export interface JWTClaims {
   /** "iss" (Issuer) Claim */
   iss?: string;

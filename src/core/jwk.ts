@@ -2,7 +2,7 @@ import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
-import { decodeSegment } from "./_internal";
+import { decodeSegment, stringKeyError } from "./_internal";
 
 import type {
   JWK,
@@ -389,6 +389,10 @@ export function clearJWKCache(): void {
  * - If `key` is any other JWK type (asymmetric), an algorithm hint is required (positional or via options)
  *   and a `CryptoKey` is returned.
  *
+ * A `string` is not key material and throws `ERR_JWK_INVALID`: PEM text belongs in
+ * {@link importPEM}, a shared secret in an `oct` JWK or a `Uint8Array`, and a password in
+ * {@link deriveJWKFromPassword} or the PBES2 `alg` of a JWE.
+ *
  * ### `expect` option (asymmetric only)
  *
  * Pass `expect: "public"` or `expect: "private"` to validate the caller's intent against the key's
@@ -399,7 +403,6 @@ export function clearJWKCache(): void {
  * `expect` is a no-op for symmetric (`oct`) JWKs and for `CryptoKey` instances whose
  * `algorithm.type` is `"secret"`.
  */
-export async function importKey(key: string): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
 export async function importKey(key: JWK_oct): Promise<Uint8Array<ArrayBuffer>>;
@@ -416,7 +419,7 @@ export async function importKey(
   },
 ): Promise<CryptoKey>;
 export async function importKey(
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   options: {
     /** Algorithm hint. Required when `key.alg` is absent on an asymmetric JWK. */
     alg?: string;
@@ -425,11 +428,11 @@ export async function importKey(
   },
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
 export async function importKey(
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   alg?: string,
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
 export async function importKey(
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer> | string,
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   algOrOptions?:
     | string
     | {
@@ -445,7 +448,7 @@ export async function importKey(
   const expect = typeof algOrOptions === "object" ? (algOrOptions.expect ?? undefined) : undefined;
 
   if (typeof key === "string") {
-    key = textEncoder.encode(key);
+    throw stringKeyError();
   }
 
   if (key instanceof Uint8Array) {
@@ -566,7 +569,7 @@ async function resolveWrappingKey(
     return typeof key === "string" ? textEncoder.encode(key) : key;
   }
   if (typeof key === "string") {
-    throw new TypeError(`Key must be CryptoKey, JWK, or Uint8Array for ${alg}`);
+    throw stringKeyError();
   }
   if (expect !== undefined) {
     return importKey(key as any, { alg, expect });

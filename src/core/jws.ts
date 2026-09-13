@@ -34,11 +34,13 @@ import {
   checkAlgAllowed,
   checkJWSAlgSupported,
   checkJWSB64Crit,
+  assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
+  resolvePayloadMode,
   resolveSigningKey,
   typMatches,
-  validateJwtClaimsIfJsonPayload,
+  validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
 
@@ -78,6 +80,8 @@ export async function sign(
   key: CryptoKey | JWSSignJWK | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
+  assertNotStringKey(key);
+
   const { protectedHeader: userHeader } = options;
   let { alg } = options;
 
@@ -155,21 +159,33 @@ export async function sign(
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
-export async function verify<T extends JOSEPayload>(
+export async function verify(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options?: JWSVerifyOptions,
-): Promise<JWSVerifyResult<T>>;
+  options: JWSVerifyOptions & { payload: "bytes" },
+): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
+export async function verify(
+  jws: string,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options: JWSVerifyOptions & { payload: "string" },
+): Promise<JWSVerifyResult<string>>;
 export async function verify(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
-export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record<string, unknown>>(
+export async function verify<T extends Record<string, unknown> = JWTClaims>(
+  jws: string,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options?: JWSVerifyOptions,
+): Promise<JWSVerifyResult<T>>;
+export async function verify<T extends JOSEPayload>(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
+  const payloadMode = resolvePayloadMode(options);
+
   const parts = jws.split(".");
   if (parts.length !== 3) {
     throw new JWTError(
@@ -206,6 +222,7 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
   const signatureBytes = decodeSegment(signatureEncoded, { family: "JWS", what: "Signature" });
 
   const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
+  assertNotStringKey(keyInput);
 
   const algError = checkAlgAllowed(alg, keyInput, options.algorithms, JWS_ALG_CTX);
   if (algError) throw algError;
@@ -257,13 +274,13 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
     throw asKeyUsageError(error, alg);
   }
 
-  // RFC 7797: when `b64: false`, the payload segment is the raw payload (not base64url-encoded).
-  const useB64 = protectedHeader.b64 !== false;
-  const payload = decodeJWSPayload<T>(payloadEncoded as string, useB64, options.forceUint8Array);
-
   validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
 
-  validateJwtClaimsIfJsonPayload(payload, options);
+  // RFC 7797: when `b64: false`, the payload segment is the raw payload (not base64url-encoded).
+  const useB64 = protectedHeader.b64 !== false;
+  const payload = decodeJWSPayload<T>(payloadEncoded as string, useB64, payloadMode);
+
+  validateClaimsIfJson(payload, payloadMode, options);
 
   return {
     payload,

@@ -70,7 +70,7 @@ const rsaJwk = await generateJWK("RS256", { modulusLength: 2048, kid: "rsa-1", u
 
 Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 
-- `string` → encoded to `Uint8Array`
+- `string` → throws `ERR_JWK_INVALID`, see below
 - `Uint8Array` → returned as-is
 - `CryptoKey` → returned as-is (subject to `expect` validation if supplied)
 - `JWK_oct` → `k` decoded to `Uint8Array` (default)
@@ -88,6 +88,21 @@ HS\* require at least the hash output size (32/48/64 bytes, RFC 7518 §3.2); A\*
 A\*GCM, and A\*CBC-HS\* require their exact key size. `asCryptoKey` with an HMAC `algorithm`
 enforces the same minimum. Throws `ERR_JWK_INVALID`; algorithms whose key size cannot be known
 from `alg` alone (e.g. `"dir"`, absent `alg`) are not checked.
+
+#### Strings are rejected
+
+`importKey` takes no `string`. A string reaches it as one of three different things and
+guessing between them is how PEM armour became a valid HMAC secret:
+
+```
+String keys are not accepted: pass an oct JWK or a Uint8Array secret,
+or import PEM text with importPEM().   // ERR_JWK_INVALID
+```
+
+- PEM text → `importPEM(pem, alg)`
+- Shared secret → an `oct` JWK (`generateJWK("HS256")`) or a `Uint8Array`
+- Password → `deriveJWKFromPassword()`, or pass it straight to `encrypt`/`decrypt`, where
+  PBES2 derives a key from it (the only place JOSE accepts a string as key material)
 
 #### `expect` option
 
@@ -134,7 +149,8 @@ Wraps a Content Encryption Key using the specified key management algorithm.
 
 - `alg: KeyManagementAlgorithm` — including `"dir"` (returns empty `encryptedKey`)
 - `keyToWrap: CryptoKey | Uint8Array`
-- `wrappingKey: CryptoKey | JWK | string | Uint8Array` — string/Uint8Array only for PBES2
+- `wrappingKey: CryptoKey | JWK | string | Uint8Array` — a `string` is a PBES2 password and is
+  rejected with `ERR_JWK_INVALID` under any other `alg`
 - `options?: WrapKeyOptions`
   - `iv?` — AES-GCMKW initialization vector; auto-generated when omitted (always omit in
     production — reusing an IV under the same key breaks AES-GCM; intended only for tests

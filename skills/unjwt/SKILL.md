@@ -60,16 +60,19 @@ const jwe = await encrypt({ secret: "data" }, "password");
 const { payload } = await decrypt(jwe, "password");
 
 // H3 session
-import { useJWESession } from "unjwt/adapters/h3v2";
+import { useJWESession, generateJWK } from "unjwt/adapters/h3v2";
 
-const session = await useJWESession(event, { key: "secret", maxAge: "7D" });
+const sessionKey = await generateJWK("A256GCM");
+const session = await useJWESession(event, { key: sessionKey, maxAge: "7D" });
 await session.update({ userId: "123" });
 ```
 
 ## Key Concepts
 
 - **`JOSEPayload`**: the payload type accepted by `sign`/`encrypt` — `string | Uint8Array | Record<string, unknown>`; covers both JWT and generic serializable objects. `JWTClaims` remains the spec-compliant sub-type for typed claim access
-- **JWK-first key model**: functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string
+- **JWK-first key model**: functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array
+- **Strings are not keys**: `importKey` and every JWS entry point reject a `string` with `ERR_JWK_INVALID` (`"String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM()."`). JWE is the sole exception, and only as a PBES2 password — under any other `alg` it is rejected too
+- **Payload typing is declared, not sniffed**: `verify`/`verifyMulti`/`verifyMultiAll`/`decrypt`/`decryptMulti` take `payload: "json" | "string" | "bytes"` (default `"json"` — must parse to a non-null, non-array object, and claims are validated). `typ`/`cty` never pick the shape. `validateClaims: true` outside `"json"` is `ERR_INVALID_OPTION`; `forceUint8Array` is a deprecated alias of `payload: "bytes"`
 - **Algorithm inference**: `sign`/`encrypt` infer `alg`/`enc` from JWK properties when not explicitly provided; password strings default to PBES2
 - **`dir` (direct encryption)**: pass a `CryptoKey | JWK_oct | Uint8Array` directly as the CEK; `enc` must always be specified
 - **Multi-recipient JWE**: `encryptMulti()` emits General JSON Serialization (RFC 7516 §7.2.1). One shared CEK, one ciphertext, per-recipient wraps. `dir` and bare `ECDH-ES` are rejected in multi (throw `ERR_JWE_ALG_FORBIDDEN_IN_MULTI`). `decryptMulti()` accepts General + Flattened (auto-normalized); compact tokens stay with `decrypt()`

@@ -1,4 +1,9 @@
-import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
+import type {
+  JoseHeaderParameters,
+  JOSEPayload,
+  JOSEPayloadMode,
+  JWTClaimValidationOptions,
+} from "./jwt";
 import type {
   JWK_oct,
   JWK_EC_Public,
@@ -143,16 +148,39 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
    * cannot be inferred and require this option explicitly.
    */
   algorithms?: JWSAlgorithm[];
-  /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
+  /**
+   * What the verified payload is, declared by the caller — the signed content
+   * never decides its own shape.
+   *
+   * - `"json"` (default) — the payload must be UTF-8 JSON naming a non-null,
+   *   non-array object, returned as the result's `T`. Anything else is
+   *   `ERR_JWS_INVALID`. JWT claim validation applies.
+   * - `"string"` — the payload is returned as a UTF-8 string; invalid UTF-8 is
+   *   `ERR_JWS_INVALID`.
+   * - `"bytes"` — the payload is returned as `Uint8Array<ArrayBuffer>`.
+   *
+   * Under RFC 7797 `b64: false` the unencoded payload segment is the content
+   * and the same three modes apply to it.
+   *
+   * @default "json"
+   */
+  payload?: JOSEPayloadMode;
+  /**
+   * If true, forces the payload to be returned as a `Uint8Array`.
+   *
+   * @deprecated Use `payload: "bytes"`. Deprecated in v0.8.0, removed in v0.9.0
+   */
   forceUint8Array?: boolean;
   /**
    * Set to `false` to skip JWT claim validation after a successful signature
    * verification.
    *
-   * Claim validation runs whenever the decoded payload is a JSON object and
-   * this option is not `false` — the `typ` header is not consulted, and a
-   * string / `Uint8Array` payload (including `forceUint8Array: true`) carries
-   * no claims to validate. `true` and the default `undefined` behave alike.
+   * Claim validation runs under `payload: "json"` (the default) unless this
+   * option is `false`; `true` and the default `undefined` behave alike. It is
+   * the payload mode — never the `typ` header or the payload's shape — that
+   * decides whether there are claims to validate, so `validateClaims: true`
+   * alongside `payload: "string"` / `"bytes"` is `ERR_INVALID_OPTION` rather
+   * than a validation that silently does not run.
    */
   validateClaims?: boolean;
 }

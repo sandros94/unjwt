@@ -10,6 +10,7 @@ import type {
   JWEEncryptJWK,
   JWEDecryptJWK,
   JWTClaims,
+  JOSEPayloadMode,
   JWKLookupFunction,
   JWEHeaderParameters,
   KeyManagementAlgorithm,
@@ -200,12 +201,16 @@ describe.concurrent("JWE Utilities", () => {
           decryptionKey = keySet.key as CryptoKey;
         }
 
+        let payloadMode: JOSEPayloadMode;
         if (typeof plaintext === "string") {
           plaintextBuffer = textEncoder.encode(plaintext);
+          payloadMode = "string";
         } else if (plaintext instanceof Uint8Array) {
           plaintextBuffer = plaintext;
+          payloadMode = "bytes";
         } else {
           plaintextBuffer = textEncoder.encode(JSON.stringify(plaintext));
+          payloadMode = "json";
         }
 
         const jwe = await encrypt(plaintext, encryptionKey, {
@@ -224,18 +229,11 @@ describe.concurrent("JWE Utilities", () => {
           .setProtectedHeader({ alg, enc, cty: "application/json" })
           .encrypt(encryptionKey);
 
-        const { payload: decrypted } = await decrypt(jweFromJose, decryptionKey);
+        const { payload: decrypted } = await decrypt(jweFromJose, decryptionKey, {
+          payload: payloadMode,
+        });
 
-        if (typeof plaintext === "object" && !(plaintext instanceof Uint8Array)) {
-          // eslint-disable-next-line vitest/no-conditional-expect -- data-driven: decrypted value asserted per plaintext scenario type
-          expect(decrypted).toEqual(plaintext);
-        } else if (typeof plaintext === "string") {
-          // eslint-disable-next-line vitest/no-conditional-expect -- data-driven: decrypted value asserted per plaintext scenario type
-          expect(decrypted).toEqual(plaintext);
-        } else {
-          // eslint-disable-next-line vitest/no-conditional-expect -- data-driven: decrypted value asserted per plaintext scenario type
-          expect(textEncoder.encode(decrypted as any)).toEqual(plaintext);
-        }
+        expect(decrypted).toEqual(plaintext);
       });
     });
   }
@@ -246,7 +244,7 @@ describe.concurrent("JWE Utilities", () => {
       const p = "password";
 
       const jwe = await encrypt(t, p);
-      const { payload } = await decrypt(jwe, p);
+      const { payload } = await decrypt(jwe, p, { payload: "string" });
 
       expect(payload).toBe(t);
 
@@ -264,7 +262,7 @@ describe.concurrent("JWE Utilities", () => {
       } as const satisfies JWK;
 
       const jwe = await encrypt(t, jwk);
-      const { payload } = await decrypt(jwe, jwk);
+      const { payload } = await decrypt(jwe, jwk, { payload: "string" });
 
       expect(payload).toBe(t);
 
@@ -280,7 +278,7 @@ describe.concurrent("JWE Utilities", () => {
       const jwe = await encrypt("payload", jwk, { enc: "A256GCM" });
       const header = JSON.parse(base64UrlParse(jwe.split(".")[0]));
       expect(header.alg).toBe("A256GCMKW");
-      const { payload } = await decrypt(jwe, jwk);
+      const { payload } = await decrypt(jwe, jwk, { payload: "string" });
       expect(payload).toBe("payload");
     });
 
@@ -310,7 +308,7 @@ describe.concurrent("JWE Utilities", () => {
         contentEncryptionIV: customIv,
       });
 
-      const { payload: decryptedPayload } = await decrypt(jwe, key);
+      const { payload: decryptedPayload } = await decrypt(jwe, key, { payload: "string" });
       expect(decryptedPayload).toBe(plaintextString);
       // Only the IV is verifiable here; the CEK is wrapped so its bytes aren't visible
       // without a manual unwrap.
@@ -438,7 +436,7 @@ describe.concurrent("JWE Utilities", () => {
       const parts = jwe.split(".");
       expect(parts[1]).toBe(""); // encrypted key field is empty
 
-      const { payload } = await decrypt(jwe, key);
+      const { payload } = await decrypt(jwe, key, { payload: "string" });
       expect(payload).toBe(plaintext);
     });
 
@@ -447,7 +445,7 @@ describe.concurrent("JWE Utilities", () => {
       const plaintext = "direct CBC test";
 
       const jwe = await encrypt(plaintext, cek, { alg: "dir", enc: "A128CBC-HS256" });
-      const { payload } = await decrypt(jwe, cek);
+      const { payload } = await decrypt(jwe, cek, { payload: "string" });
       expect(payload).toBe(plaintext);
     });
 
@@ -456,7 +454,7 @@ describe.concurrent("JWE Utilities", () => {
       const plaintext = "JWK dir test";
 
       const jwe = await encrypt(plaintext, jwk, { alg: "dir", enc: "A256GCM" });
-      const { payload } = await decrypt(jwe, jwk);
+      const { payload } = await decrypt(jwe, jwk, { payload: "string" });
       expect(payload).toBe(plaintext);
     });
 
@@ -466,7 +464,7 @@ describe.concurrent("JWE Utilities", () => {
 
       // enc not specified in options — should be read from jwk.enc
       const jwe = await encrypt(plaintext, jwk, { alg: "dir" });
-      const { payload } = await decrypt(jwe, jwk);
+      const { payload } = await decrypt(jwe, jwk, { payload: "string" });
       expect(payload).toBe(plaintext);
     });
 
@@ -599,7 +597,9 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       // Decrypts fine if "exp" is understood (e.g. by being in options.critical)
-      await expect(decrypt(jweCrit, key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
+      await expect(
+        decrypt(jweCrit, key, { payload: "string", recognizedHeaders: ["exp"] }),
+      ).resolves.toBeDefined();
       await expect(
         jose.compactDecrypt(jweCrit, joseKey, { crit: { exp: true } }),
       ).resolves.toBeDefined();
@@ -636,8 +636,8 @@ describe.concurrent("JWE Utilities", () => {
       },
     );
 
-    it("should correctly parse plaintext as JSON or string based on typ/cty", async () => {
-      // 1. typ: "JWT"
+    it("decodes the plaintext by the payload option, never by typ/cty", async () => {
+      // 1. An object payload comes back as claims under the default mode.
       const jweJwt = await encrypt(plaintextObj, key, {
         alg,
         enc,
@@ -645,33 +645,30 @@ describe.concurrent("JWE Utilities", () => {
       });
       const resJwt = await decrypt<JWTClaims>(jweJwt, key);
       expect(resJwt.payload).toEqual(plaintextObj);
-      expect(typeof resJwt.payload).toBe("object");
 
-      // 2. cty: "application/json"
-      const jweJsonCty = await encrypt(plaintextObj, key, {
+      // 2. `cty: "application/json"` does not make a string payload a JSON object.
+      const jweJsonCty = await encrypt(plaintextString, key, {
         alg,
         enc,
         protectedHeader: { cty: "application/json" },
       });
-      const resJsonCty = await decrypt<JWTClaims>(jweJsonCty, key);
-      expect(resJsonCty.payload).toEqual(plaintextObj);
-      expect(typeof resJsonCty.payload).toBe("object");
+      const resJsonCty = await decrypt(jweJsonCty, key, { payload: "string" });
+      expect(resJsonCty.payload).toBe(plaintextString);
 
-      // 3. No typ/cty, should be string
-      const jweBytesPlain = await encrypt(textEncoder.encode(plaintextString), key, { alg, enc });
-      const resString = await decrypt<string>(jweBytesPlain, key);
-      expect(resString.payload).toBeTypeOf("string");
-      expect(resString.payload).toEqual(plaintextString);
+      // 3. A JSON object stays claims even with no typ/cty on the header.
+      const jweBare = await encrypt(JSON.stringify(plaintextObj), key, { alg, enc });
+      const resBare = await decrypt<JWTClaims>(jweBare, key);
+      expect(resBare.payload).toEqual(plaintextObj);
 
-      // 4. typ: "JWT" but plaintext is not valid JSON
+      // 4. `typ: "JWT"` over a non-JSON plaintext is rejected, not silently downgraded.
       const jweMalformedJwt = await encrypt("not a json object", key, {
         alg,
         enc,
         protectedHeader: { typ: "JWT" },
       });
-      const resMalformedJwt = await decrypt<string>(jweMalformedJwt, key);
-      expect(resMalformedJwt.payload).toBe("not a json object"); // Falls back to string
-      expect(typeof resMalformedJwt.payload).toBe("string");
+      const error = await decrypt(jweMalformedJwt, key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Payload is not a JSON object.");
     });
 
     describe("claims and header defaults", () => {
@@ -756,7 +753,7 @@ describe.concurrent("JWE Utilities", () => {
         expect(resObj.payload).toEqual(obj);
 
         const jweStr = await encrypt("hello", key, { alg, enc });
-        const resStr = await decrypt<string>(jweStr, key);
+        const resStr = await decrypt(jweStr, key, { payload: "string" });
         expect(resStr.protectedHeader.typ).toBeUndefined();
         expect(resStr.payload).toBe("hello");
       });
@@ -769,7 +766,9 @@ describe.concurrent("JWE Utilities", () => {
           protectedHeader: { crit: ["exp"], exp: 1_234_567_890 },
         });
 
-        await expect(decrypt(jweCrit, key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
+        await expect(
+          decrypt(jweCrit, key, { payload: "string", recognizedHeaders: ["exp"] }),
+        ).resolves.toBeDefined();
       });
 
       it("does have an expired claim but validation is skipped", async () => {
@@ -1338,5 +1337,104 @@ describe.concurrent("JWE Utilities", () => {
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
       expect(error.message).toMatch(/"typ"/);
     });
+  });
+});
+
+describe.concurrent("JWE payload typing", () => {
+  let key: CryptoKey;
+
+  beforeAll(async () => {
+    key = await generateKey("A256KW");
+  });
+
+  const opts = { alg: "A256KW", enc: "A256GCM" } as const;
+
+  it("returns the claims object by default", async () => {
+    const jwe = await encrypt({ sub: "u" }, key, opts);
+    const { payload } = await decrypt(jwe, key);
+    expect(payload).toEqual({ sub: "u" });
+  });
+
+  it.each(["[1,2]", "123", '"str"', "null", "not json at all"])(
+    'rejects payload "%s" under the default mode',
+    async (raw) => {
+      const jwe = await encrypt(raw, key, opts);
+      const error = await decrypt(jwe, key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWE: Payload is not a JSON object.");
+    },
+  );
+
+  it('returns a JSON-shaped string verbatim under payload: "string"', async () => {
+    const jwe = await encrypt('{"sub":"admin"}', key, opts);
+    const { payload } = await decrypt(jwe, key, { payload: "string" });
+    expect(payload).toBe('{"sub":"admin"}');
+  });
+
+  it('forceUint8Array matches payload: "bytes"', async () => {
+    const jwe = await encrypt(textEncoder.encode("raw bytes"), key, opts);
+    const aliased = await decrypt(jwe, key, { forceUint8Array: true });
+    const explicit = await decrypt(jwe, key, { payload: "bytes" });
+    expect(aliased.payload).toBeInstanceOf(Uint8Array);
+    expect(aliased.payload).toEqual(explicit.payload);
+  });
+
+  it("rejects forceUint8Array contradicting payload", async () => {
+    const jwe = await encrypt({ sub: "u" }, key, opts);
+    const error = await decrypt(jwe, key, {
+      forceUint8Array: false,
+      payload: "bytes",
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it('rejects validateClaims: true outside payload: "json"', async () => {
+    const jwe = await encrypt("plain", key, opts);
+    const error = await decrypt(jwe, key, {
+      payload: "bytes",
+      validateClaims: true,
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"validateClaims" requires payload: "json".');
+  });
+
+  it("validates claims of a payload that was encrypted as a string", async () => {
+    const jwe = await encrypt(JSON.stringify({ sub: "u", exp: 1_000_000 }), key, opts);
+    const error = await decrypt(jwe, key).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+  });
+});
+
+describe.concurrent("JWE string keys are passwords only", () => {
+  const message =
+    "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
+
+  it("derives a PBES2 key from a password on both sides", async () => {
+    const jwe = await encrypt({ sub: "u" }, "correct horse battery staple", {
+      alg: "PBES2-HS256+A128KW",
+      enc: "A128GCM",
+      p2c: 1000,
+    });
+    const { payload } = await decrypt(jwe, "correct horse battery staple");
+    expect(payload).toEqual({ sub: "u" });
+  });
+
+  it("rejects a string key under a non-PBES2 alg on encrypt", async () => {
+    const error = await encrypt({ sub: "u" }, "a-256-bit-secret-value-as-string", {
+      alg: "dir",
+      enc: "A256GCM",
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe(message);
+  });
+
+  it("rejects a string key under a non-PBES2 alg on decrypt", async () => {
+    const key = await generateKey("A256GCM");
+    const jwe = await encrypt({ sub: "u" }, key, { alg: "dir", enc: "A256GCM" });
+    const error = await decrypt(jwe, "a-256-bit-secret-value-as-string", {
+      algorithms: ["dir"],
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe(message);
   });
 });

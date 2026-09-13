@@ -28,7 +28,7 @@ describe.concurrent("JWS Utilities", () => {
       } as const satisfies JWK;
 
       const jws = await sign(t, jwk);
-      const { payload } = await verify(jws, jwk);
+      const { payload } = await verify(jws, jwk, { payload: "string" });
       expect(payload).toBe(t);
 
       const { payload: josePayload } = await jose.compactVerify(jws, jwk);
@@ -488,9 +488,7 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (Uint8Array payload)", async () => {
       const jws = await sign(payloadBytes, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<Uint8Array<ArrayBuffer>>(jws, hs256Key, {
-        forceUint8Array: true,
-      });
+      const { payload, protectedHeader } = await verify(jws, hs256Key, { payload: "bytes" });
       expect(payload).toBeInstanceOf(Uint8Array);
       expect(payload).toEqual(payloadBytes);
       expect(protectedHeader.alg).toBe("HS256");
@@ -502,7 +500,7 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (String payload)", async () => {
       const jws = await sign(payloadString, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
+      const { payload, protectedHeader } = await verify(jws, hs256Key, { payload: "string" });
       expect(payload).toBeTypeOf("string");
       expect(payload).toEqual(payloadString);
       expect(protectedHeader.alg).toBe("HS256");
@@ -554,21 +552,19 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { b64: false },
       });
-      const { payload, protectedHeader } = await verify<string>(jws, hs256Key);
+      const { payload, protectedHeader } = await verify(jws, hs256Key, { payload: "string" });
       expect(protectedHeader.b64).toBe(false);
       expect(protectedHeader.alg).toBe("HS256");
       expect(typeof payload).toBe("string");
       expect(payload).toBe(payloadString);
     });
 
-    it("should verify with b64: false and forceUint8Array", async () => {
+    it('should verify with b64: false and payload: "bytes"', async () => {
       const jws = await sign(payloadString, hs256Key, {
         alg: "HS256",
         protectedHeader: { b64: false },
       });
-      const { payload, protectedHeader } = await verify<Uint8Array<ArrayBuffer>>(jws, hs256Key, {
-        forceUint8Array: true,
-      });
+      const { payload, protectedHeader } = await verify(jws, hs256Key, { payload: "bytes" });
       expect(protectedHeader.b64).toBe(false);
       expect(payload).toBeInstanceOf(Uint8Array);
       expect(textDecoder.decode(payload)).toBe(payloadString);
@@ -704,7 +700,7 @@ describe.concurrent("JWS Utilities", () => {
           alg: "HS256",
           protectedHeader: { crit: ["b64"], b64: true },
         });
-        await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+        await expect(verify(jws, hs256Key, { payload: "string" })).resolves.toBeDefined();
       });
 
       // RFC 7515 §4.1.11 — `crit` carries extensions only; a registered parameter such as
@@ -771,7 +767,7 @@ describe.concurrent("JWS Utilities", () => {
           alg: "HS256",
           protectedHeader: { crit: ["b64"], b64: false },
         });
-        await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+        await expect(verify(jws, hs256Key, { payload: "string" })).resolves.toBeDefined();
 
         await expect(jose.compactVerify(jws, hs256Key)).resolves.toBeDefined();
       });
@@ -1237,7 +1233,9 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
-      await expect(verify(jws, hs256Key, { recognizedHeaders: ["exp"] })).resolves.toBeDefined();
+      await expect(
+        verify(jws, hs256Key, { payload: "string", recognizedHeaders: ["exp"] }),
+      ).resolves.toBeDefined();
     });
 
     it("should throw if crit present but no critical options provided", async () => {
@@ -1620,5 +1618,145 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         /"typ" \(Type\) Header Parameter mismatch/,
       );
     });
+  });
+});
+
+describe.concurrent("JWS payload typing (compact)", () => {
+  let hs256Key: CryptoKey;
+
+  beforeAll(async () => {
+    hs256Key = await generateKey("HS256");
+  });
+
+  it("returns the claims object by default", async () => {
+    const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
+    const { payload } = await verify(jws, hs256Key);
+    expect(payload).toEqual({ sub: "u" });
+  });
+
+  it("rejects a non-JSON-object payload under the default mode", async () => {
+    const jws = await sign("Payload as string", hs256Key, { alg: "HS256" });
+    const error = await verify(jws, hs256Key).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    expect(error.message).toBe("Invalid JWS: Payload is not a JSON object.");
+  });
+
+  it.each(["[1,2]", "123", '"str"', "null", "not json at all"])(
+    'rejects payload "%s" under payload: "json"',
+    async (raw) => {
+      const jws = await sign(raw, hs256Key, { alg: "HS256" });
+      const error = await verify(jws, hs256Key, { payload: "json" }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Payload is not a JSON object.");
+    },
+  );
+
+  it('returns a JSON-shaped string verbatim under payload: "string"', async () => {
+    const jws = await sign('{"sub":"admin"}', hs256Key, { alg: "HS256" });
+    const { payload } = await verify(jws, hs256Key, { payload: "string" });
+    expect(payload).toBe('{"sub":"admin"}');
+  });
+
+  it('returns bytes under payload: "bytes"', async () => {
+    const jws = await sign(textEncoder.encode("raw bytes"), hs256Key, { alg: "HS256" });
+    const { payload } = await verify(jws, hs256Key, { payload: "bytes" });
+    expect(payload).toBeInstanceOf(Uint8Array);
+    expect(textDecoder.decode(payload)).toBe("raw bytes");
+  });
+
+  it('forceUint8Array is an alias of payload: "bytes"', async () => {
+    const jws = await sign(textEncoder.encode("raw bytes"), hs256Key, { alg: "HS256" });
+    const aliased = await verify(jws, hs256Key, { forceUint8Array: true });
+    const explicit = await verify(jws, hs256Key, { payload: "bytes" });
+    expect(aliased.payload).toEqual(explicit.payload);
+  });
+
+  it("rejects forceUint8Array contradicting payload", async () => {
+    const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
+    const error = await verify(jws, hs256Key, {
+      forceUint8Array: true,
+      payload: "json",
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it("rejects an unknown payload mode", async () => {
+    const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
+    const error = await verify(jws, hs256Key, { payload: "text" as any }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it('rejects validateClaims: true outside payload: "json"', async () => {
+    const jws = await sign("plain", hs256Key, { alg: "HS256" });
+    const error = await verify(jws, hs256Key, {
+      payload: "string",
+      validateClaims: true,
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"validateClaims" requires payload: "json".');
+  });
+
+  it("validates claims of a payload that was signed as a string", async () => {
+    const expired = JSON.stringify({ sub: "admin", exp: 1_000_000 });
+    const jws = await sign(expired, hs256Key, { alg: "HS256" });
+    const error = await verify(jws, hs256Key).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+  });
+
+  it("validates claims under b64: false", async () => {
+    const jws = await sign(JSON.stringify({ sub: "u", exp: 1_000_000 }), hs256Key, {
+      alg: "HS256",
+      protectedHeader: { b64: false },
+    });
+    const error = await verify(jws, hs256Key).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+  });
+
+  it('returns the raw segment under b64: false with payload: "string"', async () => {
+    const jws = await sign("unencoded", hs256Key, {
+      alg: "HS256",
+      protectedHeader: { b64: false },
+    });
+    const { payload } = await verify(jws, hs256Key, { payload: "string" });
+    expect(payload).toBe("unencoded");
+  });
+
+  it('rejects invalid UTF-8 under payload: "string"', async () => {
+    const jws = await sign(new Uint8Array([0xff, 0xfe, 0xfd]), hs256Key, { alg: "HS256" });
+    const error = await verify(jws, hs256Key, { payload: "string" }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+  });
+});
+
+describe.concurrent("JWS string keys are rejected", () => {
+  const message =
+    "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
+
+  it("rejects a string key on sign", async () => {
+    const error = await sign({ sub: "u" }, "a-very-long-shared-secret-value" as any, {
+      alg: "HS256",
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe(message);
+  });
+
+  it("rejects a string key on verify", async () => {
+    const key = await generateKey("HS256");
+    const jws = await sign({ sub: "u" }, key, { alg: "HS256" });
+    const error = await verify(jws, "a-very-long-shared-secret-value" as any, {
+      algorithms: ["HS256"],
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe(message);
+  });
+
+  it("rejects a string returned by a key lookup function", async () => {
+    const key = await generateKey("HS256");
+    const jws = await sign({ sub: "u" }, key, { alg: "HS256" });
+    const error = await verify(jws, (() => "secret-from-lookup") as any, {
+      algorithms: ["HS256"],
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe(message);
   });
 });

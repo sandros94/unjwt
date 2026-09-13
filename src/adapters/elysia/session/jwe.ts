@@ -98,7 +98,7 @@ export interface SessionHooksJWE<
 /** JWE decrypt overrides a session accepts — everything the adapter does not own itself. */
 export type SessionDecryptOptions = StrictOmit<
   JWEDecryptOptions,
-  "algorithms" | "encryptionAlgorithms" | "typ" | "validateClaims" | "forceUint8Array"
+  "algorithms" | "encryptionAlgorithms" | "typ" | "validateClaims" | "forceUint8Array" | "payload"
 >;
 
 export interface SessionConfigJWE<
@@ -416,7 +416,7 @@ async function unsealSession<
       maxTokenAge: config.maxAge,
       algorithms: alg ? [alg] : undefined,
       encryptionAlgorithms: enc ? [enc] : undefined,
-      forceUint8Array: false,
+      payload: "json",
       validateClaims: true,
     },
   ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix: PREFIX }));

@@ -36,7 +36,10 @@ Produces a JWE Compact Serialization token.
 
 - `payload` — `string | Uint8Array | Record<string, any>`
 - `key`
-  - `string` → password for PBES2 (infers `alg = "PBES2-HS256+A128KW"`)
+  - `string` → PBES2 password, and nothing else (infers `alg = "PBES2-HS256+A128KW"`). A string under any
+    other `alg` — `"dir"`, `"A256KW"`, … — throws `ERR_JWK_INVALID` (`"String keys are not accepted: …"`)
+    rather than being used as raw key bytes. JWE is the only family that takes a string at all, and PBKDF2
+    is the only thing it does with one
   - `JWEEncryptJWK` → infers `alg`/`enc` from key properties. Narrows by family: `JWK_oct` with a JWE symmetric `alg` (AES-KW, AES-GCM, AES-GCM-KW, AES-CBC-HMAC, PBES2, `"dir"`) or an asymmetric _public_ JWK whose `alg` is RSA-OAEP or ECDH-ES. HMAC / signing-family JWKs are rejected at the type level.
   - `CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array` with `alg: "dir"` → used directly as the CEK (`enc` required)
   - `CryptoKey` with other algorithms → requires explicit `alg` and `enc`
@@ -91,6 +94,7 @@ Decrypts a JWE token.
 - `jwe` — `string` — the JWE compact token
 - `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWKLookupFunction`
   - `JWEDecryptJWK` is the private-side counterpart of `JWEEncryptJWK`.
+  - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
   - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases
@@ -101,8 +105,9 @@ Decrypts a JWE token.
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata
   - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
-  - `validateClaims?: boolean` — `false` explicitly skips JWT claim validation. Defaults to `undefined`, which validates whenever the decrypted payload is a JSON object — **independent of the `typ` header**, because `typ` is signer-controlled and cannot gate security-critical checks
-  - `forceUint8Array?: boolean` — force payload as `Uint8Array`
+  - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the plaintext must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWE_INVALID` (`"Invalid JWE: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWE_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The decrypted content never decides its own shape, and `typ`/`cty` never pick it
+  - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
+  - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
   - `returnCek?: boolean` — include raw `cek` and `aad` in result
   - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
   - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `1_000_000` to cap PBKDF2 DoS potential
@@ -384,6 +389,8 @@ interface JWEDecryptOptions {
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
   extractable?: boolean;
+  payload?: "json" | "string" | "bytes";
+  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
   returnCek?: boolean;
@@ -520,6 +527,8 @@ interface JWEMultiDecryptOptions {
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
   extractable?: boolean;
+  payload?: "json" | "string" | "bytes";
+  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
   returnCek?: boolean;

@@ -177,7 +177,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       ]);
       // Raw payload field, not base64url-encoded
       expect(jws.payload).toBe("raw-payload");
-      const { payload } = await verifyMulti(jws, keys.hs256);
+      const { payload } = await verifyMulti(jws, keys.hs256, { payload: "string" });
       expect(payload).toBe("raw-payload");
     });
   });
@@ -257,10 +257,49 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       );
     });
 
-    it("forceUint8Array returns payload as Uint8Array", async () => {
+    it('forceUint8Array matches payload: "bytes"', async () => {
       const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
       const { payload } = await verifyMulti(jws, keys.hs256, { forceUint8Array: true });
       expect(payload).toBeInstanceOf(Uint8Array);
+      const explicit = await verifyMulti(jws, keys.hs256, { payload: "bytes" });
+      expect(explicit.payload).toEqual(payload);
+    });
+
+    it("rejects a non-JSON-object payload under the default mode", async () => {
+      const jws = await signMulti("plain text", [{ key: keys.hs256 }]);
+      const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Payload is not a JSON object.");
+    });
+
+    it('returns a JSON-shaped string verbatim under payload: "string"', async () => {
+      const jws = await signMulti('{"sub":"admin"}', [{ key: keys.hs256 }]);
+      const { payload } = await verifyMulti(jws, keys.hs256, { payload: "string" });
+      expect(payload).toBe('{"sub":"admin"}');
+    });
+
+    it('rejects validateClaims: true outside payload: "json"', async () => {
+      const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
+      const error = await verifyMulti(jws, keys.hs256, {
+        payload: "string",
+        validateClaims: true,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+
+    it("rejects a string key", async () => {
+      const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
+      const error = await verifyMulti(jws, "a-very-long-shared-secret-value" as any, {
+        algorithms: ["HS256"],
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    });
+
+    it("rejects a string signer key on signMulti", async () => {
+      const error = await signMulti({ x: 1 }, [
+        { key: "a-very-long-shared-secret-value" as any, alg: "HS256" },
+      ]).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
     });
 
     it("fails when signature has been tampered with across all signers", async () => {
@@ -338,6 +377,22 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
   });
 
   describe("verifyMultiAll", () => {
+    it("reports a string key as a per-signature failure, not a throw", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const outcomes = await verifyMultiAll(jws, (() => "secret-from-lookup") as any, {
+        algorithms: ["HS256"],
+      });
+      const failure = expectUnverified(outcomes[0]);
+      expect(isJWTError(failure.error, "ERR_JWK_INVALID")).toBe(true);
+    });
+
+    it("carries the payload mode into every outcome", async () => {
+      const jws = await signMulti('{"sub":"admin"}', [{ key: keys.hs256 }]);
+      const outcomes = await verifyMultiAll(jws, () => keys.hs256, { payload: "string" });
+      expect(outcomes[0]?.verified).toBe(true);
+      expect(outcomes.filter((o) => o.verified)[0]?.payload).toBe('{"sub":"admin"}');
+    });
+
     it("returns a per-signature outcome array for a fully valid multi-sig JWS", async () => {
       const jws = await signMulti({ sub: "u1" }, [
         { key: keys.rs256.privateKey },
@@ -911,7 +966,9 @@ describe.concurrent("JWS multi-signature hardening", () => {
       const second = JSON.parse(base64UrlParse(jws.signatures[1]!.protected!));
       expect(first.crit).toEqual(["b64"]);
       expect(second.crit).toEqual(["app", "b64"]);
-      await expect(verifyMulti(jws, keys.hs256)).resolves.toBeDefined();
+      await expect(
+        verifyMulti(jws, keys.hs256, { payload: "string", recognizedHeaders: ["app"] }),
+      ).resolves.toBeDefined();
     });
 
     it('verifyMulti rejects b64: false that is not listed in "crit"', async () => {

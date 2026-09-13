@@ -5,7 +5,6 @@ import { base64UrlStringify } from "./utils/base64";
 
 import type {
   JWK,
-  JWKSet,
   JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
@@ -14,7 +13,6 @@ import type {
 import type { JOSEPayload, JWTClaims } from "./types/jwt";
 import type {
   JWEEncryptJWK,
-  JWEDecryptJWK,
   JWEHeaderParameters,
   JWEProtectedHeader,
   JWEKeyManagementHeaderParameters,
@@ -23,6 +21,7 @@ import type {
   JWEFlattenedSerialization,
   JWEMultiRecipient,
   JWEMultiEncryptOptions,
+  JWEMultiDecryptKey,
   JWEMultiDecryptOptions,
   JWEMultiDecryptResult,
 } from "./types/jwe";
@@ -63,7 +62,9 @@ import {
   decodeProtectedHeader,
   parseEphemeralKey,
   typMatches,
-  validateJwtClaimsIfJsonPayload,
+  resolvePasswordKey,
+  resolvePayloadMode,
+  validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
 
@@ -206,17 +207,33 @@ export async function encryptMulti(
  *
  * For compact (string) tokens, use {@link decrypt}.
  */
+export async function decryptMulti(
+  jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
+  keyOrLookup: JWEMultiDecryptKey,
+  options: JWEMultiDecryptOptions & { payload: "bytes" },
+): Promise<JWEMultiDecryptResult<Uint8Array<ArrayBuffer>>>;
+export async function decryptMulti(
+  jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
+  keyOrLookup: JWEMultiDecryptKey,
+  options: JWEMultiDecryptOptions & { payload: "string" },
+): Promise<JWEMultiDecryptResult<string>>;
+export async function decryptMulti(
+  jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
+  keyOrLookup: JWEMultiDecryptKey,
+  options: JWEMultiDecryptOptions & { forceUint8Array: true },
+): Promise<JWEMultiDecryptResult<Uint8Array<ArrayBuffer>>>;
+export async function decryptMulti<T extends Record<string, unknown> = JWTClaims>(
+  jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
+  keyOrLookup: JWEMultiDecryptKey,
+  options?: JWEMultiDecryptOptions,
+): Promise<JWEMultiDecryptResult<T>>;
 export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
-  keyOrLookup:
-    | CryptoKey
-    | JWKSet
-    | JWEDecryptJWK
-    | string
-    | Uint8Array<ArrayBuffer>
-    | JWKLookupFunction,
+  keyOrLookup: JWEMultiDecryptKey,
   options: JWEMultiDecryptOptions = {},
 ): Promise<JWEMultiDecryptResult<T>> {
+  const payloadMode = resolvePayloadMode(options);
+
   const general = _normalizeSerialization(jwe);
 
   if (
@@ -382,9 +399,12 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
 
     // The content cipher authenticated the token: from here a failure is a
     // verdict on the token itself, not on this recipient, and propagates.
-    const payload = decodePayloadFromBytes<T>(plaintextBytes, options.forceUint8Array) as T;
+    const payload = decodePayloadFromBytes<T>(plaintextBytes, {
+      payload: payloadMode,
+      family: "JWE",
+    }) as T;
 
-    validateJwtClaimsIfJsonPayload(payload, options);
+    validateClaimsIfJson(payload, payloadMode, options);
 
     const result: JWEMultiDecryptResult<T> = {
       payload,
@@ -700,7 +720,10 @@ async function _unwrapAndDecrypt(
     throw lastErr ?? new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
   }
 
-  const unwrappingKey = await importKey(rawKeyMaterial as any, { alg, expect: "private" });
+  const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
+    alg,
+    expect: "private",
+  });
   try {
     const cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
     const plaintextBytes = await joseDecrypt(

@@ -43,6 +43,9 @@ import type {
   JWKPEMAlgorithm,
 } from "../src/core/types";
 import { rsa, ec } from "./keys";
+
+const STRING_KEY_MESSAGE =
+  "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
 import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/core/_crypto";
 
 describe.concurrent("JWK Utilities", () => {
@@ -326,6 +329,13 @@ describe.concurrent("JWK Utilities", () => {
   });
 
   describe("importKey", () => {
+    it("rejects a string key, pointing at the PEM and secret alternatives", async () => {
+      // @ts-expect-error strings are not key material; exercises the runtime guard
+      const error = await importKey("-----BEGIN PUBLIC KEY-----").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe(STRING_KEY_MESSAGE);
+    });
+
     it("should return CryptoKey if input is CryptoKey", async () => {
       const originalKey = await generateKey("HS256");
       const importedKey = await importKey(originalKey);
@@ -753,10 +763,14 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("should throw wrapKey for invalid key type", async () => {
-      await expect(
+      const stringKeyError = await wrapKey(
+        "A128KW",
+        cek,
         // @ts-expect-error A128KW requires a CryptoKey or JWK_oct<"A128KW">; exercises runtime guard
-        wrapKey("A128KW", cek, "not-a-key-object"),
-      ).rejects.toThrow(TypeError);
+        "not-a-key-object",
+      ).catch((e) => e);
+      expect(isJWTError(stringKeyError, "ERR_JWK_INVALID")).toBe(true);
+      expect(stringKeyError.message).toBe(STRING_KEY_MESSAGE);
       await expect(
         // @ts-expect-error RSA-OAEP requires a CryptoKey or JWK_RSA_Public; exercises runtime guard
         wrapKey("RSA-OAEP", cek, secureRandomBytes(32)),
@@ -790,10 +804,14 @@ describe.concurrent("JWK Utilities", () => {
     it("should throw unwrapKey for invalid key type", async () => {
       const wrappingKey = await generateKey("A128KW");
       const { encryptedKey } = await wrapKey("A128KW", cek, wrappingKey);
-      await expect(
+      const error = await unwrapKey(
+        "A128KW",
+        encryptedKey,
         // @ts-expect-error A128KW requires a CryptoKey or JWK_oct<"A128KW">; exercises runtime guard
-        unwrapKey("A128KW", encryptedKey, "not-a-key-object"),
-      ).rejects.toThrow(TypeError);
+        "not-a-key-object",
+      ).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe(STRING_KEY_MESSAGE);
     });
 
     it("should throw unwrapKey for unsupported algorithm", async () => {

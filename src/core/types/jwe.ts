@@ -1,4 +1,9 @@
-import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
+import type {
+  JoseHeaderParameters,
+  JOSEPayload,
+  JOSEPayloadMode,
+  JWTClaimValidationOptions,
+} from "./jwt";
 import type {
   JWK_oct,
   JWK_EC_Public,
@@ -16,6 +21,8 @@ import type {
   JWK_ECDH_ES,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
+  JWKSet,
+  JWKLookupFunction,
 } from "./jwk";
 import type { ExpiresIn } from ".";
 import type { StrictOmit } from "../utils/types";
@@ -245,14 +252,35 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   keyUsage?: KeyUsage[];
   /** Mark the unwrapped CEK as extractable. Defaults to true. */
   extractable?: boolean;
-  /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred based on JWE headers. */
+  /**
+   * What the decrypted payload is, declared by the caller — the encrypted
+   * content never decides its own shape.
+   *
+   * - `"json"` (default) — the plaintext must be UTF-8 JSON naming a non-null,
+   *   non-array object, returned as the result's `T`. Anything else is
+   *   `ERR_JWE_INVALID`. JWT claim validation applies.
+   * - `"string"` — the plaintext is returned as a UTF-8 string; invalid UTF-8
+   *   is `ERR_JWE_INVALID`.
+   * - `"bytes"` — the plaintext is returned as `Uint8Array<ArrayBuffer>`.
+   *
+   * @default "json"
+   */
+  payload?: JOSEPayloadMode;
+  /**
+   * If true, forces the payload to be returned as a `Uint8Array`.
+   *
+   * @deprecated Use `payload: "bytes"`. Deprecated in v0.8.0, removed in v0.9.0
+   */
   forceUint8Array?: boolean;
   /**
-   * Controls JWT claim validation after a successful decryption.
+   * Set to `false` to skip JWT claim validation after a successful decryption.
    *
-   * - `true` — always validate claims regardless of the `typ` header
-   * - `false` — skip claim validation entirely
-   * - `undefined` (default) — validate when `typ` is `"JWT"` or contains `"jwt"`
+   * Claim validation runs under `payload: "json"` (the default) unless this
+   * option is `false`; `true` and the default `undefined` behave alike. It is
+   * the payload mode — never the `typ` header or the payload's shape — that
+   * decides whether there are claims to validate, so `validateClaims: true`
+   * alongside `payload: "string"` / `"bytes"` is `ERR_INVALID_OPTION` rather
+   * than a validation that silently does not run.
    */
   validateClaims?: boolean;
   /** If true, include the Content Encryption Key (CEK) and Additional Authenticated Data (AAD) in the result. */
@@ -380,6 +408,19 @@ export interface JWEMultiEncryptOptions extends StrictOmit<
    */
   aad?: Uint8Array<ArrayBuffer> | string;
 }
+
+/**
+ * Key material {@link decryptMulti} accepts: a `CryptoKey`, a JWK, a JWK Set,
+ * a PBES2 password (`string`) or raw key bytes, or a function resolving one of
+ * those from the recipient's header.
+ */
+export type JWEMultiDecryptKey =
+  | CryptoKey
+  | JWKSet
+  | JWEDecryptJWK
+  | string
+  | Uint8Array<ArrayBuffer>
+  | JWKLookupFunction;
 
 /**
  * Options for {@link decryptMulti}. Extends {@link JWEDecryptOptions}.

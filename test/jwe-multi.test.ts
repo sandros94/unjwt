@@ -438,12 +438,52 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         await expect(decryptMulti(jwe, keys.a256kw)).rejects.toBeInstanceOf(JWTError);
       });
 
-      it("forceUint8Array returns payload as Uint8Array", async () => {
+      it('forceUint8Array matches payload: "bytes"', async () => {
         const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }], {
           enc: "A256GCM",
         });
         const { payload } = await decryptMulti(jwe, keys.a256kw, { forceUint8Array: true });
         expect(payload).toBeInstanceOf(Uint8Array);
+        const explicit = await decryptMulti(jwe, keys.a256kw, { payload: "bytes" });
+        expect(explicit.payload).toEqual(payload);
+      });
+
+      it("rejects a non-JSON-object payload under the default mode", async () => {
+        const jwe = await encryptMulti("plain text", [{ key: keys.a256kw }], {
+          enc: "A256GCM",
+        });
+        const error = await decryptMulti(jwe, keys.a256kw).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+        expect(error.message).toBe("Invalid JWE: Payload is not a JSON object.");
+      });
+
+      it('returns a JSON-shaped string verbatim under payload: "string"', async () => {
+        const jwe = await encryptMulti('{"sub":"admin"}', [{ key: keys.a256kw }], {
+          enc: "A256GCM",
+        });
+        const { payload } = await decryptMulti(jwe, keys.a256kw, { payload: "string" });
+        expect(payload).toBe('{"sub":"admin"}');
+      });
+
+      it('rejects validateClaims: true outside payload: "json"', async () => {
+        const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }], {
+          enc: "A256GCM",
+        });
+        const error = await decryptMulti(jwe, keys.a256kw, {
+          payload: "bytes",
+          validateClaims: true,
+        }).catch((e) => e);
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      });
+
+      it("rejects a string key under a non-PBES2 recipient alg", async () => {
+        const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }], {
+          enc: "A256GCM",
+        });
+        const error = await decryptMulti(jwe, "a-256-bit-secret-value-as-string", {
+          algorithms: ["A256KW"],
+        }).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       });
 
       it("AES-GCMKW recipient round-trips (exercises iv/tag in per-recipient header)", async () => {

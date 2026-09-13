@@ -27,6 +27,9 @@ Creates a JWS Compact Serialization token.
   - `JWSSignJWK` narrows by family: `JWK_oct<JWK_HMAC>` | asymmetric private JWK with a signing `alg`.
     A JWK whose `alg` points at a non-signing family (`"RSA-OAEP"`, `"A256KW"`, …) is rejected at the type level.
   - JWK keys infer `alg` automatically; CryptoKey/Uint8Array require `options.alg`
+  - A `string` is never a key: every JWS entry point throws `ERR_JWK_INVALID`
+    (`"String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM()."`).
+    Without it, `sign(payload, pemText, { alg: "HS256" })` would HMAC over the PEM armour.
 - `options?: JWSSignOptions`
   - `alg?: JWSAlgorithm` — required when key is CryptoKey or Uint8Array
   - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`)
@@ -78,8 +81,9 @@ Verifies a JWS token and returns its payload.
 
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWSAllowedAlgorithms`; pass explicitly when the key carries no usable metadata (raw `Uint8Array`, alg-less JWKs, lookup functions returning ambiguous shapes)
-  - `validateClaims?: boolean` — `false` explicitly skips JWT claim validation. Defaults to `undefined`, which validates whenever the decoded payload is a JSON object — **independent of the `typ` header**, because `typ` is signer-controlled and cannot gate security-critical checks
-  - `forceUint8Array?: boolean` — force payload returned as `Uint8Array`
+  - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the payload must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWS_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The signed content never decides its own shape, and `typ`/`cty` never pick it — both are signer-controlled. Under RFC 7797 `b64: false` the unencoded segment is the content and the same modes apply
+  - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
+  - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
   - `clockTolerance?: number | Duration` — seconds, or a `Duration` shorthand (`"5m"`, `"1h"`). Negative, non-finite or unparseable values throw `ERR_INVALID_OPTION` instead of silently disabling the `exp`/`nbf`/`iat` checks
   - `exp`/`nbf`/`iat` must be non-negative NumericDates (fractions allowed, RFC 7519 §2); a negative value throws `ERR_JWT_CLAIM_INVALID`
@@ -187,7 +191,7 @@ Structural errors in the envelope itself (non-object input, missing `payload` / 
 
 - `jws` — `JWSGeneralSerialization | JWSFlattenedSerialization` (Flattened is auto-normalised).
 - `keyResolver` — **required** `JWKLookupFunction`. Per-signature keys are typically different, so the function form is mandatory. Wrap a static `JWKSet` as `(header) => mySet` if that's all you have.
-- `options?: JWSMultiVerifyAllOptions` — inherits `JWSMultiVerifyOptions` minus `strictSignerMatch` (not meaningful when every signature is independently reported). Keeps `algorithms`, `typ`, `forceUint8Array`, `validateClaims`, `recognizedHeaders`, and all `JWTClaimValidationOptions`.
+- `options?: JWSMultiVerifyAllOptions` — inherits `JWSMultiVerifyOptions` minus `strictSignerMatch` (not meaningful when every signature is independently reported). Keeps `algorithms`, `typ`, `payload`, `validateClaims`, `recognizedHeaders`, and all `JWTClaimValidationOptions`. A `string` key from the resolver is reported as that signature's `ERR_JWK_INVALID` outcome rather than thrown.
 
 **Returns:** `Promise<JWSMultiVerifyOutcome<T>[]>` — one entry per signature. Each is a discriminated union:
 
@@ -341,6 +345,8 @@ interface JWSSignOptions {
 
 interface JWSVerifyOptions {
   algorithms?: JWSAlgorithm[];
+  payload?: "json" | "string" | "bytes";
+  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
@@ -409,6 +415,8 @@ interface JWSMultiSignOptions {
 
 interface JWSMultiVerifyOptions {
   algorithms?: JWSAlgorithm[];
+  payload?: "json" | "string" | "bytes";
+  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
@@ -425,6 +433,8 @@ interface JWSMultiVerifyOptions {
 
 interface JWSMultiVerifyAllOptions {
   algorithms?: JWSAlgorithm[];
+  payload?: "json" | "string" | "bytes";
+  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];

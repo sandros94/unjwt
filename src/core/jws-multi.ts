@@ -10,6 +10,7 @@ import type {
   JWSHeaderParameters,
   JWSProtectedHeader,
   JOSEPayload,
+  JOSEPayloadMode,
   JWTClaims,
   JWSGeneralSerialization,
   JWSGeneralSignature,
@@ -43,11 +44,14 @@ import {
   checkAlgAllowed,
   checkJWSAlgSupported,
   checkJWSB64Crit,
+  assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
+  resolvePayloadMode,
   resolveSigningKey,
+  stringKeyError,
   typMatches,
-  validateJwtClaimsIfJsonPayload,
+  validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
 
@@ -80,6 +84,8 @@ export async function signMulti(
   if (!Array.isArray(signers) || signers.length === 0) {
     throw new JWTError("signMulti requires at least one signer.", "ERR_JWS_INVALID");
   }
+
+  for (const signer of signers) assertNotStringKey(signer?.key);
 
   const resolvedAlgs: JWSAlgorithm[] = signers.map((s, i) => _resolveSignerAlg(s, i));
 
@@ -144,11 +150,33 @@ export async function signMulti(
  *
  * For compact (string) tokens, use {@link verify}.
  */
+export async function verifyMulti(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options: JWSMultiVerifyOptions & { payload: "bytes" },
+): Promise<JWSMultiVerifyResult<Uint8Array<ArrayBuffer>>>;
+export async function verifyMulti(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options: JWSMultiVerifyOptions & { payload: "string" },
+): Promise<JWSMultiVerifyResult<string>>;
+export async function verifyMulti(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options: JWSMultiVerifyOptions & { forceUint8Array: true },
+): Promise<JWSMultiVerifyResult<Uint8Array<ArrayBuffer>>>;
+export async function verifyMulti<T extends Record<string, unknown> = JWTClaims>(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  options?: JWSMultiVerifyOptions,
+): Promise<JWSMultiVerifyResult<T>>;
 export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSMultiVerifyOptions = {},
 ): Promise<JWSMultiVerifyResult<T>> {
+  const payloadMode = resolvePayloadMode(options);
+
   const general = _normalizeSerialization(jws);
 
   if (
@@ -227,6 +255,11 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
           )
         : keyOrLookup;
 
+    if (typeof rawKeyMaterial === "string") {
+      lastError = stringKeyError();
+      continue;
+    }
+
     const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWS_ALG_CTX);
     if (algError) {
       lastError = algError;
@@ -260,12 +293,12 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
         continue;
       }
 
-      const useB64 = protectedHeader.b64 !== false;
-      const payload = decodeJWSPayload<T>(general.payload, useB64, options.forceUint8Array);
-
       validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
 
-      validateJwtClaimsIfJsonPayload(payload, options);
+      const useB64 = protectedHeader.b64 !== false;
+      const payload = decodeJWSPayload<T>(general.payload, useB64, payloadMode);
+
+      validateClaimsIfJson(payload, payloadMode, options);
 
       const result: JWSMultiVerifyResult<T> = {
         payload,
@@ -336,11 +369,33 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
  *   throw new Error("quorum not met");
  * }
  */
+export async function verifyMultiAll(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyResolver: JWKLookupFunction,
+  options: JWSMultiVerifyAllOptions & { payload: "bytes" },
+): Promise<JWSMultiVerifyOutcome<Uint8Array<ArrayBuffer>>[]>;
+export async function verifyMultiAll(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyResolver: JWKLookupFunction,
+  options: JWSMultiVerifyAllOptions & { payload: "string" },
+): Promise<JWSMultiVerifyOutcome<string>[]>;
+export async function verifyMultiAll(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyResolver: JWKLookupFunction,
+  options: JWSMultiVerifyAllOptions & { forceUint8Array: true },
+): Promise<JWSMultiVerifyOutcome<Uint8Array<ArrayBuffer>>[]>;
+export async function verifyMultiAll<T extends Record<string, unknown> = JWTClaims>(
+  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
+  keyResolver: JWKLookupFunction,
+  options?: JWSMultiVerifyAllOptions,
+): Promise<JWSMultiVerifyOutcome<T>[]>;
 export async function verifyMultiAll<T extends JOSEPayload = JOSEPayload>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyResolver: JWKLookupFunction,
   options: JWSMultiVerifyAllOptions = {},
 ): Promise<JWSMultiVerifyOutcome<T>[]> {
+  const payloadMode = resolvePayloadMode(options);
+
   const general = _normalizeSerialization(jws);
 
   if (
@@ -363,6 +418,7 @@ export async function verifyMultiAll<T extends JOSEPayload = JOSEPayload>(
         i,
         keyResolver,
         options,
+        payloadMode,
       ),
     );
   }
@@ -617,6 +673,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   index: number,
   keyResolver: JWKLookupFunction,
   options: JWSMultiVerifyAllOptions,
+  payloadMode: JOSEPayloadMode,
 ): Promise<JWSMultiVerifyOutcome<T>> {
   const fail = (
     error: JWTError,
@@ -699,6 +756,10 @@ async function _verifyOneSignature<T extends JOSEPayload>(
     );
   }
 
+  if (typeof rawKeyMaterial === "string") {
+    return fail(stringKeyError(), protectedHeader, unprotectedHeader);
+  }
+
   const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWS_ALG_CTX);
   if (algError) return fail(algError, protectedHeader, unprotectedHeader);
 
@@ -730,17 +791,22 @@ async function _verifyOneSignature<T extends JOSEPayload>(
     );
   }
 
+  try {
+    validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
+  } catch (err) {
+    return fail(_asJWTError(err, "ERR_JWS_INVALID"), protectedHeader, unprotectedHeader);
+  }
+
   let decodedPayload: T;
   try {
     const useB64 = protectedHeader.b64 !== false;
-    decodedPayload = decodeJWSPayload<T>(payload, useB64, options.forceUint8Array);
+    decodedPayload = decodeJWSPayload<T>(payload, useB64, payloadMode);
   } catch (err) {
     return fail(_asJWTError(err, "ERR_JWS_INVALID"), protectedHeader, unprotectedHeader);
   }
 
   try {
-    validateCriticalHeadersJWS(protectedHeader, options.recognizedHeaders);
-    validateJwtClaimsIfJsonPayload(decodedPayload, options);
+    validateClaimsIfJson(decodedPayload, payloadMode, options);
   } catch (err) {
     return fail(_asJWTError(err, "ERR_JWT_CLAIM_INVALID"), protectedHeader, unprotectedHeader);
   }

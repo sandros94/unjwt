@@ -409,7 +409,7 @@ async function verifySession<
       typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
       maxTokenAge: config.maxAge,
       algorithms: alg ? [alg] : undefined,
-      forceUint8Array: false,
+      payload: "json",
       validateClaims: true,
     },
   ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix: PREFIX }));

@@ -56,14 +56,14 @@ interface Entry {
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
-  // measured 18710
-  { name: "verify", module: "core/jws.ts", ceiling: 21600, absent: [MARKERS.pem, MARKERS.pbes2] },
-  // measured 15745
-  { name: "sign", module: "core/jws.ts", ceiling: 18200, absent: [MARKERS.pem, MARKERS.pbes2] },
-  // measured 29387
-  { name: "decrypt", module: "core/jwe.ts", ceiling: 33800, absent: [] },
-  // measured 26415
-  { name: "encrypt", module: "core/jwe.ts", ceiling: 30400, absent: [] },
+  // measured 21485
+  { name: "verify", module: "core/jws.ts", ceiling: 24800, absent: [MARKERS.pem, MARKERS.pbes2] },
+  // measured 16245
+  { name: "sign", module: "core/jws.ts", ceiling: 18700, absent: [MARKERS.pem, MARKERS.pbes2] },
+  // measured 34249
+  { name: "decrypt", module: "core/jwe.ts", ceiling: 39400, absent: [] },
+  // measured 26856
+  { name: "encrypt", module: "core/jwe.ts", ceiling: 30900, absent: [] },
   // measured 8094
   { name: "importKey", module: "core/jwk.ts", ceiling: 9400, absent: [MARKERS.pem] },
   // measured 6923

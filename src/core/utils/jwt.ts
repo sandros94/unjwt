@@ -1,10 +1,17 @@
-import { textDecoder, textEncoder } from "unsecure/utils";
+import { textEncoder } from "unsecure/utils";
 import { base64UrlParse } from "./base64";
 import { safeJsonParse } from "unsecure/sanitize";
 
-import type { JWTClaims, JWTClaimValidationOptions, Duration, ExpiresIn } from "../types";
+import type {
+  JWTClaims,
+  JWTClaimValidationOptions,
+  JOSEPayloadMode,
+  Duration,
+  ExpiresIn,
+} from "../types";
 import { maybeArray } from "./index";
 import { JWTError } from "../error";
+import type { JWTErrorCode } from "../error";
 
 /**
  * Apply default typ/cty semantics shared by JWS & JWE.
@@ -38,38 +45,61 @@ export function isJWTContent(header: { typ?: string; cty?: string } | undefined)
   return cty === "json" || cty === "application/json" || (!!cty && cty.endsWith("+json"));
 }
 
-/** Parse a decoded string as JSON when it looks like a JSON object or array, otherwise return the string verbatim. */
-export function decodeMaybeJWTString<T = unknown>(decodedString: string): T | string {
-  const looksLikeJson =
-    (decodedString.startsWith("{") && decodedString.endsWith("}")) ||
-    (decodedString.startsWith("[") && decodedString.endsWith("]"));
-  if (looksLikeJson) {
-    try {
-      return safeJsonParse<T>(decodedString);
-    } catch {
-      // fallthrough to return string if malformed
-    }
-  }
-  return decodedString;
+/** Options for {@link decodePayloadFromBytes} and {@link decodePayloadFromB64UrlSegment}. */
+export interface DecodePayloadOptions {
+  /**
+   * How to interpret the payload bytes — see {@link JOSEPayloadMode}.
+   *
+   * @default "json"
+   */
+  payload?: JOSEPayloadMode;
+  /**
+   * JOSE family the rejection is reported under, selecting between
+   * `ERR_JWS_INVALID` and `ERR_JWE_INVALID`.
+   *
+   * @default "JWS"
+   */
+  family?: "JWS" | "JWE";
 }
 
-/** Decode raw payload bytes honoring `forceUint8Array`. */
-export function decodePayloadFromBytes<T = unknown>(
+/**
+ * Decode payload bytes under the caller-declared {@link JOSEPayloadMode}.
+ *
+ * `"json"` (the default) requires valid UTF-8 that parses to a non-null,
+ * non-array object; `"string"` requires valid UTF-8; `"bytes"` returns the
+ * input. A payload that does not meet the declared mode throws
+ * `ERR_JWS_INVALID` / `ERR_JWE_INVALID`.
+ */
+export function decodePayloadFromBytes<T = JWTClaims>(
   bytes: Uint8Array<ArrayBuffer>,
-  forceUint8Array?: boolean,
-): T | Uint8Array<ArrayBuffer> | string {
-  if (forceUint8Array) return bytes;
-  return decodeMaybeJWTString<T>(textDecoder.decode(bytes));
+  options?: DecodePayloadOptions,
+): T | string | Uint8Array<ArrayBuffer> {
+  const mode = options?.payload ?? "json";
+  if (mode === "bytes") return bytes;
+
+  const family = options?.family ?? "JWS";
+  let text: string;
+  try {
+    text = _utf8Decoder.decode(bytes);
+  } catch (error) {
+    throw new JWTError(
+      `Invalid ${family}: Payload is not valid UTF-8.`,
+      `ERR_${family}_INVALID` as JWTErrorCode,
+      error,
+    );
+  }
+  if (mode === "string") return text;
+  return _parsePayloadObject<T>(text, family);
 }
 
-/** Decode a Base64URL-encoded payload segment honoring `forceUint8Array`. */
-export function decodePayloadFromB64UrlSegment<T = unknown>(
+/** {@link decodePayloadFromBytes} over a Base64URL-encoded payload segment. */
+export function decodePayloadFromB64UrlSegment<T = JWTClaims>(
   payloadEncoded: string,
-  forceUint8Array?: boolean,
-): T | Uint8Array<ArrayBuffer> | string {
+  options?: DecodePayloadOptions,
+): T | string | Uint8Array<ArrayBuffer> {
   return decodePayloadFromBytes<T>(
     base64UrlParse(payloadEncoded, { returnAs: "uint8array" }),
-    forceUint8Array,
+    options,
   );
 }
 
@@ -500,4 +530,24 @@ function _assertNumericDate(value: unknown, claim: string, label: string): void 
       "ERR_JWT_CLAIM_INVALID",
     );
   }
+}
+
+// RFC 7515 §2 / RFC 7516 §2 — payload text is UTF-8. A lenient decoder would turn
+// malformed bytes into U+FFFD and hand back a string the signer never wrote.
+const _utf8Decoder = /* @__PURE__ */ new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/** RFC 7519 §3 — a JWT payload is a JSON object; arrays and scalars are not claims. */
+function _parsePayloadObject<T>(text: string, family: "JWS" | "JWE"): T {
+  const code = `ERR_${family}_INVALID` as JWTErrorCode;
+  const message = `Invalid ${family}: Payload is not a JSON object.`;
+  let parsed: unknown;
+  try {
+    parsed = safeJsonParse(text);
+  } catch (error) {
+    throw new JWTError(message, code, error);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new JWTError(message, code);
+  }
+  return parsed as T;
 }

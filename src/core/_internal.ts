@@ -11,12 +11,14 @@ import type {
   JWTClaimValidationOptions,
   JWTClaims,
   JWSAlgorithm,
+  JOSEPayloadMode,
   KeyManagementAlgorithm,
 } from "./types";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
 import {
   decodePayloadFromB64UrlSegment,
+  decodePayloadFromBytes,
   inferJWEAllowedAlgorithms,
   inferJWSAllowedAlgorithms,
   isCryptoKey,
@@ -141,26 +143,99 @@ export async function resolveSigningKey(
 // -----------------------------------------------------------------------------
 
 /**
- * Run RFC 7519 JWT claim validation when the decoded payload looks like a
- * JSON object (not a `Uint8Array`, not forced-binary) and the caller hasn't
- * opted out with `validateClaims: false`.
+ * Run RFC 7519 JWT claim validation on a payload the caller asked to be
+ * decoded as JSON, unless they opted out with `validateClaims: false`.
+ *
+ * `"string"` and `"bytes"` payloads carry no claims to validate; asking for
+ * them together with `validateClaims: true` is rejected as an option error by
+ * {@link resolvePayloadMode}, so silently skipping validation here is never
+ * mistaken for having run it.
  */
-export function validateJwtClaimsIfJsonPayload(
+export function validateClaimsIfJson(
   payload: unknown,
-  options: JWTClaimValidationOptions & {
-    forceUint8Array?: boolean;
-    validateClaims?: boolean;
-  },
+  mode: JOSEPayloadMode,
+  options: JWTClaimValidationOptions & { validateClaims?: boolean },
 ): void {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    !(payload instanceof Uint8Array) &&
-    !options.forceUint8Array &&
-    options.validateClaims !== false
-  ) {
-    validateJwtClaims(payload as JWTClaims, options);
+  if (mode !== "json" || options.validateClaims === false) return;
+  validateJwtClaims(payload as JWTClaims, options);
+}
+
+// -----------------------------------------------------------------------------
+// Payload mode + key shape option gates (JWS verify + JWE decrypt, compact & multi).
+// -----------------------------------------------------------------------------
+
+const PAYLOAD_MODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "json",
+  "string",
+  "bytes",
+] satisfies JOSEPayloadMode[]);
+
+/**
+ * Resolve the {@link JOSEPayloadMode} a verification or decryption runs under.
+ *
+ * `payload` is the option; `forceUint8Array` is its deprecated boolean alias
+ * and may only agree with it. `validateClaims: true` is meaningful under
+ * `"json"` alone — claim validation cannot be asked for over content that is
+ * never parsed. Every contradiction is an `ERR_INVALID_OPTION`.
+ */
+export function resolvePayloadMode(options: {
+  payload?: JOSEPayloadMode;
+  forceUint8Array?: boolean;
+  validateClaims?: boolean;
+}): JOSEPayloadMode {
+  const { payload, forceUint8Array, validateClaims } = options;
+
+  if (payload !== undefined && !PAYLOAD_MODES.has(payload)) {
+    throw new JWTError('"payload" must be "json", "string" or "bytes".', "ERR_INVALID_OPTION");
   }
+
+  let mode: JOSEPayloadMode = payload ?? "json";
+  if (forceUint8Array !== undefined) {
+    if (payload === undefined) {
+      mode = forceUint8Array ? "bytes" : "json";
+    } else if (forceUint8Array !== (payload === "bytes")) {
+      throw new JWTError(
+        '"forceUint8Array" contradicts "payload"; pass "payload" alone.',
+        "ERR_INVALID_OPTION",
+      );
+    }
+  }
+
+  if (validateClaims === true && mode !== "json") {
+    throw new JWTError('"validateClaims" requires payload: "json".', "ERR_INVALID_OPTION");
+  }
+
+  return mode;
+}
+
+/**
+ * The rejection every entry point shares for a `string` key: a password is the
+ * only string JOSE has a use for, and only where PBES2 derives a key from it.
+ */
+export function stringKeyError(): JWTError {
+  return new JWTError(
+    "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().",
+    "ERR_JWK_INVALID",
+  );
+}
+
+/** Guard for JWS entry points, whose keys are never passwords. */
+export function assertNotStringKey<K>(key: K): asserts key is Exclude<K, string> {
+  if (typeof key === "string") throw stringKeyError();
+}
+
+/**
+ * Resolve raw JWE key material before import: a `string` is a PBES2 password
+ * and is UTF-8 encoded here (RFC 7518 §4.8.1), rejected under every other
+ * `alg`. Anything else passes through to `importKey`.
+ */
+export function resolvePasswordKey<K>(
+  alg: string,
+  key: K,
+): Exclude<K, string> | Uint8Array<ArrayBuffer> {
+  if (typeof key !== "string") return key as Exclude<K, string>;
+  if (!alg.startsWith("PBES2")) throw stringKeyError();
+  return textEncoder.encode(key);
 }
 
 // -----------------------------------------------------------------------------
@@ -550,29 +625,33 @@ export function decodeSegment(
 // -----------------------------------------------------------------------------
 
 /**
- * Decode a JWS payload segment, honouring `b64: false` (RFC 7797) and
- * `forceUint8Array`.
+ * Decode a JWS payload segment under the caller-declared
+ * {@link JOSEPayloadMode}, honouring `b64: false` (RFC 7797) — where the
+ * segment carries the payload text itself rather than its Base64URL encoding.
  *
- * `useB64 = true` (default):
- *   - `forceUint8Array` → raw bytes from the base64url segment.
- *   - otherwise → parsed JSON when the decoded string looks like a JSON
- *     object / array, else the string verbatim.
- *
- * `useB64 = false`:
- *   - `forceUint8Array` → UTF-8 encode the raw payload string.
- *   - otherwise → the payload string as-is.
+ * A segment that cannot be Base64URL-decoded fails as
+ * `"Invalid JWS: Payload could not be decoded."`; one that does not meet the
+ * declared mode fails with that mode's rejection.
  */
 export function decodeJWSPayload<T>(
   payloadSegment: string,
   useB64: boolean,
-  forceUint8Array: boolean | undefined,
+  mode: JOSEPayloadMode,
 ): T {
-  if (useB64) {
-    try {
-      return decodePayloadFromB64UrlSegment<T>(payloadSegment, forceUint8Array) as T;
-    } catch (error) {
-      throw new JWTError("Invalid JWS: Payload could not be decoded.", "ERR_JWS_INVALID", error);
-    }
+  if (!useB64) {
+    if (mode === "string") return payloadSegment as T;
+    return decodePayloadFromBytes<T>(textEncoder.encode(payloadSegment), {
+      payload: mode,
+      family: "JWS",
+    }) as T;
   }
-  return (forceUint8Array ? textEncoder.encode(payloadSegment) : payloadSegment) as T;
+  try {
+    return decodePayloadFromB64UrlSegment<T>(payloadSegment, {
+      payload: mode,
+      family: "JWS",
+    }) as T;
+  } catch (error) {
+    if (error instanceof JWTError) throw error;
+    throw new JWTError("Invalid JWS: Payload could not be decoded.", "ERR_JWS_INVALID", error);
+  }
 }

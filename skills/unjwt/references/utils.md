@@ -137,7 +137,18 @@ Sets `typ: "JWT"` for object payloads when `typ` is undefined. Mutates the heade
 
 ### `isJWTContent(header)`
 
-Returns `true` when headers indicate JWT/JSON content.
+Returns `true` when headers indicate JWT/JSON content. Informational only — `verify()` and
+`decrypt()` read the payload under the caller's `payload` option and never consult `typ`/`cty`.
+
+### `decodePayloadFromBytes(bytes, options?)` / `decodePayloadFromB64UrlSegment(segment, options?)`
+
+Decode a verified/decrypted payload under a declared mode. `options`:
+
+- `payload?: "json" | "string" | "bytes"` — `"json"` (default) requires UTF-8 JSON naming a
+  non-null, non-array object; `"string"` requires valid UTF-8; `"bytes"` returns the input.
+- `family?: "JWS" | "JWE"` — which error code a rejection carries (`ERR_JWS_INVALID` by default).
+
+Both take an options object; the pre-0.8 boolean `forceUint8Array` second argument is gone.
 
 ### `getPlaintextBytes(payload)`
 

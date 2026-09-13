@@ -11,7 +11,8 @@ import {
   decodeProtectedHeader,
   parseEphemeralKey,
   resolveSigningKey,
-  validateJwtClaimsIfJsonPayload,
+  validateClaimsIfJson,
+  resolvePayloadMode,
 } from "../src/core/_internal";
 import { generateKey, generateJWK } from "../src/core/jwk";
 import { isJWTError, JWTError } from "../src/core/error";
@@ -243,33 +244,73 @@ describe.concurrent("_internal helpers", () => {
     });
   });
 
-  describe("validateJwtClaimsIfJsonPayload", () => {
-    it("validates when payload is a plain object (expired exp throws)", () => {
+  describe("validateClaimsIfJson", () => {
+    it('validates under payload mode "json" (expired exp throws)', () => {
       const claims: JWTClaims = { exp: 1 };
-      expectThrowsJWTError(() => validateJwtClaimsIfJsonPayload(claims, {}), "ERR_JWT_EXPIRED");
+      expectThrowsJWTError(() => validateClaimsIfJson(claims, "json", {}), "ERR_JWT_EXPIRED");
     });
 
-    it("skips when payload is a string", () => {
-      expect(() => validateJwtClaimsIfJsonPayload("token", {})).not.toThrow();
+    it('skips under payload mode "string"', () => {
+      expect(() => validateClaimsIfJson("token", "string", {})).not.toThrow();
     });
 
-    it("skips when payload is a Uint8Array", () => {
-      expect(() => validateJwtClaimsIfJsonPayload(new Uint8Array([1, 2, 3]), {})).not.toThrow();
-    });
-
-    it("skips when payload is null", () => {
-      expect(() => validateJwtClaimsIfJsonPayload(null, {})).not.toThrow();
-    });
-
-    it("skips when forceUint8Array: true", () => {
-      const claims: JWTClaims = { exp: 1 };
-      expect(() => validateJwtClaimsIfJsonPayload(claims, { forceUint8Array: true })).not.toThrow();
+    it('skips under payload mode "bytes"', () => {
+      expect(() => validateClaimsIfJson(new Uint8Array([1, 2, 3]), "bytes", {})).not.toThrow();
     });
 
     it("skips when validateClaims: false", () => {
       const claims: JWTClaims = { exp: 1 };
-      expect(() => validateJwtClaimsIfJsonPayload(claims, { validateClaims: false })).not.toThrow();
+      expect(() => validateClaimsIfJson(claims, "json", { validateClaims: false })).not.toThrow();
     });
+  });
+
+  describe("resolvePayloadMode", () => {
+    it('defaults to "json"', () => {
+      expect(resolvePayloadMode({})).toBe("json");
+    });
+
+    it("reads the payload option", () => {
+      expect(resolvePayloadMode({ payload: "bytes" })).toBe("bytes");
+      expect(resolvePayloadMode({ payload: "string" })).toBe("string");
+    });
+
+    it("maps forceUint8Array onto the matching mode", () => {
+      expect(resolvePayloadMode({ forceUint8Array: true })).toBe("bytes");
+      expect(resolvePayloadMode({ forceUint8Array: false })).toBe("json");
+    });
+
+    it("accepts forceUint8Array that agrees with payload", () => {
+      expect(resolvePayloadMode({ forceUint8Array: true, payload: "bytes" })).toBe("bytes");
+      expect(resolvePayloadMode({ forceUint8Array: false, payload: "string" })).toBe("string");
+    });
+
+    it.each([
+      [true, "json"],
+      [true, "string"],
+      [false, "bytes"],
+    ] as const)("rejects forceUint8Array: %s with payload: %s", (forceUint8Array, payload) => {
+      expectThrowsJWTError(
+        () => resolvePayloadMode({ forceUint8Array, payload }),
+        "ERR_INVALID_OPTION",
+      );
+    });
+
+    it("rejects an unknown mode", () => {
+      expectThrowsJWTError(
+        () => resolvePayloadMode({ payload: "utf8" as any }),
+        "ERR_INVALID_OPTION",
+      );
+    });
+
+    it.each(["string", "bytes"] as const)(
+      'rejects validateClaims: true with payload: "%s"',
+      (payload) => {
+        expectThrowsJWTError(
+          () => resolvePayloadMode({ payload, validateClaims: true }),
+          "ERR_INVALID_OPTION",
+        );
+      },
+    );
   });
 
   describe("checkAlgAllowed", () => {
@@ -406,35 +447,52 @@ describe.concurrent("_internal helpers", () => {
   });
 
   describe("decodeJWSPayload", () => {
-    it("useB64=true: returns JSON-parsed object when segment looks like JSON", () => {
+    it('useB64=true, "json": parses the segment into an object', () => {
       const segment = base64UrlStringify(JSON.stringify({ sub: "u1" }));
-      const result = decodeJWSPayload<{ sub: string }>(segment, true, false);
+      const result = decodeJWSPayload<{ sub: string }>(segment, true, "json");
       expect(result.sub).toBe("u1");
     });
 
-    it("useB64=true: returns plain string when segment is not JSON", () => {
+    it('useB64=true, "json": rejects a segment that is not a JSON object', () => {
       const segment = base64UrlStringify("hello");
-      const result = decodeJWSPayload<string>(segment, true, false);
+      expectThrowsJWTError(() => decodeJWSPayload(segment, true, "json"), "ERR_JWS_INVALID");
+    });
+
+    it('useB64=true, "string": returns the decoded text', () => {
+      const segment = base64UrlStringify("hello");
+      const result = decodeJWSPayload<string>(segment, true, "string");
       expect(result).toBe("hello");
     });
 
-    it("useB64=true, forceUint8Array=true: returns raw bytes", () => {
+    it('useB64=true, "bytes": returns raw bytes', () => {
       const bytes = textEncoder.encode("raw");
       const segment = base64UrlStringify(bytes);
-      const result = decodeJWSPayload<Uint8Array>(segment, true, true);
+      const result = decodeJWSPayload<Uint8Array>(segment, true, "bytes");
       expect(result).toBeInstanceOf(Uint8Array);
       expect(textDecoder.decode(result)).toBe("raw");
     });
 
-    it("useB64=false: returns the payload segment as-is", () => {
-      const result = decodeJWSPayload<string>("raw-payload", false, false);
+    it("useB64=true: reports an undecodable segment", () => {
+      expectThrowsJWTError(
+        () => decodeJWSPayload("not base64url!", true, "bytes"),
+        "ERR_JWS_INVALID",
+      );
+    });
+
+    it('useB64=false, "string": returns the payload segment as-is', () => {
+      const result = decodeJWSPayload<string>("raw-payload", false, "string");
       expect(result).toBe("raw-payload");
     });
 
-    it("useB64=false, forceUint8Array=true: UTF-8 encodes the segment", () => {
-      const result = decodeJWSPayload<Uint8Array>("raw-payload", false, true);
+    it('useB64=false, "bytes": UTF-8 encodes the segment', () => {
+      const result = decodeJWSPayload<Uint8Array>("raw-payload", false, "bytes");
       expect(result).toBeInstanceOf(Uint8Array);
       expect(textDecoder.decode(result)).toBe("raw-payload");
+    });
+
+    it('useB64=false, "json": parses the segment', () => {
+      const result = decodeJWSPayload<{ sub: string }>('{"sub":"u1"}', false, "json");
+      expect(result.sub).toBe("u1");
     });
   });
 
