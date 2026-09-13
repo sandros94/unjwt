@@ -43,51 +43,83 @@ function expectThrowsJWTError(fn: () => unknown, code: KnownJWTErrorCode): void 
 
 describe.concurrent("_internal helpers", () => {
   describe("buildJWKSetFilter", () => {
-    const kidMatch: JWK = { kty: "oct", k: "x", kid: "a", alg: "HS256" };
-    const kidAlt: JWK = { kty: "oct", k: "x", kid: "b", alg: "HS256" };
-    const noKid: JWK = { kty: "oct", k: "x", alg: "HS256" };
-    const noAlg: JWK = { kty: "oct", k: "x", kid: "a" };
-    const wrongAlg: JWK = { kty: "oct", k: "x", kid: "a", alg: "HS512" };
+    const kidMatch: JWK = { kty: "RSA", n: "x", e: "AQAB", kid: "a", alg: "RS256" };
+    const kidAlt: JWK = { kty: "RSA", n: "x", e: "AQAB", kid: "b", alg: "RS256" };
+    const noKid: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RS256" };
+    const noAlg: JWK = { kty: "RSA", n: "x", e: "AQAB", kid: "a" };
+    const wrongAlg: JWK = { kty: "RSA", n: "x", e: "AQAB", kid: "a", alg: "RS512" };
+    const octKey: JWK = { kty: "oct", k: "x", kid: "a", alg: "RS256" };
 
     it("keeps keys matching both kid and alg", () => {
-      const filter = buildJWKSetFilter({ kid: "a", alg: "HS256" });
+      const filter = buildJWKSetFilter({ kid: "a", alg: "RS256" }, { op: "sig" });
       expect(filter(kidMatch)).toBe(true);
     });
 
     it("rejects keys with different kid", () => {
-      const filter = buildJWKSetFilter({ kid: "a", alg: "HS256" });
+      const filter = buildJWKSetFilter({ kid: "a", alg: "RS256" }, { op: "sig" });
       expect(filter(kidAlt)).toBe(false);
     });
 
-    it("keeps keys without kid when header has kid (filter accepts because !kid branch)", () => {
-      // Correction: filter uses (!headerKid || k.kid === headerKid); when header has kid,
-      // keys without kid are REJECTED (k.kid === undefined !== "a"). So this test is:
-      const filter = buildJWKSetFilter({ kid: "a", alg: "HS256" });
+    it("rejects keys without kid when the header carries one", () => {
+      const filter = buildJWKSetFilter({ kid: "a", alg: "RS256" }, { op: "sig" });
       expect(filter(noKid)).toBe(false);
     });
 
     it("keeps all keys when header has no kid", () => {
-      const filter = buildJWKSetFilter({ alg: "HS256" });
+      const filter = buildJWKSetFilter({ alg: "RS256" }, { op: "sig" });
       expect(filter(kidMatch)).toBe(true);
       expect(filter(noKid)).toBe(true);
     });
 
     it("keeps keys without alg regardless of header alg", () => {
-      const filter = buildJWKSetFilter({ kid: "a", alg: "HS256" });
+      const filter = buildJWKSetFilter({ kid: "a", alg: "RS256" }, { op: "sig" });
       expect(filter(noAlg)).toBe(true);
     });
 
     it("rejects keys whose alg differs from header", () => {
-      const filter = buildJWKSetFilter({ kid: "a", alg: "HS256" });
+      const filter = buildJWKSetFilter({ kid: "a", alg: "RS256" }, { op: "sig" });
       expect(filter(wrongAlg)).toBe(false);
     });
 
+    it("drops oct entries unless the caller admits symmetric material", () => {
+      const header = { kid: "a", alg: "RS256" };
+      expect(buildJWKSetFilter(header, { op: "sig" })(octKey)).toBe(false);
+      expect(buildJWKSetFilter(header, { op: "sig", allowSymmetric: true })(octKey)).toBe(true);
+    });
+
+    it("drops entries that are not JWKs", () => {
+      const filter = buildJWKSetFilter({ alg: "RS256" }, { op: "sig" });
+      for (const junk of [null, "x", 1, [], {}, { kty: "unknown" }]) {
+        expect(filter(junk as unknown as JWK)).toBe(false);
+      }
+    });
+
+    it('honours "use" against the operation', () => {
+      const sigFilter = buildJWKSetFilter({ alg: "RS256" }, { op: "sig" });
+      expect(sigFilter({ ...noKid, use: "sig" } as JWK)).toBe(true);
+      expect(sigFilter({ ...noKid, use: "enc" } as JWK)).toBe(false);
+
+      const encFilter = buildJWKSetFilter({ alg: "RSA-OAEP-256" }, { op: "enc" });
+      const encKey: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RSA-OAEP-256" };
+      expect(encFilter({ ...encKey, use: "enc" } as JWK)).toBe(true);
+      expect(encFilter({ ...encKey, use: "sig" } as JWK)).toBe(false);
+    });
+
+    it('honours "key_ops" against the operation', () => {
+      const sigFilter = buildJWKSetFilter({ alg: "RS256" }, { op: "sig" });
+      expect(sigFilter({ ...noKid, key_ops: ["verify"] } as JWK)).toBe(true);
+      expect(sigFilter({ ...noKid, key_ops: ["sign"] } as JWK)).toBe(false);
+
+      const encKey: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RSA-OAEP-256" };
+      const encFilter = buildJWKSetFilter({ alg: "RSA-OAEP-256" }, { op: "enc" });
+      for (const op of ["unwrapKey", "decrypt", "deriveBits", "deriveKey"]) {
+        expect(encFilter({ ...encKey, key_ops: [op] } as JWK)).toBe(true);
+      }
+      expect(encFilter({ ...encKey, key_ops: ["verify"] } as JWK)).toBe(false);
+    });
+
     it("undefined header → only keys without alg pass (degenerate / unused in practice)", () => {
-      // JWS/JWE Protected Headers always carry `alg`; this path exists only for
-      // the generic signature of the helper. When header is undefined both kid
-      // and alg constraints default to "unset", and the predicate still requires
-      // keys not to advertise a conflicting alg.
-      const filter = buildJWKSetFilter(undefined);
+      const filter = buildJWKSetFilter(undefined, { op: "sig" });
       expect(filter(noAlg)).toBe(true);
       expect(filter(kidMatch)).toBe(false);
     });
@@ -191,6 +223,15 @@ describe.concurrent("_internal helpers", () => {
       await expect(resolveSigningKey("HS256", shortKey, "sign")).rejects.toSatisfy((err) =>
         isJWTError(err, "ERR_JWK_INVALID"),
       );
+    });
+
+    it("rejects raw bytes under an algorithm that is not HMAC", async () => {
+      const raw = crypto.getRandomValues(new Uint8Array(32));
+      for (const alg of ["RS256", "ES256", "EdDSA", "PS512"]) {
+        const error = await resolveSigningKey(alg, raw, "verify").catch((e) => e);
+        expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+        expect(error.message).toContain(alg);
+      }
     });
 
     it("passes through RSA CryptoKey with modulusLength 2048", async () => {
@@ -316,19 +357,28 @@ describe.concurrent("_internal helpers", () => {
   describe("checkAlgAllowed", () => {
     describe("with explicit allowlist", () => {
       it("allows alg present in the list", () => {
-        const err = checkAlgAllowed("HS256", undefined, ["HS256", "HS384"], JWS_ALG_CTX);
+        const err = checkAlgAllowed("HS256", undefined, {
+          ctx: JWS_ALG_CTX,
+          algorithms: ["HS256", "HS384"],
+        });
         expect(err).toBeUndefined();
       });
 
       it("rejects alg not in list with ERR_JWS_ALG_NOT_ALLOWED (JWS)", () => {
-        const err = checkAlgAllowed("HS384", undefined, ["HS256"], JWS_ALG_CTX);
+        const err = checkAlgAllowed("HS384", undefined, {
+          ctx: JWS_ALG_CTX,
+          algorithms: ["HS256"],
+        });
         expect(err).toBeDefined();
         expect(isJWTError(err!, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
         expect(err!.message).toContain("Algorithm not allowed: HS384");
       });
 
       it("rejects alg not in list with ERR_JWE_ALG_NOT_ALLOWED (JWE)", () => {
-        const err = checkAlgAllowed("A256KW", undefined, ["A128KW"], JWE_ALG_CTX);
+        const err = checkAlgAllowed("A256KW", undefined, {
+          ctx: JWE_ALG_CTX,
+          algorithms: ["A128KW"],
+        });
         expect(err).toBeDefined();
         expect(isJWTError(err!, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
         expect(err!.message).toContain("Key management algorithm not allowed: A256KW");
@@ -338,33 +388,48 @@ describe.concurrent("_internal helpers", () => {
     describe("JWS fast-path (JWK with alg set)", () => {
       it("allows when JWK alg matches header alg", () => {
         const jwk: JWK = { kty: "oct", k: "x", alg: "HS256" };
-        const err = checkAlgAllowed("HS256", jwk, undefined, JWS_ALG_CTX);
+        const err = checkAlgAllowed("HS256", jwk, { ctx: JWS_ALG_CTX });
         expect(err).toBeUndefined();
       });
 
       it("rejects when JWK alg differs", () => {
         const jwk: JWK = { kty: "oct", k: "x", alg: "HS256" };
-        const err = checkAlgAllowed("HS512", jwk, undefined, JWS_ALG_CTX);
+        const err = checkAlgAllowed("HS512", jwk, { ctx: JWS_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
       });
     });
 
-    describe("JWE oct aliasing (fast-path skipped for oct JWKs)", () => {
-      it("oct JWK with alg='A256GCM' accepts A256GCMKW (alias, via inference)", () => {
+    describe("JWE symmetric roles (fast-path skipped for oct JWKs)", () => {
+      it("oct JWK with alg='A256GCM' is a CEK for dir, never a wrapping key", () => {
         const jwk: JWK = { kty: "oct", k: "x", alg: "A256GCM" };
-        const err = checkAlgAllowed("A256GCMKW", jwk, undefined, JWE_ALG_CTX);
-        expect(err).toBeUndefined();
+        expect(checkAlgAllowed("dir", jwk, { ctx: JWE_ALG_CTX })).toBeUndefined();
+        expect(
+          isJWTError(
+            checkAlgAllowed("A256GCMKW", jwk, { ctx: JWE_ALG_CTX })!,
+            "ERR_JWE_ALG_NOT_ALLOWED",
+          ),
+        ).toBe(true);
       });
 
-      it("oct JWK with alg='A256GCM' accepts 'dir' (alias, via inference)", () => {
-        const jwk: JWK = { kty: "oct", k: "x", alg: "A256GCM" };
-        const err = checkAlgAllowed("dir", jwk, undefined, JWE_ALG_CTX);
-        expect(err).toBeUndefined();
+      it("oct JWK with alg='A256GCMKW' wraps only, never serves as a CEK", () => {
+        const jwk: JWK = { kty: "oct", k: "x", alg: "A256GCMKW" };
+        expect(checkAlgAllowed("A256GCMKW", jwk, { ctx: JWE_ALG_CTX })).toBeUndefined();
+        expect(
+          isJWTError(checkAlgAllowed("dir", jwk, { ctx: JWE_ALG_CTX })!, "ERR_JWE_ALG_NOT_ALLOWED"),
+        ).toBe(true);
       });
 
-      it("oct JWK with alg='A256KW' rejects 'A128KW' (not an alias)", () => {
+      it("oct JWK with alg='A256KW' wraps only, never serves as a CEK", () => {
         const jwk: JWK = { kty: "oct", k: "x", alg: "A256KW" };
-        const err = checkAlgAllowed("A128KW", jwk, undefined, JWE_ALG_CTX);
+        expect(checkAlgAllowed("A256KW", jwk, { ctx: JWE_ALG_CTX })).toBeUndefined();
+        expect(
+          isJWTError(checkAlgAllowed("dir", jwk, { ctx: JWE_ALG_CTX })!, "ERR_JWE_ALG_NOT_ALLOWED"),
+        ).toBe(true);
+      });
+
+      it("oct JWK with alg='A256KW' rejects 'A128KW'", () => {
+        const jwk: JWK = { kty: "oct", k: "x", alg: "A256KW" };
+        const err = checkAlgAllowed("A128KW", jwk, { ctx: JWE_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
       });
 
@@ -373,39 +438,73 @@ describe.concurrent("_internal helpers", () => {
           modulusLength: 2048,
         })) as unknown as { publicKey: JWK_RSA_Public; privateKey: JWK_RSA_Private };
         // Matching alg → allowed
-        expect(checkAlgAllowed("RSA-OAEP-256", publicKey, undefined, JWE_ALG_CTX)).toBeUndefined();
+        expect(checkAlgAllowed("RSA-OAEP-256", publicKey, { ctx: JWE_ALG_CTX })).toBeUndefined();
         // Different alg → rejected (fast-path, no inference fallback)
         expect(
           isJWTError(
-            checkAlgAllowed("RSA-OAEP-384", publicKey, undefined, JWE_ALG_CTX)!,
+            checkAlgAllowed("RSA-OAEP-384", publicKey, { ctx: JWE_ALG_CTX })!,
             "ERR_JWE_ALG_NOT_ALLOWED",
           ),
         ).toBe(true);
       });
     });
 
+    describe("JWK Set inference", () => {
+      const rsaEntry: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RS256" };
+
+      it("ignores oct entries unless symmetric material is admitted", () => {
+        const set = { keys: [rsaEntry, { kty: "oct", k: "x", alg: "HS256" } as JWK] };
+        expect(
+          isJWTError(
+            checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX })!,
+            "ERR_JWS_ALG_NOT_ALLOWED",
+          ),
+        ).toBe(true);
+        expect(
+          checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX, allowSymmetric: true }),
+        ).toBeUndefined();
+      });
+
+      it("skips entries it cannot infer instead of failing the whole set", () => {
+        const set = { keys: [{ kty: "RSA", n: "x", e: "AQAB" } as JWK, rsaEntry] };
+        expect(checkAlgAllowed("RS256", set, { ctx: JWS_ALG_CTX })).toBeUndefined();
+      });
+    });
+
     describe("inference fallback", () => {
       it("CryptoKey HMAC infers HS256 and allows it", async () => {
         const hs = (await generateKey("HS256")) as CryptoKey;
-        expect(checkAlgAllowed("HS256", hs, undefined, JWS_ALG_CTX)).toBeUndefined();
+        expect(checkAlgAllowed("HS256", hs, { ctx: JWS_ALG_CTX })).toBeUndefined();
       });
 
       it("CryptoKey HMAC rejects a mismatched alg", async () => {
         const hs = (await generateKey("HS256")) as CryptoKey;
-        const err = checkAlgAllowed("HS512", hs, undefined, JWS_ALG_CTX);
+        const err = checkAlgAllowed("HS512", hs, { ctx: JWS_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
       });
 
       it("returns 'Cannot infer' when key shape is ambiguous", () => {
-        const err = checkAlgAllowed("HS256", "random-string", undefined, JWS_ALG_CTX);
+        const err = checkAlgAllowed("HS256", "random-string", { ctx: JWS_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
         expect(err!.message).toContain("Cannot infer allowed algorithms");
       });
 
       it("JWE: returns 'Cannot infer' with a more specific label", () => {
-        const err = checkAlgAllowed("A256KW", undefined, undefined, JWE_ALG_CTX);
+        const err = checkAlgAllowed("A256KW", undefined, { ctx: JWE_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
         expect(err!.message).toContain("key management algorithms");
+      });
+
+      it("JWE: raw bytes carry no role and must be named by the caller", () => {
+        const err = checkAlgAllowed("A256KW", new Uint8Array(32), { ctx: JWE_ALG_CTX });
+        expect(isJWTError(err!, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+        expect(err!.message).toContain("Cannot infer");
+        expect(
+          checkAlgAllowed("A256KW", new Uint8Array(32), {
+            ctx: JWE_ALG_CTX,
+            algorithms: ["A256KW"],
+          }),
+        ).toBeUndefined();
       });
     });
   });
@@ -503,13 +602,13 @@ describe.concurrent("_internal helpers", () => {
     });
 
     it("JWS context has the expected shape", () => {
-      expect(JWS_ALG_CTX.octAliasing).toBe(false);
+      expect(JWS_ALG_CTX.octRoles).toBe(false);
       expect(JWS_ALG_CTX.errorCode).toBe("ERR_JWS_ALG_NOT_ALLOWED");
       expect(JWS_ALG_CTX.label).toBe("Algorithm");
     });
 
     it("JWE context has the expected shape", () => {
-      expect(JWE_ALG_CTX.octAliasing).toBe(true);
+      expect(JWE_ALG_CTX.octRoles).toBe(true);
       expect(JWE_ALG_CTX.errorCode).toBe("ERR_JWE_ALG_NOT_ALLOWED");
       expect(JWE_ALG_CTX.label).toBe("Key management algorithm");
     });

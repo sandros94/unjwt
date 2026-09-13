@@ -149,6 +149,18 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
    */
   algorithms?: JWSAlgorithm[];
   /**
+   * Admit the `oct` entries of a JWK Set as key material.
+   *
+   * A JWK Set is public-key material: its `oct` entries are ignored, so a
+   * symmetric key appended to a published set cannot turn into a secret this
+   * token is checked against. Set this to `true` only for a set the application
+   * itself controls — an HMAC key-rotation set — never for one fetched from a
+   * `jwks_uri`.
+   *
+   * @default false
+   */
+  allowSymmetricJWKSet?: boolean;
+  /**
    * What the verified payload is, declared by the caller — the signed content
    * never decides its own shape.
    *

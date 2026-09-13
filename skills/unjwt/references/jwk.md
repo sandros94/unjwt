@@ -75,7 +75,8 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 - `CryptoKey` → returned as-is (subject to `expect` validation if supplied)
 - `JWK_oct` → `k` decoded to `Uint8Array` (default)
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
-- Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`)
+- Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`; `{ extractable?: boolean }` overrides
+  the default of non-extractable for private key material, extractable for public)
 
 For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it is never assumed
 from `alg`. `EC` + `ECDH-ES*` accepts `P-256` / `P-384` / `P-521`; `OKP` + `Ed25519` / `EdDSA`
@@ -83,11 +84,31 @@ accepts `Ed25519` / `Ed448`; `OKP` + `ECDH-ES*` accepts `X25519` / `X448`. Any o
 throws `ERR_JWK_INVALID` before Web Crypto is reached. The same rule applies to `importPEM`,
 which reads the curve OID out of the key body.
 
-`oct` key lengths are validated against the JWK's `alg` (or the positional hint) at import:
-HS\* require at least the hash output size (32/48/64 bytes, RFC 7518 §3.2); A\*KW, A\*GCMKW,
-A\*GCM, and A\*CBC-HS\* require their exact key size. `asCryptoKey` with an HMAC `algorithm`
-enforces the same minimum. Throws `ERR_JWK_INVALID`; algorithms whose key size cannot be known
-from `alg` alone (e.g. `"dir"`, absent `alg`) are not checked.
+`oct` key lengths are validated against the algorithm of the operation (the positional hint or
+`options.alg`, falling back to the JWK's own `alg`) at import: HS\* require at least the hash
+output size (32/48/64 bytes, RFC 7518 §3.2); A\*KW, A\*GCMKW, A\*GCM, and A\*CBC-HS\* require their
+exact key size. `asCryptoKey` with an HMAC `algorithm` enforces the same minimum. Throws
+`ERR_JWK_INVALID`; algorithms whose key size cannot be known from `alg` alone (e.g. `"dir"`,
+absent `alg`) are not checked — for `"dir"` the length is checked against the token's `enc`
+during decryption instead.
+
+#### The JWK's `alg` is authoritative
+
+When the JWK carries an `alg` and the operation asks for a different one, the import throws
+`JWTError('JWK "alg" is "<jwk.alg>" but the operation requires "<alg>".', "ERR_JWK_INVALID")`
+— neither side silently wins. The single exception is the JWE symmetric role mapping: an `oct`
+JWK whose `alg` is a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is the CEK that
+`alg: "dir"` consumes, and `decrypt` additionally requires the token's `enc` to equal that `alg`
+(see `jwe.md`).
+
+#### `key_ops` and `ext`
+
+A JWK's `key_ops` is intersected with the usages the operation needs — it narrows them, never
+widens them — and a `key_ops` permitting none of them throws
+`JWTError('JWK "key_ops" does not permit <usage>.', "ERR_JWK_INVALID")` rather than importing a
+key that fails inside Web Crypto. `ext` follows the caller: private key material imports
+non-extractable unless `{ extractable: true }` is passed, and a JWK's `ext: false` may lower
+extractability but never raises it.
 
 #### Strings are rejected
 
@@ -348,13 +369,13 @@ type JWKLookupFunction = (
   | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
 ```
 
-When a `JWKLookupFunction` returns a `JWKSet`, the same multi-key retry logic applies as when passing a `JWKSet` directly — see `getJWKsFromSet` for the selection behaviour.
+When a `JWKLookupFunction` returns a `JWKSet`, the same multi-key retry logic applies as when passing a `JWKSet` directly — see `jws.md` / `jwe.md` for the candidate rules.
 
 ## JWK Set Utilities
 
 ### `getJWKsFromSet(jwkSet, filter?)`
 
-Returns all JWKs from a set, optionally narrowed by a predicate `(jwk: JWK) => boolean`. No filter returns all keys. Useful for multi-key verification retry, key rotation, and multi-recipient JWE construction.
+Returns all JWKs from a set, optionally narrowed by a predicate `(jwk: JWK) => boolean`. Entries that are not JWKs are dropped first — `keys` arrives over the wire and may hold `null`, strings or junk objects. No filter returns every JWK. Useful for multi-key verification retry, key rotation, and multi-recipient JWE construction.
 
 ```ts
 const allKeys = getJWKsFromSet(jwkSet);
@@ -593,7 +614,7 @@ type WrappingKeyFor<Alg extends KeyManagementAlgorithm> = Alg extends JWK_RSA_EN
       : Alg extends JWK_AES_KW
         ? CryptoKey | JWK_oct<Alg>
         : Alg extends JWK_AES_GCM_KW
-          ? CryptoKey | JWK_oct<Alg | `A${"128" | "192" | "256"}GCM`>
+          ? CryptoKey | JWK_oct<Alg>
           : Alg extends "dir"
             ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
             : never;

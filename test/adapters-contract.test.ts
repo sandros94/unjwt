@@ -22,6 +22,8 @@ import type { SessionContext } from "../src/adapters/elysia/session/types";
 import type { CookieAttributes } from "../src/adapters/elysia/_cookie";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
+// PBES2 derives its key from the JWK's bytes, so the JWK declares the PBES2 alg itself.
+const pbes2Key = { ...jweKey, alg: "PBES2-HS256+A128KW" } as const;
 
 const SECOND = 1000;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -769,13 +771,13 @@ describe("session adapters — shared contract", () => {
     it("caps PBES2 unwrap at the iteration count the session itself mints", async () => {
       const onError = vi.fn();
       const pinned = {
-        key: jweKey,
+        key: pbes2Key,
         jwe: {
           encryptOptions: { alg: "PBES2-HS256+A128KW", enc: "A128GCM", p2c: 2048 },
         },
       } as const;
 
-      const costly = await encrypt({ jti: "costly", iat: nowSeconds() }, jweKey, {
+      const costly = await encrypt({ jti: "costly", iat: nowSeconds() }, pbes2Key, {
         alg: "PBES2-HS256+A128KW",
         enc: "A128GCM",
         p2c: 200_000,
@@ -791,7 +793,7 @@ describe("session adapters — shared contract", () => {
 
     it("accepts a token minted at the session's own iteration count", async () => {
       const pinned = {
-        key: jweKey,
+        key: pbes2Key,
         jwe: {
           encryptOptions: { alg: "PBES2-HS256+A128KW", enc: "A128GCM", p2c: 2048 },
         },

@@ -73,14 +73,16 @@ Verifies a JWS token and returns its payload.
   - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`.
   - `JWKSet` stays fully permissive (`JWK[]`) because JWKS from the wire are heterogeneous; runtime filters candidates per header.
   - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
-  - `JWKSet`: multi-key selection with automatic retry
+  - `JWKSet`: multi-key selection with automatic retry. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
-    - Token has no `kid` — all keys whose `alg` field is compatible are tried in order; the first to verify successfully wins
+    - Token has no `kid` — every candidate is tried in order; the first to verify successfully wins
+    - A candidate that cannot verify — unusable key material as much as a signature mismatch — only means "try the next one"; when none verifies, `ERR_JWS_SIGNATURE_INVALID` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
     - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
 
 - `options?: JWSVerifyOptions`
-  - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWSAllowedAlgorithms`; pass explicitly when the key carries no usable metadata (raw `Uint8Array`, alg-less JWKs, lookup functions returning ambiguous shapes)
+  - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWSAllowedAlgorithms`; pass explicitly when the key carries no usable metadata (raw `Uint8Array`, alg-less JWKs, lookup functions returning ambiguous shapes). For a JWK Set the allowlist is the union over its entries, skipping the ones it cannot infer
+  - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls (an HMAC key-rotation set), never for one fetched from a `jwks_uri`
   - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the payload must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWS_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The signed content never decides its own shape, and `typ`/`cty` never pick it — both are signer-controlled. Under RFC 7797 `b64: false` the unencoded segment is the content and the same modes apply
   - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
   - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
@@ -345,6 +347,7 @@ interface JWSSignOptions {
 
 interface JWSVerifyOptions {
   algorithms?: JWSAlgorithm[];
+  allowSymmetricJWKSet?: boolean;
   payload?: "json" | "string" | "bytes";
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
@@ -415,6 +418,7 @@ interface JWSMultiSignOptions {
 
 interface JWSMultiVerifyOptions {
   algorithms?: JWSAlgorithm[];
+  allowSymmetricJWKSet?: boolean;
   payload?: "json" | "string" | "bytes";
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
@@ -433,6 +437,7 @@ interface JWSMultiVerifyOptions {
 
 interface JWSMultiVerifyAllOptions {
   algorithms?: JWSAlgorithm[];
+  allowSymmetricJWKSet?: boolean;
   payload?: "json" | "string" | "bytes";
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;

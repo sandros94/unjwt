@@ -41,7 +41,8 @@ Produces a JWE Compact Serialization token.
     rather than being used as raw key bytes. JWE is the only family that takes a string at all, and PBKDF2
     is the only thing it does with one
   - `JWEEncryptJWK` → infers `alg`/`enc` from key properties. Narrows by family: `JWK_oct` with a JWE symmetric `alg` (AES-KW, AES-GCM, AES-GCM-KW, AES-CBC-HMAC, PBES2, `"dir"`) or an asymmetric _public_ JWK whose `alg` is RSA-OAEP or ECDH-ES. HMAC / signing-family JWKs are rejected at the type level.
-  - `CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array` with `alg: "dir"` → used directly as the CEK (`enc` required)
+  - `CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array` with `alg: "dir"` → used directly as the CEK (`enc` required). A JWK declaring a content encryption `alg` may serve as the CEK for that `enc` and no other; one declaring a key wrapping `alg` is refused
+  - `Uint8Array` under any `alg` → valid, since the call names the `alg` itself; the matching `decrypt` must then be given the same `algorithms: [alg]`
   - `CryptoKey` with other algorithms → requires explicit `alg` and `enc`
 - `options?: JWEEncryptOptions`
   - `alg?: KeyManagementAlgorithm`
@@ -97,13 +98,15 @@ Decrypts a JWE token.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
-  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases
+  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"enc"`, and its `key_ops` is absent or contains one of `unwrapKey` / `decrypt` / `deriveBits` / `deriveKey`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, no retry)
-    - Token has no `kid` — all keys whose `alg` field is compatible are tried in order; first to succeed wins
+    - Token has no `kid` — every candidate is tried in order; first to succeed wins
+    - A candidate that cannot open the token — unusable key material as much as a failed unwrap — only means "try the next one"; when none succeeds, `ERR_JWE_DECRYPTION_FAILED` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
   - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
 - `options?: JWEDecryptOptions`
-  - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata
+  - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata. A raw `Uint8Array` is such a key: it declares nothing, so `decrypt(jwe, rawBytes, { algorithms: ["A256KW"] })` names the `alg` the matching `encrypt` call was given. A password `string` still infers the PBES2 family plus `"dir"`
+  - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls, never for one fetched from a `jwks_uri`
   - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
   - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the plaintext must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWE_INVALID` (`"Invalid JWE: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWE_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The decrypted content never decides its own shape, and `typ`/`cty` never pick it
   - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
@@ -122,6 +125,7 @@ Decrypts a JWE token.
 - `zip` — compression is not implemented, and a token carrying `zip` is rejected with `ERR_JWE_INVALID` rather than decrypted without decompressing.
 - `crit` — validated on the protected header before key management, so a `crit` violation surfaces as `ERR_JWE_INVALID` regardless of whether the key would have worked.
 - `typ` — compared under RFC 7515 §4.1.9 media-type semantics: case-insensitive, `application/` optional. `typ: "at+jwt"` matches a header carrying `"application/AT+JWT"`.
+- **Symmetric key roles** — an `oct` JWK's `alg` names the single role it holds, and roles do not alias: `A*KW` and `A*GCMKW` wrap only; a content encryption `alg` (`A*GCM`, `A*CBC-HS*`) is a CEK for `"dir"` only, and only when the token's `enc` equals that `alg`; `"dir"` serves any `enc` whose CEK length matches the key; a PBES2 `alg` serves only itself. A mismatch is `ERR_JWK_INVALID` — `JWK "alg" is "A256GCM" but "dir" requires a key declared as "dir" or as the token's "enc" (A128CBC-HS256).` for the CEK case, and the `importKey` authority message (`JWK "alg" is "A256GCM" but the operation requires "A256GCMKW".`) when a CEK is offered as a wrapping key.
 - **Empty encrypted key for direct algorithms** — `dir` and bare `ECDH-ES` agree on the CEK directly (RFC 7516 §5.2 step 6), so a non-empty encrypted-key segment is `ERR_JWE_INVALID` instead of silently discarded bytes.
 - **IV and tag lengths** — both are fixed by `enc` (12/16 bytes IV, 16/16/24/32 bytes tag) and checked before the AEAD primitive runs. Without it, `ciphertext ‖ tag` could be re-split by an attacker for AES-GCM, or the AES-CBC-HMAC tag compared truncated.
 - **ECDH-ES `epk`** — the ephemeral public key is wire data: it must be an EC or OKP _public_ key (a `d` member is refused), on a curve the library supports _and_ the same curve as the recipient key, and only `kty`/`crv`/coordinates are carried into the import — a forged `alg`, `key_ops`, `ext` or `use` is ignored. `apu` and `apv` are bounded at 1024 bytes each (`ERR_JWE_INVALID` beyond).
@@ -385,6 +389,7 @@ interface JWEDecryptOptions {
   recognizedHeaders?: string[];
   // JWE-specific decrypt options
   algorithms?: KeyManagementAlgorithm[];
+  allowSymmetricJWKSet?: boolean;
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
@@ -523,6 +528,7 @@ interface JWEMultiDecryptOptions {
   recognizedHeaders?: string[];
   // JWE decrypt options (inlined from JWEDecryptOptions)
   algorithms?: KeyManagementAlgorithm[];
+  allowSymmetricJWKSet?: boolean;
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];

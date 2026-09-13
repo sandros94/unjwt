@@ -238,11 +238,24 @@ export interface JWEEncryptOptions {
 export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   /**
    * A list of allowed JWE "alg" (Algorithm) Header Parameter values for key management.
-   * When omitted, the allowlist is inferred from the key's shape — password strings
-   * and raw `Uint8Array` keys infer the PBES2 family plus `dir`; lookup functions
-   * cannot be inferred and require this option explicitly.
+   * When omitted, the allowlist is inferred from the key's shape — a password
+   * string infers the PBES2 family plus `dir`; raw `Uint8Array` keys and lookup
+   * functions carry no algorithm of their own and require this option
+   * explicitly, matching the `alg` they were encrypted with.
    */
   algorithms?: KeyManagementAlgorithm[];
+  /**
+   * Admit the `oct` entries of a JWK Set as key material.
+   *
+   * A JWK Set is public-key material: its `oct` entries are ignored, so a
+   * symmetric key appended to a published set cannot turn into a secret this
+   * token is checked against. Set this to `true` only for a set the application
+   * itself controls — an HMAC key-rotation set — never for one fetched from a
+   * `jwks_uri`.
+   *
+   * @default false
+   */
+  allowSymmetricJWKSet?: boolean;
   /** A list of allowed JWE "enc" (Encryption Algorithm) Header Parameter values for content encryption. */
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   /** Algorithm to import the unwrapped CEK as (e.g., { name: 'AES-GCM' }). Defaults based on 'enc'. */

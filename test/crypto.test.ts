@@ -284,7 +284,8 @@ describe.concurrent("_crypto primitives", () => {
 
   describe("_key-codec: JWK ↔ CryptoKey", () => {
     it("jwkTokey / keyToJWK roundtrip — EC private", async () => {
-      const cryptoKey = await jwkTokey(ec.jwk.private);
+      // Private key material imports non-extractable unless the caller asks otherwise.
+      const cryptoKey = await jwkTokey(ec.jwk.private, { extractable: true });
       expect(cryptoKey).toBeInstanceOf(CryptoKey);
       expect(cryptoKey.type).toBe("private");
 

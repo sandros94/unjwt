@@ -447,6 +447,88 @@ describe.concurrent("JWK Utilities", () => {
       });
     });
 
+    describe("declared algorithm authority", () => {
+      it("rejects a JWK whose alg differs from the operation's", async () => {
+        const { privateKey } = await generateJWK("ECDH-ES", { namedCurve: "P-256" });
+        const error = await importKey(privateKey, "ES256").catch((e) => e);
+        expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+        expect(error.message).toBe('JWK "alg" is "ECDH-ES" but the operation requires "ES256".');
+      });
+
+      it("rejects a symmetric JWK borrowed for another algorithm", async () => {
+        const jwk = await generateJWK("A128GCM");
+        const error = await importKey(jwk, "HS512").catch((e) => e);
+        expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+        expect(error.message).toBe('JWK "alg" is "A128GCM" but the operation requires "HS512".');
+      });
+
+      it("accepts a JWK whose alg matches, and one that declares none", async () => {
+        const { privateKey } = await generateJWK("ES256");
+        await expect(importKey(privateKey, "ES256")).resolves.toBeInstanceOf(CryptoKey);
+
+        const { alg: _alg, ...algLess } = privateKey;
+        await expect(importKey(algLess as JWK_EC_Private, "ES256")).resolves.toBeInstanceOf(
+          CryptoKey,
+        );
+      });
+
+      it('lets a content-encryption oct JWK serve "dir" — the one symmetric role mapping', async () => {
+        const jwk = await generateJWK("A256GCM");
+        await expect(importKey(jwk, "dir")).resolves.toBeInstanceOf(Uint8Array);
+      });
+
+      it("measures oct key length against the operation's algorithm", async () => {
+        const k = base64UrlStringify(secureRandomBytes(16));
+        await expect(importKey({ kty: "oct", k }, "HS512")).rejects.toThrow(
+          "HS512 requires a key of at least 64 bytes",
+        );
+      });
+    });
+
+    describe('"key_ops" and "ext" on the JWK', () => {
+      it("intersects key_ops with the usages the operation needs", async () => {
+        const { privateKey } = await generateJWK("ES256");
+        const key = (await importKey(
+          { ...privateKey, key_ops: ["sign", "verify"] },
+          "ES256",
+        )) as CryptoKey;
+        expect(key.usages).toEqual(["sign"]);
+      });
+
+      it("rejects key_ops that permit none of them", async () => {
+        const { privateKey } = await generateJWK("ES256");
+        for (const key_ops of [[], ["verify"]] as KeyUsage[][]) {
+          const error = await importKey({ ...privateKey, key_ops }, "ES256").catch((e) => e);
+          expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+          expect(error.message).toBe('JWK "key_ops" does not permit sign.');
+        }
+      });
+
+      it("keeps private key material non-extractable however the JWK marks ext", async () => {
+        const { privateKey, publicKey } = await generateJWK("ES256");
+        const priv = (await importKey({ ...privateKey, ext: true }, "ES256")) as CryptoKey;
+        expect(priv.extractable).toBe(false);
+
+        const pub = (await importKey(publicKey, "ES256")) as CryptoKey;
+        expect(pub.extractable).toBe(true);
+      });
+
+      it('honours a JWK "ext": false on a public key', async () => {
+        const { publicKey } = await generateJWK("ES256");
+        const key = (await importKey({ ...publicKey, ext: false }, "ES256")) as CryptoKey;
+        expect(key.extractable).toBe(false);
+      });
+
+      it("imports an extractable key when the caller asks for one", async () => {
+        const { privateKey } = await generateJWK("ES256");
+        const key = (await importKey(privateKey, {
+          alg: "ES256",
+          extractable: true,
+        })) as CryptoKey;
+        expect(key.extractable).toBe(true);
+      });
+    });
+
     describe("expect option", () => {
       it("rejects a private JWK when expect is 'public'", async () => {
         const { privateKey } = await generateJWK("ES256");
@@ -1256,6 +1338,15 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should return empty array when predicate matches no keys", () => {
       expect(getJWKsFromSet(jwkSet, (k) => k.kty === "RSA")).toHaveLength(0);
+    });
+
+    it("drops entries that are not JWKs", () => {
+      const junkSet = {
+        keys: [null, "x", 1, [], {}, { kty: "unknown" }, jwkSet.keys[0]],
+      } as unknown as JWKSet;
+      const result = getJWKsFromSet(junkSet);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.kid).toBe("k1");
     });
   });
 

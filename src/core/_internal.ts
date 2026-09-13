@@ -32,19 +32,48 @@ import { assertOctKeyLength, bitLengthIV, bitLengthTag } from "./_crypto";
 // JWKSet candidate filter — used by JWS verify + JWE decrypt (compact & multi).
 // -----------------------------------------------------------------------------
 
+/** What a JWK Set is being searched for: a signature check or a key unwrap. */
+export type JWKSetOperation = "sig" | "enc";
+
+/** `key_ops` values (RFC 7517 §4.3) that can serve each operation. */
+const JWK_SET_KEY_OPS: Readonly<Record<JWKSetOperation, readonly string[]>> =
+  /* @__PURE__ */ Object.freeze({
+    sig: ["verify"],
+    enc: ["unwrapKey", "decrypt", "deriveBits", "deriveKey"],
+  });
+
 /**
- * Build a JWKSet candidate filter based on a header's `kid` + `alg`.
+ * Build a JWK Set candidate filter for one operation.
  *
- * A JWK is kept when its `kid` matches the header (or the header carries none)
- * AND either the key declares no `alg` or it matches the header's alg. Used
- * by `getJWKsFromSet` to narrow the retry set before cryptographic attempts.
+ * A set is public-key material: `oct` entries are dropped unless the caller
+ * admits them with `allowSymmetric`, and so is anything that is not a JWK. Of
+ * what remains an entry is kept when its `kid` matches the header (or the
+ * header carries none), its `alg` matches (or it declares none), its `use` is
+ * absent or names this operation, and its `key_ops` is absent or permits an
+ * operation compatible with it. Used by `getJWKsFromSet` to narrow the retry
+ * set before any cryptographic attempt.
  */
 export function buildJWKSetFilter(
   header: { kid?: string; alg?: string } | undefined,
+  options: { op: JWKSetOperation; allowSymmetric?: boolean },
 ): (k: JWK) => boolean {
   const kid = header?.kid;
   const alg = header?.alg;
-  return (k) => (!kid || k.kid === kid) && (!k.alg || k.alg === alg);
+  const { op, allowSymmetric } = options;
+  const use = op;
+  const keyOps = JWK_SET_KEY_OPS[op];
+  return (k) => {
+    if (!isJWK(k)) return false;
+    if (k.kty === "oct" && !allowSymmetric) return false;
+    if (kid && k.kid !== kid) return false;
+    if (k.alg && k.alg !== alg) return false;
+    if (k.use !== undefined && k.use !== use) return false;
+    const ops = k.key_ops;
+    if (ops !== undefined && !(Array.isArray(ops) && ops.some((o) => keyOps.includes(o)))) {
+      return false;
+    }
+    return true;
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -106,8 +135,10 @@ export function parseEphemeralKey(
 
 /**
  * Resolve a key for JWS sign/verify:
- *   - Raw `Uint8Array` → imported as HMAC with the expected hash; a minimum
- *     key length is enforced based on the alg digest size.
+ *   - Raw `Uint8Array` → imported as HMAC with the expected hash under an `HS*`
+ *     algorithm, and rejected under any other: bytes are a shared secret, never
+ *     an RSA, EC or OKP key. A minimum key length is enforced based on the alg
+ *     digest size.
  *   - RSA keys → `modulusLength ≥ 2048` enforced (RFC 7518 §3.3 / §3.5).
  *   - Other `CryptoKey`s → returned unchanged.
  */
@@ -117,6 +148,12 @@ export async function resolveSigningKey(
   usage: "sign" | "verify",
 ): Promise<CryptoKey> {
   if (key instanceof Uint8Array) {
+    if (!alg.startsWith("HS")) {
+      throw new JWTError(
+        `Raw key bytes are HMAC secrets; ${alg} needs an asymmetric key. Pass a JWK or a CryptoKey.`,
+        "ERR_JWK_INVALID",
+      );
+    }
     assertOctKeyLength(key, alg);
     return crypto.subtle.importKey(
       "raw",
@@ -245,14 +282,14 @@ export function resolvePasswordKey<K>(
 /** Policy + error metadata for {@link checkAlgAllowed}. */
 export interface AlgCheckContext {
   /** Infer the set of allowed algs from a key's shape. */
-  infer: (key: unknown) => string[] | undefined;
+  infer: (key: unknown, options?: { allowSymmetric?: boolean }) => string[] | undefined;
   /**
    * When true, the JWK fast-path is skipped for `oct` keys — their declared
-   * `alg` aliases to multiple wrap variants (e.g. a JWE oct JWK with
-   * `alg: "A256GCM"` maps to both `A256GCMKW` and `dir`). True for JWE,
-   * false for JWS where `alg` maps 1:1.
+   * `alg` names a role rather than the header's `alg` (a JWE oct JWK with
+   * `alg: "A256GCM"` is a CEK, so the algorithm it serves is `dir`). True for
+   * JWE, false for JWS where `alg` maps 1:1.
    */
-  octAliasing: boolean;
+  octRoles: boolean;
   /** Error code emitted on rejection. */
   errorCode: "ERR_JWS_ALG_NOT_ALLOWED" | "ERR_JWE_ALG_NOT_ALLOWED";
   /** Error message prefix — `"Algorithm"` (JWS) or `"Key management algorithm"` (JWE). */
@@ -262,7 +299,7 @@ export interface AlgCheckContext {
 /** Static context for JWS signature verification. */
 export const JWS_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
   infer: inferJWSAllowedAlgorithms,
-  octAliasing: false,
+  octRoles: false,
   errorCode: "ERR_JWS_ALG_NOT_ALLOWED",
   label: "Algorithm",
 });
@@ -270,7 +307,7 @@ export const JWS_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
 /** Static context for JWE key-management algorithms. */
 export const JWE_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
   infer: inferJWEAllowedAlgorithms,
-  octAliasing: true,
+  octRoles: true,
   errorCode: "ERR_JWE_ALG_NOT_ALLOWED",
   label: "Key management algorithm",
 });
@@ -279,13 +316,14 @@ export const JWE_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
  * Verify the header-declared `alg` is allowed for the resolved key.
  *
  * Policy order:
- *   1. Explicit `options.algorithms` allowlist (when provided) — membership
- *      checked verbatim.
+ *   1. Explicit `algorithms` allowlist (when provided) — membership checked
+ *      verbatim.
  *   2. Fast path — a JWK whose own `alg` is set names its only allowed
- *      algorithm. JWE skips this for `oct` JWKs (their alg aliases to
- *      multiple wrap variants; see `inferJWEAllowedAlgorithms`).
+ *      algorithm. JWE skips this for `oct` JWKs, whose `alg` names a role
+ *      instead (see `inferJWEAllowedAlgorithms`).
  *   3. Inference — derive the allowed set from the key shape and reject
- *      unless the declared `alg` is in it.
+ *      unless the declared `alg` is in it. For a JWK Set, `allowSymmetric`
+ *      decides whether its `oct` entries contribute at all.
  *
  * Returns `undefined` when allowed, or a {@link JWTError} the caller decides
  * whether to throw (compact) or collect as `lastError` for the multi retry
@@ -294,16 +332,20 @@ export const JWE_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
 export function checkAlgAllowed(
   alg: string,
   key: unknown,
-  explicit: readonly string[] | undefined,
-  ctx: AlgCheckContext,
+  options: {
+    ctx: AlgCheckContext;
+    algorithms?: readonly string[];
+    allowSymmetric?: boolean;
+  },
 ): JWTError | undefined {
-  if (explicit) {
-    return explicit.includes(alg) ? undefined : notAllowed(alg, ctx);
+  const { ctx, algorithms, allowSymmetric } = options;
+  if (algorithms) {
+    return algorithms.includes(alg) ? undefined : notAllowed(alg, ctx);
   }
-  if (isJWK(key) && typeof key.alg === "string" && (!ctx.octAliasing || key.kty !== "oct")) {
+  if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
     return key.alg === alg ? undefined : notAllowed(alg, ctx);
   }
-  const inferred = ctx.infer(key);
+  const inferred = ctx.infer(key, { allowSymmetric });
   if (!inferred) {
     return new JWTError(
       `Cannot infer allowed ${ctx.label.toLowerCase()}s from this key; pass "options.algorithms" explicitly.`,
@@ -439,6 +481,22 @@ const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
   "A192CBC-HS384": "raw",
   "A256CBC-HS512": "raw",
 } satisfies Record<ContentEncryptionAlgorithm, "cryptokey" | "raw">);
+
+/**
+ * RFC 7516 §4.5 — under `dir` the key *is* the content encryption key, so a JWK
+ * that declares an `alg` must declare either `dir` or exactly the `enc` it is a
+ * CEK for: a key minted for `A256GCM` is not a CEK for `A128CBC-HS256`.
+ * Wrapping keys (`A*KW`, `A*GCMKW`, PBES2) never reach this check — importing
+ * them under `dir` already fails on their declared algorithm.
+ */
+export function assertDirectKeyRole(key: unknown, enc: string | undefined): void {
+  if (!isJWK(key) || typeof key.alg !== "string" || key.alg === "dir") return;
+  if (enc !== undefined && key.alg === enc) return;
+  throw new JWTError(
+    `JWK "alg" is "${key.alg}" but "dir" requires a key declared as "dir" or as the token's "enc" (${enc ?? "unknown"}).`,
+    "ERR_JWK_INVALID",
+  );
+}
 
 /** `dir` and bare `ECDH-ES` agree on the CEK directly — RFC 7516 §4.5 / §5.2. */
 export const JWE_DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);

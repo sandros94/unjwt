@@ -260,7 +260,11 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWS_ALG_CTX);
+    const algError = checkAlgAllowed(alg, rawKeyMaterial, {
+      ctx: JWS_ALG_CTX,
+      algorithms: options.algorithms,
+      allowSymmetric: options.allowSymmetricJWKSet,
+    });
     if (algError) {
       lastError = algError;
       continue;
@@ -281,13 +285,12 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
 
     cryptoAttempted = true;
     try {
-      const verified = await _verifyWithKey(
-        alg,
-        rawKeyMaterial,
-        signatureBytes,
-        signingInputBytes,
-        effective.kid,
-      );
+      const verified = await _verifyWithKey(alg, rawKeyMaterial, {
+        signature: signatureBytes,
+        signingInput: signingInputBytes,
+        kid: effective.kid,
+        allowSymmetric: options.allowSymmetricJWKSet,
+      });
       if (!verified) {
         lastError = new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
         continue;
@@ -614,21 +617,20 @@ function _signerKeyMatches(effectiveHeader: JWSHeaderParameters, keyMaterial: un
   return !headerKid;
 }
 
+interface VerifyWithKeyOptions {
+  signature: Uint8Array<ArrayBuffer>;
+  signingInput: Uint8Array<ArrayBuffer>;
+  kid: string | undefined;
+  allowSymmetric: boolean | undefined;
+}
+
 async function _verifyWithKey(
   alg: JWSAlgorithm,
   rawKeyMaterial: unknown,
-  signatureBytes: Uint8Array<ArrayBuffer>,
-  signingInputBytes: Uint8Array<ArrayBuffer>,
-  headerKid: string | undefined,
+  options: VerifyWithKeyOptions,
 ): Promise<boolean> {
   try {
-    return await _verifyWithKeyMaterial(
-      alg,
-      rawKeyMaterial,
-      signatureBytes,
-      signingInputBytes,
-      headerKid,
-    );
+    return await _verifyWithKeyMaterial(alg, rawKeyMaterial, options);
   } catch (err) {
     throw asKeyUsageError(err, alg);
   }
@@ -637,26 +639,40 @@ async function _verifyWithKey(
 async function _verifyWithKeyMaterial(
   alg: JWSAlgorithm,
   rawKeyMaterial: unknown,
-  signatureBytes: Uint8Array<ArrayBuffer>,
-  signingInputBytes: Uint8Array<ArrayBuffer>,
-  headerKid: string | undefined,
+  options: VerifyWithKeyOptions,
 ): Promise<boolean> {
+  const { signature, signingInput, kid, allowSymmetric } = options;
+
   if (isJWKSet(rawKeyMaterial)) {
-    const candidates = getJWKsFromSet(rawKeyMaterial, buildJWKSetFilter({ kid: headerKid, alg }));
+    const candidates = getJWKsFromSet(
+      rawKeyMaterial,
+      buildJWKSetFilter({ kid, alg }, { op: "sig", allowSymmetric }),
+    );
     if (candidates.length === 0) {
       throw new JWTError("No key found in JWK Set.", "ERR_JWK_KEY_NOT_FOUND");
     }
+    // A candidate that cannot verify this signature — unusable key material as
+    // much as a signature mismatch — only means "try the next one"; the
+    // collected reasons become the `cause` when none verifies.
+    const attempts: JWTError[] = [];
     for (const candidate of candidates) {
-      const verificationKey = await resolveSigningKey(
-        alg,
-        await importKey(candidate, { alg, expect: "public" }),
-        "verify",
-      );
-      if (await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes)) {
-        return true;
+      try {
+        const verificationKey = await resolveSigningKey(
+          alg,
+          await importKey(candidate, { alg, expect: "public" }),
+          "verify",
+        );
+        if (await joseVerify(alg, verificationKey, signature, signingInput)) {
+          return true;
+        }
+        attempts.push(
+          new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID"),
+        );
+      } catch (error) {
+        attempts.push(asKeyUsageError(error, alg));
       }
     }
-    return false;
+    throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID", attempts);
   }
 
   const verificationKey = await resolveSigningKey(
@@ -664,7 +680,7 @@ async function _verifyWithKeyMaterial(
     await importKey(rawKeyMaterial as any, { alg, expect: "public" }),
     "verify",
   );
-  return joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
+  return joseVerify(alg, verificationKey, signature, signingInput);
 }
 
 async function _verifyOneSignature<T extends JOSEPayload>(
@@ -760,7 +776,11 @@ async function _verifyOneSignature<T extends JOSEPayload>(
     return fail(stringKeyError(), protectedHeader, unprotectedHeader);
   }
 
-  const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWS_ALG_CTX);
+  const algError = checkAlgAllowed(alg, rawKeyMaterial, {
+    ctx: JWS_ALG_CTX,
+    algorithms: options.algorithms,
+    allowSymmetric: options.allowSymmetricJWKSet,
+  });
   if (algError) return fail(algError, protectedHeader, unprotectedHeader);
 
   let signatureBytes: Uint8Array<ArrayBuffer>;
@@ -773,13 +793,12 @@ async function _verifyOneSignature<T extends JOSEPayload>(
 
   let verified: boolean;
   try {
-    verified = await _verifyWithKey(
-      alg,
-      rawKeyMaterial,
-      signatureBytes,
-      signingInputBytes,
-      effective.kid,
-    );
+    verified = await _verifyWithKey(alg, rawKeyMaterial, {
+      signature: signatureBytes,
+      signingInput: signingInputBytes,
+      kid: effective.kid,
+      allowSymmetric: options.allowSymmetricJWKSet,
+    });
   } catch (err) {
     return fail(_asJWTError(err, "ERR_JWS_SIGNATURE_INVALID"), protectedHeader, unprotectedHeader);
   }

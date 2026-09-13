@@ -2,7 +2,7 @@ import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
-import { decodeSegment, stringKeyError } from "./_internal";
+import { assertDirectKeyRole, decodeSegment, stringKeyError } from "./_internal";
 
 import type {
   JWK,
@@ -34,6 +34,7 @@ import type {
   JoseHeaderParameters,
 } from "./types";
 import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./utils";
+import { isContentEncryptionAlgorithm } from "./utils/algorithms";
 import { JWTError } from "./error";
 import {
   jwkTokey,
@@ -402,6 +403,15 @@ export function clearJWKCache(): void {
  *
  * `expect` is a no-op for symmetric (`oct`) JWKs and for `CryptoKey` instances whose
  * `algorithm.type` is `"secret"`.
+ *
+ * ### Declared algorithm
+ *
+ * A JWK's `alg` is authoritative (RFC 7517 §4.4): asking for an operation under a
+ * different algorithm throws `ERR_JWK_INVALID` rather than importing the key under
+ * whichever of the two happens to win. The one exception is the JWE symmetric role
+ * mapping — an `oct` JWK whose `alg` is a content encryption algorithm (`A*GCM`,
+ * `A*CBC-HS*`) is the CEK `alg: "dir"` consumes, and decryption additionally
+ * requires the token's `enc` to be that same algorithm.
  */
 export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>>;
 export async function importKey(key: CryptoKey): Promise<CryptoKey>;
@@ -425,6 +435,11 @@ export async function importKey(
     alg?: string;
     /** Reject on shape mismatch instead of silently importing. */
     expect?: "public" | "private";
+    /**
+     * Import the key as extractable. Defaults to `false` for private key
+     * material and `true` for public. A JWK's `ext: false` still lowers it.
+     */
+    extractable?: boolean;
   },
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
 export async function importKey(
@@ -446,6 +461,10 @@ export async function importKey(
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
   const alg = typeof algOrOptions === "string" ? algOrOptions : (algOrOptions?.alg ?? undefined);
   const expect = typeof algOrOptions === "object" ? (algOrOptions.expect ?? undefined) : undefined;
+  const extractable =
+    typeof algOrOptions === "object" && !algOrOptions.asCryptoKey
+      ? algOrOptions.extractable
+      : undefined;
 
   if (typeof key === "string") {
     throw stringKeyError();
@@ -461,9 +480,10 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
+    assertJWKAlgAuthority(key, alg);
     if ("k" in key && typeof key.k === "string") {
       const rawBytes = decodeSegment(key.k as string, { family: "JWK", what: '"k"' });
-      assertOctKeyLength(rawBytes, key.alg || alg);
+      assertOctKeyLength(rawBytes, alg ?? key.alg);
       if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
         const { algorithm, usage, extractable = false } = algOrOptions;
         if (!algorithm || !usage) {
@@ -495,17 +515,35 @@ export async function importKey(
       }
       assertIntentOnJWK(key, expect);
       const effectiveAlg = (key.alg || alg)!;
-      if (_activeCache) {
-        const cached = _activeCache.get(key, effectiveAlg);
+      // A caller-chosen extractability is not part of the cache identity, so a
+      // key imported for it is neither served from nor written to the cache.
+      const cache = extractable === undefined ? _activeCache : false;
+      if (cache) {
+        const cached = cache.get(key, effectiveAlg);
         if (cached) return cached;
       }
-      const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg });
-      if (_activeCache) _activeCache.set(key, effectiveAlg, cryptoKey);
+      const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg }, { extractable });
+      if (cache) cache.set(key, effectiveAlg, cryptoKey);
       return cryptoKey;
     }
   }
 
   throw new JWTError("Invalid key type provided to importKey", "ERR_JWK_INVALID");
+}
+
+/**
+ * RFC 7517 §4.4 — a JWK's `alg` identifies the algorithm it is meant for, so an
+ * operation under a different one is a mistake, not a hint to be resolved. The
+ * single exception is the JWE symmetric role mapping: an `oct` JWK declaring a
+ * content encryption algorithm is the CEK that `dir` consumes.
+ */
+function assertJWKAlgAuthority(jwk: JWK, alg: string | undefined): void {
+  if (!alg || !jwk.alg || jwk.alg === alg) return;
+  if (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg)) return;
+  throw new JWTError(
+    `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
+    "ERR_JWK_INVALID",
+  );
 }
 
 function assertIntentOnJWK(jwk: JWK, expect: "public" | "private" | undefined): void {
@@ -766,7 +804,9 @@ export async function unwrapKey(
 
   switch (alg) {
     case "dir": {
+      assertDirectKeyRole(unwrappingKey, options.enc);
       if (importedUnwrappingKey instanceof Uint8Array) {
+        assertOctKeyLength(importedUnwrappingKey, options.enc);
         unwrappedCekBytes = importedUnwrappingKey;
       } else {
         if (!returnRaw) {
@@ -1128,7 +1168,11 @@ export async function exportPEM(
   // Intermediate CryptoKey must be extractable to be exported back to PEM.
   const cryptoKeyCandidate = await importKey(
     { ...jwk, ext: true },
-    { alg: effectiveAlg, expect: pemFormat === "pkcs8" ? "private" : "public" },
+    {
+      alg: effectiveAlg,
+      expect: pemFormat === "pkcs8" ? "private" : "public",
+      extractable: true,
+    },
   );
 
   if (!isCryptoKey(cryptoKeyCandidate)) {
@@ -1330,6 +1374,9 @@ export function getJWKFromSet(
 /**
  * Returns all JWKs from a JWK Set, optionally narrowed by a predicate.
  *
+ * Entries that are not JWKs are dropped: `keys` arrives over the wire and may
+ * hold `null`, strings or junk objects, none of which is key material.
+ *
  * Useful for multi-key verification retry, key rotation tooling, and
  * constructing multi-recipient JWE JSON Serialization structures.
  *
@@ -1342,11 +1389,9 @@ export function getJWKsFromSet(jwkSet: JWKSet, filter?: (jwk: JWK) => boolean): 
     throw new JWTError("Invalid JWK Set provided", "ERR_JWK_INVALID");
   }
 
-  if (!filter) {
-    return [...jwkSet.keys];
-  }
+  const keys = jwkSet.keys.filter((key) => isJWK(key));
 
-  return jwkSet.keys.filter(filter);
+  return filter ? keys.filter(filter) : keys;
 }
 
 function getGenerateKeyParams(

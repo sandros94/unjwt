@@ -224,7 +224,11 @@ export async function verify<T extends JOSEPayload>(
   const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
   assertNotStringKey(keyInput);
 
-  const algError = checkAlgAllowed(alg, keyInput, options.algorithms, JWS_ALG_CTX);
+  const algError = checkAlgAllowed(alg, keyInput, {
+    ctx: JWS_ALG_CTX,
+    algorithms: options.algorithms,
+    allowSymmetric: options.allowSymmetricJWKSet,
+  });
   if (algError) throw algError;
 
   const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
@@ -234,30 +238,48 @@ export async function verify<T extends JOSEPayload>(
   // `DOMException`, codec `SyntaxError`, …) means the key cannot serve this alg.
   try {
     if (isJWKSet(keyInput)) {
-      const candidates = getJWKsFromSet(keyInput, buildJWKSetFilter(protectedHeader));
+      const candidates = getJWKsFromSet(
+        keyInput,
+        buildJWKSetFilter(protectedHeader, {
+          op: "sig",
+          allowSymmetric: options.allowSymmetricJWKSet,
+        }),
+      );
       if (candidates.length === 0) {
         throw new JWTError(
           `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
           "ERR_JWK_KEY_NOT_FOUND",
         );
       }
-      // Malformed candidates (unsupported alg/kty, wrong usage) surface immediately;
-      // the "try next" contract only covers cryptographic signature mismatch, which
-      // `joseVerify` reports as `false` rather than throwing.
+      // A candidate this token cannot have been signed with — unusable key
+      // material as much as a signature mismatch — only means "try the next
+      // one"; the collected reasons become the `cause` when none verifies.
       let verified = false;
+      const attempts: JWTError[] = [];
       for (const candidate of candidates) {
-        const verificationKey = await resolveSigningKey(
-          alg,
-          await importKey(candidate, { alg, expect: "public" }),
-          "verify",
-        );
-        if (await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes)) {
-          verified = true;
-          break;
+        try {
+          const verificationKey = await resolveSigningKey(
+            alg,
+            await importKey(candidate, { alg, expect: "public" }),
+            "verify",
+          );
+          if (await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes)) {
+            verified = true;
+            break;
+          }
+          attempts.push(
+            new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID"),
+          );
+        } catch (error) {
+          attempts.push(asKeyUsageError(error, alg));
         }
       }
       if (!verified) {
-        throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
+        throw new JWTError(
+          "JWS signature verification failed.",
+          "ERR_JWS_SIGNATURE_INVALID",
+          attempts,
+        );
       }
     } else {
       const verificationKey = await resolveSigningKey(

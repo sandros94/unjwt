@@ -183,7 +183,7 @@ export type WrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_RSA
       : A extends JWK_AES_KW
         ? CryptoKey | JWK_oct<A>
         : A extends JWK_AES_GCM_KW
-          ? CryptoKey | JWK_oct<A | `A${"128" | "192" | "256"}GCM`>
+          ? CryptoKey | JWK_oct<A>
           : A extends "dir"
             ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
             : never;
@@ -202,7 +202,7 @@ export type UnwrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_R
       : A extends JWK_AES_KW
         ? CryptoKey | JWK_oct<A>
         : A extends JWK_AES_GCM_KW
-          ? CryptoKey | JWK_oct<A | `A${"128" | "192" | "256"}GCM`>
+          ? CryptoKey | JWK_oct<A>
           : A extends "dir"
             ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
             : never;

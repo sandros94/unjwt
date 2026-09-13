@@ -426,21 +426,48 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["EdDSA", "Ed25519"]);
   });
 
-  it("returns undefined for a JWKSet where any key lacks alg and kty-based inference fails", () => {
+  it("returns undefined for a JWKSet where no key contributes", () => {
     const incomplete = { keys: [{ kty: "oct", k: "abc" }] };
     expect(inferJWSAllowedAlgorithms(incomplete)).toBeUndefined();
+  });
+
+  it("skips JWKSet entries it cannot infer instead of failing the whole set", () => {
+    const set = {
+      keys: [
+        { kty: "RSA", n: "x", e: "AQAB" },
+        { kty: "EC", crv: "P-256", x: "", y: "" },
+        null,
+        "junk",
+      ],
+    };
+    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
+  });
+
+  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
+    const set = {
+      keys: [
+        { kty: "EC", crv: "P-256", x: "", y: "" },
+        { kty: "oct", k: "x", alg: "HS256" },
+      ],
+    };
+    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
+    expect(inferJWSAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["ES256", "HS256"]);
   });
 });
 
 describe("inferJWEAllowedAlgorithms", () => {
-  it("infers password-like material to PBES2 + dir", () => {
+  it("infers a password string to PBES2 + dir", () => {
     expect(inferJWEAllowedAlgorithms("pw")).toEqual([
       "PBES2-HS256+A128KW",
       "PBES2-HS384+A192KW",
       "PBES2-HS512+A256KW",
       "dir",
     ]);
-    expect(inferJWEAllowedAlgorithms(new Uint8Array(16))).toHaveLength(4);
+  });
+
+  it("returns undefined for raw bytes — they carry no role of their own", () => {
+    expect(inferJWEAllowedAlgorithms(new Uint8Array(16))).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms(new Uint8Array(32))).toBeUndefined();
   });
 
   it("returns undefined for lookup functions and non-object primitives", () => {
@@ -456,20 +483,28 @@ describe("inferJWEAllowedAlgorithms", () => {
     expect(inferJWEAllowedAlgorithms({ kty: "OKP", crv: "X25519", x: "" })).toContain("ECDH-ES");
   });
 
-  it("infers from oct JWK alg variants", () => {
-    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A128GCM" })).toEqual([
-      "A128GCMKW",
-      "dir",
-    ]);
-    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256KW" })).toEqual([
-      "A256KW",
-      "dir",
-    ]);
+  it("maps an oct JWK alg to the single role it declares", () => {
+    // Content encryption algs name a CEK, which only `dir` consumes.
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A128GCM" })).toEqual(["dir"]);
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256CBC-HS512" })).toEqual([
       "dir",
     ]);
+    // Key management algs name a wrapping key, and nothing else.
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256KW" })).toEqual(["A256KW"]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256GCMKW" })).toEqual([
+      "A256GCMKW",
+    ]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "PBES2-HS256+A128KW" })).toEqual([
+      "PBES2-HS256+A128KW",
+    ]);
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "dir" })).toEqual(["dir"]);
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x" })).toBeUndefined();
+  });
+
+  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
+    const set = { keys: [{ kty: "oct", k: "x", alg: "A256KW" }] };
+    expect(inferJWEAllowedAlgorithms(set)).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["A256KW"]);
   });
 
   it("infers from CryptoKeys across JWE alg families (delegates to privateKey on pairs)", async () => {

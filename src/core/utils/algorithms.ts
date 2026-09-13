@@ -2,17 +2,30 @@ import type { JWK, JWSAlgorithm, KeyManagementAlgorithm } from "../types";
 import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./index";
 
 /**
+ * How a JWK Set's entries are read. A set is public-key material: its `oct`
+ * entries only contribute when the caller admits symmetric material with
+ * `allowSymmetric`.
+ */
+export interface InferAlgorithmsOptions {
+  /** Admit `oct` entries of a JWK Set. Defaults to `false`. */
+  allowSymmetric?: boolean;
+}
+
+/**
  * Infer the set of JWS signing algorithms a key unambiguously supports.
  * Returns `undefined` when inference is not possible — callers must pass
  * `options.algorithms` explicitly (raw bytes, ambiguous JWK, lookup functions, ...).
  */
-export function inferJWSAllowedAlgorithms(key: unknown): JWSAlgorithm[] | undefined {
+export function inferJWSAllowedAlgorithms(
+  key: unknown,
+  options?: InferAlgorithmsOptions,
+): JWSAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
   if (typeof key === "string" || key instanceof Uint8Array) return undefined;
   if (typeof key !== "object") return undefined;
 
   if (isCryptoKeyPair(key)) return inferJWSAllowedAlgorithms(key.publicKey);
-  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jwsAlgsFromJWK);
+  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jwsAlgsFromJWK, options);
   if (isCryptoKey(key)) return jwsAlgsFromCryptoKey(key);
   if (isJWK(key)) return jwsAlgsFromJWK(key);
 
@@ -24,31 +37,47 @@ export function inferJWSAllowedAlgorithms(key: unknown): JWSAlgorithm[] | undefi
  * Returns `undefined` when inference is not possible — callers must pass
  * `options.algorithms` explicitly.
  *
- * Passwords (`string` / `Uint8Array`) infer to the three PBES2 variants.
+ * A password `string` infers to the three PBES2 variants. Raw `Uint8Array`
+ * bytes carry no role of their own and infer to nothing: the caller names the
+ * algorithm, as they already do when they encrypt with such a key.
  */
-export function inferJWEAllowedAlgorithms(key: unknown): KeyManagementAlgorithm[] | undefined {
+export function inferJWEAllowedAlgorithms(
+  key: unknown,
+  options?: InferAlgorithmsOptions,
+): KeyManagementAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
-  if (typeof key === "string" || key instanceof Uint8Array) {
+  if (typeof key === "string") {
     return ["PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW", "dir"];
   }
+  if (key instanceof Uint8Array) return undefined;
   if (typeof key !== "object") return undefined;
 
   if (isCryptoKeyPair(key)) return inferJWEAllowedAlgorithms(key.privateKey);
-  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jweAlgsFromJWK);
+  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jweAlgsFromJWK, options);
   if (isCryptoKey(key)) return jweAlgsFromCryptoKey(key);
   if (isJWK(key)) return jweAlgsFromJWK(key);
 
   return undefined;
 }
 
+/**
+ * Union the algorithms every usable entry of a JWK Set contributes. An entry
+ * that is not a JWK, an `oct` entry the caller has not admitted, and an entry
+ * whose algorithm cannot be inferred are each skipped — one such entry never
+ * decides the policy for the keys around it. `undefined` means no entry
+ * contributed at all.
+ */
 function unionFromJWKSet<T extends string>(
   keys: readonly JWK[],
   mapper: (k: JWK) => T[] | undefined,
+  options: InferAlgorithmsOptions | undefined,
 ): T[] | undefined {
   const algs = new Set<T>();
   for (const k of keys) {
+    if (!isJWK(k)) continue;
+    if (k.kty === "oct" && !options?.allowSymmetric) continue;
     const mapped = mapper(k);
-    if (!mapped) return undefined;
+    if (!mapped) continue;
     for (const a of mapped) algs.add(a);
   }
   return algs.size > 0 ? [...algs] : undefined;
@@ -94,22 +123,36 @@ function jweAlgsFromJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   return undefined;
 }
 
-// Symmetric JWK inference: `dir` is always an option when `enc` matches the key length;
-// library convention accepts `A*GCM` JWKs as their `A*GCMKW` wrap counterparts.
+/**
+ * A symmetric JWK's `alg` names the one role it holds, and roles do not alias.
+ * A content encryption algorithm (`A*GCM`, `A*CBC-HS*`) names a CEK, which only
+ * `dir` consumes — and `dir` then requires the token's `enc` to be that same
+ * algorithm. Every other `alg` — `A*KW`, `A*GCMKW`, PBES2, `dir` itself — names
+ * a key management algorithm and admits nothing else.
+ */
 function jweAlgsFromOctJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   const alg = (jwk as JWK & { alg?: string }).alg;
   if (!alg) return undefined;
-  if (alg === "A128GCM") return ["A128GCMKW", "dir"];
-  if (alg === "A192GCM") return ["A192GCMKW", "dir"];
-  if (alg === "A256GCM") return ["A256GCMKW", "dir"];
-  if (alg === "A128KW" || alg === "A192KW" || alg === "A256KW") return [alg, "dir"];
-  if (alg === "A128GCMKW" || alg === "A192GCMKW" || alg === "A256GCMKW") return [alg, "dir"];
-  if (alg === "A128CBC-HS256" || alg === "A192CBC-HS384" || alg === "A256CBC-HS512") {
-    return ["dir"];
-  }
-  if (alg === "dir") return ["dir"];
+  if (isContentEncryptionAlgorithm(alg)) return ["dir"];
   return [alg as KeyManagementAlgorithm];
 }
+
+/**
+ * The `enc` values RFC 7518 §5 defines, as an `alg` an `oct` JWK may declare.
+ * Internal to the library: the `utils` entry point does not re-export it.
+ */
+export function isContentEncryptionAlgorithm(alg: string): boolean {
+  return CONTENT_ENCRYPTION_ALGORITHMS.has(alg);
+}
+
+const CONTENT_ENCRYPTION_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "A128GCM",
+  "A192GCM",
+  "A256GCM",
+  "A128CBC-HS256",
+  "A192CBC-HS384",
+  "A256CBC-HS512",
+]);
 
 function jwsAlgsFromCryptoKey(key: CryptoKey): JWSAlgorithm[] | undefined {
   const name = key.algorithm.name;

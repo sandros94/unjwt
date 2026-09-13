@@ -231,6 +231,8 @@ describe.concurrent("JWE Utilities", () => {
 
         const { payload: decrypted } = await decrypt(jweFromJose, decryptionKey, {
           payload: payloadMode,
+          // A password passed as raw bytes names no algorithm of its own.
+          algorithms: [alg],
         });
 
         expect(decrypted).toEqual(plaintext);
@@ -282,15 +284,15 @@ describe.concurrent("JWE Utilities", () => {
       expect(payload).toBe("payload");
     });
 
-    // An oct JWK with `alg: "A256GCM"` used for key wrap requires an explicit `alg`
-    // override — the library never rewrites `A256GCM` into `A256GCMKW` silently.
-    it("rejects an oct JWK with alg=A256GCM used for key wrap without explicit alg", async () => {
+    // An oct JWK with `alg: "A256GCM"` is a CEK; the library never rewrites
+    // `A256GCM` into `A256GCMKW`, with or without an explicit `alg`.
+    it("rejects an oct JWK with alg=A256GCM used for key wrap", async () => {
       const jwk = await generateJWK("A256GCM");
       expect(jwk.alg).toBe("A256GCM");
       await expect(encrypt("payload", jwk)).rejects.toThrow(/Invalid or unsupported "alg"/i);
-      const jwe = await encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" });
-      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]));
-      expect(header.alg).toBe("A256GCMKW");
+      await expect(encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" })).rejects.toThrow(
+        'JWK "alg" is "A256GCM" but the operation requires "A256GCMKW".',
+      );
     });
 
     it("should use provided CEK and contentEncryptionIV", async () => {
@@ -444,9 +446,28 @@ describe.concurrent("JWE Utilities", () => {
       const cek = secureRandomBytes(32); // A128CBC-HS256 needs 256-bit key
       const plaintext = "direct CBC test";
 
+      // Raw bytes declare no role of their own, so the reading side names the alg.
       const jwe = await encrypt(plaintext, cek, { alg: "dir", enc: "A128CBC-HS256" });
-      const { payload } = await decrypt(jwe, cek, { payload: "string" });
+      const { payload } = await decrypt(jwe, cek, { payload: "string", algorithms: ["dir"] });
       expect(payload).toBe(plaintext);
+    });
+
+    it("raw key bytes must be paired with an explicit algorithms option on decrypt", async () => {
+      const cek = secureRandomBytes(32);
+      const jwe = await encrypt("roles come from the caller", cek, {
+        alg: "A256KW",
+        enc: "A256GCM",
+      });
+
+      const error = await decrypt(jwe, cek).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toContain("Cannot infer");
+
+      const { payload } = await decrypt(jwe, cek, {
+        payload: "string",
+        algorithms: ["A256KW"],
+      });
+      expect(payload).toBe("roles come from the caller");
     });
 
     it("encrypt/decrypt roundtrip with a JWK_oct key", async () => {
@@ -477,6 +498,128 @@ describe.concurrent("JWE Utilities", () => {
     });
   });
 
+  describe("symmetric JWK roles", () => {
+    it("a content-encryption oct JWK is a CEK for its own enc", async () => {
+      const jwk = await generateJWK("A256GCM");
+      const jwe = await encrypt("cek role", jwk, { alg: "dir", enc: "A256GCM" });
+      const { payload } = await decrypt(jwe, jwk, { payload: "string" });
+      expect(payload).toBe("cek role");
+    });
+
+    it("a content-encryption oct JWK is refused when the token's enc differs", async () => {
+      const jwk = await generateJWK("A256GCM");
+      const jwe = await encrypt("other enc", secureRandomBytes(32), {
+        alg: "dir",
+        enc: "A128CBC-HS256",
+      });
+
+      const error = await decrypt(jwe, jwk).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'JWK "alg" is "A256GCM" but "dir" requires a key declared as "dir" or as the token\'s "enc" (A128CBC-HS256).',
+      );
+    });
+
+    it('an oct JWK declared "dir" serves any enc whose CEK length matches', async () => {
+      const jwk = { ...(await generateJWK("A256GCM")), alg: "dir" as const };
+      const jwe = await encrypt("dir role", jwk, { alg: "dir", enc: "A256GCM" });
+      const { payload } = await decrypt(jwe, jwk, { payload: "string" });
+      expect(payload).toBe("dir role");
+
+      const shortJwk = { ...(await generateJWK("A128GCM")), alg: "dir" as const };
+      const error = await decrypt(jwe, shortJwk).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("A256GCM requires a key of exactly 32 bytes");
+    });
+
+    it("a key wrapping oct JWK is never accepted as a CEK", async () => {
+      const kw = await generateJWK("A256KW");
+      const jwe = await encrypt("not a cek", secureRandomBytes(32), {
+        alg: "dir",
+        enc: "A256GCM",
+      });
+
+      const error = await decrypt(jwe, kw).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe("Key management algorithm not allowed: dir");
+
+      const encryptError = await encrypt("not a cek", kw, {
+        alg: "dir",
+        enc: "A256GCM",
+      }).catch((e) => e);
+      expect(isJWTError(encryptError, "ERR_JWK_INVALID")).toBe(true);
+      expect(encryptError.message).toBe('JWK "alg" is "A256KW" but the operation requires "dir".');
+    });
+
+    it("a content-encryption oct JWK is never accepted as a GCMKW wrapping key", async () => {
+      const jwk = await generateJWK("A256GCM");
+
+      const encryptError = await encrypt("not a kek", jwk, {
+        alg: "A256GCMKW",
+        enc: "A256GCM",
+      }).catch((e) => e);
+      expect(isJWTError(encryptError, "ERR_JWK_INVALID")).toBe(true);
+      expect(encryptError.message).toBe(
+        'JWK "alg" is "A256GCM" but the operation requires "A256GCMKW".',
+      );
+
+      const kw = await generateJWK("A256GCMKW");
+      const jwe = await encrypt("not a kek", kw, { alg: "A256GCMKW", enc: "A256GCM" });
+      const error = await decrypt(jwe, jwk).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe("Key management algorithm not allowed: A256GCMKW");
+    });
+  });
+
+  describe("JWK Set candidate policy", () => {
+    it("skips a key the header cannot use and reports every candidate on failure", async () => {
+      const [a, b] = await Promise.all([
+        generateJWK("RSA-OAEP-256", { modulusLength: 2048 }),
+        generateJWK("RSA-OAEP-256", { modulusLength: 2048 }),
+      ]);
+      const jwe = await encrypt(
+        plaintextObj,
+        { ...a.publicKey, kid: undefined },
+        {
+          alg: "RSA-OAEP-256",
+          enc: "A256GCM",
+        },
+      );
+
+      const set = {
+        keys: [
+          { ...a.privateKey, kid: undefined, use: "sig" },
+          { ...a.privateKey, kid: undefined },
+        ],
+      } as unknown as { keys: JWK[] };
+      await expect(decrypt(jwe, set)).resolves.toBeDefined();
+
+      const failing = {
+        keys: [
+          { kty: "RSA", alg: "RSA-OAEP-256", n: "!!", e: "AQAB", d: "!!" },
+          { ...b.privateKey, kid: undefined },
+        ],
+      } as unknown as { keys: JWK[] };
+      const error = await decrypt(jwe, failing).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+      const causes = error.cause as JWTError[];
+      expect(Array.isArray(causes)).toBe(true);
+      expect(causes).toHaveLength(2);
+      expect(causes.every((c) => c instanceof JWTError)).toBe(true);
+    });
+
+    it("ignores oct entries unless the caller admits symmetric material", async () => {
+      const kw = await generateJWK("A256KW");
+      const jwe = await encrypt(plaintextObj, kw, { alg: "A256KW", enc: "A256GCM" });
+      const set = { keys: [kw] } as unknown as { keys: JWK[] };
+
+      const error = await decrypt(jwe, set).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+
+      await expect(decrypt(jwe, set, { allowSymmetricJWKSet: true })).resolves.toBeDefined();
+    });
+  });
+
   describe("decrypt specific options and errors", () => {
     let jwe: string;
     const alg: KeyManagementAlgorithm = "A128KW";
@@ -496,12 +639,12 @@ describe.concurrent("JWE Utilities", () => {
       const token = await encrypt(plaintextObj, rawKey2, { alg: "A256KW", enc: "A256GCM" });
       const [jwk1, jwk2] = await Promise.all([exportKey(rawKey1), exportKey(rawKey2)]);
       const set = { keys: [jwk1, jwk2] };
-      const { payload } = await decrypt(token, set);
+      const { payload } = await decrypt(token, set, { allowSymmetricJWKSet: true });
       expect(payload).toEqual(plaintextObj);
     });
 
-    // Unwrap / AEAD failures are "try next"; malformed JWKs must surface immediately.
-    it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
+    // A candidate that cannot open the token only means "try the next one".
+    it("skips a malformed JWK and decrypts with a later candidate", async () => {
       const rawValid = await generateKey("A256KW");
       const validJwk = await exportKey(rawValid);
       // `kty: "RSA"` with `alg: "A256KW"` is nonsensical — `subtleMapping` rejects
@@ -511,7 +654,8 @@ describe.concurrent("JWE Utilities", () => {
       const token = await encrypt(plaintextObj, rawValid, { alg: "A256KW", enc: "A256GCM" });
 
       const set = { keys: [malformedJwk, validJwk] };
-      await expect(decrypt(token, set)).rejects.toThrow(/Invalid or unsupported JWK "alg"/);
+      const { payload } = await decrypt(token, set, { allowSymmetricJWKSet: true });
+      expect(payload).toEqual(plaintextObj);
     });
 
     it("should decrypt with a key lookup function", async () => {

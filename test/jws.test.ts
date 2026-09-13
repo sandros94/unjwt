@@ -5,7 +5,15 @@ import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 
 import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
-import type { JWTClaims, JWK, JWK_oct, JWK_Pair, JWK_RSA_Private, JWKSet } from "../src/core/types";
+import type {
+  JWTClaims,
+  JWK,
+  JWK_oct,
+  JWK_Pair,
+  JWK_RSA_Private,
+  JWKSet,
+  JWSVerifyJWK,
+} from "../src/core/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -576,7 +584,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "key2" },
       });
 
-      const { payload } = await verify(jws, jwkSet);
+      const { payload } = await verify(jws, jwkSet, { allowSymmetricJWKSet: true });
       expect(payload).toEqual(payloadObj);
     });
 
@@ -646,7 +654,7 @@ describe.concurrent("JWS Utilities", () => {
         return jwkSet;
       };
 
-      const { payload } = await verify(jws, keyLookup);
+      const { payload } = await verify(jws, keyLookup, { allowSymmetricJWKSet: true });
       expect(payload).toEqual(payloadObj);
     });
 
@@ -656,28 +664,96 @@ describe.concurrent("JWS Utilities", () => {
       const [jwk1, jwk2] = await Promise.all([exportKey(raw1), exportKey(raw2)]);
       const jws = await sign(payloadObj, raw2, { alg: "HS256" });
       const set: JWKSet = { keys: [jwk1, jwk2] };
-      const { payload } = await verify(jws, set);
+      const { payload } = await verify(jws, set, { allowSymmetricJWKSet: true });
       expect(payload).toEqual(payloadObj);
     });
 
-    // The loop's "try next" contract only covers cryptographic signature mismatch
-    // (which `joseVerify` returns as `false`). Malformed JWKs must surface instead
-    // of being silently skipped to the next candidate.
-    it("surfaces malformed JWK errors instead of silently skipping to a valid candidate", async () => {
-      const rawValid = await generateKey("HS256");
-      const validJwk = await exportKey(rawValid);
-      // kty=RSA with alg=HS256 is nonsensical — `subtleMapping` rejects the combination.
-      const malformedJwk = { kty: "RSA", alg: "HS256" } as unknown as JWK;
-      const jws = await sign(payloadObj, rawValid, { alg: "HS256" });
+    describe("JWK Set candidate policy", () => {
+      it("ignores an injected oct key unless the caller admits symmetric material", async () => {
+        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const attackerSecret = await generateJWK("HS256");
+        const genuine = await sign(payloadObj, privateKey);
+        const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
 
-      const set: JWKSet = { keys: [malformedJwk, validJwk] };
-      const error = await verify(jws, set).catch((e) => e);
-      // The malformed candidate is reported as an unusable key, with the underlying
-      // codec failure preserved as `cause` — not skipped in favour of the valid key.
-      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
-      expect(`${error.message} ${(error.cause as Error | undefined)?.message}`).toMatch(
-        /Invalid or unsupported JWK "alg"|Key is not usable for HS256\./,
-      );
+        const poisoned: JWKSet = { keys: [publicKey, attackerSecret] };
+
+        const error = await verify(forgery, poisoned).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+
+        // The genuine, asymmetric token is unaffected.
+        await expect(verify(genuine, poisoned)).resolves.toBeDefined();
+
+        // The set's owner can opt back in for an HMAC rotation set they control.
+        const { payload } = await verify<JWTClaims>(forgery, poisoned, {
+          allowSymmetricJWKSet: true,
+        });
+        expect(payload.sub).toBe("admin");
+      });
+
+      it('skips a "use"/"key_ops" mismatched key ordered before the signing key', async () => {
+        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const jws = await sign(payloadObj, privateKey);
+
+        const useMismatch: JWKSet = { keys: [{ ...publicKey, use: "enc" }, publicKey] };
+        await expect(verify(jws, useMismatch)).resolves.toBeDefined();
+
+        const opsMismatch: JWKSet = {
+          keys: [{ ...publicKey, key_ops: ["wrapKey"] }, publicKey],
+        };
+        await expect(verify(jws, opsMismatch)).resolves.toBeDefined();
+      });
+
+      it("skips non-JWK entries and unusable candidates instead of aborting", async () => {
+        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const jws = await sign(payloadObj, privateKey);
+        const kid = publicKey.kid;
+
+        const set = {
+          keys: [
+            null,
+            "x",
+            1,
+            [],
+            {},
+            { kty: "RSA", alg: "RS256", kid, n: "!!", e: "AQAB" },
+            publicKey,
+          ],
+        } as unknown as JWKSet;
+        const { payload } = await verify(jws, set);
+        expect(payload).toEqual(payloadObj);
+      });
+
+      it("does not let an alg-less key poison inference for the whole set", async () => {
+        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const jws = await sign(payloadObj, privateKey);
+        const { alg: _alg, ...algLess } = publicKey as JWK & { alg?: string };
+
+        const set: JWKSet = { keys: [algLess as JWK, publicKey] };
+        const { payload } = await verify(jws, set);
+        expect(payload).toEqual(payloadObj);
+      });
+
+      it("reports every tried candidate as the cause when none verifies", async () => {
+        const [a, b] = await Promise.all([
+          generateJWK("RS256", { modulusLength: 2048 }),
+          generateJWK("RS256", { modulusLength: 2048 }),
+        ]);
+        const jws = await sign(payloadObj, { ...a.privateKey, kid: undefined });
+
+        const set = {
+          keys: [
+            { kty: "RSA", alg: "RS256", n: "!!", e: "AQAB" },
+            { ...b.publicKey, kid: undefined },
+          ],
+        } as unknown as JWKSet;
+        const error = await verify(jws, set).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+        const causes = error.cause as JWTError[];
+        expect(Array.isArray(causes)).toBe(true);
+        expect(causes).toHaveLength(2);
+        expect(causes[0]!.code).toBe("ERR_JWK_INVALID");
+        expect(causes[1]!.code).toBe("ERR_JWS_SIGNATURE_INVALID");
+      });
     });
 
     it("should verify with algorithms option (success)", async () => {
@@ -1359,7 +1435,7 @@ describe.concurrent("JWS Utilities", () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign(payloadObj, { ...key, kid: "key-1" });
       const jwkSet = { keys: [{ ...key, kid: "other-key" }] };
-      const error = await verify(jws, jwkSet).catch((e) => e);
+      const error = await verify(jws, jwkSet, { allowSymmetricJWKSet: true }).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     });
@@ -1512,19 +1588,27 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
   });
 
   describe("key handling errors are JWTErrors", () => {
-    it("wraps an oct key used for ES256 into ERR_JWK_INVALID", async () => {
+    it("refuses a key whose declared alg is not the one being verified", async () => {
       const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "ES256" })));
-      const error = await verify(jws, hs256Jwk, { algorithms: ["ES256"] }).catch((e) => e);
-      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
-      expect(error.message).toBe("Key is not usable for ES256.");
-      expect(error.cause).toBeDefined();
+
+      const octError = await verify(jws, hs256Jwk, { algorithms: ["ES256"] }).catch((e) => e);
+      expect(isJWTError(octError, "ERR_JWK_INVALID")).toBe(true);
+      expect(octError.message).toBe('JWK "alg" is "HS256" but the operation requires "ES256".');
+
+      const rsaError = await verify(jws, rs256Jwk.publicKey as any, {
+        algorithms: ["ES256"],
+      }).catch((e) => e);
+      expect(isJWTError(rsaError, "ERR_JWK_INVALID")).toBe(true);
+      expect(rsaError.message).toBe('JWK "alg" is "RS256" but the operation requires "ES256".');
     });
 
-    it("wraps an RSA key used for ES256 into ERR_JWK_INVALID", async () => {
+    it("wraps a key WebCrypto rejects for the alg into ERR_JWK_INVALID", async () => {
       const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "ES256" })));
-      const error = await verify(jws, rs256Jwk.publicKey as any, { algorithms: ["ES256"] }).catch(
-        (e) => e,
-      );
+      const { publicKey } = await generateJWK("ES384");
+      // The curve contradicts the declared alg, which only the import discovers.
+      const error = await verify(jws, { ...publicKey, alg: "ES256" } as unknown as JWSVerifyJWK, {
+        algorithms: ["ES256"],
+      }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toBe("Key is not usable for ES256.");
       expect(error.cause).toBeDefined();

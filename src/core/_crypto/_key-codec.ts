@@ -4,19 +4,34 @@ import type { JWK, JWK_RSA_Private, JWK_EC_Private, JWK_OKP_Private } from "../t
 import { isCryptoKey } from "../utils";
 import { JWTError } from "../error";
 
-export async function jwkTokey(jwk: JWK): Promise<CryptoKey> {
+/**
+ * Import a JWK as a `CryptoKey` for the algorithm its `alg` names.
+ *
+ * The operation decides which usages the key needs; a JWK's `key_ops` can only
+ * narrow that set (RFC 7517 §4.3), never widen it, and a `key_ops` permitting
+ * none of them is a key the caller cannot use for this operation. `ext` works
+ * the same way: private key material is non-extractable unless the caller asks
+ * otherwise, and `ext: false` lowers extractability but never raises it.
+ */
+export async function jwkTokey(
+  jwk: JWK,
+  options: { extractable?: boolean } = {},
+): Promise<CryptoKey> {
   if (!jwk.alg) {
     throw new TypeError('"alg" argument is required when "jwk.alg" is not present');
   }
 
   const { algorithm, keyUsages } = subtleMapping(jwk);
 
+  const isPrivate = (jwk as JWK_RSA_Private).d !== undefined;
+  const extractable = jwk.ext === false ? false : (options.extractable ?? !isPrivate);
+
   return crypto.subtle.importKey(
     "jwk",
     jwk,
     algorithm,
-    jwk.ext ?? ((jwk as JWK_RSA_Private).d ? false : true),
-    (jwk.key_ops as KeyUsage[]) ?? keyUsages,
+    extractable,
+    permittedUsages(jwk, keyUsages),
   );
 }
 
@@ -41,6 +56,21 @@ export async function keyToJWK<T extends JWK>(
 }
 
 // --- Internal helpers ---
+
+/**
+ * Intersect a JWK's `key_ops` with the usages the operation needs. An operation
+ * that needs none (a public ECDH key derives nothing itself) takes the JWK's
+ * declaration as-is.
+ */
+function permittedUsages(jwk: JWK, keyUsages: KeyUsage[]): KeyUsage[] {
+  const keyOps = jwk.key_ops as KeyUsage[] | undefined;
+  if (!keyOps || keyUsages.length === 0) return keyUsages;
+  const permitted = keyUsages.filter((usage) => keyOps.includes(usage));
+  if (permitted.length === 0) {
+    throw new JWTError(`JWK "key_ops" does not permit ${keyUsages.join(", ")}.`, "ERR_JWK_INVALID");
+  }
+  return permitted;
+}
 
 function subtleMapping(jwk: JWK): {
   algorithm: RsaHashedImportParams | EcKeyAlgorithm | Algorithm;

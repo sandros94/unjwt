@@ -20,7 +20,11 @@ export { textEncoder, textDecoder } from "unsecure/utils";
 
 export * from "./base64";
 
-export * from "./algorithms";
+export {
+  type InferAlgorithmsOptions,
+  inferJWSAllowedAlgorithms,
+  inferJWEAllowedAlgorithms,
+} from "./algorithms";
 export * from "./jwt";
 export type * from "./types";
 

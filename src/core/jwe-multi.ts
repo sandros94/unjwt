@@ -49,6 +49,7 @@ import {
 import {
   JWE_ALG_CTX,
   JWE_DIRECT_ALGS,
+  assertDirectKeyRole,
   assertNoZipOption,
   buildJWKSetFilter,
   cekFormatForEnc,
@@ -353,7 +354,11 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
           )
         : keyOrLookup;
 
-    const algError = checkAlgAllowed(alg, rawKeyMaterial, options.algorithms, JWE_ALG_CTX);
+    const algError = checkAlgAllowed(alg, rawKeyMaterial, {
+      ctx: JWE_ALG_CTX,
+      algorithms: options.algorithms,
+      allowSymmetric: options.allowSymmetricJWKSet,
+    });
     if (algError) {
       lastError = algError;
       continue;
@@ -380,18 +385,17 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     let cek: Uint8Array<ArrayBuffer> | CryptoKey;
     let plaintextBytes: Uint8Array<ArrayBuffer>;
     try {
-      ({ cek, plaintextBytes } = await _unwrapAndDecrypt(
-        alg,
+      ({ cek, plaintextBytes } = await _unwrapAndDecrypt(alg, rawKeyMaterial, {
         enc,
-        rawKeyMaterial,
-        encryptedKeyBytes,
-        unwrapKeyOpts,
-        ciphertextBytes,
-        ivBytes,
-        tagBytes,
-        contentAadBytes,
-        effective.kid,
-      ));
+        encryptedKey: encryptedKeyBytes,
+        unwrapKeyOptions: unwrapKeyOpts,
+        ciphertext: ciphertextBytes,
+        iv: ivBytes,
+        tag: tagBytes,
+        aad: contentAadBytes,
+        kid: effective.kid,
+        allowSymmetric: options.allowSymmetricJWKSet,
+      }));
     } catch (err) {
       lastError = _asJWTError(err);
       continue;
@@ -678,62 +682,63 @@ function _buildUnwrapKeyOptions(
   return opts;
 }
 
+interface UnwrapAndDecryptOptions {
+  enc: ContentEncryptionAlgorithm;
+  encryptedKey: Uint8Array<ArrayBuffer>;
+  unwrapKeyOptions: UnwrapKeyOptions;
+  ciphertext: Uint8Array<ArrayBuffer>;
+  iv: Uint8Array<ArrayBuffer>;
+  tag: Uint8Array<ArrayBuffer>;
+  aad: Uint8Array<ArrayBuffer>;
+  kid: string | undefined;
+  allowSymmetric: boolean | undefined;
+}
+
 async function _unwrapAndDecrypt(
   alg: KeyManagementAlgorithm,
-  enc: ContentEncryptionAlgorithm,
   rawKeyMaterial: unknown,
-  encryptedKeyBytes: Uint8Array<ArrayBuffer>,
-  unwrapKeyOpts: UnwrapKeyOptions,
-  ciphertextBytes: Uint8Array<ArrayBuffer>,
-  ivBytes: Uint8Array<ArrayBuffer>,
-  tagBytes: Uint8Array<ArrayBuffer>,
-  contentAadBytes: Uint8Array<ArrayBuffer>,
-  headerKid: string | undefined,
+  options: UnwrapAndDecryptOptions,
 ): Promise<{
   cek: Uint8Array<ArrayBuffer> | CryptoKey;
   plaintextBytes: Uint8Array<ArrayBuffer>;
 }> {
+  const { enc, encryptedKey, unwrapKeyOptions, ciphertext, iv, tag, aad, kid, allowSymmetric } =
+    options;
+
   if (isJWKSet(rawKeyMaterial)) {
-    const candidates = getJWKsFromSet(rawKeyMaterial, buildJWKSetFilter({ kid: headerKid, alg }));
+    const candidates = getJWKsFromSet(
+      rawKeyMaterial,
+      buildJWKSetFilter({ kid, alg }, { op: "enc", allowSymmetric }),
+    );
     if (candidates.length === 0) {
       throw new JWTError("No key found in JWK Set.", "ERR_JWK_KEY_NOT_FOUND");
     }
-    let lastErr: unknown;
+    // A candidate this recipient was not encrypted to — unusable key material
+    // as much as a failed unwrap — only means "try the next one"; the collected
+    // reasons become the `cause` when none decrypts.
+    const attempts: JWTError[] = [];
     for (const candidate of candidates) {
-      const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
       try {
-        const cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
-        const plaintextBytes = await joseDecrypt(
-          enc,
-          cek,
-          ciphertextBytes,
-          ivBytes,
-          tagBytes,
-          contentAadBytes,
-        );
+        if (alg === "dir") assertDirectKeyRole(candidate, enc);
+        const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
+        const cek = await unwrapKey(alg, encryptedKey, unwrappingKey, unwrapKeyOptions);
+        const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
         return { cek, plaintextBytes };
       } catch (err) {
-        if (err instanceof JWTError && err.code !== "ERR_JWE_DECRYPTION_FAILED") throw err;
-        lastErr = err;
+        attempts.push(_asJWTError(err));
       }
     }
-    throw lastErr ?? new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
+    throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", attempts);
   }
 
+  if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
   const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
     alg,
     expect: "private",
   });
   try {
-    const cek = await unwrapKey(alg, encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
-    const plaintextBytes = await joseDecrypt(
-      enc,
-      cek,
-      ciphertextBytes,
-      ivBytes,
-      tagBytes,
-      contentAadBytes,
-    );
+    const cek = await unwrapKey(alg, encryptedKey, unwrappingKey, unwrapKeyOptions);
+    const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
     return { cek, plaintextBytes };
   } catch (err) {
     if (err instanceof JWTError) throw err;
