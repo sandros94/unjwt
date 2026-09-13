@@ -56,8 +56,6 @@ describe("root barrel (unjwt)", () => {
     "inferJWEAllowedAlgorithms",
     "validateJwtClaims",
     "computeDurationInSeconds",
-    "computeExpiresInSeconds",
-    "computeMaxTokenAgeSeconds",
     "isJWK",
     "isJWKSet",
     "isCryptoKey",

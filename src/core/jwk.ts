@@ -31,7 +31,6 @@ import type {
   UnwrapKeyOptions,
   UnwrapKeyResult,
   UnwrappingKeyFor,
-  JoseHeaderParameters,
 } from "./types";
 import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./utils";
 import { isContentEncryptionAlgorithm } from "./utils/algorithms";
@@ -1182,21 +1181,6 @@ export async function importPEM<T extends JWK>(
 }
 
 /**
- * @deprecated Use {@link importPEM} instead. `pemType` has moved into the options object and
- * is now inferred from the PEM label by default.
- */
-export async function importFromPEM<T extends JWK>(
-  pem: string,
-  pemType: "pkcs8" | "spki" | "x509",
-  alg: JWKPEMAlgorithm,
-  options?: {
-    jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
-  },
-): Promise<T> {
-  return importPEM<T>(pem, alg, { pemType, ...options });
-}
-
-/**
  * Exports a JWK to a PEM-encoded string.
  *
  * The PEM format is inferred from the JWK shape:
@@ -1302,19 +1286,6 @@ export async function exportPEM(
   }
 }
 
-/**
- * @deprecated Use {@link exportPEM} instead. `pemFormat` has moved into the options object and
- * is now inferred from the JWK shape by default. The `algForCryptoKeyImport` parameter has
- * been renamed to `options.alg`.
- */
-export async function exportToPEM(
-  jwk: JWK,
-  pemFormat: "pkcs8" | "spki",
-  algForCryptoKeyImport?: JWKPEMAlgorithm,
-): Promise<string> {
-  return exportPEM(jwk, { pemFormat, alg: algForCryptoKeyImport });
-}
-
 function inferPEMType(pem: string): "pkcs8" | "spki" | "x509" | undefined {
   if (pem.includes("-----BEGIN PRIVATE KEY-----")) return "pkcs8";
   if (pem.includes("-----BEGIN PUBLIC KEY-----")) return "spki";
@@ -1396,79 +1367,6 @@ export async function deriveSharedSecret(
     keyLength,
     partyUInfo ?? new Uint8Array(0),
     partyVInfo ?? new Uint8Array(0),
-  );
-}
-
-/**
- * @deprecated For set queries, use {@link getJWKsFromSet} which returns all
- * matching keys as an array. This function remains available for internal
- * single-key resolution by `kid` or JOSE header (used by `verify` and `decrypt`).
- *
- * Retrieves a JWK (JSON Web Key) from a JWKSet based on a key ID (kid) or
- * properties from a JOSE Header.
- *
- * @param jwkSet The JWKSet to search within.
- * @param kidOrProtectedHeader Either a string representing the 'kid' (Key ID)
- *        or an object representing the JOSE Protected Header. If an object is
- *        provided, it must contain a 'kid' property. It can optionally contain
- *        'alg' (Algorithm) and 'kty' (Key Type) to further refine the search.
- * @returns The matching JWK from the set.
- * @throws TypeError if `jwkSet` is invalid or `kidOrProtectedHeader` is not a
- *         string or a valid header object.
- * @throws Error if no key is found matching the provided criteria, or if the
- *         header object is missing the 'kid' property.
- */
-export function getJWKFromSet(
-  jwkSet: JWKSet,
-  kidOrProtectedHeader: string | (JoseHeaderParameters & { alg?: string; kty?: string }),
-): JWK {
-  if (!jwkSet || !isJWKSet(jwkSet)) {
-    throw new JWTError("Invalid JWK Set provided", "ERR_JWK_INVALID");
-  }
-
-  if (typeof kidOrProtectedHeader === "string") {
-    const kid = kidOrProtectedHeader;
-    const selectedKey = jwkSet.keys.find((k: JWK) => k.kid === kid);
-    if (!selectedKey) {
-      throw new JWTError(`No key found in JWK Set with kid "${kid}".`, "ERR_JWK_KEY_NOT_FOUND");
-    }
-    return selectedKey;
-  } else if (typeof kidOrProtectedHeader === "object") {
-    const { kid, alg, kty } = kidOrProtectedHeader;
-
-    if (!kid) {
-      if (jwkSet.keys.length === 1) {
-        return jwkSet.keys[0]!;
-      }
-      throw new JWTError(
-        "JWS Protected Header is missing 'kid' (Key ID) and the JWK Set contains multiple keys. " +
-          "Add a 'kid' parameter to the token header and to the matching JWK to enable automatic selection.",
-        "ERR_JWK_KEY_NOT_FOUND",
-      );
-    }
-
-    const selectedKey = jwkSet.keys.find((k: JWK) => {
-      return k.kid === kid && (!alg || k.alg === alg) && (!kty || k.kty === kty);
-    });
-
-    if (!selectedKey) {
-      let errorMessage = `No key found in JWK Set with kid "${kid}"`;
-      if (alg) {
-        errorMessage += ` and alg "${alg}"`;
-      }
-      if (kty) {
-        errorMessage += ` and kty "${kty}"`;
-      }
-      errorMessage += ".";
-      throw new JWTError(errorMessage, "ERR_JWK_KEY_NOT_FOUND");
-    }
-
-    return selectedKey;
-  }
-
-  throw new JWTError(
-    "`kidOrProtectedHeader` must be a string (kid) or an object (JOSE Protected Header).",
-    "ERR_INVALID_OPTION",
   );
 }
 

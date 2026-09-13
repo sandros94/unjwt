@@ -21,9 +21,6 @@ import {
   deriveSharedSecret,
   importPEM,
   exportPEM,
-  importFromPEM,
-  exportToPEM,
-  getJWKFromSet,
   getJWKsFromSet,
   thumbprint,
   WeakMapJWKCache,
@@ -1264,70 +1261,6 @@ describe.concurrent("JWK Utilities", () => {
     });
   });
 
-  describe("getJWKFromSet", () => {
-    const jwkSet = {
-      keys: [
-        { kty: "oct", kid: "key-1", alg: "HS256", k: "abc" },
-        { kty: "oct", kid: "key-2", alg: "HS384", k: "def" },
-      ],
-    } satisfies JWKSet;
-
-    it("should throw for invalid JWK Set", () => {
-      // @ts-expect-error intentionally invalid JWK set
-      expect(() => getJWKFromSet(null, "key-1")).toThrow(
-        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
-      );
-      // @ts-expect-error intentionally invalid JWK set
-      expect(() => getJWKFromSet({ notKeys: [] }, "key-1")).toThrow(
-        expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
-      );
-    });
-
-    it("should find a key by string kid", () => {
-      const key = getJWKFromSet(jwkSet, "key-1");
-      expect(key.kid).toBe("key-1");
-    });
-
-    it("should throw when string kid is not found", () => {
-      expect(() => getJWKFromSet(jwkSet, "missing-kid")).toThrow(
-        'No key found in JWK Set with kid "missing-kid"',
-      );
-    });
-
-    it("should throw when object header kid is not found (includes alg in message)", () => {
-      expect(() => getJWKFromSet(jwkSet, { kid: "missing-kid", alg: "HS256" })).toThrow(
-        /No key found in JWK Set with kid "missing-kid" and alg "HS256"/,
-      );
-    });
-
-    it("should throw when object header kid is not found (includes kty in message)", () => {
-      expect(() => getJWKFromSet(jwkSet, { kid: "missing-kid", kty: "EC" })).toThrow(
-        /No key found in JWK Set with kid "missing-kid".*and kty "EC"/,
-      );
-    });
-
-    it("should throw when object header has no kid and set has multiple keys", () => {
-      expect(() => getJWKFromSet(jwkSet, { alg: "HS256" })).toThrow(
-        "JWK Set contains multiple keys",
-      );
-    });
-
-    it("should return the only key when set has one key and no kid in header", () => {
-      const singleKeySet = {
-        keys: [{ kty: "oct", kid: "only", alg: "HS256", k: "abc" }],
-      } satisfies JWKSet;
-      const key = getJWKFromSet(singleKeySet, { alg: "HS256" });
-      expect(key.kid).toBe("only");
-    });
-
-    it("should throw ERR_INVALID_OPTION for invalid input type", () => {
-      // @ts-expect-error intentionally invalid
-      expect(() => getJWKFromSet(jwkSet, 42)).toThrow(
-        expect.objectContaining({ name: "JWTError", code: "ERR_INVALID_OPTION" }),
-      );
-    });
-  });
-
   describe("getJWKsFromSet", () => {
     const jwkSet: JWKSet = {
       keys: [
@@ -1557,22 +1490,6 @@ describe.concurrent("JWK Utilities", () => {
         ).rejects.toThrow(
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_UNSUPPORTED" }),
         );
-      });
-    });
-
-    describe("deprecated aliases", () => {
-      it("importFromPEM forwards to importPEM with pemType preserved", async () => {
-        const jwk = await importFromPEM<JWK_RSA_Private>(rsa.pem.pkcs8, "pkcs8", "RS256");
-        expect(jwk.kty).toBe("RSA");
-        expect(jwk.alg).toBe("RS256");
-        expect(jwk.d).toBeDefined();
-      });
-
-      it("exportToPEM forwards to exportPEM with pemFormat preserved", async () => {
-        const pem = await exportToPEM(rsa.jwk.public, "spki");
-        const joseKey = await jose.importJWK(rsa.jwk.public);
-        const josePem = await jose.exportSPKI(joseKey as CryptoKey);
-        expect(pem).toEqual(josePem);
       });
     });
   });

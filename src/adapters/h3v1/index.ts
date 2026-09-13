@@ -38,7 +38,5 @@ export {
   thumbprint,
   importPEM,
   exportPEM,
-  importFromPEM,
-  exportToPEM,
   deriveJWKFromPassword,
 } from "../../core/jwk.ts";

@@ -2,7 +2,7 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, PEM conversion, and cache control.
 
-Import: `import { generateKey, generateJWK, thumbprint, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
+Import: `import { generateKey, generateJWK, thumbprint, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
 
 Key lookup types (also from `unjwt/jwk`): `JWKLookupFunction`, `JWKLookupFunctionHeader` — or `from "unjwt"`
 
@@ -330,10 +330,6 @@ import { importPEM, exportPEM } from "unjwt/jwk";
 const jwk = await importPEM(pemString, "RS256", { jwkParams: { kid: "rsa-1" } });
 const pem = await exportPEM(jwk);
 ```
-
-`importFromPEM(pem, pemType, alg, options?)` and `exportToPEM(jwk, pemFormat, alg?)` are retained
-as `@deprecated` aliases with their original positional signatures — existing callers compile
-unchanged and will see an IDE deprecation hint until they migrate.
 
 ## Password-Based Key Derivation
 

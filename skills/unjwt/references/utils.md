@@ -78,8 +78,6 @@ Converts a `Duration` (integer seconds or shorthand string) into a positive inte
 
 - `Duration` accepts: `number` (already seconds), or string with unit — `"30s"`, `"10m"`, `"2h"`, `"7D"`, `"1W"`, `"3M"`, `"1Y"` (also long forms: `"minutes"`, `"hours"`, `"days"`, `"weeks"`, `"months"`, `"years"`).
 - `ExpiresIn`, `NotBeforeIn`, and `MaxTokenAge` are all aliases of `Duration`.
-- `computeMaxTokenAgeSeconds(duration)` is the deprecated former name, kept for backward-compat — prefer `computeDurationInSeconds` in new code.
-- `computeExpiresInSeconds(duration)` is the deprecated former name, kept for backward-compat — prefer `computeDurationInSeconds` in new code.
 
 ### `validateJwtClaims(claims, options?)`
 

@@ -200,12 +200,6 @@ export function computeDurationInSeconds(duration: Duration): number {
   return seconds;
 }
 
-/** @deprecated Renamed to {@link computeDurationInSeconds} in v0.7.0. */
-export const computeExpiresInSeconds: (expiresIn: ExpiresIn) => number = computeDurationInSeconds;
-
-/** @deprecated Renamed to {@link computeDurationInSeconds} in v0.7.0. */
-export const computeMaxTokenAgeSeconds: (expiresIn: ExpiresIn) => number = computeDurationInSeconds;
-
 /** Options for {@link computeJwtTimeClaims}. */
 export interface ComputeJwtTimeClaimsOptions {
   /** Reference moment for `iat` (and for `expiresIn` / `notBeforeIn` math). Defaults to `new Date()`. */
