@@ -16,6 +16,7 @@ import {
   useJWSSession as useJWSSessionV1,
   useJWESession as useJWESessionV1,
 } from "../src/adapters/h3v1";
+import { MAX_CHUNK_COUNT } from "../src/adapters/_chunked-cookie";
 import { createJWSSession, jwsSession } from "../src/adapters/elysia/session/jws";
 import { createJWESession } from "../src/adapters/elysia/session/jwe";
 import type { SessionContext } from "../src/adapters/elysia/session/types";
@@ -79,6 +80,31 @@ async function caught(run: () => Promise<unknown>): Promise<unknown> {
   }
   return undefined;
 }
+
+/**
+ * Fail rather than hang. A hook that reads the same session it was dispatched
+ * from would otherwise await a promise that is waiting on the hook itself, and
+ * the request would never settle.
+ */
+function within<T>(promise: Promise<T> | T, label: string, ms = 2000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(() => reject(new Error(`${label} did not settle within ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
+/** Session data long enough to need `count` cookie chunks at `chunkMaxLength`. */
+function bulkyData(count: number, chunkMaxLength: number): Record<string, string> {
+  return { pad: "x".repeat(count * chunkMaxLength) };
+}
+
+const EXPIRED_CLAIMS = {
+  jti: "expired-session",
+  iat: nowSeconds() - 120,
+  exp: nowSeconds() - 60,
+};
 
 describe("session adapters — shared contract", () => {
   // #region h3 v2
@@ -174,11 +200,9 @@ describe("session adapters — shared contract", () => {
     it("rejects a password string where key material is required", async () => {
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
-        const session = await useJWESessionV2(event, {
-          name: "contract-jwe-str",
-          key: "a password" as never,
-        });
-        const error = await caught(() => session.update({ user: "alice" }));
+        const error = await caught(() =>
+          useJWESessionV2(event, { name: "contract-jwe-str", key: "a password" as never }),
+        );
         return {
           key: isJWTError(error, "ERR_SESSION_KEY_INVALID"),
           message: (error as Error).message,
@@ -602,11 +626,9 @@ describe("session adapters — shared contract", () => {
 
     it("rejects a password string where key material is required", async () => {
       const app = h3v1App(async (event) => {
-        const session = await useJWESessionV1(event, {
-          name: "contract-jwe-str",
-          key: "a password" as never,
-        });
-        const error = await caught(() => session.update({ user: "alice" }));
+        const error = await caught(() =>
+          useJWESessionV1(event, { name: "contract-jwe-str", key: "a password" as never }),
+        );
         return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
       });
 
@@ -685,8 +707,7 @@ describe("session adapters — shared contract", () => {
 
     it("rejects a password string where key material is required", async () => {
       const { context } = elysiaContext();
-      const session = await createJWESession(context, { key: "a password" as never });
-      const error = await caught(() => session.update({ user: "alice" }));
+      const error = await caught(() => createJWESession(context, { key: "a password" as never }));
 
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
       expect((error as Error).message).toMatch(/deriveJWKFromPassword/);
@@ -831,6 +852,389 @@ describe("session adapters — shared contract", () => {
 
       expect(cookies.some((cookie) => cookie.startsWith("first="))).toBe(true);
       expect(cookies.some((cookie) => cookie.startsWith("second="))).toBe(true);
+    });
+  });
+  // #endregion
+
+  // #region re-entrant hooks
+  describe("re-entrant hooks", () => {
+    const readerConfig = { name: "reentrant-jws", key: jwsKey, maxAge: "1m" } as const;
+
+    it("h3 v2: an onExpire hook may read the same session", async () => {
+      const seen: Array<string | undefined> = [];
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const config = {
+          ...readerConfig,
+          hooks: {
+            onExpire: async () => {
+              const again = await useJWSSessionV2(event, { ...readerConfig });
+              seen.push(again.id);
+            },
+          },
+        };
+        const session = await useJWSSessionV2(event, config);
+        return { id: session.id ?? null };
+      });
+
+      const token = await foreignJWS(EXPIRED_CLAIMS);
+      const response = await within(
+        app.request("/", { headers: { cookie: `reentrant-jws=${token}` } }),
+        "h3 v2 onExpire",
+      );
+
+      expect(await response.json()).toEqual({ id: null });
+      expect(seen).toEqual([undefined]);
+    });
+
+    it("h3 v2: an onError hook may read the same session", async () => {
+      const seen: Array<string | undefined> = [];
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const config = {
+          ...readerConfig,
+          hooks: {
+            onError: async () => {
+              const again = await useJWSSessionV2(event, { ...readerConfig });
+              seen.push(again.id);
+            },
+          },
+        };
+        const session = await useJWSSessionV2(event, config);
+        return { id: session.id ?? null };
+      });
+
+      const response = await within(
+        app.request("/", { headers: { cookie: "reentrant-jws=not.a.token" } }),
+        "h3 v2 onError",
+      );
+
+      expect(await response.json()).toEqual({ id: null });
+      expect(seen).toEqual([undefined]);
+    });
+
+    it("h3 v1: an onExpire hook may read the same session", async () => {
+      const seen: Array<string | undefined> = [];
+      const router = createRouter({ preemptive: true });
+      const app = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const config = {
+            ...readerConfig,
+            hooks: {
+              onExpire: async () => {
+                const again = await useJWSSessionV1(event, { ...readerConfig });
+                seen.push(again.id);
+              },
+            },
+          };
+          const session = await useJWSSessionV1(event, config);
+          return { id: session.id ?? null };
+        }),
+      );
+
+      const token = await foreignJWS(EXPIRED_CLAIMS);
+      const response = await within(
+        supertest(toNodeListener(app)).get("/").set("cookie", `reentrant-jws=${token}`),
+        "h3 v1 onExpire",
+      );
+
+      expect(response.body).toEqual({ id: null });
+      expect(seen).toEqual([undefined]);
+    });
+
+    it("h3 v1: an onError hook may read the same session", async () => {
+      const seen: Array<string | undefined> = [];
+      const router = createRouter({ preemptive: true });
+      const app = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const config = {
+            ...readerConfig,
+            hooks: {
+              onError: async () => {
+                const again = await useJWSSessionV1(event, { ...readerConfig });
+                seen.push(again.id);
+              },
+            },
+          };
+          const session = await useJWSSessionV1(event, config);
+          return { id: session.id ?? null };
+        }),
+      );
+
+      const response = await within(
+        supertest(toNodeListener(app)).get("/").set("cookie", "reentrant-jws=not.a.token"),
+        "h3 v1 onError",
+      );
+
+      expect(response.body).toEqual({ id: null });
+      expect(seen).toEqual([undefined]);
+    });
+
+    it("elysia: an onExpire hook may read the same session", async () => {
+      const seen: Array<string | undefined> = [];
+      const token = await foreignJWS(EXPIRED_CLAIMS);
+      const { context } = elysiaContext({ cookies: { "reentrant-jws": token } });
+      const config = {
+        ...readerConfig,
+        hooks: {
+          onExpire: async () => {
+            const again = await createJWSSession(context, { ...readerConfig });
+            seen.push(again.id);
+          },
+        },
+      };
+
+      const session = await within(createJWSSession(context, config), "elysia onExpire");
+
+      expect(session.id).toBeUndefined();
+      expect(seen).toEqual([undefined]);
+    });
+
+    it("elysia: an onError hook may read the same session", async () => {
+      const seen: Array<string | undefined> = [];
+      const { context } = elysiaContext({ cookies: { "reentrant-jws": "not.a.token" } });
+      const config = {
+        ...readerConfig,
+        hooks: {
+          onError: async () => {
+            const again = await createJWSSession(context, { ...readerConfig });
+            seen.push(again.id);
+          },
+        },
+      };
+
+      const session = await within(createJWSSession(context, config), "elysia onError");
+
+      expect(session.id).toBeUndefined();
+      expect(seen).toEqual([undefined]);
+    });
+  });
+  // #endregion
+
+  // #region chunk bounds
+  describe("cookie chunk bounds", () => {
+    const chunkMaxLength = 64;
+    const chunked = {
+      name: "chunk-jws",
+      key: jwsKey,
+      cookie: { chunkMaxLength, secure: false },
+    } as const;
+
+    it("h3 v2: refuses a token needing more chunks than the limit", async () => {
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const session = await useJWSSessionV2(event, chunked);
+        const error = await caught(() =>
+          session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
+        );
+        return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
+      });
+
+      const response = await app.request("/");
+      expect(await response.json()).toEqual({ config: true });
+    });
+
+    it("h3 v1: refuses a token needing more chunks than the limit", async () => {
+      const router = createRouter({ preemptive: true });
+      const app = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWSSessionV1(event, chunked);
+          const error = await caught(() =>
+            session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
+          );
+          return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
+        }),
+      );
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      expect(response.body).toEqual({ config: true });
+    });
+
+    it("h3 v2: bounds cleanup of a forged chunk marker", async () => {
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const session = await useJWSSessionV2(event, chunked);
+        await session.update({ user: "alice" });
+        return { ok: true };
+      });
+
+      const response = await app.request("/", {
+        headers: { cookie: "chunk-jws=__chunked__100" },
+      });
+      expect(response.headers.getSetCookie().length).toBeLessThanOrEqual(MAX_CHUNK_COUNT + 1);
+    });
+
+    it("h3 v1: bounds cleanup of a forged chunk marker", async () => {
+      const router = createRouter({ preemptive: true });
+      const app = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWSSessionV1(event, chunked);
+          await session.update({ user: "alice" });
+          return { ok: true };
+        }),
+      );
+
+      const response = await supertest(toNodeListener(app))
+        .get("/")
+        .set("cookie", "chunk-jws=__chunked__100");
+      const setCookies = response.headers["set-cookie"] as unknown as string[];
+      expect(setCookies.length).toBeLessThanOrEqual(MAX_CHUNK_COUNT + 1);
+    });
+  });
+  // #endregion
+
+  // #region key and payload failures
+  describe("misconfigured keys and payloads", () => {
+    it("h3 v2: a missing key fails the read, not the first update", async () => {
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const error = await caught(() =>
+          useJWSSessionV2(event, { name: "nokey", key: undefined as never }),
+        );
+        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
+      });
+
+      const response = await app.request("/");
+      expect(await response.json()).toEqual({ key: true });
+    });
+
+    it("h3 v1: a public-only JWS key fails the read", async () => {
+      const router = createRouter({ preemptive: true });
+      const app = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const error = await caught(() =>
+            useJWSSessionV1(event, {
+              name: "publiconly",
+              key: { publicKey: {} } as never,
+            }),
+          );
+          return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
+        }),
+      );
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      expect(response.body).toEqual({ key: true });
+    });
+
+    it("elysia: an empty key object fails the read", async () => {
+      const { context } = elysiaContext();
+      const error = await caught(() =>
+        createJWSSession(context, { name: "emptykey", key: {} as never }),
+      );
+
+      expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+    });
+
+    it("h3 v2: session data that is not JSON-serializable is an option error", async () => {
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const session = await useJWSSessionV2(event, { name: "bigint", key: jwsKey });
+        const error = await caught(() => session.update({ n: 1n as unknown as string }));
+        return { option: isJWTError(error, "ERR_INVALID_OPTION") };
+      });
+
+      const response = await app.request("/");
+      expect(await response.json()).toEqual({ option: true });
+    });
+
+    it("elysia: a cookie name outside the RFC 6265 token characters is a config error", async () => {
+      const { context } = elysiaContext();
+      const error = await caught(() =>
+        createJWSSession(context, { name: "bad name", key: jwsKey }),
+      );
+
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    });
+
+    it("h3 v2: a cookie name outside the RFC 6265 token characters is a config error", async () => {
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const error = await caught(() => useJWSSessionV2(event, { name: "bad;name", key: jwsKey }));
+        return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
+      });
+
+      const response = await app.request("/");
+      expect(await response.json()).toEqual({ config: true });
+    });
+
+    it("h3 v1: a cookie name outside the RFC 6265 token characters is a config error", async () => {
+      const router = createRouter({ preemptive: true });
+      const app = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const error = await caught(() =>
+            useJWSSessionV1(event, { name: "bad name", key: jwsKey }),
+          );
+          return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
+        }),
+      );
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      expect(response.body).toEqual({ config: true });
+    });
+
+    it("leaves session.token undefined after a failed verification", async () => {
+      const { context } = elysiaContext({ cookies: { "elysia-jws": "not.a.token" } });
+      const session = await createJWSSession(context, { key: jwsKey });
+
+      expect(session.token).toBeUndefined();
+    });
+  });
+  // #endregion
+
+  // #region cookie expiry precedence
+  describe("cookie expiry", () => {
+    it("lets the token lifetime decide the cookie expiry on every port", async () => {
+      const far = new Date(Date.now() + 10 * 365 * 24 * 3600 * 1000);
+      const config = {
+        name: "expiry-jws",
+        key: jwsKey,
+        maxAge: "1m",
+        cookie: { secure: false, expires: far },
+      } as const;
+
+      const v2 = new H3({ debug: true });
+      v2.get("/", async (event) => {
+        const session = await useJWSSessionV2(event, config);
+        await session.update({ user: "alice" });
+        return { ok: true };
+      });
+      const v2Cookie = (await v2.request("/")).headers.getSetCookie()[0]!;
+
+      const router = createRouter({ preemptive: true });
+      const v1 = createApp({ debug: true }).use(router);
+      router.use(
+        "/",
+        eventHandler(async (event) => {
+          const session = await useJWSSessionV1(event, config);
+          await session.update({ user: "alice" });
+          return { ok: true };
+        }),
+      );
+      const v1Cookie = (
+        (await supertest(toNodeListener(v1)).get("/")).headers["set-cookie"] as unknown as string[]
+      )[0]!;
+
+      const { context, store } = elysiaContext();
+      const elysia = await createJWSSession(context, config);
+      await elysia.update({ user: "alice" });
+      const elysiaExpires = store.get("expiry-jws")!.lastWrite!.expires!;
+
+      const farYear = String(far.getUTCFullYear());
+      expect(v2Cookie).not.toContain(farYear);
+      expect(v1Cookie).not.toContain(farYear);
+      expect(elysiaExpires.getTime()).toBeLessThan(far.getTime());
     });
   });
   // #endregion

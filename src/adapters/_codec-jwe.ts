@@ -42,7 +42,13 @@ export type JWESessionKey =
 /** JWE decrypt overrides a session accepts — everything the adapter does not own itself. */
 export type SessionDecryptOptions = StrictOmit<
   JWEDecryptOptions,
-  "algorithms" | "encryptionAlgorithms" | "typ" | "validateClaims" | "forceUint8Array" | "payload"
+  | "algorithms"
+  | "encryptionAlgorithms"
+  | "typ"
+  | "maxTokenAge"
+  | "validateClaims"
+  | "forceUint8Array"
+  | "payload"
 >;
 
 /** JWE encrypt/decrypt overrides a session accepts. */
@@ -111,6 +117,12 @@ export function createJWECodec(options: {
 }): SessionCodec<JWECodecConfig> {
   const { prefix, defaultName } = options;
 
+  const openKey = (config: JWECodecConfig, carrier: Record<string, unknown>): unknown =>
+    config.hooks?.onUnsealKeyLookup
+      ? (header: JWEHeaderParameters) =>
+          config.hooks!.onUnsealKeyLookup!({ header, ...carrier, config })
+      : getDecryptKey(config, prefix);
+
   return {
     family: "jwe",
     defaultName,
@@ -119,6 +131,8 @@ export function createJWECodec(options: {
     now: (config) => config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now(),
 
     issueKey: (config) => getEncryptKey(config, prefix),
+
+    openKey,
 
     issue: (config, state, key) => {
       const iat = Math.floor(state.createdAt / 1000);
@@ -145,11 +159,8 @@ export function createJWECodec(options: {
       });
     },
 
-    open: async (config, sealed, carrier) => {
-      const key = config.hooks?.onUnsealKeyLookup
-        ? (header: JWEHeaderParameters) =>
-            config.hooks!.onUnsealKeyLookup!({ header, ...carrier, config })
-        : getDecryptKey(config, prefix);
+    open: async (config, sealed, carrier, resolvedKey) => {
+      const key = resolvedKey ?? openKey(config, carrier);
 
       const alg = config.jwe?.encryptOptions?.alg;
       const enc = config.jwe?.encryptOptions?.enc;

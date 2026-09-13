@@ -9,12 +9,11 @@ import {
   type HTTPEvent,
   type H3EventContext,
   getEventContext,
-  getChunkedCookie,
-  setChunkedCookie,
-  deleteChunkedCookie,
+  getCookie,
 } from "h3v2";
 import type { CookieSerializeOptions } from "cookie-esv3";
-import { readChunkedFromSetCookie } from "../../_chunked-cookie";
+import { readChunkedBy, readChunkedFromSetCookie } from "../../_chunked-cookie";
+import { setChunkedCookie, deleteChunkedCookie } from "../_cookie";
 import {
   type SessionTokenSource,
   assertTokenSource,
@@ -61,8 +60,10 @@ export const h3SessionPort: SessionPort<HTTPEvent> = {
   setCookie: (event, sessionName, token, options) => {
     setChunkedCookie(event as H3Event, sessionName, token, {
       ...options.defaults,
-      expires: options.expiresAt === undefined ? undefined : new Date(options.expiresAt),
       ...options.cookie,
+      // The token's own lifetime decides when the cookie stops being sent: a
+      // cookie outliving the token it carries is a request that cannot work.
+      expires: options.expiresAt === undefined ? undefined : new Date(options.expiresAt),
     } as CookieSerializeOptions & { chunkMaxLength?: number });
     stageSessionErrCookies(event as H3Event, sessionName);
   },
@@ -100,7 +101,7 @@ export function readSessionToken(
     if (hasWritableResponse(event)) {
       cookieValue = readChunkedFromSetCookie(event.res.headers.getSetCookie(), sessionName);
     }
-    cookieValue ??= getChunkedCookie(event, sessionName);
+    cookieValue ??= readChunkedBy((name) => getCookie(event, name), sessionName);
   }
 
   const headerValue =

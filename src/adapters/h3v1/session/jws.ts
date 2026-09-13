@@ -5,6 +5,7 @@ import type { CookieSerializeOptions } from "cookie-esv1";
 import type { ExpiresIn, JWKSet, JWSVerifyJWK, JWKLookupFunctionHeader } from "../../../core/types";
 import type { SessionIssueOptions } from "../../_session";
 import { type JWSCodecConfig, type JWSSessionConfig, createJWSCodec } from "../../_codec-jws";
+export type { SessionVerifyOptions } from "../../_codec-jws";
 import {
   type SessionBinding,
   type SessionState,

@@ -5,6 +5,7 @@ import type { CookieSerializeOptions } from "cookie-esv3";
 import type { ExpiresIn, JWKSet, JWSVerifyJWK, JWKLookupFunctionHeader } from "../../../core/types";
 import type { SessionIssueOptions } from "../../_session";
 import { type JWSCodecConfig, type JWSSessionConfig, createJWSCodec } from "../../_codec-jws";
+export type { SessionVerifyOptions } from "../../_codec-jws";
 import {
   type SessionBinding,
   type SessionState,
@@ -115,7 +116,7 @@ export async function updateJWSSession<
   config: SessionConfigJWS<T, MaxAge, TEvent>,
   update?: SessionUpdate<T>,
   options?: SessionIssueOptions,
-): Promise<SessionJWS<T, MaxAge>> {
+): Promise<SessionJWS<T, MaxAge> & { id: string; token: string }> {
   return issueSession<T, MaxAge, HTTPEvent, JWSCodecConfig>(bind(event, config), update, options);
 }
 

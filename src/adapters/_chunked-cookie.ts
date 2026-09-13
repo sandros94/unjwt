@@ -88,12 +88,20 @@ export function removeChunked<A>(
   }
 }
 
+/** {@link readChunked} over a read function alone, for a store nothing writes to. */
+export function readChunkedBy(
+  read: (name: string) => string | undefined,
+  name: string,
+): string | undefined {
+  return readChunked({ read, write: noop, expire: noop }, name);
+}
+
 /** Reassemble a chunked value from cookies already parsed into a record. */
 export function readChunkedFrom(
   cookies: Record<string, string | undefined>,
   name: string,
 ): string | undefined {
-  return readChunked({ read: (key) => cookies[key], write: noop, expire: noop }, name);
+  return readChunkedBy((key) => cookies[key], name);
 }
 
 /**

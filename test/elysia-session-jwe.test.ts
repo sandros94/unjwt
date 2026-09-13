@@ -162,7 +162,9 @@ describe("elysia JWE session core", () => {
     await session.update({ user: "erin" });
     const idBefore = session.id;
 
-    await expect(session.update({ bad: 1n as unknown as string })).rejects.toThrow(TypeError);
+    await expect(session.update({ bad: 1n as unknown as string })).rejects.toThrow(
+      expect.objectContaining({ name: "JWTError", code: "ERR_INVALID_OPTION" }),
+    );
 
     expect(onError).toHaveBeenCalledOnce();
     expect(session.id).toBe(idBefore);

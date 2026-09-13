@@ -30,6 +30,7 @@ export {
   useJWSSession,
   verifyJWSSession,
 } from "./session/jws.ts";
+export type { SessionVerifyOptions } from "./session/jws.ts";
 
 export type * from "../../core/types/index.ts";
 export {

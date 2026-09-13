@@ -5,7 +5,7 @@
  */
 
 import type { ExpiresIn } from "../core/types";
-import { type SessionTokenSource, resolveExpiresAt } from "./_session";
+import { type SessionTokenSource, assertSessionName, resolveExpiresAt } from "./_session";
 import type { SessionData } from "./_session-types";
 
 /**
@@ -70,11 +70,18 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   now: (config: Config) => number;
   /** The key a new token is issued with, resolved before any session is read. */
   issueKey: (config: Config) => unknown;
+  /**
+   * The key an incoming token is opened with — resolved before the token is
+   * read, so a key the config cannot supply is a configuration failure rather
+   * than an unreadable token.
+   */
+  openKey: (config: Config, carrier: Record<string, unknown>) => unknown;
   issue: (config: Config, state: SessionState<any, any>, key: unknown) => Promise<string>;
   open: (
     config: Config,
     token: string,
     carrier: Record<string, unknown>,
+    key?: unknown,
   ) => Promise<Partial<SessionState<any, any>>>;
 }
 
@@ -123,6 +130,7 @@ export function bindSession<TCarrier, Config extends SessionCoreConfig>(
 ): SessionBinding<TCarrier, Config> {
   const { port, codec } = options;
   const name = config.name || codec.defaultName;
+  assertSessionName(name, { prefix: port.prefix });
   return {
     carrier,
     config,

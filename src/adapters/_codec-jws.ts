@@ -13,6 +13,7 @@ import type {
   JWKLookupFunctionHeader,
   JWTClaimValidationOptions,
 } from "../core/types";
+import type { StrictOmit } from "../core/utils/types";
 import {
   SESSION_CONTENT_TYPE,
   assertKeyMaterial,
@@ -40,10 +41,17 @@ export type JWSSessionKey =
       publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet | CryptoKey;
     };
 
+/**
+ * JWS claim-validation overrides a session accepts — everything the adapter
+ * does not own itself. `maxTokenAge` follows the session's `maxAge`, and `typ`
+ * the `typ` it signs with, so neither is the caller's to set here.
+ */
+export type SessionVerifyOptions = StrictOmit<JWTClaimValidationOptions, "maxTokenAge" | "typ">;
+
 /** JWS sign/verify overrides a session accepts. */
 export interface JWSSessionOptions {
   signOptions?: Omit<JWSSignOptions, "expiresIn">;
-  verifyOptions?: JWTClaimValidationOptions;
+  verifyOptions?: SessionVerifyOptions;
 }
 
 /** The config of a JWS-backed (signed, not encrypted) session, minus its hooks. */
@@ -106,6 +114,12 @@ export function createJWSCodec(options: {
 }): SessionCodec<JWSCodecConfig> {
   const { prefix, defaultName } = options;
 
+  const openKey = (config: JWSCodecConfig, carrier: Record<string, unknown>): unknown =>
+    config.hooks?.onVerifyKeyLookup
+      ? (header: JWKLookupFunctionHeader) =>
+          config.hooks!.onVerifyKeyLookup!({ header, ...carrier, config })
+      : getVerifyKey(config, prefix);
+
   return {
     family: "jws",
     defaultName,
@@ -114,6 +128,8 @@ export function createJWSCodec(options: {
     now: (config) => config.jws?.signOptions?.currentDate?.getTime() ?? Date.now(),
 
     issueKey: (config) => getSignKey(config, prefix),
+
+    openKey,
 
     issue: (config, state, key) => {
       const iat = Math.floor(state.createdAt / 1000);
@@ -141,12 +157,9 @@ export function createJWSCodec(options: {
       });
     },
 
-    open: async (config, token, carrier) => {
+    open: async (config, token, carrier, key) => {
       const alg = config.jws?.signOptions?.alg;
-      const jwk = config.hooks?.onVerifyKeyLookup
-        ? (header: JWKLookupFunctionHeader) =>
-            config.hooks!.onVerifyKeyLookup!({ header, ...carrier, config })
-        : getVerifyKey(config, prefix);
+      const jwk = key ?? openKey(config, carrier);
 
       const { payload, protectedHeader } = await verify<{ jti: string; iat: number }>(
         token,

@@ -928,7 +928,9 @@ describe("adapter h3 v2", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      const badKey = { kty: "EC" } as any;
+      // Shaped like a session key, but too short for HS256 — the config
+      // resolves and only the signing itself fails.
+      const badKey = { kty: "oct", alg: "HS256", k: "AA" } as any;
       const config: SessionConfigJWS = {
         name: "h3-jws-hook-sign-error",
         key: badKey,
@@ -961,7 +963,9 @@ describe("adapter h3 v2", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      const badKey = { kty: "EC" } as any;
+      // Shaped like a session key, but too short for A128KW — the config
+      // resolves and only the sealing itself fails.
+      const badKey = { kty: "oct", alg: "A128KW", k: "AA" } as any;
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-seal-error",
         key: badKey,

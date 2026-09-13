@@ -81,6 +81,21 @@ export function rethrowAsInvalidToken(error: unknown, options: { prefix: string 
   throw invalidTokenError(`${options.prefix} Invalid session token: ${message}`, error);
 }
 
+/**
+ * RFC 6265 §4.1.1 — a cookie name is an RFC 7230 token, and so is the header
+ * name a session's `name` also spells. A name outside those characters cannot
+ * be written: some frameworks refuse it outright, others emit a header no
+ * client will parse back, so it is refused where it is configured.
+ */
+const COOKIE_NAME = /^[!#$%&'*+\-.^_`|~\w]+$/;
+
+export function assertSessionName(name: string, options: { prefix: string }): void {
+  if (typeof name === "string" && COOKIE_NAME.test(name)) return;
+  throw invalidConfigError(
+    `${options.prefix} Session "name" must be a cookie name (RFC 6265 §4.1.1): letters, digits and !#$%&'*+-.^_\`|~ only. Got ${JSON.stringify(name)}.`,
+  );
+}
+
 /** Reject a config that leaves the adapter with nowhere to read the token from. */
 export function assertTokenSource(source: SessionTokenSource, options: { prefix: string }): void {
   if (source.cookie === false && source.sessionHeader === false) {

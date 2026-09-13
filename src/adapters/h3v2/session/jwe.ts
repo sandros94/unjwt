@@ -116,7 +116,7 @@ export async function updateJWESession<
   config: SessionConfigJWE<T, MaxAge, TEvent>,
   update?: SessionUpdate<T>,
   options?: SessionIssueOptions,
-): Promise<SessionJWE<T, MaxAge>> {
+): Promise<SessionJWE<T, MaxAge> & { id: string; token: string }> {
   return issueSession<T, MaxAge, HTTPEvent, JWECodecConfig>(bind(event, config), update, options);
 }
 

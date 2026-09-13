@@ -231,7 +231,8 @@ interface SessionConfigJWS<
     // Options passed through to `sign()`; `expiresIn` is managed via `maxAge`
     // and cannot be overridden here.
     signOptions?: JWSSignOptions;
-    verifyOptions?: JWTClaimValidationOptions;
+    /** Claim validation the adapter does not own — `maxTokenAge` follows `maxAge`, `typ` the signed `typ`. */
+    verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
@@ -247,7 +248,7 @@ interface SessionHooksJWS<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
 > {
-  /** Fires once per request when a valid session token was decoded and loaded. */
+  /** Fires on each read of a session established from a valid token. */
   onRead?: (args: {
     // `id` and `token` are narrowed to `string` — they are guaranteed present
     // once the token has been successfully read.
@@ -356,11 +357,15 @@ interface SessionHooksJWE<
 
 | Hook       | When it fires                                                                                                                               | Mutually exclusive with |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `onRead`   | Token decoded successfully (`id` and `token` set)                                                                                           | `onExpire`, `onError`   |
+| `onRead`   | Each read of a session decoded from a valid token (`id` and `token` set) — dedupe on `session.id` for once-per-request                      | `onExpire`, `onError`   |
 | `onUpdate` | After seal/sign succeeds                                                                                                                    | —                       |
 | `onClear`  | After explicit `session.clear()` call                                                                                                       | `onExpire`              |
 | `onExpire` | Token's `exp` claim is in the past                                                                                                          | `onRead`, `onClear`     |
 | `onError`  | Token verification/decryption fails (non-expiry) — always an `ERR_SESSION_TOKEN_INVALID` `JWTError` whose `cause` is the underlying failure | `onRead`                |
+
+Every hook is dispatched with the session state already settled, so a hook may read the same session again — through `useJWSSession`/`getJWSSession` with the same config — and sees the state the request ends up with rather than deadlocking on its own read.
+
+Key material is configuration rather than token content: a `key` the config cannot resolve into a signing and a verification key throws `ERR_SESSION_KEY_INVALID` out of `useJWSSession` / `getJWSSession` itself, and never reaches `onError` as an unreadable token. A session `name` outside the RFC 6265 cookie-name characters is `ERR_SESSION_CONFIG_INVALID`, raised where the session is bound.
 
 **Important:** `onExpire` deletes the session cookie inline and resets `session.token` to `undefined` — it does **not** call the `clearSession` function, so `onClear` is **never** triggered by natural token expiry. These two hooks are semantically distinct: `onExpire` = lifetime ended by clock; `onClear` = explicit user/system termination.
 

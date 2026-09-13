@@ -15,7 +15,7 @@ Both helpers expose the same API: read `session.id` / `session.data`, call `sess
 Keys are key material, never passwords: turn a secret into a JWK once with `deriveJWKFromPassword()`.
 
 ```ts
-import { H3, HTTPError, serve } from "h3v2";
+import { H3, HTTPError, serve } from "h3";
 
 import {
   type SessionConfigJWE,
