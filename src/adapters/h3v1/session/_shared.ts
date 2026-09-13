@@ -1,5 +1,6 @@
 import { type H3Event, isEvent } from "h3v1";
 import { parse as parseCookies } from "cookie-esv1";
+import type { CookieSerializeOptions } from "cookie-esv1";
 import { readChunkedFrom, readChunkedFromSetCookie } from "../../_chunked-cookie";
 import {
   type SessionTokenSource,
@@ -8,6 +9,8 @@ import {
   pickToken,
   sessionHeaderName,
 } from "../../_session";
+import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
+import { setChunkedCookie, deleteChunkedCookie } from "../_cookie";
 
 export type { SessionTokenSource };
 
@@ -20,12 +23,47 @@ export type CompatEvent =
   | { headers: Headers; context: any };
 
 /**
- * The context slot a session occupies. Keying by family keeps a JWS and a JWE
- * session that share a `name` from overwriting one another on one event.
+ * The h3 v1 side of a session: the event context it lives in, the request it
+ * reads its token from, and the response it writes its cookie to.
  */
-export function sessionSlot(family: "jws" | "jwe", sessionName: string): string {
-  return `${family}:${sessionName}`;
-}
+export const h3SessionPort: SessionPort<CompatEvent | H3Event> = {
+  prefix: PREFIX,
+
+  carrier: (event) => ({ event }),
+
+  /**
+   * Sessions are kept on the event context, keyed by family and name, so a JWS
+   * and a JWE session that share a `name` do not overwrite one another.
+   */
+  store: (event, slot) => ({
+    get: () => getSessionsContext(event)[slot] as SessionState<any, any> | undefined,
+    set: (state) => {
+      getSessionsContext(event)[slot] = state;
+    },
+  }),
+
+  readToken: readSessionToken,
+
+  writable: hasWritableResponse,
+
+  setCookie: (event, sessionName, token, options) => {
+    setChunkedCookie(event as H3Event, sessionName, token, {
+      ...options.defaults,
+      ...options.cookie,
+      expires: options.expiresAt === undefined ? undefined : new Date(options.expiresAt),
+    } as CookieSerializeOptions & { chunkMaxLength?: number });
+  },
+
+  deleteCookie: expireSessionCookie,
+
+  dropCookie: (event, sessionName, options) => {
+    if (!hasWritableResponse(event)) {
+      console.warn(`${PREFIX} Session expired but cookie cannot be cleared on a read-only event.`);
+      return;
+    }
+    expireSessionCookie(event, sessionName, options);
+  },
+};
 
 export function getSessionsContext(event: H3Event | CompatEvent): Record<string, any> {
   if (!event.context.sessions) {
@@ -63,6 +101,17 @@ export function readSessionToken(
       : headerToken(getRequestHeader(event, sessionHeaderName(sessionName, source.sessionHeader)));
 
   return pickToken(cookieValue, headerValue);
+}
+
+function expireSessionCookie(
+  event: H3Event | CompatEvent,
+  sessionName: string,
+  options: SessionCookieOptions,
+): void {
+  deleteChunkedCookie(event as H3Event, sessionName, {
+    ...options.defaults,
+    ...options.cookie,
+  } as CookieSerializeOptions);
 }
 
 function getRequestHeader(event: H3Event | CompatEvent, name: string): string | undefined {

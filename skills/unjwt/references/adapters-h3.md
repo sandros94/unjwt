@@ -87,6 +87,11 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
   (same as upstream), so throwing after `update()`/`clear()` still reaches the client.
 
+Both h3 adapters and the Elysia one run the same session core (`src/adapters/_session-core.ts`)
+over a JWS/JWE codec and a per-framework port (`session/_shared.ts`), so the lifecycle, hook
+order and error codes are the same everywhere; only cookie writing, context storage and the
+`res.errHeaders` staging differ per framework.
+
 ## SessionManager Interface
 
 Both `useJWESession` and `useJWSSession` return a `SessionManager`:
