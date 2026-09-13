@@ -10,7 +10,7 @@ Import path: `unjwt/adapters/elysia`
 import { jwsSession, jweSession } from "unjwt/adapters/elysia";
 ```
 
-Also re-exports: `generateJWK`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`, all core types.
+Also re-exports: `generateJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`, all core types.
 
 Peer dep: `elysia` (optional). Runs anywhere `app.handle(Request)` does (Bun, Node, Deno, Workers);
 `@elysiajs/node` is only needed to run an actual server via `.listen()`, not for `handle()`.

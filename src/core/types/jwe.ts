@@ -1,5 +1,6 @@
 import type {
   JoseHeaderParameters,
+  JOSELimits,
   JOSEPayload,
   JOSEPayloadMode,
   JWTClaimValidationOptions,
@@ -256,6 +257,16 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
    * @default false
    */
   allowSymmetricJWKSet?: boolean;
+  /**
+   * How many JWK Set candidates one token may be tried against (after `kid`,
+   * `alg` and `use` have narrowed the set), and how many PBKDF2 iterations the
+   * whole call may spend across its PBES2 attempts. A wider set is
+   * `ERR_JWK_KEY_NOT_FOUND` before the first key is imported; a `p2c` that no
+   * longer fits in the budget is `ERR_JWE_INVALID` before the derivation runs.
+   *
+   * @default { keyCandidates: 8, pbes2Iterations: 1_000_000 }
+   */
+  limits?: Pick<JOSELimits, "keyCandidates" | "pbes2Iterations">;
   /** A list of allowed JWE "enc" (Encryption Algorithm) Header Parameter values for content encryption. */
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   /** Algorithm to import the unwrapped CEK as (e.g., { name: 'AES-GCM' }). Defaults based on 'enc'. */
@@ -439,6 +450,16 @@ export type JWEMultiDecryptKey =
  * Options for {@link decryptMulti}. Extends {@link JWEDecryptOptions}.
  */
 export interface JWEMultiDecryptOptions extends JWEDecryptOptions {
+  /**
+   * How many `recipients[]` entries the serialization may carry, how many JWK
+   * Set candidates each is tried against, and the PBKDF2 iterations the whole
+   * call may spend. A token carrying more recipients than this is
+   * `ERR_JWE_INVALID` before any of them is read, and the PBES2 budget is
+   * summed across every recipient rather than weighed per recipient.
+   *
+   * @default { recipients: 16, keyCandidates: 8, pbes2Iterations: 1_000_000 }
+   */
+  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
   /**
    * When `false` (default) decryption trials recipients in order — mirrors the
    * multi-key retry behaviour of {@link decrypt} against a JWK Set. When

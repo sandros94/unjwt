@@ -17,9 +17,11 @@ export {
   generalToFlattenedJWS,
 } from "./core/jws";
 export { encrypt, decrypt, encryptMulti, decryptMulti, generalToFlattened } from "./core/jwe";
+export { DEFAULT_JOSE_LIMITS } from "./core/_internal";
 export {
   generateKey,
   generateJWK,
+  thumbprint,
   importKey,
   exportKey,
   wrapKey,

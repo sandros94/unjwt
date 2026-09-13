@@ -85,8 +85,39 @@ export interface JWT<T = JWTClaims> {
   claims: T;
 }
 
+/**
+ * The work one JOSE call may do before it is refused.
+ *
+ * A token names how much work its verifier is asked for — how many signatures
+ * or recipients to try, and at what PBKDF2 cost — and a JWK Set names how many
+ * keys to try it against. Each of these is bounded per call, so an attacker who
+ * holds no key cannot turn one request into unbounded CPU. Every entry is a
+ * positive integer; anything else is `ERR_INVALID_OPTION`.
+ *
+ * The defaults are {@link DEFAULT_JOSE_LIMITS}. Each operation exposes the
+ * subset that applies to it.
+ */
+export interface JOSELimits {
+  /** Entries of `signatures[]` a JWS JSON serialization may carry. @default 16 */
+  signatures?: number;
+  /** Entries of `recipients[]` a JWE JSON serialization may carry. @default 16 */
+  recipients?: number;
+  /** JWK Set candidates tried for one token after `kid`/`alg`/`use` filtering. @default 8 */
+  keyCandidates?: number;
+  /** Total PBKDF2 iterations one call may spend across every PBES2 attempt. @default 1_000_000 */
+  pbes2Iterations?: number;
+}
+
 export interface JWTClaimValidationOptions {
-  /** Expected JWT "aud" (Audience) Claim value(s). Implies presence requirement. */
+  /**
+   * Expected JWT "aud" (Audience) Claim value(s).
+   *
+   * The `aud` claim is checked only when this option is configured: a token
+   * carrying `aud` is accepted by a verifier that sets no `audience`, and one
+   * lacking it is rejected by a verifier that does. Configure `audience`
+   * wherever a token is meant for this recipient alone — that is what enforces
+   * RFC 7519 §4.1.3.
+   */
   audience?: string | string[];
   /** Expected JWT "iss" (Issuer) Claim value(s). Implies presence requirement. */
   issuer?: string | string[];

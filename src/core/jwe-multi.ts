@@ -35,6 +35,7 @@ import {
   encryptKey,
 } from "./_crypto";
 import { JWTError } from "./error";
+import type { PBES2Budget } from "./_internal";
 import {
   isJWK,
   isJWKSet,
@@ -49,7 +50,9 @@ import {
 import {
   JWE_ALG_CTX,
   JWE_DIRECT_ALGS,
+  assertCandidateLimit,
   assertDirectKeyRole,
+  assertEntryLimit,
   assertNoZipOption,
   buildJWKSetFilter,
   cekFormatForEnc,
@@ -60,9 +63,11 @@ import {
   checkJWEEncSupported,
   checkJWEUnprotectedCrit,
   checkJWEZip,
+  createPBES2Budget,
   decodeProtectedHeader,
   parseEphemeralKey,
   typMatches,
+  resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
   validateClaimsIfJson,
@@ -234,6 +239,9 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   options: JWEMultiDecryptOptions = {},
 ): Promise<JWEMultiDecryptResult<T>> {
   const payloadMode = resolvePayloadMode(options);
+  const recipientLimit = resolveLimit(options.limits, "recipients");
+  const keyCandidates = resolveLimit(options.limits, "keyCandidates");
+  const pbes2Budget = createPBES2Budget(resolveLimit(options.limits, "pbes2Iterations"));
 
   const general = _normalizeSerialization(jwe);
 
@@ -249,6 +257,11 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       "ERR_JWE_INVALID_SERIALIZATION",
     );
   }
+
+  assertEntryLimit(general.recipients.length, recipientLimit, {
+    family: "JWE",
+    what: "recipients",
+  });
 
   const protectedHeaderEncoded = general.protected ?? "";
   const protectedHeader = decodeProtectedHeader<JWEHeaderParameters>(
@@ -395,6 +408,8 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
         aad: contentAadBytes,
         kid: effective.kid,
         allowSymmetric: options.allowSymmetricJWKSet,
+        keyCandidates,
+        pbes2Budget,
       }));
     } catch (err) {
       lastError = _asJWTError(err);
@@ -694,6 +709,8 @@ interface UnwrapAndDecryptOptions {
   aad: Uint8Array<ArrayBuffer>;
   kid: string | undefined;
   allowSymmetric: boolean | undefined;
+  keyCandidates: number;
+  pbes2Budget: PBES2Budget;
 }
 
 async function _unwrapAndDecrypt(
@@ -704,8 +721,19 @@ async function _unwrapAndDecrypt(
   cek: Uint8Array<ArrayBuffer> | CryptoKey;
   plaintextBytes: Uint8Array<ArrayBuffer>;
 }> {
-  const { enc, encryptedKey, unwrapKeyOptions, ciphertext, iv, tag, aad, kid, allowSymmetric } =
-    options;
+  const {
+    enc,
+    encryptedKey,
+    unwrapKeyOptions,
+    ciphertext,
+    iv,
+    tag,
+    aad,
+    kid,
+    allowSymmetric,
+    keyCandidates,
+    pbes2Budget,
+  } = options;
 
   if (isJWKSet(rawKeyMaterial)) {
     const candidates = getJWKsFromSet(
@@ -715,6 +743,7 @@ async function _unwrapAndDecrypt(
     if (candidates.length === 0) {
       throw new JWTError("No key found in JWK Set.", "ERR_JWK_KEY_NOT_FOUND");
     }
+    assertCandidateLimit(candidates.length, keyCandidates);
     // A candidate this recipient was not encrypted to — unusable key material
     // as much as a failed unwrap — only means "try the next one"; the collected
     // reasons become the `cause` when none decrypts.
@@ -722,6 +751,7 @@ async function _unwrapAndDecrypt(
     for (const candidate of candidates) {
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
+        pbes2Budget.spend(alg, unwrapKeyOptions.p2c);
         const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
         const cek = await unwrapKey(encryptedKey, unwrappingKey, unwrapKeyOptions);
         const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
@@ -734,6 +764,7 @@ async function _unwrapAndDecrypt(
   }
 
   if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
+  pbes2Budget.spend(alg, unwrapKeyOptions.p2c);
   const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
     alg,
     expect: "private",

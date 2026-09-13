@@ -2,13 +2,13 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, PEM conversion, and cache control.
 
-Import: `import { generateKey, generateJWK, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
+Import: `import { generateKey, generateJWK, thumbprint, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, getJWKFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
 
 Key lookup types (also from `unjwt/jwk`): `JWKLookupFunction`, `JWKLookupFunctionHeader` — or `from "unjwt"`
 
 ## Key Generation
 
-Unless specific control over the output format is required, prefer `generateJWK()` — it always returns a ready-to-use JWK with a generated `kid`.
+Unless specific control over the output format is required, prefer `generateJWK()` — it always returns a ready-to-use JWK whose `kid` is the key's RFC 7638 thumbprint.
 
 ### `generateKey(alg, options?)`
 
@@ -45,7 +45,7 @@ To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` i
 
 ### `generateJWK(alg, options?)`
 
-Always returns JWK format with a `kid` (auto-generated via `crypto.randomUUID()` when not supplied).
+Always returns JWK format with a `kid` — the key's `thumbprint()` (RFC 7638) when the caller supplies none. A key pair carries one `kid`: the thumbprint covers the public members only, so both halves agree.
 
 - `alg: GenerateKeyAlgorithm`
 - `options?` — combined `GenerateKeyOptions` (minus `toJWK`) and JWK metadata (`kid`, `use`,
@@ -62,6 +62,29 @@ const ecKeys = await generateJWK("ES256", { kid: "ec-1" });
 // → { privateKey: JWK_EC_Private, publicKey: JWK_EC_Public }
 
 const rsaJwk = await generateJWK("RS256", { modulusLength: 2048, kid: "rsa-1", use: "sig" });
+
+// No kid supplied → kid is the thumbprint
+const hmac = await generateJWK("HS256");
+hmac.kid === (await thumbprint(hmac)); // true
+```
+
+### `thumbprint(jwk, options?)`
+
+RFC 7638 JWK Thumbprint: the base64url digest of the key's required members alone, as JSON with no whitespace and member names in lexicographic order.
+
+- `jwk: JWK` — required members per `kty`: `EC` → `crv`, `kty`, `x`, `y`; `RSA` → `e`, `kty`, `n`; `OKP` → `crv`, `kty`, `x`; `oct` → `k`, `kty`. A missing member, or a `kty` with no defined members, throws `ERR_JWK_INVALID`
+- `options?: { hash?: "SHA-256" | "SHA-384" | "SHA-512" }` — defaults to `"SHA-256"` (RFC 7638 §3.4). Any other value is `ERR_INVALID_OPTION`
+
+Returns `Promise<string>`.
+
+`kid`, `use`, `alg`, `key_ops` and the private members take no part in the digest, so a private key and its public half share one thumbprint, and two structurally identical keys share one name however they are labelled. That is what makes it a safe cache key where a `kid` — a label its publisher chooses, and one two different keys may share — is not.
+
+```ts
+import { generateJWK, thumbprint } from "unjwt/jwk";
+
+const { privateKey, publicKey } = await generateJWK("ES256");
+(await thumbprint(privateKey)) === (await thumbprint(publicKey)); // true
+await thumbprint(publicKey, { hash: "SHA-512" });
 ```
 
 ## Key Import/Export
@@ -321,8 +344,9 @@ Prefer `deriveJWKFromPassword()` for most cases. Use `deriveKeyFromPassword()` w
 PBKDF2 derivation for PBES2 algorithms.
 
 - `password: string | Uint8Array`
-- `options: DeriveKeyOptions` — `{ alg: JWK_PBES2, salt: Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
+- `options: DeriveKeyOptions` — `{ alg: JWK_PBES2, salt: string | Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
   - `alg` is **required**: `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`
+  - `salt` accepts text or raw bytes; a `string` is UTF-8 encoded, and the 8-octet minimum (RFC 7518 §4.8.1.1) is measured on the encoded bytes — a 3-character salt throws `ERR_JWE_INVALID`
   - `extractable` is ignored when `toJWK: true` — the JWK output requires exporting the derived key
 
 Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
@@ -331,7 +355,8 @@ Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
 
 Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 algorithm and
 derivation knobs (`alg`, `salt`, `iterations`, `keyUsage`) with JWK metadata fields (`kid`,
-`use`, …). The resulting JWK's `alg`, `kty`, `key_ops`, and `ext` are managed by the library.
+`use`, …). The resulting JWK's `alg`, `kty`, `key_ops`, and `ext` are managed by the library,
+and `kid` defaults to the derived key's `thumbprint()`.
 
 ```ts
 const jwk = await deriveJWKFromPassword("my-password", {
@@ -386,6 +411,8 @@ const recentKeys = getJWKsFromSet(jwkSet, (k) => k.kid?.endsWith("-2025") ?? fal
 
 By default, `importKey()` caches imported `CryptoKey` results in a module-level `WeakMap` keyed by the JWK object reference. A cache hit requires passing the **exact same object variable** — a spread copy (`{ ...jwk }`) will miss.
 
+A replacement adapter keys on the key material itself — `thumbprint(jwk)` plus the algorithm. A `kid` is not a safe cache key: it is a label its publisher chooses and two different keys may carry the same one (during a rotation, or across merged sets), so an entry stored under a `kid` can serve the wrong key material. `get` and `set` may both return a promise; `importKey` awaits them.
+
 ### `configureJWKCache(cache)`
 
 Replace or disable the active cache.
@@ -394,13 +421,15 @@ Replace or disable the active cache.
 - Pass `false` to disable caching entirely
 
 ```ts
-import { configureJWKCache } from "unjwt/jwk";
+import { configureJWKCache, thumbprint } from "unjwt/jwk";
 
-// Custom kid-keyed cache
+// A shared cache keyed on the key material itself
 const map = new Map<string, CryptoKey>();
 configureJWKCache({
-  get: (jwk, alg) => map.get(`${jwk.kid}:${alg}`),
-  set: (jwk, alg, key) => map.set(`${jwk.kid}:${alg}`, key),
+  get: async (jwk, alg) => map.get(`${await thumbprint(jwk)}:${alg}`),
+  set: async (jwk, alg, key) => {
+    map.set(`${await thumbprint(jwk)}:${alg}`, key);
+  },
 });
 
 // Disable caching
@@ -417,8 +446,8 @@ The default cache implementation. Uses `WeakMap<JWK, Record<string, CryptoKey>>`
 
 ```ts
 interface JWKCacheAdapter {
-  get(jwk: JWK, alg: string): CryptoKey | undefined;
-  set(jwk: JWK, alg: string, key: CryptoKey): void;
+  get(jwk: JWK, alg: string): CryptoKey | undefined | Promise<CryptoKey | undefined>;
+  set(jwk: JWK, alg: string, key: CryptoKey): void | Promise<void>;
 }
 ```
 
@@ -577,8 +606,8 @@ interface JWKSet<T extends readonly JWK[] = JWK[]> {
 }
 
 interface JWKCacheAdapter {
-  get(jwk: JWK, alg: string): CryptoKey | undefined;
-  set(jwk: JWK, alg: string, key: CryptoKey): void;
+  get(jwk: JWK, alg: string): CryptoKey | undefined | Promise<CryptoKey | undefined>;
+  set(jwk: JWK, alg: string, key: CryptoKey): void | Promise<void>;
 }
 
 type JWKLookupFunctionHeader = {

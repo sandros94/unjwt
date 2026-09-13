@@ -34,6 +34,7 @@ export {
 export type * from "../../core/types/index.ts";
 export {
   generateJWK,
+  thumbprint,
   importPEM,
   exportPEM,
   importFromPEM,

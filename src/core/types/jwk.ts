@@ -43,22 +43,34 @@ export type JWKLookupFunction<
  * The adapter receives the full JWK object so each implementation can choose
  * its own keying strategy:
  * - {@link WeakMapJWKCache} uses the object reference (GC-friendly, no string hashing needed)
- * - A `kid`-keyed cache extracts `jwk.kid` and uses it as a string key
- * - A content-hash cache hashes `jwk.k` or `jwk.n`+`jwk.e`
+ * - A shared cache keys on the key material itself — its {@link thumbprint} —
+ *   plus the algorithm it is imported under
  *
- * @example Use a custom kid-keyed cache:
+ * A `kid` is not a safe cache key: it is a label its publisher chooses, and two
+ * different keys may carry the same one — during a rotation, or across two sets
+ * merged into one lookup — so an entry stored under a `kid` can serve the wrong
+ * key material. The thumbprint is derived from the key's own members, so it
+ * names one key and no other.
+ *
+ * Both methods may return a promise; `importKey` awaits them.
+ *
+ * @example Use a thumbprint-keyed cache:
  * ```ts
- * import { configureJWKCache } from 'unjwt/jwk';
+ * import { configureJWKCache, thumbprint } from 'unjwt/jwk';
  * const map = new Map<string, CryptoKey>();
  * configureJWKCache({
- *   get: (jwk, alg) => map.get(`${jwk.kid}:${alg}`),
- *   set: (jwk, alg, key) => map.set(`${jwk.kid}:${alg}`, key),
+ *   get: async (jwk, alg) => map.get(`${await thumbprint(jwk)}:${alg}`),
+ *   set: async (jwk, alg, key) => {
+ *     map.set(`${await thumbprint(jwk)}:${alg}`, key);
+ *   },
  * });
  * ```
  */
 export interface JWKCacheAdapter {
-  get(jwk: JWK, alg: string): CryptoKey | undefined;
-  set(jwk: JWK, alg: string, key: CryptoKey): void;
+  /** Look one key up. A promise is awaited, so a remote store fits here too. */
+  get(jwk: JWK, alg: string): CryptoKey | undefined | Promise<CryptoKey | undefined>;
+  /** Store one key. Awaited, so a rejection surfaces at the `importKey` call. */
+  set(jwk: JWK, alg: string, key: CryptoKey): void | Promise<void>;
 }
 
 /** Structure returned for composite AES-CBC + HMAC keys. */
@@ -122,8 +134,11 @@ export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GenerateKeyRe
 export interface DeriveKeyOptions {
   /** The PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`). */
   alg: JWK_PBES2;
-  /** Salt value (p2s). Must be at least 8 bytes. */
-  salt: Uint8Array<ArrayBuffer>;
+  /**
+   * Salt value (p2s), as raw bytes or as text that is UTF-8 encoded. Must be at
+   * least 8 octets once encoded (RFC 7518 §4.8.1.1).
+   */
+  salt: string | Uint8Array<ArrayBuffer>;
   /** Iteration count (p2c). Must be a positive integer. */
   iterations: number;
   /** Key usages for the derived key. Defaults to ["wrapKey", "unwrapKey"]. */

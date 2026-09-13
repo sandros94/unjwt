@@ -8,16 +8,18 @@ Import: `import { encrypt, decrypt } from "unjwt/jwe"` — or `from "unjwt"`
 
 ### Key Management (`alg`)
 
-| Family           | Identifiers                                                      |
-| ---------------- | ---------------------------------------------------------------- |
-| Direct           | `dir`                                                            |
-| RSA-OAEP         | `RSA-OAEP`, `RSA-OAEP-256`, `RSA-OAEP-384`, `RSA-OAEP-512`       |
-| AES Key Wrap     | `A128KW`, `A192KW`, `A256KW`                                     |
-| AES-GCM Key Wrap | `A128GCMKW`, `A192GCMKW`, `A256GCMKW`                            |
-| PBES2            | `PBES2-HS256+A128KW`, `PBES2-HS384+A192KW`, `PBES2-HS512+A256KW` |
-| ECDH-ES          | `ECDH-ES`, `ECDH-ES+A128KW`, `ECDH-ES+A192KW`, `ECDH-ES+A256KW`  |
+| Family           | Identifiers                                                             |
+| ---------------- | ----------------------------------------------------------------------- |
+| Direct           | `dir`                                                                   |
+| RSA-OAEP         | `RSA-OAEP` (SHA-1 OAEP), `RSA-OAEP-256`, `RSA-OAEP-384`, `RSA-OAEP-512` |
+| AES Key Wrap     | `A128KW`, `A192KW`, `A256KW`                                            |
+| AES-GCM Key Wrap | `A128GCMKW`, `A192GCMKW`, `A256GCMKW`                                   |
+| PBES2            | `PBES2-HS256+A128KW`, `PBES2-HS384+A192KW`, `PBES2-HS512+A256KW`        |
+| ECDH-ES          | `ECDH-ES`, `ECDH-ES+A128KW`, `ECDH-ES+A192KW`, `ECDH-ES+A256KW`         |
 
 Type: `KeyManagementAlgorithm`
+
+`RSA-OAEP` is SHA-1 OAEP (RFC 7518 §4.3): supported, and inferred from a key that declares it, so tokens from systems that only speak `RSA-OAEP` interoperate. `RSA-OAEP-256` is the choice for new deployments.
 
 ### Content Encryption (`enc`)
 
@@ -113,8 +115,10 @@ Decrypts a JWE token.
   - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
   - `returnCek?: boolean` — include raw `cek` and `aad` in result
   - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
-  - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `1_000_000` to cap PBKDF2 DoS potential
+  - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `1_000_000` to cap PBKDF2 DoS potential. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
+  - `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `1_000_000` and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 1000000 exhausted."`) and spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
+  - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 
 **Returns:** `Promise<JWEDecryptResult<T>>`
 
@@ -187,6 +191,7 @@ Accepts a General or Flattened serialization object and returns the first recipi
 - `jwe` — `JWEGeneralSerialization | JWEFlattenedSerialization`. Flattened input is auto-normalized to General in memory.
 - `keyOrLookup` — same shape as `decrypt()` (`JWK | JWKSet | CryptoKey | Uint8Array | string | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per recipient until one succeeds.
 - `options?: JWEMultiDecryptOptions` — extends `JWEDecryptOptions`. Adds:
+  - `limits?: { recipients?: number; keyCandidates?: number; pbes2Iterations?: number }` — `recipients` defaults to `16`; a serialization carrying more throws `ERR_JWE_INVALID` (`"Invalid JWE: 17 recipients exceed the limit of 16."`) before any recipient is read. The `pbes2Iterations` budget is summed across every recipient, so injected PBES2 recipients cost one budget between them
   - `strictRecipientMatch?: boolean` — when `true`, a recipient is attempted only when the key material could plausibly open it; nothing matching means `ERR_JWE_NO_MATCHING_RECIPIENT` with no trial-decryption fallback. A recipient is skipped only on a _definite_ mismatch: a different `kid` on both sides, key material whose `kty` / curve / length cannot serve the recipient's `alg`, or an `epk` on a different curve than the key. Key material that carries no identity of its own (a `CryptoKey`, raw bytes, a password) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out.
 
 **Recipient isolation.** `recipients[]` is not covered by the AAD, so anyone can append or rewrite an entry. Every failure scoped to a single recipient — a header tier overlap, a `crit` or `zip` in its header, missing PBES2 `p2s`/`p2c`, a missing `epk`, missing AES-GCMKW `iv`/`tag`, an unsupported `alg`, a failed unwrap — only means "try the next recipient" and is kept as the error to report if no recipient works. A verdict on the token as a whole — the protected header, the shared unprotected header, the content segments, and (after a successful decryption) `crit` and JWT claim validation — is thrown immediately.
@@ -268,6 +273,16 @@ type JWEEncryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPublicJWK;
 type JWEDecryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPrivateJWK;
 
 type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
+
+// Bounded work per call. Each operation exposes the subset that applies to it;
+// `DEFAULT_JOSE_LIMITS` (exported from `unjwt`, `unjwt/jws` and `unjwt/jwe`)
+// carries the defaults below. Every value must be a positive integer.
+interface JOSELimits {
+  signatures?: number; // JWS `signatures[]` entries — default 16
+  recipients?: number; // JWE `recipients[]` entries — default 16
+  keyCandidates?: number; // JWK Set candidates per token — default 8
+  pbes2Iterations?: number; // PBKDF2 iterations per call — default 1_000_000
+}
 
 type Duration =
   | number
@@ -401,6 +416,7 @@ interface JWEDecryptOptions {
   returnCek?: boolean;
   minIterations?: number; // default: 1000
   maxIterations?: number; // default: 1_000_000
+  limits?: Pick<JOSELimits, "keyCandidates" | "pbes2Iterations">;
 }
 
 interface JWEDecryptResult<T extends JOSEPayload = JOSEPayload> {
@@ -540,7 +556,8 @@ interface JWEMultiDecryptOptions {
   returnCek?: boolean;
   minIterations?: number;
   maxIterations?: number;
-  // Multi-recipient addition
+  // Multi-recipient additions
+  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
   strictRecipientMatch?: boolean;
 }
 

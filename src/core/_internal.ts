@@ -8,6 +8,7 @@ import type {
   JWEEncryptOptions,
   JWK_EC_Public,
   JWK_EC_Private,
+  JOSELimits,
   JWTClaimValidationOptions,
   JWTClaims,
   JWSAlgorithm,
@@ -27,6 +28,101 @@ import {
   validateJwtClaims,
 } from "./utils";
 import { assertOctKeyLength, bitLengthIV, bitLengthTag } from "./_crypto";
+
+// -----------------------------------------------------------------------------
+// Bounded work per call (JWS verify + JWE decrypt, compact & multi).
+// -----------------------------------------------------------------------------
+
+/**
+ * The work one JOSE call does when the caller names no {@link JOSELimits}:
+ * 16 signatures, 16 recipients, 8 JWK Set candidates, and a million PBKDF2
+ * iterations for the whole call. Exported so the numbers have one source.
+ */
+export const DEFAULT_JOSE_LIMITS: Readonly<Required<JOSELimits>> = /* @__PURE__ */ Object.freeze({
+  signatures: 16,
+  recipients: 16,
+  keyCandidates: 8,
+  pbes2Iterations: 1_000_000,
+});
+
+/**
+ * Read one limit, falling back to its default. Resolved once at the start of an
+ * operation, so a malformed value is an option error regardless of what the
+ * token turns out to contain.
+ */
+export function resolveLimit(limits: JOSELimits | undefined, name: keyof JOSELimits): number {
+  const value = limits?.[name];
+  if (value === undefined) return DEFAULT_JOSE_LIMITS[name];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new JWTError(`"limits.${name}" must be a positive integer.`, "ERR_INVALID_OPTION");
+  }
+  return value;
+}
+
+/**
+ * RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — a JSON serialization may carry as many
+ * signatures or recipients as its producer likes, and nothing about them is
+ * integrity protected. The count is checked before any of them is looked at.
+ */
+export function assertEntryLimit(
+  count: number,
+  limit: number,
+  options: { family: "JWS" | "JWE"; what: "signatures" | "recipients" },
+): void {
+  if (count <= limit) return;
+  throw new JWTError(
+    `Invalid ${options.family}: ${count} ${options.what} exceed the limit of ${limit}.`,
+    `ERR_${options.family}_INVALID` as JWTErrorCode,
+  );
+}
+
+/**
+ * A JWK Set narrowed by `kid`/`alg`/`use` still decides how many keys one token
+ * is tried against, so the surviving candidates are counted before the first
+ * import. A set this wide is a lookup that has not been narrowed rather than a
+ * token failure.
+ */
+export function assertCandidateLimit(count: number, limit: number): void {
+  if (count <= limit) return;
+  throw new JWTError(
+    `${count} candidate keys exceed the limit of ${limit}; narrow the JWK Set with a "kid".`,
+    "ERR_JWK_KEY_NOT_FOUND",
+  );
+}
+
+/**
+ * The PBKDF2 iterations one call may still spend. Every PBES2 attempt — the
+ * single one of a compact token, or one per recipient and per JWK Set candidate
+ * — charges its `p2c` here first, so the `p2c` values of a whole token are
+ * summed rather than each being weighed on its own.
+ */
+export interface PBES2Budget {
+  /**
+   * Charge one PBES2 attempt. A `p2c` that no longer fits in what is left
+   * throws, and the attempt is not made: the iterations are never spent, so a
+   * recipient the caller does hold a key for is still tried on what remains.
+   * A no-op under every other key management algorithm.
+   */
+  spend(alg: string, p2c: unknown): void;
+}
+
+/** Open a {@link PBES2Budget} of `limit` iterations for one call. */
+export function createPBES2Budget(limit: number): PBES2Budget {
+  let remaining = limit;
+  return {
+    spend(alg, p2c) {
+      if (!alg.startsWith("PBES2")) return;
+      // A `p2c` that is not a positive number is rejected by the PBES2
+      // primitive itself; charging it here would move the budget on a value
+      // that never derives anything.
+      if (typeof p2c !== "number" || !(p2c > 0)) return;
+      if (p2c > remaining) {
+        throw new JWTError(`PBES2 iteration budget of ${limit} exhausted.`, "ERR_JWE_INVALID");
+      }
+      remaining -= p2c;
+    },
+  };
+}
 
 // -----------------------------------------------------------------------------
 // JWKSet candidate filter — used by JWS verify + JWE decrypt (compact & multi).

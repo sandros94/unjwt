@@ -1,5 +1,6 @@
 import type {
   JoseHeaderParameters,
+  JOSELimits,
   JOSEPayload,
   JOSEPayloadMode,
   JWTClaimValidationOptions,
@@ -161,6 +162,14 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
    */
   allowSymmetricJWKSet?: boolean;
   /**
+   * How many JWK Set candidates one token may be tried against, after `kid`,
+   * `alg` and `use` have narrowed the set. A wider set is
+   * `ERR_JWK_KEY_NOT_FOUND` before the first key is imported.
+   *
+   * @default { keyCandidates: 8 }
+   */
+  limits?: Pick<JOSELimits, "keyCandidates">;
+  /**
    * What the verified payload is, declared by the caller — the signed content
    * never decides its own shape.
    *
@@ -275,6 +284,14 @@ export interface JWSMultiSignOptions extends StrictOmit<
 
 /** Options for {@link verifyMulti}. Extends {@link JWSVerifyOptions}. */
 export interface JWSMultiVerifyOptions extends JWSVerifyOptions {
+  /**
+   * How many `signatures[]` entries the serialization may carry, and how many
+   * JWK Set candidates each of them may be tried against. A token carrying
+   * more signatures than this is `ERR_JWS_INVALID` before any of them is read.
+   *
+   * @default { signatures: 16, keyCandidates: 8 }
+   */
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
   /**
    * When `false` (default), verification trials signatures in order — mirrors
    * the multi-key retry behaviour of {@link verify} against a JWK Set. When

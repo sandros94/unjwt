@@ -40,6 +40,8 @@ import {
   JWS_ALG_CTX,
   applyB64Crit,
   asKeyUsageError,
+  assertCandidateLimit,
+  assertEntryLimit,
   buildJWKSetFilter,
   checkAlgAllowed,
   checkJWSAlgSupported,
@@ -47,6 +49,7 @@ import {
   assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
+  resolveLimit,
   resolvePayloadMode,
   resolveSigningKey,
   stringKeyError,
@@ -176,6 +179,8 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
   options: JWSMultiVerifyOptions = {},
 ): Promise<JWSMultiVerifyResult<T>> {
   const payloadMode = resolvePayloadMode(options);
+  const signatureLimit = resolveLimit(options.limits, "signatures");
+  const keyCandidates = resolveLimit(options.limits, "keyCandidates");
 
   const general = _normalizeSerialization(jws);
 
@@ -189,6 +194,11 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       "ERR_JWS_INVALID_SERIALIZATION",
     );
   }
+
+  assertEntryLimit(general.signatures.length, signatureLimit, {
+    family: "JWS",
+    what: "signatures",
+  });
 
   let lastError: JWTError | undefined;
   let cryptoAttempted = false;
@@ -290,6 +300,7 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
         signingInput: signingInputBytes,
         kid: effective.kid,
         allowSymmetric: options.allowSymmetricJWKSet,
+        keyCandidates,
       });
       if (!verified) {
         lastError = new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
@@ -398,6 +409,8 @@ export async function verifyMultiAll<T extends JOSEPayload = JOSEPayload>(
   options: JWSMultiVerifyAllOptions = {},
 ): Promise<JWSMultiVerifyOutcome<T>[]> {
   const payloadMode = resolvePayloadMode(options);
+  const signatureLimit = resolveLimit(options.limits, "signatures");
+  const keyCandidates = resolveLimit(options.limits, "keyCandidates");
 
   const general = _normalizeSerialization(jws);
 
@@ -412,17 +425,22 @@ export async function verifyMultiAll<T extends JOSEPayload = JOSEPayload>(
     );
   }
 
+  // A token carrying more signatures than this caller verifies is a verdict on
+  // the token, not one signature's outcome: there is no per-signature report to
+  // return for signatures that are never looked at.
+  assertEntryLimit(general.signatures.length, signatureLimit, {
+    family: "JWS",
+    what: "signatures",
+  });
+
   const outcomes: JWSMultiVerifyOutcome<T>[] = [];
   for (let i = 0; i < general.signatures.length; i++) {
     outcomes.push(
-      await _verifyOneSignature<T>(
-        general.payload,
-        general.signatures[i]!,
-        i,
-        keyResolver,
+      await _verifyOneSignature<T>(general.payload, general.signatures[i]!, i, keyResolver, {
         options,
         payloadMode,
-      ),
+        keyCandidates,
+      }),
     );
   }
   return outcomes;
@@ -622,6 +640,7 @@ interface VerifyWithKeyOptions {
   signingInput: Uint8Array<ArrayBuffer>;
   kid: string | undefined;
   allowSymmetric: boolean | undefined;
+  keyCandidates: number;
 }
 
 async function _verifyWithKey(
@@ -641,7 +660,7 @@ async function _verifyWithKeyMaterial(
   rawKeyMaterial: unknown,
   options: VerifyWithKeyOptions,
 ): Promise<boolean> {
-  const { signature, signingInput, kid, allowSymmetric } = options;
+  const { signature, signingInput, kid, allowSymmetric, keyCandidates } = options;
 
   if (isJWKSet(rawKeyMaterial)) {
     const candidates = getJWKsFromSet(
@@ -651,6 +670,7 @@ async function _verifyWithKeyMaterial(
     if (candidates.length === 0) {
       throw new JWTError("No key found in JWK Set.", "ERR_JWK_KEY_NOT_FOUND");
     }
+    assertCandidateLimit(candidates.length, keyCandidates);
     // A candidate that cannot verify this signature — unusable key material as
     // much as a signature mismatch — only means "try the next one"; the
     // collected reasons become the `cause` when none verifies.
@@ -688,9 +708,13 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   wireSig: JWSGeneralSignature,
   index: number,
   keyResolver: JWKLookupFunction,
-  options: JWSMultiVerifyAllOptions,
-  payloadMode: JOSEPayloadMode,
+  context: {
+    options: JWSMultiVerifyAllOptions;
+    payloadMode: JOSEPayloadMode;
+    keyCandidates: number;
+  },
 ): Promise<JWSMultiVerifyOutcome<T>> {
+  const { options, payloadMode, keyCandidates } = context;
   const fail = (
     error: JWTError,
     protectedHeader?: JWSProtectedHeader,
@@ -798,6 +822,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
       signingInput: signingInputBytes,
       kid: effective.kid,
       allowSymmetric: options.allowSymmetricJWKSet,
+      keyCandidates,
     });
   } catch (err) {
     return fail(_asJWTError(err, "ERR_JWS_SIGNATURE_INVALID"), protectedHeader, unprotectedHeader);

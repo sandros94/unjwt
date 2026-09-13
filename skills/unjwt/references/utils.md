@@ -89,7 +89,9 @@ Validates JWT claims against `JWTClaimValidationOptions`. Throws `JWTError` on f
 
 ```ts
 interface JWTClaimValidationOptions {
-  /** Expected `aud` value(s). Presence becomes required. */
+  /** Expected `aud` value(s). Presence becomes required. The claim is checked
+   * only when this option is set: a token carrying `aud` is accepted by a
+   * caller that configures none. */
   audience?: string | string[];
   /** Expected `iss` value(s). Presence becomes required. */
   issuer?: string | string[];

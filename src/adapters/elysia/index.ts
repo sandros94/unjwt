@@ -30,4 +30,10 @@ export type {
 export type { SessionPlugin } from "./_plugin.ts";
 
 export type * from "../../core/types/index.ts";
-export { generateJWK, importPEM, exportPEM, deriveJWKFromPassword } from "../../core/jwk.ts";
+export {
+  generateJWK,
+  thumbprint,
+  importPEM,
+  exportPEM,
+  deriveJWKFromPassword,
+} from "../../core/jwk.ts";

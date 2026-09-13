@@ -86,7 +86,9 @@ Verifies a JWS token and returns its payload.
   - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the payload must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWS_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The signed content never decides its own shape, and `typ`/`cty` never pick it — both are signer-controlled. Under RFC 7797 `b64: false` the unencoded segment is the content and the same modes apply
   - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
   - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
+  - `limits?: { keyCandidates?: number }` — how many JWK Set candidates one token may be tried against after `kid`/`alg`/`use` filtering. Default `8` (`DEFAULT_JOSE_LIMITS.keyCandidates`); a wider set throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. Must be a positive integer, else `ERR_INVALID_OPTION`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
+  - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a verifier that configures none; configure `audience` to enforce RFC 7519 §4.1.3
   - `clockTolerance?: number | Duration` — seconds, or a `Duration` shorthand (`"5m"`, `"1h"`). Negative, non-finite or unparseable values throw `ERR_INVALID_OPTION` instead of silently disabling the `exp`/`nbf`/`iat` checks
   - `exp`/`nbf`/`iat` must be non-negative NumericDates (fractions allowed, RFC 7519 §2); a negative value throws `ERR_JWT_CLAIM_INVALID`
 
@@ -159,6 +161,7 @@ Accepts an already-parsed General or Flattened JWS and returns the first signatu
 - `jws` — `JWSGeneralSerialization | JWSFlattenedSerialization`. Flattened input is auto-normalized to General in memory.
 - `keyOrLookup` — same shape as `verify()` (`JWK | JWKSet | CryptoKey | Uint8Array | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per signature until one verifies.
 - `options?: JWSMultiVerifyOptions` — extends `JWSVerifyOptions`. Adds:
+  - `limits?: { signatures?: number; keyCandidates?: number }` — `signatures` defaults to `16`; a serialization carrying more throws `ERR_JWS_INVALID` (`"Invalid JWS: 17 signatures exceed the limit of 16."`) before any signature is read
   - `strictSignerMatch?: boolean` — when `true`, skip any signature whose header does not unambiguously match the provided key (by `kid`, then by `kty`/`crv`/length). Throws `ERR_JWS_NO_MATCHING_SIGNER` if nothing matches; no trial verification fallback.
 
 **Returns:** `JWSMultiVerifyResult<T>` — extends `JWSVerifyResult` with:
@@ -193,7 +196,7 @@ Structural errors in the envelope itself (non-object input, missing `payload` / 
 
 - `jws` — `JWSGeneralSerialization | JWSFlattenedSerialization` (Flattened is auto-normalised).
 - `keyResolver` — **required** `JWKLookupFunction`. Per-signature keys are typically different, so the function form is mandatory. Wrap a static `JWKSet` as `(header) => mySet` if that's all you have.
-- `options?: JWSMultiVerifyAllOptions` — inherits `JWSMultiVerifyOptions` minus `strictSignerMatch` (not meaningful when every signature is independently reported). Keeps `algorithms`, `typ`, `payload`, `validateClaims`, `recognizedHeaders`, and all `JWTClaimValidationOptions`. A `string` key from the resolver is reported as that signature's `ERR_JWK_INVALID` outcome rather than thrown.
+- `options?: JWSMultiVerifyAllOptions` — inherits `JWSMultiVerifyOptions` minus `strictSignerMatch` (not meaningful when every signature is independently reported). Keeps `algorithms`, `limits`, `typ`, `payload`, `validateClaims`, `recognizedHeaders`, and all `JWTClaimValidationOptions`. A `string` key from the resolver is reported as that signature's `ERR_JWK_INVALID` outcome rather than thrown. The `signatures` limit is the exception to the never-throws rule: a token carrying more signatures than the cap throws `ERR_JWS_INVALID`, since there is no per-signature outcome to report for signatures that are never looked at.
 
 **Returns:** `Promise<JWSMultiVerifyOutcome<T>[]>` — one entry per signature. Each is a discriminated union:
 
@@ -285,6 +288,16 @@ type JWSVerifyJWK = JWK_oct<JWK_HMAC> | JWSAsymmetricPublicJWK;
 
 type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
 
+// Bounded work per call. Each operation exposes the subset that applies to it;
+// `DEFAULT_JOSE_LIMITS` (exported from `unjwt`, `unjwt/jws` and `unjwt/jwe`)
+// carries the defaults below. Every value must be a positive integer.
+interface JOSELimits {
+  signatures?: number; // JWS `signatures[]` entries — default 16
+  recipients?: number; // JWE `recipients[]` entries — default 16
+  keyCandidates?: number; // JWK Set candidates per token — default 8
+  pbes2Iterations?: number; // PBKDF2 iterations per call — default 1_000_000
+}
+
 type ExpiresIn = Duration;
 
 type Duration =
@@ -348,6 +361,7 @@ interface JWSSignOptions {
 interface JWSVerifyOptions {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
+  limits?: Pick<JOSELimits, "keyCandidates">;
   payload?: "json" | "string" | "bytes";
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
@@ -419,6 +433,7 @@ interface JWSMultiSignOptions {
 interface JWSMultiVerifyOptions {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
   payload?: "json" | "string" | "bytes";
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
@@ -438,6 +453,7 @@ interface JWSMultiVerifyOptions {
 interface JWSMultiVerifyAllOptions {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
   payload?: "json" | "string" | "bytes";
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;

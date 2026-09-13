@@ -42,6 +42,7 @@ const MARKERS = {
   base64: "abcdefghijklmnopqrstuvwxyz0123456789",
   randomBytes: "getRandomValues",
   subtleImport: "importKey",
+  thumbprint: "JWK thumbprint",
 } as const;
 
 interface Entry {
@@ -56,17 +57,27 @@ interface Entry {
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
-  // measured 21485
-  { name: "verify", module: "core/jws.ts", ceiling: 24800, absent: [MARKERS.pem, MARKERS.pbes2] },
-  // measured 16245
-  { name: "sign", module: "core/jws.ts", ceiling: 18700, absent: [MARKERS.pem, MARKERS.pbes2] },
-  // measured 34249
-  { name: "decrypt", module: "core/jwe.ts", ceiling: 39400, absent: [] },
-  // measured 26856
-  { name: "encrypt", module: "core/jwe.ts", ceiling: 30900, absent: [] },
-  // measured 8094
-  { name: "importKey", module: "core/jwk.ts", ceiling: 9400, absent: [MARKERS.pem] },
-  // measured 6923
+  // measured 23378
+  {
+    name: "verify",
+    module: "core/jws.ts",
+    ceiling: 26900,
+    absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
+  },
+  // measured 17047
+  {
+    name: "sign",
+    module: "core/jws.ts",
+    ceiling: 19700,
+    absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
+  },
+  // measured 36230
+  { name: "decrypt", module: "core/jwe.ts", ceiling: 41700, absent: [MARKERS.thumbprint] },
+  // measured 27772
+  { name: "encrypt", module: "core/jwe.ts", ceiling: 32000, absent: [MARKERS.thumbprint] },
+  // measured 8868
+  { name: "importKey", module: "core/jwk.ts", ceiling: 10200, absent: [MARKERS.pem] },
+  // measured 6929
   { name: "generateKey", module: "core/jwk.ts", ceiling: 8000, absent: [MARKERS.pem] },
   // measured 11451
   { name: "importPEM", module: "core/jwk.ts", ceiling: 13200, absent: [] },

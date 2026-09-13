@@ -29,3 +29,5 @@ export { deriveECDHESKey, isECDHKeyAllowed } from "./_ecdh";
 export { encryptRSAES, decryptRSAES } from "./_rsa";
 export { fromPKCS8, fromSPKI, fromX509, toPKCS8, toSPKI } from "./_pem";
 export type { KeyImportOptions } from "./_pem";
+export { thumbprint } from "./_thumbprint";
+export type { ThumbprintHash } from "./_thumbprint";

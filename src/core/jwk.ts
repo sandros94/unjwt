@@ -60,9 +60,12 @@ import {
   decryptRSAES,
   toPKCS8,
   toSPKI,
+  thumbprint,
 } from "./_crypto";
 
 export type * from "./types/jwk";
+export { thumbprint };
+export type { ThumbprintHash } from "./_crypto";
 export {
   type UnsecureErrorCode,
   JWTError,
@@ -203,8 +206,7 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
   options?: GenerateJWKOptions & Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<GenerateJWKReturn<TAlg>> {
   const { keyUsage, modulusLength, publicExponent, namedCurve, ...jwkParams } = options ?? {};
-  const kid = typeof jwkParams.kid === "string" ? jwkParams.kid : crypto.randomUUID();
-  const extraParams = { ...jwkParams, kid };
+  const callerKid = typeof jwkParams.kid === "string" ? jwkParams.kid : undefined;
 
   const result = await generateKey(alg, {
     keyUsage,
@@ -216,12 +218,16 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
 
   if (result && typeof result === "object" && "privateKey" in result && "publicKey" in result) {
     const pair = result as { privateKey: JWK; publicKey: JWK };
+    // The thumbprint takes only the public members, so the pair shares one name.
+    const kid = callerKid ?? (await thumbprint(pair.publicKey));
     return {
-      privateKey: { ...extraParams, ...pair.privateKey },
-      publicKey: { ...extraParams, ...pair.publicKey },
+      privateKey: { ...jwkParams, kid, ...pair.privateKey },
+      publicKey: { ...jwkParams, kid, ...pair.publicKey },
     } as GenerateJWKReturn<TAlg>;
   }
-  return { ...extraParams, ...(result as JWK) } as GenerateJWKReturn<TAlg>;
+  const jwk = result as JWK;
+  const kid = callerKid ?? (await thumbprint(jwk));
+  return { ...jwkParams, kid, ...jwk } as GenerateJWKReturn<TAlg>;
 }
 
 /**
@@ -248,7 +254,8 @@ export async function deriveKeyFromPassword(
   const { alg, salt, iterations, extractable, keyUsage } = options;
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
 
-  if (!(salt instanceof Uint8Array) || salt.length < 8) {
+  const saltBytes = typeof salt === "string" ? textEncoder.encode(salt) : salt;
+  if (!(saltBytes instanceof Uint8Array) || saltBytes.length < 8) {
     throw new JWTError("PBES2 Salt Input (salt) must be 8 or more octets", "ERR_JWE_INVALID");
   }
   if (typeof iterations !== "number" || iterations < 1) {
@@ -260,7 +267,7 @@ export async function deriveKeyFromPassword(
 
   const passwordBytes = typeof password === "string" ? textEncoder.encode(password) : password;
 
-  const derivedBytes = await deriveKeyPBES2(salt, alg, iterations, passwordBytes);
+  const derivedBytes = await deriveKeyPBES2(saltBytes, alg, iterations, passwordBytes);
 
   const wrappingAlg = alg.slice(-6);
   const defaultUsages: KeyUsage[] = ["wrapKey", "unwrapKey"];
@@ -314,7 +321,8 @@ export async function deriveJWKFromPassword(
     keyUsage,
     toJWK: true,
   });
-  return Object.keys(jwkParams).length > 0 ? { ...jwkParams, ...result } : result;
+  const kid = typeof jwkParams.kid === "string" ? jwkParams.kid : await thumbprint(result);
+  return { ...jwkParams, kid, ...result };
 }
 
 /**
@@ -360,12 +368,20 @@ let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
  * ```ts
  * configureJWKCache(false);
  * ```
- * @example Use a custom kid-keyed cache:
+ * A cache shared across JWK objects keys on the key material itself — its
+ * {@link thumbprint} — together with the algorithm it is imported under. A
+ * `kid` is not a safe key: it is a label its publisher chooses, and two
+ * different keys may carry the same one, so an entry stored under a `kid` can
+ * serve the wrong key material. `get` and `set` may both return a promise.
+ *
+ * @example Use a thumbprint-keyed cache:
  * ```ts
  * const map = new Map<string, CryptoKey>();
  * configureJWKCache({
- *   get: (jwk, alg) => map.get(`${jwk.kid}:${alg}`),
- *   set: (jwk, alg, key) => map.set(`${jwk.kid}:${alg}`, key),
+ *   get: async (jwk, alg) => map.get(`${await thumbprint(jwk)}:${alg}`),
+ *   set: async (jwk, alg, key) => {
+ *     map.set(`${await thumbprint(jwk)}:${alg}`, key);
+ *   },
  * });
  * ```
  */
@@ -530,11 +546,11 @@ export async function importKey(
       // key imported for it is neither served from nor written to the cache.
       const cache = extractable === undefined ? _activeCache : false;
       if (cache) {
-        const cached = cache.get(key, effectiveAlg);
+        const cached = await cache.get(key, effectiveAlg);
         if (cached) return cached;
       }
       const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg }, { extractable });
-      if (cache) cache.set(key, effectiveAlg, cryptoKey);
+      if (cache) await cache.set(key, effectiveAlg, cryptoKey);
       return cryptoKey;
     }
   }

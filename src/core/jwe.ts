@@ -37,6 +37,7 @@ import {
 } from "./utils";
 import {
   JWE_ALG_CTX,
+  assertCandidateLimit,
   assertDirectKeyRole,
   assertNoZipOption,
   asKeyUsageError,
@@ -48,8 +49,10 @@ import {
   checkJWEDirectEncryptedKey,
   checkJWEEncSupported,
   checkJWEZip,
+  createPBES2Budget,
   decodeProtectedHeader,
   parseEphemeralKey,
+  resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
   typMatches,
@@ -69,6 +72,7 @@ export {
   isUnsecureError,
 } from "./error";
 export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi";
+export { DEFAULT_JOSE_LIMITS } from "./_internal";
 
 /**
  * Encrypts a payload to produce a JWE Compact Serialization string.
@@ -257,6 +261,8 @@ export async function decrypt<T extends JOSEPayload>(
   options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult<T>> {
   const payloadMode = resolvePayloadMode(options);
+  const keyCandidateLimit = resolveLimit(options.limits, "keyCandidates");
+  const pbes2Budget = createPBES2Budget(resolveLimit(options.limits, "pbes2Iterations"));
 
   const parts = jwe.split(".");
   if (parts.length !== 5) {
@@ -375,6 +381,7 @@ export async function decrypt<T extends JOSEPayload>(
         "ERR_JWK_KEY_NOT_FOUND",
       );
     }
+    assertCandidateLimit(candidates.length, keyCandidateLimit);
     // A candidate this token was not encrypted to — unusable key material as
     // much as a failed unwrap — only means "try the next one"; the collected
     // reasons become the `cause` when none decrypts.
@@ -383,6 +390,7 @@ export async function decrypt<T extends JOSEPayload>(
     for (const candidate of candidates) {
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
+        pbes2Budget.spend(alg, unwrapKeyOpts.p2c);
         const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
         const candidateCek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
         plaintextBytes = await joseDecrypt(
@@ -405,6 +413,7 @@ export async function decrypt<T extends JOSEPayload>(
     }
   } else {
     if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
+    pbes2Budget.spend(alg, unwrapKeyOpts.p2c);
     const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial), {
       alg,
       expect: "private",

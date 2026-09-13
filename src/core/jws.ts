@@ -30,6 +30,7 @@ import {
   JWS_ALG_CTX,
   applyB64Crit,
   asKeyUsageError,
+  assertCandidateLimit,
   buildJWKSetFilter,
   checkAlgAllowed,
   checkJWSAlgSupported,
@@ -37,6 +38,7 @@ import {
   assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
+  resolveLimit,
   resolvePayloadMode,
   resolveSigningKey,
   typMatches,
@@ -56,6 +58,7 @@ export {
   isUnsecureError,
 } from "./error";
 export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi";
+export { DEFAULT_JOSE_LIMITS } from "./_internal";
 
 /**
  * Creates a JWS (JSON Web Signature) in Compact Serialization format.
@@ -185,6 +188,7 @@ export async function verify<T extends JOSEPayload>(
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   const payloadMode = resolvePayloadMode(options);
+  const keyCandidateLimit = resolveLimit(options.limits, "keyCandidates");
 
   const parts = jws.split(".");
   if (parts.length !== 3) {
@@ -251,6 +255,7 @@ export async function verify<T extends JOSEPayload>(
           "ERR_JWK_KEY_NOT_FOUND",
         );
       }
+      assertCandidateLimit(candidates.length, keyCandidateLimit);
       // A candidate this token cannot have been signed with — unusable key
       // material as much as a signature mismatch — only means "try the next
       // one"; the collected reasons become the `cause` when none verifies.

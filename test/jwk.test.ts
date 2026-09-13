@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { secureRandomBytes } from "unsecure";
+import { textEncoder } from "unsecure/utils";
 import {
   base64UrlStringify,
   base64UrlParse,
@@ -23,6 +25,7 @@ import {
   exportToPEM,
   getJWKFromSet,
   getJWKsFromSet,
+  thumbprint,
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
@@ -1651,6 +1654,23 @@ describe.concurrent("JWK Utilities", () => {
         expect(sets[0]![0]).toBe(jwk.privateKey);
         expect(sets[0]![1]).toBe("RS256");
       });
+
+      it("awaits an adapter whose get/set are asynchronous", async () => {
+        const jwk = await generateJWK("RS256");
+        const store = new Map<string, CryptoKey>();
+        configureJWKCache({
+          get: async (jwk, alg) => store.get(`${await thumbprint(jwk)}:${alg}`),
+          set: async (jwk, alg, key) => {
+            store.set(`${await thumbprint(jwk)}:${alg}`, key);
+          },
+        });
+        const first = await importKey(jwk.privateKey, "RS256");
+        expect(store.size).toBe(1);
+        // A structurally identical copy hits the same entry: the key is the
+        // thumbprint of the material, not the object reference.
+        const second = await importKey({ ...jwk.privateKey }, "RS256");
+        expect(second).toBe(first);
+      });
     });
   });
 
@@ -2091,4 +2111,156 @@ async function okpJWKPair(
   ]);
 
   return { privateKey: { ...priv, alg }, publicKey: { ...pub, alg } };
+}
+
+describe.concurrent("thumbprint (RFC 7638)", () => {
+  /**
+   * RFC 7638 §3.1 — the worked example, with the extra members (`alg`, `kid`)
+   * the specification includes to show they take no part in the digest.
+   */
+  const rfcExample: JWK_RSA_Public = {
+    kty: "RSA",
+    n: "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+    e: "AQAB",
+    alg: "RS256",
+    kid: "2011-04-29",
+  };
+
+  it("matches the RFC 7638 §3.1 example", async () => {
+    await expect(thumbprint(rfcExample)).resolves.toBe(
+      "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs",
+    );
+  });
+
+  it("digests the EC members crv, kty, x, y", async () => {
+    const { privateKey, publicKey } = await generateJWK("ES256");
+    const expected = digestOfCanonical({
+      crv: publicKey.crv,
+      kty: publicKey.kty,
+      x: publicKey.x,
+      y: publicKey.y,
+    });
+    await expect(thumbprint(publicKey)).resolves.toBe(expected);
+    // The private members take no part: a key pair has a single thumbprint.
+    await expect(thumbprint(privateKey)).resolves.toBe(expected);
+  });
+
+  it("digests the OKP members crv, kty, x", async () => {
+    const { publicKey } = await generateJWK("Ed25519");
+    await expect(thumbprint(publicKey)).resolves.toBe(
+      digestOfCanonical({ crv: publicKey.crv, kty: publicKey.kty, x: publicKey.x }),
+    );
+  });
+
+  it("digests the oct members k, kty", async () => {
+    const key = await generateJWK("HS256");
+    await expect(thumbprint(key)).resolves.toBe(digestOfCanonical({ k: key.k, kty: key.kty }));
+  });
+
+  it("digests under the requested hash", async () => {
+    const { publicKey } = await generateJWK("ES256");
+    const members = {
+      crv: publicKey.crv,
+      kty: publicKey.kty,
+      x: publicKey.x,
+      y: publicKey.y,
+    };
+    await expect(thumbprint(publicKey, { hash: "SHA-384" })).resolves.toBe(
+      digestOfCanonical(members, "sha384"),
+    );
+    await expect(thumbprint(publicKey, { hash: "SHA-512" })).resolves.toBe(
+      digestOfCanonical(members, "sha512"),
+    );
+  });
+
+  it("rejects a key missing a required member", async () => {
+    const { e: _e, ...withoutE } = rfcExample;
+    const error = await thumbprint(withoutE as JWK_RSA_Public).catch((error_) => error_);
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe('JWK thumbprint requires the member "e" on an RSA key.');
+  });
+
+  it("rejects an unknown key type", async () => {
+    const error = await thumbprint({ kty: "XYZ", k: "abc" } as unknown as JWK_oct).catch(
+      (error_) => error_,
+    );
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe('JWK thumbprint is not defined for kty "XYZ".');
+  });
+
+  it("rejects an unsupported hash", async () => {
+    const error = await thumbprint(rfcExample, {
+      hash: "SHA-1" as unknown as "SHA-256",
+    }).catch((error_) => error_);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+});
+
+describe.concurrent("thumbprint as the default kid", () => {
+  it("generateJWK names a symmetric key by its thumbprint", async () => {
+    const key = await generateJWK("HS256");
+    expect(key.kid).toBe(await thumbprint(key));
+  });
+
+  it("generateJWK gives a pair the one thumbprint of its public key", async () => {
+    const { privateKey, publicKey } = await generateJWK("ES256");
+    const expected = await thumbprint(publicKey);
+    expect(publicKey.kid).toBe(expected);
+    expect(privateKey.kid).toBe(expected);
+  });
+
+  it("generateJWK keeps a caller's kid", async () => {
+    const { publicKey } = await generateJWK("ES256", { kid: "rotation-2026" });
+    expect(publicKey.kid).toBe("rotation-2026");
+  });
+
+  it("deriveJWKFromPassword names the derived key by its thumbprint", async () => {
+    const jwk = await deriveJWKFromPassword("password123", {
+      alg: "PBES2-HS256+A128KW",
+      salt: secureRandomBytes(16),
+      iterations: 2000,
+    });
+    expect(jwk.kid).toBe(await thumbprint(jwk));
+  });
+});
+
+describe.concurrent("salt as a string", () => {
+  it("derives the same key from a string and its UTF-8 bytes", async () => {
+    const options = { alg: "PBES2-HS256+A128KW", iterations: 2000, toJWK: true } as const;
+    const fromText = await deriveKeyFromPassword("password123", {
+      ...options,
+      salt: "pepper-and-salt",
+    });
+    const fromBytes = await deriveKeyFromPassword("password123", {
+      ...options,
+      salt: textEncoder.encode("pepper-and-salt"),
+    });
+    expect(fromText.k).toBe(fromBytes.k);
+  });
+
+  it("measures a string salt in octets, not characters", async () => {
+    await expect(
+      deriveKeyFromPassword("password123", {
+        alg: "PBES2-HS256+A128KW",
+        salt: "abc",
+        iterations: 2000,
+      }),
+    ).rejects.toThrow("must be 8 or more octets");
+  });
+});
+
+/**
+ * The canonical form of RFC 7638 §3.2 — the required members, lexicographically
+ * ordered, with no whitespace — digested through Node's `crypto` so the vector
+ * is independent of the implementation under test.
+ */
+function digestOfCanonical(
+  members: Record<string, string | undefined>,
+  hash: "sha256" | "sha384" | "sha512" = "sha256",
+): string {
+  const canonical = `{${Object.keys(members)
+    .sort()
+    .map((name) => `${JSON.stringify(name)}:${JSON.stringify(members[name])}`)
+    .join(",")}}`;
+  return createHash(hash).update(canonical, "utf8").digest("base64url");
 }
