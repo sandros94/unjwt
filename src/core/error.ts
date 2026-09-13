@@ -12,15 +12,20 @@ import { UnsecureError, type UnsecureErrorCode } from "unsecure/errors";
 export { UnsecureError, type UnsecureErrorCode };
 
 /**
- * All known error codes thrown by unjwt.
+ * The closed union of error codes unjwt itself throws.
  *
  * Code naming follows the JOSE spec hierarchy:
  *   ERR_JWT_*  — RFC 7519 JSON Web Token claim validation
  *   ERR_JWS_*  — RFC 7515 JSON Web Signature
  *   ERR_JWE_*  — RFC 7516 JSON Web Encryption
  *   ERR_JWK_*  — RFC 7517 JSON Web Key
+ *
+ * Use this type where a typo must not compile — {@link isJWTError} takes it,
+ * so `isJWTError(err, "ERR_JWS_INVALD")` is a type error rather than a check
+ * that silently never matches. Use {@link JWTErrorCode} for values that may
+ * legitimately carry a code this version does not know about.
  */
-export type JWTErrorCode =
+export type KnownJWTErrorCode =
   // JWT claim validation (RFC 7519)
   | "ERR_JWT_EXPIRED" // exp elapsed or maxTokenAge exceeded
   | "ERR_JWT_NBF" // nbf is in the future
@@ -51,7 +56,15 @@ export type JWTErrorCode =
   | "ERR_JWK_INVALID" // malformed or unsupported key material
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set
   | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
-  | (string & {}); // forward-compatible escape hatch
+  // Caller input that is not token or key material
+  | "ERR_INVALID_OPTION"; // an option value is malformed or out of its documented range
+
+/**
+ * A {@link JWTError} `code`: every {@link KnownJWTErrorCode}, plus any other
+ * string for forward compatibility — a newer unjwt (or a caller constructing
+ * its own `JWTError`) may carry a code this version's union does not list.
+ */
+export type JWTErrorCode = KnownJWTErrorCode | (string & {});
 
 /**
  * Maps known error codes to their structured `cause` shapes.
@@ -97,9 +110,12 @@ export class JWTError<TCode extends JWTErrorCode = JWTErrorCode> extends Error {
  *
  * When called with a code that is a key of `JWTErrorCauseMap`, the return
  * type is additionally narrowed to include the structured `cause` shape for
- * that code. When called with any other `JWTErrorCode`, `code` is narrowed
+ * that code. When called with any other `KnownJWTErrorCode`, `code` is narrowed
  * but `cause` remains `unknown`. When called without a code, narrows only to
  * `JWTError`.
+ *
+ * `code` is a {@link KnownJWTErrorCode}, so a misspelled code fails to
+ * type-check instead of silently never matching.
  *
  * @example
  * if (isJWTError(err, "ERR_JWT_EXPIRED")) {
@@ -110,7 +126,10 @@ export function isJWTError<T extends keyof JWTErrorCauseMap>(
   error: unknown,
   code: T,
 ): error is JWTError<T> & { cause: JWTErrorCauseMap[T] };
-export function isJWTError<T extends JWTErrorCode>(error: unknown, code: T): error is JWTError<T>;
+export function isJWTError<T extends KnownJWTErrorCode>(
+  error: unknown,
+  code: T,
+): error is JWTError<T>;
 export function isJWTError(error: unknown): error is JWTError;
 export function isJWTError(error: unknown, code?: string): boolean {
   if (!(error instanceof JWTError)) return false;

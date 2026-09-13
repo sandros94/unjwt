@@ -255,7 +255,7 @@ export function validateJwtClaims(
   jwtClaims: JWTClaims,
   options: JWTClaimValidationOptions = {},
 ): void {
-  const clockTolerance = options.clockTolerance ?? 0;
+  const clockTolerance = _normalizeClockTolerance(options.clockTolerance);
   const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
 
   // Skip the Set allocations for the common "no required claims" path.
@@ -274,7 +274,7 @@ export function validateJwtClaims(
 
     const missingClaims: string[] = [];
     for (const claimName of allRequiredClaims) {
-      if (!(claimName in jwtClaims)) missingClaims.push(claimName);
+      if (!Object.hasOwn(jwtClaims, claimName)) missingClaims.push(claimName);
     }
     if (missingClaims.length > 0) {
       throw new JWTError(
@@ -284,19 +284,11 @@ export function validateJwtClaims(
     }
   }
 
-  // RFC 7519 §4.1 — `exp`, `nbf`, `iat` are NumericDate and must be finite numbers if present.
-  if (jwtClaims.exp !== undefined && !Number.isFinite(jwtClaims.exp)) {
-    throw new JWTError(
-      'JWT "exp" (Expiration Time) Claim must be a number.',
-      "ERR_JWT_CLAIM_INVALID",
-    );
-  }
-  if (jwtClaims.nbf !== undefined && !Number.isFinite(jwtClaims.nbf)) {
-    throw new JWTError('JWT "nbf" (Not Before) Claim must be a number.', "ERR_JWT_CLAIM_INVALID");
-  }
-  if (jwtClaims.iat !== undefined && !Number.isFinite(jwtClaims.iat)) {
-    throw new JWTError('JWT "iat" (Issued At) Claim must be a number.', "ERR_JWT_CLAIM_INVALID");
-  }
+  // RFC 7519 §2 — `exp`, `nbf`, `iat` are NumericDate: a finite, non-negative number of
+  // seconds since the epoch. Fractional values are explicitly allowed.
+  _assertNumericDate(jwtClaims.exp, "exp", "Expiration Time");
+  _assertNumericDate(jwtClaims.nbf, "nbf", "Not Before");
+  _assertNumericDate(jwtClaims.iat, "iat", "Issued At");
 
   if (options.issuer) {
     const expectedIssuers = maybeArray(options.issuer);
@@ -359,7 +351,7 @@ export function validateJwtClaims(
       currentTime - computeDurationInSeconds(options.maxTokenAge) - clockTolerance
     ) {
       throw new JWTError(
-        `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}s, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
+        `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
         "ERR_JWT_EXPIRED",
         { jti: jwtClaims.jti, iat: jwtClaims.iat, exp: jwtClaims.exp },
       );
@@ -367,30 +359,19 @@ export function validateJwtClaims(
   }
 }
 
-// RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` entries must be parameters the recipient actively
-// processes. Registered-but-unprocessed params (`jwk`, `jku`, `x5c`, `x5t`, `x5u`) are excluded.
-const BASE_PROCESSED_JWS = ["alg", "typ", "cty", "kid", "b64"];
-const BASE_PROCESSED_JWE = [
-  "alg",
-  "enc",
-  "typ",
-  "cty",
-  "kid",
-  "iv",
-  "tag",
-  "p2s",
-  "p2c",
-  "epk",
-  "apu",
-  "apv",
-];
+// RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` entries must be extension parameters the recipient
+// actively processes. Every parameter registered by RFC 7515/7516/7518 is rejected outright by
+// `_assertCritShape`, so only `b64` (RFC 7797, an extension) is understood without opt-in.
+const BASE_PROCESSED_JWS = ["b64"];
+const BASE_PROCESSED_JWE: string[] = [];
 
 /** Validate critical headers in JWS semantics. */
 export function validateCriticalHeadersJWS(
   protectedHeader: { crit?: string[] } & Record<string, any>,
   recognizedHeaders: string[] = [],
 ): void {
-  if (!protectedHeader.crit) return;
+  if (protectedHeader.crit === undefined) return;
+  _assertCritShape(protectedHeader.crit, "JWS");
   const missingHeaderParams = new Set<string>();
   const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_PROCESSED_JWS]);
 
@@ -415,7 +396,8 @@ export function validateCriticalHeadersJWE(
   protectedHeader: { crit?: string[] } & Record<string, any>,
   recognizedHeaders?: string[],
 ): void {
-  if (!protectedHeader.crit) return;
+  if (protectedHeader.crit === undefined) return;
+  _assertCritShape(protectedHeader.crit, "JWE");
   const understoodParams = new Set<string>([...(recognizedHeaders || []), ...BASE_PROCESSED_JWE]);
 
   for (const critParam of protectedHeader.crit) {
@@ -428,5 +410,94 @@ export function validateCriticalHeadersJWE(
     if (!understoodParams.has(critParam)) {
       throw new JWTError(`Unprocessed critical header parameters: ${critParam}`, "ERR_JWE_INVALID");
     }
+  }
+}
+
+// RFC 7515 §4.1 / RFC 7516 §4.1 / RFC 7518 — Header Parameter names registered by the JOSE
+// specs. RFC 7515 §4.1.11 forbids listing any of them in `crit`; `b64` (RFC 7797) is an
+// extension and is therefore absent from this set.
+const REGISTERED_HEADER_PARAMS = new Set([
+  "alg",
+  "enc",
+  "zip",
+  "jku",
+  "jwk",
+  "kid",
+  "x5u",
+  "x5c",
+  "x5t",
+  "x5t#S256",
+  "typ",
+  "cty",
+  "crit",
+  "epk",
+  "apu",
+  "apv",
+  "iv",
+  "tag",
+  "p2s",
+  "p2c",
+]);
+
+/** Shared `crit` shape gate for JWS and JWE (RFC 7515 §4.1.11 / RFC 7516 §4.1.13). */
+function _assertCritShape(crit: unknown, family: "JWS" | "JWE"): asserts crit is string[] {
+  const code = `ERR_${family}_INVALID`;
+  if (
+    !Array.isArray(crit) ||
+    crit.length === 0 ||
+    crit.some((param) => typeof param !== "string")
+  ) {
+    throw new JWTError(`Invalid ${family}: "crit" must be a non-empty array of strings.`, code);
+  }
+  for (const param of crit) {
+    if (REGISTERED_HEADER_PARAMS.has(param)) {
+      throw new JWTError(
+        `Invalid ${family}: "crit" must not list registered header parameters.`,
+        code,
+      );
+    }
+  }
+}
+
+/** Normalize `clockTolerance` (seconds or a {@link Duration}) into non-negative seconds. */
+function _normalizeClockTolerance(value: number | Duration | undefined): number {
+  if (value === undefined) return 0;
+  let seconds: number;
+  if (typeof value === "number") {
+    seconds = value;
+  } else if (typeof value === "string") {
+    try {
+      seconds = computeDurationInSeconds(value);
+    } catch {
+      throw _invalidClockTolerance();
+    }
+  } else {
+    throw _invalidClockTolerance();
+  }
+  if (!Number.isFinite(seconds) || seconds < 0) throw _invalidClockTolerance();
+  return seconds;
+}
+
+function _invalidClockTolerance(): JWTError {
+  return new JWTError(
+    "clockTolerance must be a non-negative number of seconds or a Duration.",
+    "ERR_INVALID_OPTION",
+  );
+}
+
+/** RFC 7519 §2 — a NumericDate is a finite, non-negative number (fractions allowed). */
+function _assertNumericDate(value: unknown, claim: string, label: string): void {
+  if (value === undefined) return;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new JWTError(
+      `JWT "${claim}" (${label}) Claim must be a number.`,
+      "ERR_JWT_CLAIM_INVALID",
+    );
+  }
+  if (value < 0) {
+    throw new JWTError(
+      `JWT "${claim}" (${label}) Claim must be a non-negative NumericDate.`,
+      "ERR_JWT_CLAIM_INVALID",
+    );
   }
 }

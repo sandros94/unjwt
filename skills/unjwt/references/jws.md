@@ -39,7 +39,8 @@ Creates a JWS Compact Serialization token.
 
 - If payload is an object and `typ` is not set, defaults to `"JWT"`
 - If `expiresIn` is set and `iat` is missing, `iat` is set to current time
-- `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt))
+- `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt)). `"b64"` is added to `crit` automatically (created when absent, never duplicated) — RFC 7797 §6 requires the flag to be integrity protected, and jose/other verifiers reject the token otherwise
+- With `b64: false`, a compact payload containing `"."` throws `ERR_JWS_INVALID` (RFC 7797 §5.2 — it would split the compact serialization). Use the JSON serialization (`signMulti`) for such payloads
 - When a JWK with a `kid` is used, the `kid` is added to the header as a fallback — an explicit `protectedHeader.kid` always takes precedence
 
 ```ts
@@ -80,8 +81,19 @@ Verifies a JWS token and returns its payload.
   - `validateClaims?: boolean` — `false` explicitly skips JWT claim validation. Defaults to `undefined`, which validates whenever the decoded payload is a JSON object — **independent of the `typ` header**, because `typ` is signer-controlled and cannot gate security-critical checks
   - `forceUint8Array?: boolean` — force payload returned as `Uint8Array`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
+  - `clockTolerance?: number | Duration` — seconds, or a `Duration` shorthand (`"5m"`, `"1h"`). Negative, non-finite or unparseable values throw `ERR_INVALID_OPTION` instead of silently disabling the `exp`/`nbf`/`iat` checks
+  - `exp`/`nbf`/`iat` must be non-negative NumericDates (fractions allowed, RFC 7519 §2); a negative value throws `ERR_JWT_CLAIM_INVALID`
 
 **Returns:** `Promise<JWSVerifyResult<T>>` — `{ payload: T, protectedHeader: JWSProtectedHeader }`
+
+**Header validation (before any key work):**
+
+- The protected header must decode to a JSON **object** — `null`, an array or a JSON scalar throws `ERR_JWS_INVALID` (`"Invalid JWS: Protected header must be a JSON object."`)
+- `alg: "none"` is rejected with `ERR_JWS_ALG_NOT_ALLOWED` (`'"none" is not a valid signing algorithm'`), as is any `alg` outside `JWSAlgorithm` (`"Algorithm not supported: <alg>"`) — neither ever reaches WebCrypto. The `options.algorithms` allowlist is checked after that and still reports `"Algorithm not allowed: <alg>"`
+- `b64: false` is only honoured when `"b64"` is listed in `crit`; otherwise `ERR_JWS_INVALID` (RFC 7797 §6)
+- `crit` must be a non-empty array of strings and must not list a parameter registered by RFC 7515/7516/7518 (`alg`, `enc`, `zip`, `jku`, `jwk`, `kid`, `x5u`, `x5c`, `x5t`, `x5t#S256`, `typ`, `cty`, `crit`, `epk`, `apu`, `apv`, `iv`, `tag`, `p2s`, `p2c`); `b64` is an extension and is allowed. `recognizedHeaders` cannot opt back into a registered name. Extension entries still follow the existing recognized/missing rules
+- `options.typ` is compared under RFC 7515 §4.1.9 media-type semantics — case-insensitive, with an optional `application/` prefix on either side, so `typ: "at+jwt"` matches a header carrying `"application/AT+JWT"`
+- Any non-`JWTError` raised while importing or using the key (WebCrypto `TypeError`/`DOMException`, codec `SyntaxError`, …) surfaces as `JWTError("Key is not usable for <alg>.", "ERR_JWK_INVALID")` with the original as `cause`
 
 ```ts
 import { verify } from "unjwt/jws";
@@ -113,10 +125,10 @@ Produces a `JWSGeneralSerialization` object. The payload is shared; each signer 
 **Parameters:**
 
 - `payload` — `string | Uint8Array | Record<string, any>`
-- `signers: JWSMultiSigner[]` — non-empty. Each signer is `{ key: JWSSignJWK, protectedHeader?, unprotectedHeader? }`. `key.alg` is required (throws `ERR_JWS_SIGNER_ALG_INFERENCE` when absent).
+- `signers: JWSMultiSigner[]` — non-empty. Each signer is `{ key: JWSSignJWK | CryptoKey, alg?, protectedHeader?, unprotectedHeader? }`. The signer's `alg` wins; otherwise it comes from `key.alg` (JWK) or the CryptoKey's own WebCrypto algorithm. An alg-less JWK throws `ERR_JWS_SIGNER_ALG_INFERENCE`. `kid` is copied from a JWK key only — a CryptoKey signer must put `kid` in its `protectedHeader`.
 - `options?: JWSMultiSignOptions` — mirrors `JWSSignOptions` minus the per-signer fields (`alg`, `protectedHeader`). Keeps: `currentDate`, `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt`.
 
-Throws `ERR_JWS_B64_INCONSISTENT` when signers disagree on `b64` (RFC 7797 §3 mandates consistency). Throws `ERR_JWS_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in both the protected and unprotected header of the same signer.
+Throws `ERR_JWS_B64_INCONSISTENT` when signers disagree on `b64` (RFC 7797 §3 mandates consistency). Throws `ERR_JWS_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in both the protected and unprotected header of the same signer. When `b64: false`, each signer's protected header gets `"b64"` appended to its `crit` automatically (RFC 7797 §6).
 
 ```ts
 import { signMulti } from "unjwt/jws";
@@ -148,6 +160,8 @@ Accepts an already-parsed General or Flattened JWS and returns the first signatu
 - `signerIndex: number` — index into `jws.signatures` that verified.
 - `signerHeader?: JWSHeaderParameters` — per-signer unprotected header.
 
+**Per-signature isolation:** every signature-scoped failure — malformed protected header, `alg: "none"` / unsupported `alg`, `b64` without `crit`, protected/unprotected overlap, a signature segment that is not canonical base64url, an unusable key — is recorded and the next signature is still tried; the collected error is thrown only when no signature verifies. A malformed signer prepended to a token therefore cannot suppress a valid one. `crit` in an **unprotected** header is rejected with `ERR_JWS_INVALID` (RFC 7515 §4.1.11 — `crit` must be integrity protected). A document carrying `signatures[]` together with a top-level `signature`/`protected` is ambiguous and throws `ERR_JWS_INVALID_SERIALIZATION`.
+
 ```ts
 import { verifyMulti } from "unjwt/jws";
 
@@ -165,7 +179,7 @@ const { payload: r } = await verifyMulti(jws, key, { strictSignerMatch: true });
 
 Verify every signature in a JWS **independently** and return a per-signature outcome array — the caller applies their own policy (all-must-verify, M-of-N quorum, specific-signer checks, audit logs).
 
-Unlike `verifyMulti`, this function **never throws** on an individual signature's failure. Malformed protected headers, disallowed `alg`s, `typ` mismatches, key-resolver errors, bad signatures, critical-header violations, and JWT-claim failures are all collected into `JWSMultiVerifyOutcome` entries with `verified: false`.
+Unlike `verifyMulti`, this function **never throws** on an individual signature's failure. Malformed protected headers (including non-object headers), `alg: "none"` / unsupported or disallowed `alg`s, `b64` without `crit`, `crit` in an unprotected header, protected/unprotected overlap, malformed signature segments, `typ` mismatches, key-resolver errors, unusable keys, bad signatures, critical-header violations, and JWT-claim failures are all collected into `JWSMultiVerifyOutcome` entries with `verified: false`.
 
 Structural errors in the envelope itself (non-object input, missing `payload` / `signatures[]`) still throw `ERR_JWS_INVALID_SERIALIZATION` — there's no per-signature outcome to return in that case.
 
@@ -242,6 +256,8 @@ if (isJWTError(error, "ERR_JWS_INVALID") && isUnsecureError(error.cause, "MALFOR
 ```
 
 `unsecure` is inlined into unjwt's dist, so `instanceof` against a consumer-installed `unsecure` never matches. Use the `UnsecureError` / `isUnsecureError` that unjwt re-exports. The `unjwt/utils` primitives themselves still throw `UnsecureError` directly — only the JOSE operations wrap.
+
+Error codes come in two types: `KnownJWTErrorCode` (the closed literal union of every code the library throws) and `JWTErrorCode = KnownJWTErrorCode | (string & {})` (forward-compatible, what `JWTError["code"]` is typed as). `isJWTError`'s `code` parameter takes `KnownJWTErrorCode`, so a typo such as `isJWTError(e, "ERR_JWS_INVALD")` is a compile error rather than a check that never matches.
 
 ## Types
 
@@ -331,7 +347,7 @@ interface JWSVerifyOptions {
   issuer?: string | string[];
   subject?: string;
   maxTokenAge?: Duration;
-  clockTolerance?: number;
+  clockTolerance?: number | Duration;
   typ?: string;
   currentDate?: Date;
   requiredClaims?: string[];
@@ -364,7 +380,8 @@ interface JWSGeneralSerialization {
 }
 
 interface JWSMultiSigner {
-  key: JWSSignJWK;
+  key: JWSSignJWK | CryptoKey;
+  alg?: JWSAlgorithm; // optional; inferred from key.alg (JWK) or the CryptoKey itself
   protectedHeader?: {
     alg?: never;
     b64?: boolean;
@@ -398,7 +415,7 @@ interface JWSMultiVerifyOptions {
   issuer?: string | string[];
   subject?: string;
   maxTokenAge?: Duration;
-  clockTolerance?: number;
+  clockTolerance?: number | Duration;
   typ?: string;
   currentDate?: Date;
   requiredClaims?: string[];
@@ -414,7 +431,7 @@ interface JWSMultiVerifyAllOptions {
   issuer?: string | string[];
   subject?: string;
   maxTokenAge?: Duration;
-  clockTolerance?: number;
+  clockTolerance?: number | Duration;
   typ?: string;
   currentDate?: Date;
   requiredClaims?: string[];

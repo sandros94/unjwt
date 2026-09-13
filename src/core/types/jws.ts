@@ -146,11 +146,13 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
   /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred. */
   forceUint8Array?: boolean;
   /**
-   * Controls JWT claim validation after a successful verification.
+   * Set to `false` to skip JWT claim validation after a successful signature
+   * verification.
    *
-   * - `true` — always validate claims regardless of the `typ` header
-   * - `false` — skip claim validation entirely
-   * - `undefined` (default) — validate when `typ` is `"JWT"` or contains `"jwt"`
+   * Claim validation runs whenever the decoded payload is a JSON object and
+   * this option is not `false` — the `typ` header is not consulted, and a
+   * string / `Uint8Array` payload (including `forceUint8Array: true`) carries
+   * no claims to validate. `true` and the default `undefined` behave alike.
    */
   validateClaims?: boolean;
 }
@@ -197,12 +199,19 @@ export type JWSGeneralSignature = Pick<
 /**
  * Input shape for a single signer passed to {@link signMulti}.
  *
- * `alg` is inferred from `key.alg`; throws `ERR_JWS_SIGNER_ALG_INFERENCE`
- * when absent. `kid` is pulled from `key.kid` when present.
+ * `alg` comes from this signer's `alg`, else from `key.alg` (JWK) or the key's
+ * own WebCrypto algorithm (CryptoKey); when none of those resolve it throws
+ * `ERR_JWS_SIGNER_ALG_INFERENCE`. `kid` is pulled from `key.kid` when the key
+ * is a JWK — a CryptoKey signer must set `kid` on its `protectedHeader`.
  */
 export interface JWSMultiSigner {
-  /** Signing key (JWK-first; `alg` inferred from `key.alg`). */
-  key: JWSSignJWK;
+  /** Signing key (JWK-first; a `CryptoKey` is also accepted). */
+  key: JWSSignJWK | CryptoKey;
+  /**
+   * JWS Algorithm for this signer. Optional for keys whose algorithm can be
+   * inferred (a JWK with `alg`, or a CryptoKey); required otherwise.
+   */
+  alg?: JWSAlgorithm;
   /**
    * Extra per-signer JWS Protected Header parameters (RFC 7515 §7.2.1).
    * `alg` is always derived from the JWK and cannot be set here. `b64`

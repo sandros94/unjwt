@@ -28,11 +28,16 @@ import {
 } from "./utils";
 import {
   JWS_ALG_CTX,
+  applyB64Crit,
+  asKeyUsageError,
   buildJWKSetFilter,
   checkAlgAllowed,
+  checkJWSAlgSupported,
+  checkJWSB64Crit,
   decodeJWSPayload,
   decodeProtectedHeader,
   resolveSigningKey,
+  typMatches,
   validateJwtClaimsIfJsonPayload,
   decodeSegment,
 } from "./_internal";
@@ -40,6 +45,7 @@ import {
 export type * from "./types/jws";
 export {
   type JWTErrorCode,
+  type KnownJWTErrorCode,
   type JWTErrorCauseMap,
   type UnsecureErrorCode,
   JWTError,
@@ -117,9 +123,19 @@ export async function sign(
 
   // RFC 7797: when `b64: false`, the payload is not base64url-encoded in the signing input.
   const useB64 = protectedHeader.b64 !== false;
-  const payloadEncoded = useB64
-    ? base64UrlStringify(payloadBytes)
-    : textDecoder.decode(payloadBytes);
+  let payloadEncoded: string;
+  if (useB64) {
+    payloadEncoded = base64UrlStringify(payloadBytes);
+  } else {
+    payloadEncoded = textDecoder.decode(payloadBytes);
+    // RFC 7797 §5.2 — a "." in an unencoded payload would split the compact form.
+    if (payloadEncoded.includes(".")) {
+      throw new JWTError(
+        'Invalid JWS: unencoded compact payload must not contain "." (RFC 7797 §5.2).',
+        "ERR_JWS_INVALID",
+      );
+    }
+  }
 
   const signingInputString = `${protectedHeaderEncoded}.${payloadEncoded}`;
   const signingInputBytes = textEncoder.encode(signingInputString);
@@ -174,7 +190,13 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   const alg = protectedHeader.alg;
 
-  if (options.typ && protectedHeader.typ !== options.typ) {
+  const algSupportError = checkJWSAlgSupported(alg);
+  if (algSupportError) throw algSupportError;
+
+  const b64Error = checkJWSB64Crit(protectedHeader);
+  if (b64Error) throw b64Error;
+
+  if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
     throw new JWTError(
       `Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
       "ERR_JWS_INVALID",
@@ -190,42 +212,49 @@ export async function verify<T extends string | Uint8Array<ArrayBuffer> | Record
 
   const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
 
-  if (isJWKSet(keyInput)) {
-    const candidates = getJWKsFromSet(keyInput, buildJWKSetFilter(protectedHeader));
-    if (candidates.length === 0) {
-      throw new JWTError(
-        `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
-        "ERR_JWK_KEY_NOT_FOUND",
-      );
-    }
-    // Malformed candidates (unsupported alg/kty, wrong usage) surface immediately;
-    // the "try next" contract only covers cryptographic signature mismatch, which
-    // `joseVerify` reports as `false` rather than throwing.
-    let verified = false;
-    for (const candidate of candidates) {
+  // Key import, resolution and the WebCrypto call are a single failure boundary:
+  // anything they raise that is not already a `JWTError` (WebCrypto `TypeError` /
+  // `DOMException`, codec `SyntaxError`, …) means the key cannot serve this alg.
+  try {
+    if (isJWKSet(keyInput)) {
+      const candidates = getJWKsFromSet(keyInput, buildJWKSetFilter(protectedHeader));
+      if (candidates.length === 0) {
+        throw new JWTError(
+          `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
+          "ERR_JWK_KEY_NOT_FOUND",
+        );
+      }
+      // Malformed candidates (unsupported alg/kty, wrong usage) surface immediately;
+      // the "try next" contract only covers cryptographic signature mismatch, which
+      // `joseVerify` reports as `false` rather than throwing.
+      let verified = false;
+      for (const candidate of candidates) {
+        const verificationKey = await resolveSigningKey(
+          alg,
+          await importKey(candidate, { alg, expect: "public" }),
+          "verify",
+        );
+        if (await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes)) {
+          verified = true;
+          break;
+        }
+      }
+      if (!verified) {
+        throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
+      }
+    } else {
       const verificationKey = await resolveSigningKey(
         alg,
-        await importKey(candidate, { alg, expect: "public" }),
+        await importKey(keyInput, { alg, expect: "public" }),
         "verify",
       );
-      if (await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes)) {
-        verified = true;
-        break;
+      const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
+      if (!isValid) {
+        throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
       }
     }
-    if (!verified) {
-      throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
-    }
-  } else {
-    const verificationKey = await resolveSigningKey(
-      alg,
-      await importKey(keyInput, { alg, expect: "public" }),
-      "verify",
-    );
-    const isValid = await joseVerify(alg, verificationKey, signatureBytes, signingInputBytes);
-    if (!isValid) {
-      throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
-    }
+  } catch (error) {
+    throw asKeyUsageError(error, alg);
   }
 
   // RFC 7797: when `b64: false`, the payload segment is the raw payload (not base64url-encoded).
@@ -257,5 +286,6 @@ function _buildJWSHeader(
   header.alg = alg;
   applyTypCtyDefaults(header, payload);
   if (header.b64 === true) delete header.b64;
+  applyB64Crit(header);
   return header;
 }

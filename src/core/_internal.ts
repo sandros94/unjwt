@@ -9,6 +9,7 @@ import type {
   JWK_EC_Private,
   JWTClaimValidationOptions,
   JWTClaims,
+  JWSAlgorithm,
 } from "./types";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
@@ -240,6 +241,106 @@ function notAllowed(alg: string, ctx: AlgCheckContext): JWTError {
 }
 
 // -----------------------------------------------------------------------------
+// JWS algorithm support gate (compact verify + multi verify).
+// -----------------------------------------------------------------------------
+
+// The library's JWS algorithm set. `satisfies Record<JWSAlgorithm, true>` is the
+// compile-time guard that keeps it in lockstep with the `JWSAlgorithm` union:
+// a missing key and a stray key both fail the type check.
+const JWS_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
+  Object.keys({
+    HS256: true,
+    HS384: true,
+    HS512: true,
+    RS256: true,
+    RS384: true,
+    RS512: true,
+    PS256: true,
+    PS384: true,
+    PS512: true,
+    ES256: true,
+    ES384: true,
+    ES512: true,
+    Ed25519: true,
+    EdDSA: true,
+  } satisfies Record<JWSAlgorithm, true>),
+);
+
+/**
+ * Reject a header-declared `alg` the library cannot verify — `"none"`
+ * (RFC 7515 §3.6 Unsecured JWS) and anything outside {@link JWSAlgorithm} —
+ * before any key import or WebCrypto call. Returns `undefined` when the alg is
+ * supported, or the {@link JWTError} the caller throws (compact) or collects
+ * per signature (multi).
+ */
+export function checkJWSAlgSupported(alg: string): JWTError | undefined {
+  if (alg === "none") {
+    return new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
+  }
+  if (!JWS_ALGORITHM_SET.has(alg)) {
+    return new JWTError(`Algorithm not supported: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
+  }
+  return undefined;
+}
+
+/**
+ * RFC 7797 §6 — an unencoded payload (`b64: false`) is only honoured when
+ * `"b64"` is integrity protected by being listed in `crit`. Returns the
+ * {@link JWTError} to throw (compact) or collect (multi) otherwise.
+ */
+export function checkJWSB64Crit(header: { b64?: boolean; crit?: unknown }): JWTError | undefined {
+  if (header.b64 !== false) return undefined;
+  if (Array.isArray(header.crit) && header.crit.includes("b64")) return undefined;
+  return new JWTError(
+    'Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).',
+    "ERR_JWS_INVALID",
+  );
+}
+
+/**
+ * RFC 7797 §6 — when a signer sets `b64: false`, `"b64"` must also be listed in
+ * `crit` so the flag is integrity protected. Adds it to the protected header
+ * being built, creating `crit` when absent and never duplicating the entry.
+ */
+export function applyB64Crit(header: { b64?: boolean; crit?: string[] }): void {
+  if (header.b64 !== false) return;
+  const crit = header.crit;
+  if (crit === undefined) header.crit = ["b64"];
+  else if (Array.isArray(crit) && !crit.includes("b64")) header.crit = [...crit, "b64"];
+}
+
+/**
+ * Normalize any non-{@link JWTError} raised while importing, resolving or
+ * using a verification key (WebCrypto `TypeError`/`DOMException`, codec
+ * `SyntaxError`, …) into `ERR_JWK_INVALID`, keeping the original as `cause`.
+ * `JWTError`s pass through untouched.
+ */
+export function asKeyUsageError(error: unknown, alg: string): JWTError {
+  if (error instanceof JWTError) return error;
+  return new JWTError(`Key is not usable for ${alg}.`, "ERR_JWK_INVALID", error);
+}
+
+// -----------------------------------------------------------------------------
+// `typ` header comparison (RFC 7515 §4.1.9 / RFC 7516 §4.1.11).
+// -----------------------------------------------------------------------------
+
+/**
+ * Compare an expected `typ` against a header's `typ` under RFC 7515 §4.1.9
+ * media-type semantics: the comparison is case-insensitive and the
+ * `application/` prefix may be omitted when the remainder contains no `"/"`,
+ * so `"at+jwt"`, `"AT+JWT"` and `"application/at+jwt"` all match.
+ */
+export function typMatches(expected: string, actual: unknown): boolean {
+  if (typeof actual !== "string") return false;
+  return normalizeTyp(expected) === normalizeTyp(actual);
+}
+
+function normalizeTyp(typ: string): string {
+  const lowered = typ.toLowerCase();
+  return lowered.includes("/") ? lowered : `application/${lowered}`;
+}
+
+// -----------------------------------------------------------------------------
 // Protected header decode (JWS verify + JWE decrypt, compact & multi).
 // -----------------------------------------------------------------------------
 
@@ -254,8 +355,9 @@ export function decodeProtectedHeader<T extends object>(
   family: "JWS" | "JWE",
 ): T {
   if (!encoded) return {} as T;
+  let parsed: unknown;
   try {
-    return safeJsonParse<T>(base64UrlParse(encoded));
+    parsed = safeJsonParse<T>(base64UrlParse(encoded));
   } catch (error) {
     throw new JWTError(
       `Invalid ${family}: Protected header could not be decoded.`,
@@ -263,6 +365,15 @@ export function decodeProtectedHeader<T extends object>(
       error,
     );
   }
+  // RFC 7515 §4 / RFC 7516 §4: the header is a JSON object. `null`, arrays and
+  // JSON scalars parse fine but must not reach the header consumers.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new JWTError(
+      `Invalid ${family}: Protected header must be a JSON object.`,
+      `ERR_${family}_INVALID` as JWTErrorCode,
+    );
+  }
+  return parsed as T;
 }
 
 // -----------------------------------------------------------------------------

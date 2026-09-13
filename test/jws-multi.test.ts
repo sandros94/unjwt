@@ -9,7 +9,8 @@ import {
   isJWTError,
   isUnsecureError,
 } from "../src/core/jws";
-import { generateJWK } from "../src/core/jwk";
+import { generateJWK, generateKey } from "../src/core/jwk";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import type {
   JWK,
   JWK_oct,
@@ -705,13 +706,14 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
     });
 
-    it("verifyMultiAll — malformed signature is ERR_JWS_INVALID with an UnsecureError cause", async () => {
+    it("verifyMultiAll — malformed signature is a failed outcome, not a throw", async () => {
       const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
       const tampered: JWSGeneralSerialization = {
         ...jws,
         signatures: [{ ...jws.signatures[0]!, signature: `${jws.signatures[0]!.signature}=` }],
       };
-      const error = await verifyMultiAll(tampered, () => keys.hs256).catch((e) => e);
+      const [outcome] = await verifyMultiAll(tampered, () => keys.hs256);
+      const { error } = expectUnverified(outcome);
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
       expect(error.message).toBe("Invalid JWS: Signature could not be decoded.");
       expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
@@ -726,6 +728,205 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       ).catch((e) => e);
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
       expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+  });
+});
+
+describe.concurrent("JWS multi-signature hardening", () => {
+  const keys: { hs256: JWK_oct<"HS256">; hs384: JWK_oct<"HS384">; es256: JWK_Pair<"ES256"> } =
+    {} as any;
+
+  beforeAll(async () => {
+    const [hs256, hs384, es256] = await Promise.all([
+      generateJWK("HS256"),
+      generateJWK("HS384"),
+      generateJWK("ES256"),
+    ]);
+    keys.hs256 = hs256;
+    keys.hs384 = hs384;
+    keys.es256 = es256;
+  });
+
+  const encodeHeader = (json: string): string => base64UrlStringify(json);
+
+  describe("protected header shape", () => {
+    it.each(["null", "[]", "123", '"str"'])("verifyMulti rejects %s", async (json) => {
+      const jws: JWSGeneralSerialization = {
+        payload: base64UrlStringify("{}"),
+        signatures: [{ protected: encodeHeader(json), signature: "AAAA" }],
+      };
+      const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Protected header must be a JSON object.");
+    });
+
+    it("verifyMultiAll records a malformed header as a failed outcome", async () => {
+      const jws: JWSGeneralSerialization = {
+        payload: base64UrlStringify("{}"),
+        signatures: [{ protected: encodeHeader("null"), signature: "AAAA" }],
+      };
+      const [outcome] = await verifyMultiAll(jws, () => keys.hs256);
+      expect(expectUnverified(outcome).error.message).toBe(
+        "Invalid JWS: Protected header must be a JSON object.",
+      );
+    });
+  });
+
+  describe("algorithm gate", () => {
+    it.each([
+      ["none", '"none" is not a valid signing algorithm'],
+      ["HS1024", "Algorithm not supported: HS1024"],
+    ])("verifyMulti rejects alg %s", async (alg, message) => {
+      const jws: JWSGeneralSerialization = {
+        payload: base64UrlStringify("{}"),
+        signatures: [{ protected: encodeHeader(JSON.stringify({ alg })), signature: "AAAA" }],
+      };
+      const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe(message);
+    });
+
+    it("verifyMultiAll reports an unsupported alg per signature", async () => {
+      const jws: JWSGeneralSerialization = {
+        payload: base64UrlStringify("{}"),
+        signatures: [
+          { protected: encodeHeader(JSON.stringify({ alg: "none" })), signature: "AAAA" },
+        ],
+      };
+      const [outcome] = await verifyMultiAll(jws, () => keys.hs256);
+      expect(expectUnverified(outcome).error.code).toBe("ERR_JWS_ALG_NOT_ALLOWED");
+    });
+  });
+
+  describe("per-signature isolation", () => {
+    it("a prepended junk signer does not abort a later valid signature", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const junk = {
+        protected: jws.signatures[0]!.protected,
+        header: { alg: "HS256" } as Record<string, unknown>,
+        signature: "AAAA",
+      };
+      const tampered: JWSGeneralSerialization = {
+        payload: jws.payload,
+        signatures: [junk, jws.signatures[0]!],
+      };
+      const { signerIndex } = await verifyMulti(tampered, keys.hs256);
+      expect(signerIndex).toBe(1);
+
+      const outcomes = await verifyMultiAll(tampered, () => keys.hs256);
+      expect(expectUnverified(outcomes[0]).error.code).toBe("ERR_JWS_HEADER_PARAMS_NOT_DISJOINT");
+      expect(outcomes[1]?.verified).toBe(true);
+    });
+
+    it("a malformed signature segment does not abort a later valid signature", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const tampered: JWSGeneralSerialization = {
+        payload: jws.payload,
+        signatures: [
+          { ...jws.signatures[0]!, signature: `${jws.signatures[0]!.signature}=` },
+          jws.signatures[0]!,
+        ],
+      };
+      const { signerIndex } = await verifyMulti(tampered, keys.hs256);
+      expect(signerIndex).toBe(1);
+
+      const outcomes = await verifyMultiAll(tampered, () => keys.hs256);
+      expect(expectUnverified(outcomes[0]).error.code).toBe("ERR_JWS_INVALID");
+      expect(outcomes[1]?.verified).toBe(true);
+    });
+  });
+
+  describe('"crit" must be integrity protected', () => {
+    it("verifyMulti rejects crit in an unprotected header", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const tampered: JWSGeneralSerialization = {
+        payload: jws.payload,
+        signatures: [{ ...jws.signatures[0]!, header: { crit: ["app"], app: "web" } }],
+      };
+      const error = await verifyMulti(tampered, keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'Invalid JWS: "crit" must be integrity protected (RFC 7515 §4.1.11).',
+      );
+    });
+
+    it("verifyMultiAll records crit in an unprotected header as a failed outcome", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const tampered: JWSGeneralSerialization = {
+        payload: jws.payload,
+        signatures: [{ ...jws.signatures[0]!, header: { crit: ["app"], app: "web" } }],
+      };
+      const [outcome] = await verifyMultiAll(tampered, () => keys.hs256);
+      expect(expectUnverified(outcome).error.code).toBe("ERR_JWS_INVALID");
+    });
+  });
+
+  describe("ambiguous serialization", () => {
+    it.each(["signature", "protected"])("rejects signatures[] alongside %s", async (field) => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const ambiguous = { ...jws, [field]: jws.signatures[0]![field as "signature"] };
+      const error = await verifyMulti(ambiguous as JWSGeneralSerialization, keys.hs256).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_JWS_INVALID_SERIALIZATION")).toBe(true);
+    });
+  });
+
+  describe("CryptoKey signers", () => {
+    it("infers the alg from a CryptoKey signer", async () => {
+      const key = await generateKey("HS256");
+      const jws = await signMulti({ sub: "u1" }, [{ key }]);
+      const header = JSON.parse(base64UrlParse(jws.signatures[0]!.protected!));
+      expect(header.alg).toBe("HS256");
+      expect(header.kid).toBeUndefined();
+      const { payload } = await verifyMulti(jws, key);
+      expect((payload as JWTClaims).sub).toBe("u1");
+    });
+
+    it("honours an explicit signer alg and a header-provided kid", async () => {
+      const key = await generateKey("HS256");
+      const jws = await signMulti({ sub: "u1" }, [
+        { key, alg: "HS256", protectedHeader: { kid: "from-header" } },
+      ]);
+      const header = JSON.parse(base64UrlParse(jws.signatures[0]!.protected!));
+      expect(header.kid).toBe("from-header");
+      await expect(verifyMulti(jws, key)).resolves.toBeDefined();
+    });
+
+    it("still reports inference failure for an alg-less JWK signer", async () => {
+      const { alg: _alg, ...algLess } = keys.hs256;
+      await expect(
+        signMulti({ sub: "u1" }, [{ key: algLess as JWK_oct<"HS256"> }]),
+      ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_SIGNER_ALG_INFERENCE"));
+    });
+  });
+
+  describe("RFC 7797 b64", () => {
+    it('signMulti adds "b64" to each signer crit when b64 is false', async () => {
+      const jws = await signMulti("raw-payload", [
+        { key: keys.hs256, protectedHeader: { b64: false } },
+        { key: keys.hs384, protectedHeader: { crit: ["app"], app: "web", b64: false } },
+      ]);
+      const first = JSON.parse(base64UrlParse(jws.signatures[0]!.protected!));
+      const second = JSON.parse(base64UrlParse(jws.signatures[1]!.protected!));
+      expect(first.crit).toEqual(["b64"]);
+      expect(second.crit).toEqual(["app", "b64"]);
+      await expect(verifyMulti(jws, keys.hs256)).resolves.toBeDefined();
+    });
+
+    it('verifyMulti rejects b64: false that is not listed in "crit"', async () => {
+      const jws: JWSGeneralSerialization = {
+        payload: "raw-payload",
+        signatures: [
+          {
+            protected: encodeHeader(JSON.stringify({ alg: "HS256", b64: false })),
+            signature: "AAAA",
+          },
+        ],
+      };
+      const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).');
     });
   });
 });

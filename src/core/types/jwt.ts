@@ -1,5 +1,5 @@
 import type { JWK_Public } from "./jwk";
-import type { MaxTokenAge } from ".";
+import type { Duration, MaxTokenAge } from ".";
 
 /** Header Parameters common to JWE and JWS */
 export interface JoseHeaderParameters {
@@ -82,12 +82,21 @@ export interface JWTClaimValidationOptions {
   /** Maximum token age, from the JWT "iat" (Issued At) Claim value. Implies presence requirement. */
   maxTokenAge?: MaxTokenAge;
   /**
-   * Clock skew tolerance (in seconds) for validating time-based claims (nbf/exp/iat).
+   * Clock skew tolerance for validating time-based claims (nbf/exp/iat): a
+   * non-negative number of seconds or a {@link Duration} shorthand (`"5m"`,
+   * `"1h"`, …). Anything else — negative, non-finite, or unparseable — throws
+   * `ERR_INVALID_OPTION`.
    *
    * @default 0
    */
-  clockTolerance?: number;
-  /** Expected JWT "typ" (Type) Header Parameter value. Implies presence requirement. */
+  clockTolerance?: number | Duration;
+  /**
+   * Expected JWT "typ" (Type) Header Parameter value. Implies presence requirement.
+   *
+   * Compared under RFC 7515 §4.1.9 media-type semantics: case-insensitive, and
+   * the `application/` prefix may be omitted on either side, so `"at+jwt"`
+   * matches a header carrying `"application/AT+JWT"`.
+   */
   typ?: string;
   /** Date to use when comparing NumericDate claims, defaults to `new Date()`. */
   currentDate?: Date;

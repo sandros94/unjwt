@@ -21,10 +21,12 @@ import {
   computeJwtTimeClaims,
   validateJwtClaims,
   validateCriticalHeadersJWE,
+  validateCriticalHeadersJWS,
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
 } from "../src/core/utils";
 import { generateKey } from "../src/core/jwk";
+import { isJWTError } from "../src/core/error";
 import type {
   JWK_EC_Public,
   JWK_EC_Private,
@@ -309,8 +311,12 @@ describe("validateCriticalHeadersJWE (direct)", () => {
   });
 
   it("does not throw when all crit params are understood and present", () => {
+    // Registered parameters (`enc`, `p2c`, …) may never appear in `crit`; extensions can.
     expect(() =>
-      validateCriticalHeadersJWE({ crit: ["enc", "p2c"], enc: "A128GCM", p2c: 2048 }, []),
+      validateCriticalHeadersJWE({ crit: ["app", "tenant"], app: "web", tenant: "acme" }, [
+        "app",
+        "tenant",
+      ]),
     ).not.toThrow();
   });
 
@@ -539,3 +545,150 @@ describe("base64 tooling", () => {
     expect(base64Decode).toBe(base64Parse);
   });
 });
+
+describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1.13)', () => {
+  const shapeCases: [string, unknown][] = [
+    ["empty array", []],
+    ["non-array", "b64"],
+    ["array with a non-string entry", ["app", 1]],
+  ];
+
+  it.each(shapeCases)("JWS rejects a crit that is an %s", (_label, crit) => {
+    const error = catchError(() =>
+      validateCriticalHeadersJWS({ crit } as { crit?: string[] }, ["app"]),
+    );
+    expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      'Invalid JWS: "crit" must be a non-empty array of strings.',
+    );
+  });
+
+  it.each(shapeCases)("JWE rejects a crit that is an %s", (_label, crit) => {
+    const error = catchError(() =>
+      validateCriticalHeadersJWE({ crit } as { crit?: string[] }, ["app"]),
+    );
+    expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      'Invalid JWE: "crit" must be a non-empty array of strings.',
+    );
+  });
+
+  it.each(["alg", "typ", "cty", "kid", "crit", "jku", "jwk", "x5u", "x5c", "x5t", "x5t#S256"])(
+    'JWS rejects the registered header parameter "%s" in crit',
+    (param) => {
+      const error = catchError(() =>
+        validateCriticalHeadersJWS({ [param]: "x", crit: [param] }, [param]),
+      );
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect((error as Error).message).toBe(
+        'Invalid JWS: "crit" must not list registered header parameters.',
+      );
+    },
+  );
+
+  it.each(["alg", "enc", "zip", "epk", "apu", "apv", "iv", "tag", "p2s", "p2c"])(
+    'JWE rejects the registered header parameter "%s" in crit',
+    (param) => {
+      const error = catchError(() =>
+        validateCriticalHeadersJWE({ [param]: "x", crit: [param] }, [param]),
+      );
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect((error as Error).message).toBe(
+        'Invalid JWE: "crit" must not list registered header parameters.',
+      );
+    },
+  );
+
+  it('allows "b64" (RFC 7797) in a JWS crit', () => {
+    expect(() => validateCriticalHeadersJWS({ crit: ["b64"], b64: false })).not.toThrow();
+  });
+
+  it("keeps the recognized / missing semantics for extension parameters", () => {
+    expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
+    expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" })).toThrow(
+      "Missing critical header parameters: app",
+    );
+    expect(() => validateCriticalHeadersJWE({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
+    expect(() => validateCriticalHeadersJWE({ crit: ["app"] }, ["app"])).toThrow(
+      'Critical header parameter "app" listed in "crit" but not present',
+    );
+  });
+});
+
+describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
+  const now = Math.floor(Date.now() / 1000);
+
+  describe("clockTolerance", () => {
+    it("accepts a Duration string and normalizes it to seconds", () => {
+      expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "5m" })).not.toThrow();
+      expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "1m" })).toThrow(
+        "Token is not yet valid",
+      );
+    });
+
+    it("accepts a numeric-string Duration as seconds, not as concatenation", () => {
+      expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "300" })).not.toThrow();
+      expect(() => validateJwtClaims({ nbf: now + 600 }, { clockTolerance: "300" })).toThrow(
+        "Token is not yet valid",
+      );
+    });
+
+    it.each([
+      ["NaN", Number.NaN],
+      ["negative", -5],
+      ["Infinity", Number.POSITIVE_INFINITY],
+      ["garbage string", "soon"],
+      ["boolean", true],
+    ])("rejects a %s clockTolerance", (_label, value) => {
+      const error = catchError(() =>
+        validateJwtClaims({ exp: now - 10 }, { clockTolerance: value as number }),
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect((error as Error).message).toBe(
+        "clockTolerance must be a non-negative number of seconds or a Duration.",
+      );
+    });
+  });
+
+  describe("required claims", () => {
+    it("does not accept an inherited property as a present claim", () => {
+      const claims = Object.create({ iss: "inherited" }) as { iss?: string };
+      const error = catchError(() => validateJwtClaims(claims, { requiredClaims: ["iss"] }));
+      expect(isJWTError(error, "ERR_JWT_CLAIM_MISSING")).toBe(true);
+    });
+
+    it("accepts an own claim that is explicitly undefined as present", () => {
+      expect(() =>
+        validateJwtClaims({ jti: undefined }, { requiredClaims: ["jti"] }),
+      ).not.toThrow();
+    });
+  });
+
+  describe("NumericDate", () => {
+    it.each(["exp", "nbf", "iat"])("rejects a negative %s", (claim) => {
+      const error = catchError(() => validateJwtClaims({ [claim]: -1 }));
+      expect(isJWTError(error, "ERR_JWT_CLAIM_INVALID")).toBe(true);
+    });
+
+    it("keeps fractional NumericDate values valid (RFC 7519 §2)", () => {
+      expect(() => validateJwtClaims({ exp: now + 60.5, nbf: now - 60.5 })).not.toThrow();
+    });
+  });
+
+  it("renders maxTokenAge in the error message exactly as it was passed", () => {
+    const error = catchError(() =>
+      validateJwtClaims({ iat: now - 3600 }, { maxTokenAge: "5m" }),
+    ) as Error;
+    expect(error.message).toContain("maxTokenAge: 5m");
+    expect(error.message).not.toContain("5ms");
+  });
+});
+
+function catchError(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}

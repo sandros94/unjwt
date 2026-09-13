@@ -14,7 +14,7 @@ import {
   validateJwtClaimsIfJsonPayload,
 } from "../src/core/_internal";
 import { generateKey, generateJWK } from "../src/core/jwk";
-import { isJWTError } from "../src/core/error";
+import { isJWTError, JWTError } from "../src/core/error";
 import type {
   JWK,
   JWK_EC_Private,
@@ -24,10 +24,10 @@ import type {
   JWK_Symmetric,
   JWTClaims,
 } from "../src/core/types";
-import type { JWTErrorCode } from "../src/core/error";
+import type { JWTErrorCode, KnownJWTErrorCode } from "../src/core/error";
 
 /** Assert that `fn` throws a `JWTError` with the given `code`. */
-function expectThrowsJWTError(fn: () => unknown, code: JWTErrorCode): void {
+function expectThrowsJWTError(fn: () => unknown, code: KnownJWTErrorCode): void {
   let err: unknown;
   let threw = false;
   try {
@@ -459,4 +459,56 @@ describe.concurrent("_internal helpers", () => {
 
   // JWK_Symmetric reference used in other file too — type import sanity only.
   void ({} as JWK_Symmetric);
+});
+
+describe.concurrent("decodeProtectedHeader shape", () => {
+  it.each(["null", "[]", "123", '"str"', "true"])(
+    "rejects a header segment encoding %s",
+    (json) => {
+      expectThrowsJWTError(
+        () => decodeProtectedHeader(base64UrlStringify(json), "JWS"),
+        "ERR_JWS_INVALID",
+      );
+    },
+  );
+
+  it("reports the family in the message and carries no cause", () => {
+    let error: unknown;
+    try {
+      decodeProtectedHeader(base64UrlStringify("null"), "JWE");
+    } catch (e) {
+      error = e;
+    }
+    expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    expect((error as JWTError).message).toBe(
+      "Invalid JWE: Protected header must be a JSON object.",
+    );
+    expect((error as JWTError).cause).toBeUndefined();
+  });
+
+  it("still accepts an absent segment and a plain object", () => {
+    expect(decodeProtectedHeader(undefined, "JWS")).toEqual({});
+    expect(decodeProtectedHeader(base64UrlStringify('{"alg":"HS256"}'), "JWS")).toEqual({
+      alg: "HS256",
+    });
+  });
+});
+
+describe.concurrent("error code typing", () => {
+  it("narrows on a known code and rejects a typo at the type level", () => {
+    const error = new JWTError("boom", "ERR_JWS_INVALID");
+    expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    // @ts-expect-error a misspelled code must not type-check
+    expect(isJWTError(error, "ERR_JWS_INVALD")).toBe(false);
+
+    const known: KnownJWTErrorCode = "ERR_JWT_EXPIRED";
+    expect(known).toBe("ERR_JWT_EXPIRED");
+    // @ts-expect-error KnownJWTErrorCode is the closed literal union
+    const typo: KnownJWTErrorCode = "ERR_JWT_EXPIRD";
+    expect(typo).toBe("ERR_JWT_EXPIRD");
+
+    // `JWTErrorCode` stays open for forward compatibility.
+    const custom: JWTErrorCode = "ERR_SOMETHING_NEW";
+    expect(new JWTError("x", custom).code).toBe("ERR_SOMETHING_NEW");
+  });
 });

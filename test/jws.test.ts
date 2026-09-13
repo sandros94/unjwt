@@ -5,7 +5,7 @@ import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 
 import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
-import type { JWTClaims, JWK, JWK_RSA_Private, JWKSet } from "../src/core/types";
+import type { JWTClaims, JWK, JWK_oct, JWK_Pair, JWK_RSA_Private, JWKSet } from "../src/core/types";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -675,7 +675,13 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, rawValid, { alg: "HS256" });
 
       const set: JWKSet = { keys: [malformedJwk, validJwk] };
-      await expect(verify(jws, set)).rejects.toThrow(/Invalid or unsupported JWK "alg"/);
+      const error = await verify(jws, set).catch((e) => e);
+      // The malformed candidate is reported as an unusable key, with the underlying
+      // codec failure preserved as `cause` — not skipped in favour of the valid key.
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(`${error.message} ${(error.cause as Error | undefined)?.message}`).toMatch(
+        /Invalid or unsupported JWK "alg"|Key is not usable for HS256\./,
+      );
     });
 
     it("should verify with algorithms option (success)", async () => {
@@ -701,13 +707,16 @@ describe.concurrent("JWS Utilities", () => {
         await expect(verify(jws, hs256Key)).resolves.toBeDefined();
       });
 
-      it("should succeed if 'crit' headers are known and present (e.g. alg)", async () => {
-        // 'alg' is implicitly understood and always present.
+      // RFC 7515 §4.1.11 — `crit` carries extensions only; a registered parameter such as
+      // `alg` must never appear in it, even though the library processes it.
+      it("should throw if 'crit' lists a registered header parameter (e.g. alg)", async () => {
         const jws = await sign(payloadString, hs256Key, {
           alg: "HS256",
-          protectedHeader: { crit: ["alg"] }, // alg is already there
+          protectedHeader: { crit: ["alg"] },
         });
-        await expect(verify(jws, hs256Key)).resolves.toBeDefined();
+        await expect(verify(jws, hs256Key)).rejects.toThrow(
+          'Invalid JWS: "crit" must not list registered header parameters.',
+        );
       });
 
       it("should throw if 'crit' lists an unknown header parameter", async () => {
@@ -724,38 +733,37 @@ describe.concurrent("JWS Utilities", () => {
         );
       });
 
-      // RFC 7515 §4.1.11 — registered params the library does not process must not be treated as
-      // implicitly understood. `jwk`/`jku`/`x5c`/`x5t`/`x5u` require explicit `recognizedHeaders`.
+      // RFC 7515 §4.1.11 — registered params are rejected outright, and `recognizedHeaders`
+      // cannot opt back into them.
       it.each(["jwk", "jku", "x5c", "x5t", "x5u"])(
-        "rejects '%s' in crit without explicit recognizedHeaders",
+        "rejects the registered parameter '%s' in crit",
         async (param) => {
           const jws = await sign(payloadString, hs256Key, {
             alg: "HS256",
             protectedHeader: { crit: [param], [param]: "irrelevant" },
           });
-          await expect(verify(jws, hs256Key)).rejects.toThrow(
-            `Missing critical header parameters: ${param}`,
+          const message = 'Invalid JWS: "crit" must not list registered header parameters.';
+          await expect(verify(jws, hs256Key)).rejects.toThrow(message);
+          await expect(verify(jws, hs256Key, { recognizedHeaders: [param] })).rejects.toThrow(
+            message,
           );
-          await expect(
-            verify(jws, hs256Key, { recognizedHeaders: [param] }),
-          ).resolves.toBeDefined();
         },
       );
 
       it("should throw if a header listed in 'crit' is not present", async () => {
-        const jwsNoKid = await sign(payloadString, hs256Key, {
+        const jwsNoExt = await sign(payloadString, hs256Key, {
           alg: "HS256",
-          protectedHeader: { crit: ["kid"] },
+          protectedHeader: { crit: ["app"] },
         });
-        await expect(verify(jwsNoKid, hs256Key)).rejects.toThrow(
-          "Missing critical header parameters: kid",
+        await expect(verify(jwsNoExt, hs256Key)).rejects.toThrow(
+          "Missing critical header parameters: app",
         );
 
         await expect(
-          jose.compactVerify(jwsNoKid, hs256Key as any, {
-            crit: { kid: true },
+          jose.compactVerify(jwsNoExt, hs256Key as any, {
+            crit: { app: true },
           }),
-        ).rejects.toThrow('Extension Header Parameter "kid" is missing');
+        ).rejects.toThrow('Extension Header Parameter "app" is missing');
       });
 
       it("should succeed if 'crit' is present and all params are known, even if options.critical is not set", async () => {
@@ -1441,6 +1449,176 @@ describe.concurrent("JWS Utilities", () => {
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
       expect(error.message).toBe("Invalid JWS: Payload could not be decoded.");
       expect(isUnsecureError(error.cause, "MALFORMED")).toBe(true);
+    });
+  });
+});
+
+describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", () => {
+  let hs256Key: CryptoKey;
+  let hs256Jwk: JWK_oct<"HS256">;
+  let rs256Jwk: JWK_Pair<"RS256">;
+
+  beforeAll(async () => {
+    hs256Key = await generateKey("HS256");
+    hs256Jwk = await generateJWK("HS256");
+    rs256Jwk = await generateJWK("RS256", { modulusLength: 2048 });
+  });
+
+  /** Build a compact JWS over an arbitrary (possibly non-object) protected header segment. */
+  async function craft(headerSegment: string, payload = "payload"): Promise<string> {
+    const payloadEncoded = base64UrlStringify(payload);
+    const signature = new Uint8Array(
+      await crypto.subtle.sign(
+        "HMAC",
+        hs256Key,
+        textEncoder.encode(`${headerSegment}.${payloadEncoded}`),
+      ),
+    );
+    return `${headerSegment}.${payloadEncoded}.${base64UrlStringify(signature)}`;
+  }
+
+  describe("protected header shape", () => {
+    it.each(["null", "[]", "123", '"str"'])(
+      "rejects a protected header encoding %s",
+      async (json) => {
+        const jws = await craft(base64UrlStringify(json));
+        const error = await verify(jws, hs256Key).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+        expect(error.message).toBe("Invalid JWS: Protected header must be a JSON object.");
+        expect(error.cause).toBeUndefined();
+      },
+    );
+  });
+
+  describe("algorithm gate", () => {
+    it('rejects alg "none" before any key work', async () => {
+      const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "none" })));
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe('"none" is not a valid signing algorithm');
+    });
+
+    it("rejects an alg the library does not support", async () => {
+      const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "HS1024" })));
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe("Algorithm not supported: HS1024");
+    });
+
+    it("still rejects a supported-but-disallowed alg with the allowlist message", async () => {
+      const jws = await sign("payload", hs256Key, { alg: "HS256" });
+      await expect(verify(jws, hs256Key, { algorithms: ["ES256"] })).rejects.toThrow(
+        "Algorithm not allowed: HS256",
+      );
+    });
+  });
+
+  describe("key handling errors are JWTErrors", () => {
+    it("wraps an oct key used for ES256 into ERR_JWK_INVALID", async () => {
+      const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "ES256" })));
+      const error = await verify(jws, hs256Jwk, { algorithms: ["ES256"] }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe("Key is not usable for ES256.");
+      expect(error.cause).toBeDefined();
+    });
+
+    it("wraps an RSA key used for ES256 into ERR_JWK_INVALID", async () => {
+      const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "ES256" })));
+      const error = await verify(jws, rs256Jwk.publicKey as any, { algorithms: ["ES256"] }).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe("Key is not usable for ES256.");
+      expect(error.cause).toBeDefined();
+    });
+  });
+
+  describe("RFC 7797 b64", () => {
+    it('adds "b64" to crit when signing with b64: false', async () => {
+      const jws = await sign("payload", hs256Key, {
+        alg: "HS256",
+        protectedHeader: { b64: false },
+      });
+      const header = JSON.parse(base64UrlParse(jws.split(".")[0]!));
+      expect(header.b64).toBe(false);
+      expect(header.crit).toEqual(["b64"]);
+
+      // jose only accepts an unencoded payload when `b64` is integrity protected via `crit`.
+      const { payload } = await jose.compactVerify(jws, hs256Key);
+      expect(textDecoder.decode(payload)).toBe("payload");
+    });
+
+    it('appends "b64" to an existing crit without duplicating it', async () => {
+      const jws = await sign("payload", hs256Key, {
+        alg: "HS256",
+        protectedHeader: { crit: ["app"], app: "web", b64: false },
+      });
+      const header = JSON.parse(base64UrlParse(jws.split(".")[0]!));
+      expect(header.crit).toEqual(["app", "b64"]);
+
+      const again = await sign("payload", hs256Key, {
+        alg: "HS256",
+        protectedHeader: { crit: ["b64"], b64: false },
+      });
+      expect(JSON.parse(base64UrlParse(again.split(".")[0]!)).crit).toEqual(["b64"]);
+    });
+
+    it('rejects b64: false that is not listed in "crit" on verify', async () => {
+      const jws = await craft(
+        base64UrlStringify(JSON.stringify({ alg: "HS256", b64: false })),
+        "payload",
+      );
+      // the crafted token base64url-encodes the payload segment, which is irrelevant
+      // here: the b64/crit pairing is checked before any payload work.
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).');
+    });
+
+    it('rejects an unencoded compact payload containing "."', async () => {
+      const error = await sign("a.b", hs256Key, {
+        alg: "HS256",
+        protectedHeader: { b64: false },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'Invalid JWS: unencoded compact payload must not contain "." (RFC 7797 §5.2).',
+      );
+
+      const bytesError = await sign(textEncoder.encode("a.b"), hs256Key, {
+        alg: "HS256",
+        protectedHeader: { b64: false },
+      }).catch((e) => e);
+      expect(isJWTError(bytesError, "ERR_JWS_INVALID")).toBe(true);
+    });
+  });
+
+  describe('"typ" normalization (RFC 7515 §4.1.9)', () => {
+    it("matches a bare media subtype against the application/ form", async () => {
+      const jws = await sign({ sub: "u" }, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { typ: "at+jwt" },
+      });
+      await expect(verify(jws, hs256Key, { typ: "application/at+jwt" })).resolves.toBeDefined();
+      await expect(verify(jws, hs256Key, { typ: "AT+JWT" })).resolves.toBeDefined();
+    });
+
+    it("matches an application/-prefixed header against the bare option", async () => {
+      const jws = await sign({ sub: "u" }, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { typ: "application/at+jwt" },
+      });
+      await expect(verify(jws, hs256Key, { typ: "at+jwt" })).resolves.toBeDefined();
+    });
+
+    it("still rejects a genuine typ mismatch", async () => {
+      const jws = await sign({ sub: "u" }, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { typ: "at+jwt" },
+      });
+      await expect(verify(jws, hs256Key, { typ: "dpop+jwt" })).rejects.toThrow(
+        /"typ" \(Type\) Header Parameter mismatch/,
+      );
     });
   });
 });
