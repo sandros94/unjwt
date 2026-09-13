@@ -32,6 +32,22 @@ Peer dep: `h3`
   the session data is carried into the token and becomes its actual expiry claim (useful
   for per-session custom lifetimes; surprising if accidental).
 
+## Drift from h3 core sessions
+
+Forked from h3's `useSession`, then deliberately diverged:
+
+- **Every `update()` issues a new JWT** — fresh `jti`, `iat`, `exp`. RFC 7519: `jti` names one
+  token, `iat` is that token's issue time. h3 keeps `id`/`createdAt` for the session's life;
+  unjwt does not, so a rotated token stays distinguishable from a compromised one.
+- **`maxAge` counts from the latest issue**, not first creation. Lineage across rotations is
+  the application's job (e.g. record the previous `jti` in `onUpdate`).
+- **No `idleTimeout` / `lastSeenAt`.** Sliding expiration = `session.update()` from `onRead`
+  when `expiresAt - Date.now()` is under the app's threshold.
+- **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement, hooks, `Bearer `
+  prefix on the session header, JWS cookies default `httpOnly: false`.
+- **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
+  (same as upstream), so throwing after `update()`/`clear()` still reaches the client.
+
 ## SessionManager Interface
 
 Both `useJWESession` and `useJWSSession` return a `SessionManager`:
