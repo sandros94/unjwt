@@ -30,12 +30,14 @@ import { importKey, unwrapKey, getJWKsFromSet } from "./jwk";
 import {
   encrypt as joseEncrypt,
   decrypt as joseDecrypt,
+  assertPBES2Params,
   generateIV,
   generateCEK,
   encryptKey,
 } from "./_crypto";
 import { JWTError } from "./error";
 import type { PBES2Budget } from "./_internal";
+import { isContentEncryptionAlgorithm } from "./utils/algorithms";
 import {
   isJWK,
   isJWKSet,
@@ -55,6 +57,8 @@ import {
   assertJWKSetCandidates,
   assertEntryLimit,
   assertNoZipOption,
+  asKeyLookupError,
+  assertSerializationObject,
   buildJWKSetFilter,
   buildUnwrapKeyOptions,
   checkAlgAllowed,
@@ -111,6 +115,14 @@ export async function encryptMulti(
   );
 
   const enc: ContentEncryptionAlgorithm = options.enc ?? "A256GCM";
+  const encError = checkJWEEncSupported(enc);
+  if (encError) throw encError;
+
+  for (const [index, recipient] of recipients.entries()) {
+    if (resolvedAlgs[index]!.startsWith("PBES2")) {
+      assertPBES2Params({ p2s: recipient.p2s, p2c: recipient.p2c });
+    }
+  }
 
   const userProtected = sanitizeObjectCopy(options.protectedHeader) as
     | JWEHeaderParameters
@@ -354,13 +366,19 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const rawKeyMaterial =
-      typeof keyOrLookup === "function"
-        ? await (keyOrLookup as JWKLookupFunction)(
-            effective as Parameters<JWKLookupFunction>[0],
-            protectedHeaderEncoded,
-          )
-        : keyOrLookup;
+    let rawKeyMaterial: unknown;
+    try {
+      rawKeyMaterial =
+        typeof keyOrLookup === "function"
+          ? await (keyOrLookup as JWKLookupFunction)(
+              effective as Parameters<JWKLookupFunction>[0],
+              protectedHeaderEncoded,
+            )
+          : keyOrLookup;
+    } catch (err) {
+      lastError = asKeyLookupError(err, `recipient[${i}]`);
+      continue;
+    }
 
     const algError = checkAlgAllowed(alg, rawKeyMaterial, {
       ctx: JWE_ALG_CTX,
@@ -463,6 +481,13 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
  * const flattened = generalToFlattened(general);
  */
 export function generalToFlattened(jwe: JWEGeneralSerialization): JWEFlattenedSerialization {
+  assertSerializationObject(jwe, "JWE");
+  if (!Array.isArray(jwe.recipients)) {
+    throw new JWTError(
+      'Invalid JWE JSON Serialization: missing "recipients".',
+      "ERR_JWE_INVALID_SERIALIZATION",
+    );
+  }
   if (jwe.recipients.length !== 1) {
     throw new JWTError(
       `Flattened JWE Serialization requires exactly one recipient, got ${jwe.recipients.length}.`,
@@ -479,23 +504,31 @@ export function generalToFlattened(jwe: JWEGeneralSerialization): JWEFlattenedSe
 
 // --- Internal helpers ---
 
+/** The PBKDF2 work a PBES2 recipient is minted with when none is named. */
+const DEFAULT_PBES2_ITERATIONS = 600_000;
+
 function _resolveRecipientAlg(key: JWEEncryptJWK, index: number): KeyManagementAlgorithm {
   if (!isJWK(key)) {
     throw new JWTError(`Recipient[${index}] key is not a JWK.`, "ERR_JWE_RECIPIENT_ALG_INFERENCE");
   }
-  const alg = key.alg as KeyManagementAlgorithm | undefined;
-  if (!alg) {
+  const declared = key.alg as KeyManagementAlgorithm | undefined;
+  if (!declared) {
     throw new JWTError(
       `Cannot infer "alg" for recipient[${index}]: the JWK has no "alg" property.`,
       "ERR_JWE_RECIPIENT_ALG_INFERENCE",
     );
   }
+  // An `oct` JWK declaring a content encryption algorithm is a CEK, whose only
+  // key management algorithm is `dir` — which General Serialization forbids.
+  const alg = key.kty === "oct" && isContentEncryptionAlgorithm(declared) ? "dir" : declared;
   if (JWE_DIRECT_ALGS.has(alg)) {
     throw new JWTError(
       `Recipient[${index}] resolves to "${alg}", which requires exactly one recipient. Use encrypt() instead.`,
       "ERR_JWE_ALG_FORBIDDEN_IN_MULTI",
     );
   }
+  const unsupported = checkJWEAlgSupported(alg);
+  if (unsupported) throw unsupported;
   return alg;
 }
 
@@ -505,10 +538,10 @@ function _buildRecipientKeyMgmtParams(
 ): JWEKeyManagementHeaderParameters {
   const params: JWEKeyManagementHeaderParameters = {};
   if (recipient.keyManagementIV) params.iv = recipient.keyManagementIV;
-  if (recipient.p2s) params.p2s = recipient.p2s;
+  if (recipient.p2s !== undefined) params.p2s = recipient.p2s;
   else if (alg.startsWith("PBES2")) params.p2s = secureRandomBytes(16);
-  if (recipient.p2c) params.p2c = recipient.p2c;
-  else if (alg.startsWith("PBES2")) params.p2c = 600_000;
+  if (recipient.p2c !== undefined) params.p2c = recipient.p2c;
+  else if (alg.startsWith("PBES2")) params.p2c = DEFAULT_PBES2_ITERATIONS;
   if (recipient.ecdh?.partyUInfo) params.apu = recipient.ecdh.partyUInfo;
   if (recipient.ecdh?.partyVInfo) params.apv = recipient.ecdh.partyVInfo;
   if (recipient.ecdh?.ephemeralKey) {

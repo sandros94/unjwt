@@ -103,15 +103,31 @@ export function decodePayloadFromB64UrlSegment<T = JWTClaims>(
   );
 }
 
-/** Convert plaintext input to bytes, shared by JWS & JWE when preparing payload. */
+/**
+ * Convert plaintext input to bytes, shared by JWS & JWE when preparing payload.
+ *
+ * A payload that is neither text, bytes nor an object, and one whose members
+ * `JSON.stringify` refuses (a `BigInt`, a circular reference), are both caller
+ * input rather than key or token material: they fail as `ERR_INVALID_OPTION`.
+ */
 export function getPlaintextBytes(
   payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
 ): Uint8Array<ArrayBuffer> {
   if (payload instanceof Uint8Array) return payload;
   if (typeof payload === "string") return textEncoder.encode(payload);
-  if (typeof payload === "object" && payload !== null)
-    return textEncoder.encode(JSON.stringify(payload));
-  throw new TypeError("Plaintext must be a string, Uint8Array, or a JSON-serializable object.");
+  if (typeof payload === "object" && payload !== null) {
+    let json: string;
+    try {
+      json = JSON.stringify(payload);
+    } catch (error) {
+      throw new JWTError("Payload is not JSON-serializable.", "ERR_INVALID_OPTION", error);
+    }
+    return textEncoder.encode(json);
+  }
+  throw new JWTError(
+    "Plaintext must be a string, Uint8Array, or a JSON-serializable object.",
+    "ERR_INVALID_OPTION",
+  );
 }
 
 const TIME_CONSTANTS = Object.freeze({
@@ -143,28 +159,32 @@ const DURATION_REGEX =
 function _parseDurationSeconds(value: Duration): number {
   if (typeof value === "number") {
     if (!Number.isInteger(value)) {
-      throw new TypeError("Duration must be an integer number of seconds.");
+      throw new JWTError("Duration must be an integer number of seconds.", "ERR_INVALID_OPTION");
     }
     return value;
   }
   if (typeof value === "string") {
     const match = value.match(DURATION_REGEX);
     if (!match || !match[1]) {
-      throw new TypeError(
+      throw new JWTError(
         "Invalid duration format. Must be an integer or a string like '10m', '2h', '7D', etc.",
+        "ERR_INVALID_OPTION",
       );
     }
     const n = Number.parseInt(match[1], 10);
     const unit = (match[2] || "s") as keyof typeof TIME_CONSTANTS;
     return n * TIME_CONSTANTS[unit];
   }
-  throw new TypeError("Duration must be a number or a string representing time.");
+  throw new JWTError(
+    "Duration must be a number or a string representing time.",
+    "ERR_INVALID_OPTION",
+  );
 }
 
 /**
  * Parse a {@link Duration} (integer seconds or shorthand string like `"10m"`)
  * into a positive integer number of seconds. Used for `expiresIn`-style inputs
- * where `0` / negatives are invalid.
+ * where `0` / negatives are invalid. A malformed value is an `ERR_INVALID_OPTION`.
  *
  * For inputs that legitimately permit `0` (e.g. `notBeforeIn: 0`), compute the
  * bounds at the call site instead.
@@ -172,7 +192,10 @@ function _parseDurationSeconds(value: Duration): number {
 export function computeDurationInSeconds(duration: Duration): number {
   const seconds = _parseDurationSeconds(duration);
   if (seconds <= 0) {
-    throw new TypeError("Duration must be a positive integer number of seconds.");
+    throw new JWTError(
+      "Duration must be a positive integer number of seconds.",
+      "ERR_INVALID_OPTION",
+    );
   }
   return seconds;
 }

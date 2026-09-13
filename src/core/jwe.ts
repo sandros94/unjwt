@@ -22,8 +22,17 @@ import type {
 } from "./types/jwe";
 
 import { importKey, unwrapKey, getJWKsFromSet } from "./jwk";
-import { encrypt as joseEncrypt, decrypt as joseDecrypt, generateIV, encryptKey } from "./_crypto";
+import {
+  encrypt as joseEncrypt,
+  decrypt as joseDecrypt,
+  assertPBES2Params,
+  bitLengthCEK,
+  bitLengthIV,
+  generateIV,
+  encryptKey,
+} from "./_crypto";
 import { JWTError } from "./error";
+import { isContentEncryptionAlgorithm } from "./utils/algorithms";
 import {
   isJWK,
   isJWKSet,
@@ -36,10 +45,12 @@ import {
 } from "./utils";
 import {
   JWE_ALG_CTX,
+  assertCompactToken,
   assertDirectKeyRole,
   assertJWETyp,
   assertJWKSetCandidates,
   assertNoZipOption,
+  asKeyLookupError,
   asKeyUsageError,
   buildJWKSetFilter,
   buildUnwrapKeyOptions,
@@ -125,9 +136,21 @@ export async function encrypt(
 
   assertNoZipOption(userHeader, "protected");
 
+  // An `oct` JWK whose `alg` is a content encryption algorithm is a CEK, and a
+  // CEK is what `dir` consumes — the same role mapping the decrypt side reads.
+  // Raw bytes carry no role at all, so nothing is inferred from them.
+  const cekRole =
+    isJWK(key) && key.kty === "oct" && typeof key.alg === "string"
+      ? isContentEncryptionAlgorithm(key.alg)
+        ? (key.alg as ContentEncryptionAlgorithm)
+        : undefined
+      : undefined;
+
   if (!alg) {
-    if (typeof key === "string" || key instanceof Uint8Array) {
+    if (typeof key === "string") {
       alg = "PBES2-HS256+A128KW";
+    } else if (cekRole) {
+      alg = "dir";
     } else if (isJWK(key)) {
       alg = key.alg as KeyManagementAlgorithm;
     }
@@ -140,22 +163,34 @@ export async function encrypt(
   }
   if (!enc) {
     if (alg === "dir") {
-      // Allow `enc` to ride on the JWK when `alg: "dir"`.
-      enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : undefined;
+      // Under `dir` the `enc` rides on the JWK: either as its own `alg` — the
+      // algorithm the CEK was minted for — or as an explicit `enc` member.
+      enc =
+        cekRole ??
+        (isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : undefined);
       if (!enc) {
         throw new JWTError('JWE "enc" must be provided when alg is "dir"', "ERR_JWE_ENC_MISSING");
       }
     } else {
-      enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A128GCM";
+      enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A256GCM";
     }
   }
 
+  // Both algorithms are settled before any key work, so an algorithm the
+  // library does not implement fails with the code and message decrypt uses.
+  const algSupportError = checkJWEAlgSupported(alg) ?? checkJWEEncSupported(enc);
+  if (algSupportError) throw algSupportError;
+
+  assertProducerCEK(providedCek, enc);
+  assertProducerIV(providedContentIV, enc);
+  if (alg.startsWith("PBES2")) assertPBES2Params({ p2s, p2c });
+
   const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
   if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
-  if (p2s) jweKeyManagementParams.p2s = p2s;
-  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2s = secureRandomBytes(16);
-  if (p2c) jweKeyManagementParams.p2c = p2c;
-  else if (alg?.startsWith("PBES2")) jweKeyManagementParams.p2c = 600_000;
+  if (p2s !== undefined) jweKeyManagementParams.p2s = p2s;
+  else if (alg.startsWith("PBES2")) jweKeyManagementParams.p2s = secureRandomBytes(16);
+  if (p2c !== undefined) jweKeyManagementParams.p2c = p2c;
+  else if (alg.startsWith("PBES2")) jweKeyManagementParams.p2c = DEFAULT_PBES2_ITERATIONS;
   if (ecdh?.partyUInfo) jweKeyManagementParams.apu = ecdh.partyUInfo;
   if (ecdh?.partyVInfo) jweKeyManagementParams.apv = ecdh.partyVInfo;
   if (ecdh?.ephemeralKey) {
@@ -259,6 +294,8 @@ export async function decrypt<T extends JOSEPayload>(
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult<T>> {
+  assertCompactToken(jwe, "JWE");
+
   const payloadMode = resolvePayloadMode(options);
   const keyCandidateLimit = resolveLimit(options.limits, "keyCandidates");
   const pbes2Budget = createPBES2Budget(resolveLimit(options.limits, "pbes2Iterations"));
@@ -328,7 +365,12 @@ export async function decrypt<T extends JOSEPayload>(
   const segmentError = checkJWEContentSegments(enc, contentIVBytes, contentAuthTagBytes);
   if (segmentError) throw segmentError;
 
-  const rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
+  let rawKeyMaterial: unknown;
+  try {
+    rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
+  } catch (error) {
+    throw asKeyLookupError(error, "the JWE");
+  }
 
   const algError = checkAlgAllowed(alg, rawKeyMaterial, {
     ctx: JWE_ALG_CTX,
@@ -388,7 +430,7 @@ export async function decrypt<T extends JOSEPayload>(
   } else {
     if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
     pbes2Budget.spend(alg, unwrapKeyOpts.p2c);
-    const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial), {
+    const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
       alg,
       expect: "private",
     });
@@ -426,6 +468,42 @@ export async function decrypt<T extends JOSEPayload>(
   }
 
   return result;
+}
+
+/** The PBKDF2 work a PBES2 token is minted with when the caller names none. */
+const DEFAULT_PBES2_ITERATIONS = 600_000;
+
+/**
+ * RFC 7518 §5 — the CEK size is fixed by `enc`. A caller-supplied key of any
+ * other size is a malformed option, not a token or key-material failure.
+ */
+function assertProducerCEK(
+  cek: Uint8Array<ArrayBuffer> | undefined,
+  enc: ContentEncryptionAlgorithm,
+): void {
+  if (cek === undefined) return;
+  const expected = bitLengthCEK(enc) >> 3;
+  if (!(cek instanceof Uint8Array) || cek.length !== expected) {
+    throw new JWTError(
+      `"cek" must be ${expected} bytes for ${enc} (got ${cek instanceof Uint8Array ? cek.length : typeof cek}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/** RFC 7518 §5.2 / §5.3 — the content IV length is fixed by `enc`. */
+function assertProducerIV(
+  iv: Uint8Array<ArrayBuffer> | undefined,
+  enc: ContentEncryptionAlgorithm,
+): void {
+  if (iv === undefined) return;
+  const expected = bitLengthIV(enc) >> 3;
+  if (!(iv instanceof Uint8Array) || iv.length !== expected) {
+    throw new JWTError(
+      `"contentEncryptionIV" must be ${expected} bytes for ${enc} (got ${iv instanceof Uint8Array ? iv.length : typeof iv}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
 }
 
 function _buildJWEHeader(

@@ -24,7 +24,7 @@ export {
 } from "./_aes";
 export { encryptKey, normalizeKey, normalizeEpk } from "./_key-encryption";
 export { jwkTokey, keyToJWK } from "./_key-codec";
-export { deriveKey as deriveKeyPBES2, pbes2Wrap, pbes2Unwrap } from "./_pbes2";
+export { assertPBES2Params, deriveKey as deriveKeyPBES2, pbes2Wrap, pbes2Unwrap } from "./_pbes2";
 export { deriveECDHESKey, isECDHKeyAllowed } from "./_ecdh";
 export { encryptRSAES, decryptRSAES } from "./_rsa";
 export { fromPKCS8, fromSPKI, fromX509, toPKCS8, toSPKI } from "./_pem";

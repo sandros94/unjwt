@@ -8,6 +8,32 @@ import { aesKwWrap, aesKwUnwrap } from "./_aes";
 export const DEFAULT_PBES2_MIN_ITERATIONS = 1000;
 export const DEFAULT_PBES2_MAX_ITERATIONS = 1_000_000;
 
+/**
+ * RFC 7518 §4.8.1 — the PBES2 parameters a token is minted with. `p2s` is at
+ * least 8 octets and `p2c` a positive integer inside the bounds the unwrap side
+ * enforces, so the library never mints a token it would itself refuse to open.
+ * A value outside them is caller input, not key material: `ERR_INVALID_OPTION`.
+ */
+export function assertPBES2Params(params: {
+  p2s: Uint8Array<ArrayBuffer> | undefined;
+  p2c: number | undefined;
+}): void {
+  const { p2s, p2c } = params;
+  if (p2s !== undefined && (!(p2s instanceof Uint8Array) || p2s.length < 8)) {
+    throw new JWTError(`"p2s" must be 8 or more octets (RFC 7518 §4.8.1.1).`, "ERR_INVALID_OPTION");
+  }
+  if (p2c === undefined) return;
+  if (typeof p2c !== "number" || !Number.isInteger(p2c) || p2c < 1) {
+    throw new JWTError('"p2c" must be a positive integer.', "ERR_INVALID_OPTION");
+  }
+  if (p2c < DEFAULT_PBES2_MIN_ITERATIONS || p2c > DEFAULT_PBES2_MAX_ITERATIONS) {
+    throw new JWTError(
+      `"p2c" must be between ${DEFAULT_PBES2_MIN_ITERATIONS} and ${DEFAULT_PBES2_MAX_ITERATIONS} iterations (got ${p2c}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
 export async function pbes2Wrap(
   alg: string,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -52,10 +78,13 @@ export async function deriveKey(
   key: CryptoKey | Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (!(p2s instanceof Uint8Array) || p2s.length < 8) {
-    throw new Error("PBES2 Salt Input must be 8 or more octets");
+    throw new JWTError("PBES2 Salt Input must be 8 or more octets", "ERR_INVALID_OPTION");
   }
   if (p2c === undefined || p2c < 1) {
-    throw new Error("PBES2 Iteration Count Parameter must be a positive integer");
+    throw new JWTError(
+      "PBES2 Iteration Count Parameter must be a positive integer",
+      "ERR_INVALID_OPTION",
+    );
   }
 
   const salt = concatUint8Arrays(textEncoder.encode(alg), new Uint8Array([0]), p2s);
@@ -82,7 +111,10 @@ export function checkPBES2CryptoKey(key: CryptoKey, alg: string, usage?: KeyUsag
 // --- Internal helpers ---
 
 function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
+  return new JWTError(
+    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
+    "ERR_JWK_INVALID",
+  );
 }
 
 function isAlgorithm<T extends KeyAlgorithm>(
@@ -94,8 +126,9 @@ function isAlgorithm<T extends KeyAlgorithm>(
 
 function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
   if (usage && !key.usages.includes(usage)) {
-    throw new TypeError(
+    throw new JWTError(
       `CryptoKey does not support this operation, its usages must include ${usage}.`,
+      "ERR_JWK_INVALID",
     );
   }
 }

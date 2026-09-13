@@ -873,7 +873,8 @@ describe.concurrent("JWK Utilities", () => {
       await expect(
         // @ts-expect-error RSA-OAEP requires a CryptoKey or JWK_RSA_Public; exercises runtime guard
         wrapKey(cek, secureRandomBytes(32), { alg: "RSA-OAEP" }),
-      ).rejects.toThrow(TypeError); // RSA needs a CryptoKey
+        // RSA needs a CryptoKey.
+      ).rejects.toThrow(expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }));
     });
 
     it("should throw wrapKey for unsupported algorithm", async () => {
@@ -1319,9 +1320,11 @@ describe.concurrent("JWK Utilities", () => {
       expect(key.kid).toBe("only");
     });
 
-    it("should throw for invalid input type", () => {
+    it("should throw ERR_INVALID_OPTION for invalid input type", () => {
       // @ts-expect-error intentionally invalid
-      expect(() => getJWKFromSet(jwkSet, 42)).toThrow(TypeError);
+      expect(() => getJWKFromSet(jwkSet, 42)).toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_INVALID_OPTION" }),
+      );
     });
   });
 
@@ -1483,8 +1486,7 @@ describe.concurrent("JWK Utilities", () => {
       it("should export private RSA JWK to PKCS#8 PEM", async () => {
         const pem = await exportPEM(rsa.jwk.private);
 
-        // TODO: beautify this garbage
-        expect(`${pem}\n`.replace(/\\n/g, "")).toMatch(rsa.pem.pkcs8.replace(/\\n/g, ""));
+        expect(`${pem}\n`).toBe(rsa.pem.pkcs8);
       });
 
       it("should export public RSA JWK to SPKI PEM", async () => {

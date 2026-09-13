@@ -25,9 +25,9 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
 
 - `alg: GenerateKeyAlgorithm` — any JWS or JWE algorithm except `"dir"` and PBES2
 - `options?: GenerateKeyOptions`
-  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`
+  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`, with the key's RFC 7638 thumbprint as its `kid` (one `kid` for both halves of a pair). Composite `A*CBC-HS*` keys carry `alg`, `ext` and `key_ops` like every other symmetric JWK, so the result infers `alg: "dir"` on its own
   - `extractable?: boolean` — default `true`; ignored when `toJWK: true` (the JWK output requires exporting the intermediate key)
-  - `keyUsage?: KeyUsage[]`
+  - `keyUsage?: KeyUsage[]` — narrows the usages derived from `alg`, for every algorithm including `ECDH-ES*` (which admits `deriveBits` / `deriveKey`). A usage the algorithm cannot serve throws `ERR_INVALID_OPTION`
   - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw
     `ERR_INVALID_OPTION` (RFC 7518 §3.3 / §3.5 set 2048 as the floor for `RS*`, `PS*` and `RSA-OAEP*`)
   - `publicExponent?: Uint8Array` — RSA only, default `0x010001`
@@ -199,7 +199,7 @@ Wraps a Content Encryption Key using the specified key management algorithm.
   - `iv?` — AES-GCMKW initialization vector; auto-generated when omitted (always omit in
     production — reusing an IV under the same key breaks AES-GCM; intended only for tests
     and known-vector reproduction, never derive it from external input)
-  - `p2s?`, `p2c?` — PBES2 salt and iteration count
+  - `p2s?`, `p2c?` — PBES2 salt and iteration count; both **required** under a PBES2 `alg` (there is no default here — the defaults belong to `encrypt`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `1_000_000`, the bounds `unwrapKey` enforces, or `ERR_INVALID_OPTION`
   - `ecdh?` — ECDH-ES options:
     - `ephemeralKey?` — custom ephemeral key (CryptoKeyPair, JWK_EC_Private, etc.); generated automatically if omitted
     - `partyUInfo?`, `partyVInfo?` — agreement party info
@@ -260,7 +260,7 @@ Low-level ECDH-ES key derivation (Concat KDF, NIST SP 800-56A). Useful for multi
 - `publicKey: CryptoKey | JWK_EC_Public` — recipient's static public key (sender side), or sender's ephemeral public key (recipient side)
 - `privateKey: CryptoKey | JWK_EC_Private` — sender's ephemeral private key (sender side), or recipient's static private key (recipient side)
 - `options`
-  - `enc: JWK_ECDH_ES | ContentEncryptionAlgorithm` — **required**; used as the `AlgorithmID` in the KDF info structure
+  - `enc: JWK_ECDH_ES | ContentEncryptionAlgorithm` — **required**; used as the `AlgorithmID` in the KDF info structure, and as the algorithm a JWK input is imported under, so a key from `generateJWK("ECDH-ES+A256KW")` — whose `alg` is authoritative — works as written
   - `keyLength?: number` — derived key length in bits; required when `enc` is `"ECDH-ES"`, inferred
     otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
   - `partyUInfo?`, `partyVInfo?` — agreement party info

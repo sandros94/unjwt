@@ -58,15 +58,17 @@ export async function encryptKey(
     case "ECDH-ES+A256KW": {
       assertCryptoKey(key);
       if (!isECDHKeyAllowed(key)) {
-        throw new Error(
+        throw new JWTError(
           "ECDH with the provided key is not allowed or not supported by your javascript runtime",
+          "ERR_JWK_INVALID",
         );
       }
       const { apu, apv, epk: providedEpk, epkPrivateKey } = providedParameters;
 
       if (providedEpk && !epkPrivateKey) {
-        throw new TypeError(
+        throw new JWTError(
           "ECDH-ES custom ephemeral key material must include the matching private key.",
+          "ERR_JWK_INVALID",
         );
       }
 
@@ -79,8 +81,9 @@ export async function encryptKey(
         epkHeader = await exportPublicJwkFrom(alg, publicSource);
       } else {
         if (providedEpk) {
-          throw new TypeError(
+          throw new JWTError(
             "ECDH-ES custom ephemeral public key requires a matching private key.",
+            "ERR_JWK_INVALID",
           );
         }
         const generated = await crypto.subtle.generateKey(key.algorithm as EcKeyAlgorithm, true, [
@@ -156,7 +159,10 @@ export async function encryptKey(
       break;
     }
     default: {
-      throw new Error('Invalid or unsupported "alg" (JWE Algorithm) header value');
+      throw new JWTError(
+        `Invalid or unsupported "alg" (JWE Algorithm) header value: ${alg}`,
+        "ERR_JWE_ALG_NOT_ALLOWED",
+      );
     }
   }
 
@@ -186,7 +192,7 @@ export async function normalizeKey(
     return jwkTokey(key.alg ? key : { ...key, alg });
   }
 
-  throw new Error("unreachable");
+  throw new JWTError("Invalid key type provided", "ERR_JWK_INVALID");
 }
 
 /**
@@ -279,16 +285,28 @@ function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
   };
 
   if (typeof kty !== "string") {
-    throw new TypeError('ECDH-ES ephemeral key JWK must include the "kty" parameter.');
+    throw new JWTError(
+      'ECDH-ES ephemeral key JWK must include the "kty" parameter.',
+      "ERR_JWK_INVALID",
+    );
   }
   if (typeof crv !== "string") {
-    throw new TypeError('ECDH-ES ephemeral key JWK must include the "crv" parameter.');
+    throw new JWTError(
+      'ECDH-ES ephemeral key JWK must include the "crv" parameter.',
+      "ERR_JWK_INVALID",
+    );
   }
   if (typeof x !== "string") {
-    throw new TypeError('ECDH-ES ephemeral key JWK must include the "x" coordinate.');
+    throw new JWTError(
+      'ECDH-ES ephemeral key JWK must include the "x" coordinate.',
+      "ERR_JWK_INVALID",
+    );
   }
   if (kty === "EC" && typeof y !== "string") {
-    throw new TypeError('ECDH-ES EC ephemeral key JWK must include both "x" and "y" coordinates.');
+    throw new JWTError(
+      'ECDH-ES EC ephemeral key JWK must include both "x" and "y" coordinates.',
+      "ERR_JWK_INVALID",
+    );
   }
 
   const publicJwk: Record<string, unknown> = { ...filtered, kty, crv, x };
@@ -305,10 +323,16 @@ function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
 async function ensurePrivateKey(alg: string, value: CryptoKey | JWK_EC): Promise<CryptoKey> {
   const normalized = await normalizeKey(value, alg);
   if (!(normalized instanceof CryptoKey)) {
-    throw new TypeError("ECDH-ES ephemeral private key must be a CryptoKey or convertible JWK.");
+    throw new JWTError(
+      "ECDH-ES ephemeral private key must be a CryptoKey or convertible JWK.",
+      "ERR_JWK_INVALID",
+    );
   }
   if (normalized.type !== "private") {
-    throw new TypeError('ECDH-ES ephemeral private key must have type "private".');
+    throw new JWTError(
+      'ECDH-ES ephemeral private key must have type "private".',
+      "ERR_JWK_INVALID",
+    );
   }
   return normalized;
 }
@@ -318,9 +342,11 @@ async function exportPublicJwkFrom(alg: string, value: CryptoKey | JWK_EC): Prom
     try {
       return toPublicEpkJwk(await keyToJWK(value));
     } catch (error_) {
-      throw new TypeError("ECDH-ES ephemeral CryptoKey must be extractable to export as JWK.", {
-        cause: error_ instanceof Error ? error_ : undefined,
-      });
+      throw new JWTError(
+        "ECDH-ES ephemeral CryptoKey must be extractable to export as JWK.",
+        "ERR_JWK_INVALID",
+        error_,
+      );
     }
   }
   if (isJWK(value) && isAsymmetricJWK(value) && value.kty === "EC") {
@@ -328,7 +354,10 @@ async function exportPublicJwkFrom(alg: string, value: CryptoKey | JWK_EC): Prom
   }
   const normalized = await normalizeKey(value, alg);
   if (!(normalized instanceof CryptoKey)) {
-    throw new TypeError("ECDH-ES ephemeral public key must be a CryptoKey or convertible JWK.");
+    throw new JWTError(
+      "ECDH-ES ephemeral public key must be a CryptoKey or convertible JWK.",
+      "ERR_JWK_INVALID",
+    );
   }
   return exportPublicJwkFrom(alg, normalized);
 }

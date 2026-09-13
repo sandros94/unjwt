@@ -12,13 +12,19 @@ import { JWTError } from "../error";
  * none of them is a key the caller cannot use for this operation. `ext` works
  * the same way: private key material is non-extractable unless the caller asks
  * otherwise, and `ext: false` lowers extractability but never raises it.
+ *
+ * Key material WebCrypto itself refuses fails as `ERR_JWK_INVALID`, carrying the
+ * originating `DOMException` as its `cause`.
  */
 export async function jwkTokey(
   jwk: JWK,
   options: { extractable?: boolean } = {},
 ): Promise<CryptoKey> {
   if (!jwk.alg) {
-    throw new TypeError('"alg" argument is required when "jwk.alg" is not present');
+    throw new JWTError(
+      '"alg" argument is required when "jwk.alg" is not present',
+      "ERR_JWK_INVALID",
+    );
   }
 
   const { algorithm, keyUsages } = subtleMapping(jwk);
@@ -26,13 +32,20 @@ export async function jwkTokey(
   const isPrivate = (jwk as JWK_RSA_Private).d !== undefined;
   const extractable = jwk.ext === false ? false : (options.extractable ?? !isPrivate);
 
-  return crypto.subtle.importKey(
-    "jwk",
-    jwk,
-    algorithm,
-    extractable,
-    permittedUsages(jwk, keyUsages),
-  );
+  try {
+    return await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      algorithm,
+      extractable,
+      permittedUsages(jwk, keyUsages),
+    );
+  } catch (error) {
+    // WebCrypto reports a JWK it cannot import — a curve that contradicts the
+    // `alg`, a truncated coordinate, an `e` it refuses — as a `DOMException`.
+    if (error instanceof JWTError) throw error;
+    throw new JWTError(`Key is not usable for ${jwk.alg}.`, "ERR_JWK_INVALID", error);
+  }
 }
 
 export async function keyToJWK<T extends JWK>(
@@ -45,10 +58,10 @@ export async function keyToJWK<T extends JWK>(
     } as T;
   }
   if (!isCryptoKey(key)) {
-    throw new TypeError("Key must be one of type: CryptoKey or Uint8Array");
+    throw new JWTError("Key must be one of type: CryptoKey or Uint8Array", "ERR_JWK_INVALID");
   }
   if (!key.extractable) {
-    throw new TypeError("non-extractable CryptoKey cannot be exported as a JWK");
+    throw new JWTError("non-extractable CryptoKey cannot be exported as a JWK", "ERR_JWK_INVALID");
   }
   const jwk = await crypto.subtle.exportKey("jwk", key);
 
@@ -113,7 +126,10 @@ function subtleMapping(jwk: JWK): {
           break;
         }
         default: {
-          throw new Error('Invalid or unsupported JWK "alg" (Algorithm) Parameter value');
+          throw new JWTError(
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${String(jwk.alg)}.`,
+            "ERR_JWK_INVALID",
+          );
         }
       }
       break;
@@ -147,7 +163,10 @@ function subtleMapping(jwk: JWK): {
           break;
         }
         default: {
-          throw new Error('Invalid or unsupported JWK "alg" (Algorithm) Parameter value');
+          throw new JWTError(
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${String(jwk.alg)}.`,
+            "ERR_JWK_INVALID",
+          );
         }
       }
       break;
@@ -169,13 +188,19 @@ function subtleMapping(jwk: JWK): {
           break;
         }
         default: {
-          throw new Error('Invalid or unsupported JWK "alg" (Algorithm) Parameter value');
+          throw new JWTError(
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${String(jwk.alg)}.`,
+            "ERR_JWK_INVALID",
+          );
         }
       }
       break;
     }
     default: {
-      throw new Error('Invalid or unsupported JWK "kty" (Key Type) Parameter value');
+      throw new JWTError(
+        `Invalid or unsupported JWK "kty" (Key Type) Parameter value: ${String((jwk as { kty?: unknown }).kty)}.`,
+        "ERR_JWK_INVALID",
+      );
     }
   }
 

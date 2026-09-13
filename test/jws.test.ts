@@ -431,9 +431,11 @@ describe.concurrent("JWS Utilities", () => {
       );
     });
 
-    it("should throw for invalid payload type", async () => {
+    it("should throw ERR_INVALID_OPTION for invalid payload type", async () => {
       const key = await generateKey("HS256");
-      await expect(sign(12_345 as any, key, { alg: "HS256" })).rejects.toThrow(TypeError);
+      await expect(sign(12_345 as any, key, { alg: "HS256" })).rejects.toThrow(
+        expect.objectContaining({ name: "JWTError", code: "ERR_INVALID_OPTION" }),
+      );
     });
   });
 

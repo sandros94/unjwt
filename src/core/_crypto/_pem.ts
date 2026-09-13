@@ -96,15 +96,15 @@ const genericExport = async (
   key: unknown,
 ) => {
   if (!isCryptoKey(key)) {
-    throw new TypeError(`Key must be of type CryptoKey, got ${typeof key}`);
+    throw new JWTError(`Key must be of type CryptoKey, got ${typeof key}`, "ERR_INVALID_OPTION");
   }
 
   if (!key.extractable) {
-    throw new TypeError("CryptoKey is not extractable");
+    throw new JWTError("CryptoKey is not extractable", "ERR_JWK_INVALID");
   }
 
   if (key.type !== keyType) {
-    throw new TypeError(`key is not a ${keyType} key`);
+    throw new JWTError(`key is not a ${keyType} key`, "ERR_JWK_INVALID");
   }
 
   return formatPEM(
@@ -278,7 +278,7 @@ const getElement = (seq: Uint8Array<ArrayBuffer>) => {
   while (next < seq.length) {
     const nextPart = parseElement(seq.subarray(next));
     if (nextPart.byteLength <= 0) {
-      throw new TypeError("Invalid DER: zero-length element");
+      throw new JWTError("Invalid DER: zero-length element", "ERR_JWK_INVALID");
     }
     result.push(nextPart);
     next += nextPart.byteLength;
@@ -291,7 +291,7 @@ const parseElement = (bytes: Uint8Array<ArrayBuffer>) => {
   const at = (index: number): number => {
     const byte = bytes[index];
     if (byte === undefined) {
-      throw new TypeError("Invalid DER: element is truncated");
+      throw new JWTError("Invalid DER: element is truncated", "ERR_JWK_INVALID");
     }
     return byte;
   };
@@ -320,7 +320,7 @@ const parseElement = (bytes: Uint8Array<ArrayBuffer>) => {
       length++;
     }
     if (position + length + 1 >= bytes.byteLength) {
-      throw new TypeError("Invalid DER: invalid indefinite form length");
+      throw new JWTError("Invalid DER: invalid indefinite form length", "ERR_JWK_INVALID");
     }
 
     const byteLength = position + length + 2;
@@ -341,7 +341,10 @@ const parseElement = (bytes: Uint8Array<ArrayBuffer>) => {
 
   const byteLength = position + length;
   if (byteLength > bytes.byteLength) {
-    throw new TypeError("Invalid DER: element length exceeds the available bytes");
+    throw new JWTError(
+      "Invalid DER: element length exceeds the available bytes",
+      "ERR_JWK_INVALID",
+    );
   }
 
   return {
@@ -355,18 +358,21 @@ const spkiFromX509 = (buf: Uint8Array<ArrayBuffer>) => {
   const certificate = getElement(parseElement(buf).contents);
   const tbs = certificate[0];
   if (!tbs) {
-    throw new TypeError("Invalid X.509 certificate: missing tbsCertificate");
+    throw new JWTError("Invalid X.509 certificate: missing tbsCertificate", "ERR_JWK_INVALID");
   }
 
   const tbsCertificate = getElement(tbs.contents);
   const first = tbsCertificate[0];
   if (!first) {
-    throw new TypeError("Invalid X.509 certificate: empty tbsCertificate");
+    throw new JWTError("Invalid X.509 certificate: empty tbsCertificate", "ERR_JWK_INVALID");
   }
 
   const spki = tbsCertificate[first.raw[0] === 0xa0 ? 6 : 5];
   if (!spki) {
-    throw new TypeError("Invalid X.509 certificate: missing subjectPublicKeyInfo");
+    throw new JWTError(
+      "Invalid X.509 certificate: missing subjectPublicKeyInfo",
+      "ERR_JWK_INVALID",
+    );
   }
 
   return base64Stringify(spki.raw);

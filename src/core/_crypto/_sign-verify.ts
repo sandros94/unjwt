@@ -1,3 +1,5 @@
+import { JWTError } from "../error";
+
 export async function sign(
   alg: string,
   key: CryptoKey,
@@ -67,7 +69,7 @@ export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage):
       break;
     }
     default: {
-      throw new TypeError("CryptoKey does not support this operation");
+      throw new JWTError("CryptoKey does not support this operation", "ERR_JWK_INVALID");
     }
   }
 
@@ -117,7 +119,10 @@ export function subtleAlgorithm(
       return { name: "Ed25519" };
     }
     default: {
-      throw new Error(`alg ${alg} is not supported either by JOSE or your javascript runtime`);
+      throw new JWTError(
+        `alg ${alg} is not supported either by JOSE or your javascript runtime`,
+        "ERR_JWS_ALG_NOT_ALLOWED",
+      );
     }
   }
 }
@@ -125,7 +130,10 @@ export function subtleAlgorithm(
 // --- Internal helpers ---
 
 function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
+  return new JWTError(
+    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
+    "ERR_JWK_INVALID",
+  );
 }
 
 function isAlgorithm<T extends KeyAlgorithm>(
@@ -148,14 +156,15 @@ function getNamedCurve(alg: string) {
     case "ES512":
       return "P-521";
     default:
-      throw new Error("unreachable");
+      throw new JWTError(`alg ${alg} names no named curve`, "ERR_JWS_ALG_NOT_ALLOWED");
   }
 }
 
 function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
   if (usage && !key.usages.includes(usage)) {
-    throw new TypeError(
+    throw new JWTError(
       `CryptoKey does not support this operation, its usages must include ${usage}.`,
+      "ERR_JWK_INVALID",
     );
   }
 }

@@ -1,7 +1,14 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe";
-import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
+import {
+  generateKey,
+  generateJWK,
+  exportKey,
+  unwrapKey,
+  wrapKey,
+  deriveJWKFromPassword,
+} from "../src/core/jwk";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import type {
@@ -286,10 +293,14 @@ describe.concurrent("JWE Utilities", () => {
 
     // An oct JWK with `alg: "A256GCM"` is a CEK; the library never rewrites
     // `A256GCM` into `A256GCMKW`, with or without an explicit `alg`.
-    it("rejects an oct JWK with alg=A256GCM used for key wrap", async () => {
+    it("reads an oct JWK with alg=A256GCM as a dir CEK, never as a wrapping key", async () => {
       const jwk = await generateJWK("A256GCM");
       expect(jwk.alg).toBe("A256GCM");
-      await expect(encrypt("payload", jwk)).rejects.toThrow(/Invalid or unsupported "alg"/i);
+
+      const jwe = await encrypt("payload", jwk);
+      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]!) as string);
+      expect(header).toMatchObject({ alg: "dir", enc: "A256GCM" });
+
       await expect(encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" })).rejects.toThrow(
         'JWK "alg" is "A256GCM" but the operation requires "A256GCMKW".',
       );
@@ -379,15 +390,39 @@ describe.concurrent("JWE Utilities", () => {
 
   describe("PBES2 p2c bounds", () => {
     const password = textEncoder.encode("securepassword123");
-    const alg: KeyManagementAlgorithm = "PBES2-HS256+A128KW";
+    const alg = "PBES2-HS256+A128KW" as const;
+
+    /**
+     * A wrapped key at an iteration count `wrapKey` itself refuses: the PBES2
+     * key is derived and the CEK AES-KW wrapped with it, which is exactly what
+     * the PBES2 branch does once it has its parameters.
+     */
+    async function wrapBelowFloor(cek: Uint8Array<ArrayBuffer>, p2s: Uint8Array<ArrayBuffer>) {
+      const derived = await deriveJWKFromPassword(password, { alg, salt: p2s, iterations: 500 });
+      return wrapKey(cek, derived, { alg: "A128KW" });
+    }
 
     it("rejects p2c below the default minimum of 1000 iterations", async () => {
       const cek = secureRandomBytes(32);
       const p2s = secureRandomBytes(16);
-      const { encryptedKey } = await wrapKey(cek, password, { alg, p2c: 500, p2s });
+      const { encryptedKey } = await wrapBelowFloor(cek, p2s);
       await expect(
         unwrapKey(encryptedKey, password, { alg, p2c: 500, p2s, format: "raw" }),
       ).rejects.toThrow(/"p2c" below the minimum of 1000/);
+    });
+
+    it("refuses to mint a p2c outside the bounds it enforces on unwrap", async () => {
+      const cek = secureRandomBytes(32);
+      const p2s = secureRandomBytes(16);
+      const optionError = expect.objectContaining({
+        name: "JWTError",
+        code: "ERR_INVALID_OPTION",
+      });
+      await expect(wrapKey(cek, password, { alg, p2c: 500, p2s })).rejects.toThrow(optionError);
+      await expect(wrapKey(cek, password, { alg, p2c: 0, p2s })).rejects.toThrow(optionError);
+      await expect(
+        wrapKey(cek, password, { alg, p2c: 1000, p2s: secureRandomBytes(4) }),
+      ).rejects.toThrow(optionError);
     });
 
     it("rejects p2c above the default maximum of 1_000_000 iterations", async () => {
@@ -414,7 +449,7 @@ describe.concurrent("JWE Utilities", () => {
     it("honours caller-supplied minIterations override", async () => {
       const cek = secureRandomBytes(32);
       const p2s = secureRandomBytes(16);
-      const { encryptedKey } = await wrapKey(cek, password, { alg, p2c: 500, p2s });
+      const { encryptedKey } = await wrapBelowFloor(cek, p2s);
       // Below default floor (1000), but a caller-supplied floor of 100 accepts it.
       const unwrapped = await unwrapKey(encryptedKey, password, {
         alg,

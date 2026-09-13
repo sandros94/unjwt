@@ -1,3 +1,5 @@
+import { JWTError } from "../error";
+
 export async function encryptRSAES(
   alg: string,
   key: CryptoKey,
@@ -34,7 +36,10 @@ export function checkRSAModulusLength(alg: string, key: CryptoKey): void {
   if (alg.startsWith("RS") || alg.startsWith("PS") || alg.startsWith("RSA")) {
     const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new TypeError(`${alg} requires key modulusLength to be 2048 bits or larger`);
+      throw new JWTError(
+        `${alg} requires key modulusLength to be 2048 bits or larger`,
+        "ERR_JWK_INVALID",
+      );
     }
   }
 }
@@ -42,7 +47,10 @@ export function checkRSAModulusLength(alg: string, key: CryptoKey): void {
 // --- Internal helpers ---
 
 function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
+  return new JWTError(
+    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
+    "ERR_JWK_INVALID",
+  );
 }
 
 function isAlgorithm<T extends KeyAlgorithm>(
@@ -58,8 +66,9 @@ function getHashLength(hash: KeyAlgorithm) {
 
 function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
   if (usage && !key.usages.includes(usage)) {
-    throw new TypeError(
+    throw new JWTError(
       `CryptoKey does not support this operation, its usages must include ${usage}.`,
+      "ERR_JWK_INVALID",
     );
   }
 }

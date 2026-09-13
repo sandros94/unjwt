@@ -12,6 +12,8 @@ import type {
   JWK_RSA_Private,
 } from "../types";
 
+import { JWTError } from "../error";
+
 export { UnsecureError, isUnsecureError, type UnsecureErrorCode } from "../error";
 
 export { secureRandomBytes } from "unsecure/random";
@@ -66,10 +68,10 @@ export function isJWKSet(key: any): key is JWKSet {
   return key && typeof key === "object" && "keys" in key && Array.isArray((key as JWKSet).keys);
 }
 
-/** Asserts that `key` is a `CryptoKey`; throws `TypeError` otherwise. */
+/** Asserts that `key` is a `CryptoKey`; throws `ERR_JWK_INVALID` otherwise. */
 export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
   if (!isCryptoKey(key)) {
-    throw new Error("CryptoKey instance expected");
+    throw new JWTError("CryptoKey instance expected", "ERR_JWK_INVALID");
   }
 }
 

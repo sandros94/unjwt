@@ -60,14 +60,18 @@ describe.concurrent("Utility Functions", () => {
       expect(computeDurationInSeconds(10)).toBe(10);
     });
 
-    it("should throw on invalid input", () => {
+    it("should throw ERR_INVALID_OPTION on invalid input", () => {
+      const optionError = expect.objectContaining({
+        name: "JWTError",
+        code: "ERR_INVALID_OPTION",
+      });
       // @ts-expect-error intentional invalid input
-      expect(() => computeDurationInSeconds("")).toThrow(TypeError);
+      expect(() => computeDurationInSeconds("")).toThrow(optionError);
       // @ts-expect-error intentional invalid input
-      expect(() => computeDurationInSeconds("5x")).toThrow(TypeError);
-      expect(() => computeDurationInSeconds(-10)).toThrow(TypeError);
-      expect(() => computeDurationInSeconds(0)).toThrow(TypeError);
-      expect(() => computeDurationInSeconds(Number.NaN)).toThrow(TypeError);
+      expect(() => computeDurationInSeconds("5x")).toThrow(optionError);
+      expect(() => computeDurationInSeconds(-10)).toThrow(optionError);
+      expect(() => computeDurationInSeconds(0)).toThrow(optionError);
+      expect(() => computeDurationInSeconds(Number.NaN)).toThrow(optionError);
     });
   });
 

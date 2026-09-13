@@ -102,8 +102,8 @@ interface JWTClaimValidationOptions {
     | number
     | `${number}`
     | `${number}${"s" | "second" | "seconds" | "m" | "minute" | "minutes" | "h" | "hour" | "hours" | "D" | "day" | "days" | "W" | "week" | "weeks" | "M" | "month" | "months" | "Y" | "year" | "years"}`;
-  /** Clock skew tolerance (seconds) for `nbf` / `exp` / `iat`. Defaults to 0. */
-  clockTolerance?: number;
+  /** Clock skew tolerance for `nbf` / `exp` / `iat`: seconds, or a `Duration`. Defaults to 0. */
+  clockTolerance?: number | Duration;
   /** Expected `typ` header value. */
   typ?: string;
   /** Reference moment for NumericDate comparisons. Defaults to `new Date()`. */
@@ -125,7 +125,12 @@ Returns the set of JWS signing algorithms a given key can unambiguously produce,
 
 ### `inferJWEAllowedAlgorithms(key)`
 
-Returns the set of JWE key-management algorithms a given key can unambiguously handle, or `undefined` when inference is not possible. Used by `decrypt()` as the default allowlist when `options.algorithms` is omitted. Passwords (`string` / `Uint8Array`) infer to the three PBES2 variants plus `"dir"`; symmetric keys infer to their specific wrap alg plus `"dir"`.
+Returns the set of JWE key-management algorithms a given key can unambiguously handle, or `undefined` when inference is not possible. Used by `decrypt()` as the default allowlist when `options.algorithms` is omitted.
+
+- A password `string` infers the three PBES2 variants plus `"dir"`.
+- A raw `Uint8Array` infers nothing — bytes carry no role, so the caller names the algorithm.
+- An `oct` JWK infers its own `alg` alone, except that an `alg` naming a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is a CEK and infers `"dir"`.
+- An EC or OKP JWK without an `alg` infers the four ECDH-ES variants from its `crv`.
 
 ## Helper Functions
 

@@ -1,6 +1,7 @@
 import { textEncoder } from "unsecure/utils";
 
 import { concatUint8Arrays } from "../utils";
+import { JWTError } from "../error";
 
 export async function deriveECDHESKey(
   publicKey: CryptoKey,
@@ -70,13 +71,17 @@ export function checkECDHCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage
 // --- Internal helpers ---
 
 function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
+  return new JWTError(
+    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
+    "ERR_JWK_INVALID",
+  );
 }
 
 function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
   if (usage && !key.usages.includes(usage)) {
-    throw new TypeError(
+    throw new JWTError(
       `CryptoKey does not support this operation, its usages must include ${usage}.`,
+      "ERR_JWK_INVALID",
     );
   }
 }
@@ -111,7 +116,10 @@ async function digest(
 
 function writeUInt32BE(buf: Uint8Array<ArrayBuffer>, value: number, offset?: number): void {
   if (value < 0 || value >= 2 ** 32) {
-    throw new RangeError(`value must be >= 0 and <= ${2 ** 32 - 1}. Received ${value}`);
+    throw new JWTError(
+      `value must be >= 0 and <= ${2 ** 32 - 1}. Received ${value}`,
+      "ERR_INVALID_OPTION",
+    );
   }
   buf.set([value >>> 24, value >>> 16, value >>> 8, value & 0xff], offset);
 }

@@ -24,12 +24,15 @@ import {
   isJWKSet,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
+  getPlaintextBytes,
   validateCriticalHeadersJWS,
 } from "./utils";
 import {
   JWS_ALG_CTX,
   applyB64Crit,
+  asKeyLookupError,
   asKeyUsageError,
+  assertCompactToken,
   assertJWKSetCandidates,
   buildJWKSetFilter,
   checkAlgAllowed,
@@ -99,16 +102,21 @@ export async function sign(
     }
   }
 
-  // Runtime guard for callers that bypass the type system with `as any`.
-  if ((alg as string) === "none") {
-    throw new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
-  }
+  // The algorithm is settled before any key work, so `"none"` and a misspelled
+  // alg fail the same way, with the same code and message, as on verify.
+  const algSupportError = checkJWSAlgSupported(alg);
+  if (algSupportError) throw algSupportError;
 
-  const signingKey = await resolveSigningKey(
-    alg,
-    await importKey(key, { alg, expect: "private" }),
-    "sign",
-  );
+  let signingKey: CryptoKey;
+  try {
+    signingKey = await resolveSigningKey(
+      alg,
+      await importKey(key, { alg, expect: "private" }),
+      "sign",
+    );
+  } catch (error) {
+    throw asKeyUsageError(error, alg);
+  }
 
   const protectedHeader = _buildJWSHeader(alg, key, userHeader, payload);
 
@@ -117,16 +125,7 @@ export async function sign(
   const protectedHeaderString = JSON.stringify(protectedHeader);
   const protectedHeaderEncoded = base64UrlStringify(protectedHeaderString);
 
-  let payloadBytes: Uint8Array<ArrayBuffer>;
-  if (payload instanceof Uint8Array) {
-    payloadBytes = payload;
-  } else if (typeof payload === "string") {
-    payloadBytes = textEncoder.encode(payload);
-  } else if (typeof payload === "object" && payload !== null) {
-    payloadBytes = textEncoder.encode(JSON.stringify(computedPayload || payload));
-  } else {
-    throw new TypeError("Payload must be a string, Uint8Array, or a JSON-serializable object.");
-  }
+  const payloadBytes = getPlaintextBytes(computedPayload || payload);
 
   // RFC 7797: when `b64: false`, the payload is not base64url-encoded in the signing input.
   const useB64 = protectedHeader.b64 !== false;
@@ -147,7 +146,12 @@ export async function sign(
   const signingInputString = `${protectedHeaderEncoded}.${payloadEncoded}`;
   const signingInputBytes = textEncoder.encode(signingInputString);
 
-  const signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
+  let signatureBytes: Uint8Array<ArrayBuffer>;
+  try {
+    signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
+  } catch (error) {
+    throw asKeyUsageError(error, alg);
+  }
   const signatureEncoded = base64UrlStringify(signatureBytes);
 
   return `${signingInputString}.${signatureEncoded}`;
@@ -187,6 +191,8 @@ export async function verify<T extends JOSEPayload>(
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
+  assertCompactToken(jws, "JWS");
+
   const payloadMode = resolvePayloadMode(options);
   const keyCandidateLimit = resolveLimit(options.limits, "keyCandidates");
 
@@ -225,7 +231,12 @@ export async function verify<T extends JOSEPayload>(
 
   const signatureBytes = decodeSegment(signatureEncoded, { family: "JWS", what: "Signature" });
 
-  const keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
+  let keyInput: Exclude<typeof key, JWKLookupFunction> | Awaited<ReturnType<JWKLookupFunction>>;
+  try {
+    keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
+  } catch (error) {
+    throw asKeyLookupError(error, "the JWS");
+  }
   assertNotStringKey(keyInput);
 
   const algError = checkAlgAllowed(alg, keyInput, {

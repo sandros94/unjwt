@@ -33,13 +33,16 @@ Creates a JWS Compact Serialization token.
 - `options?: JWSSignOptions`
   - `alg?: JWSAlgorithm` — required when key is CryptoKey or Uint8Array
   - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`)
-  - `expiresIn?: ExpiresIn` — sets `exp` claim relative to `iat` (number in seconds, or string like `"1h"`, `"7D"`)
+  - `expiresIn?: ExpiresIn` — sets `exp` claim relative to `iat` (number in seconds, or string like `"1h"`, `"7D"`). A malformed duration throws `ERR_INVALID_OPTION`
   - `currentDate?: Date` — override current time for `iat`/`exp` computation
 
 **Returns:** `Promise<string>` — JWS compact token
 
 **Behavior:**
 
+- The `alg` is settled before any key work: `"none"` and anything outside `JWSAlgorithm` are refused with `ERR_JWS_ALG_NOT_ALLOWED`, carrying the same message `verify` reports for the same string
+- A payload that is neither text, bytes nor an object, and one `JSON.stringify` refuses (a `BigInt`, a circular reference), throw `ERR_INVALID_OPTION`
+- A key that cannot serve the declared `alg` throws `ERR_JWK_INVALID` with the WebCrypto failure as its `cause`
 - If payload is an object and `typ` is not set, defaults to `"JWT"`
 - If `expiresIn` is set and `iat` is missing, `iat` is set to current time
 - `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt)). `"b64"` is added to `crit` automatically (created when absent, never duplicated) — RFC 7797 §6 requires the flag to be integrity protected, and jose/other verifiers reject the token otherwise
@@ -70,7 +73,7 @@ Verifies a JWS token and returns its payload.
 
 - `jws` — `string` — the JWS compact token
 - `key` — `CryptoKey | JWSVerifyJWK | JWKSet | Uint8Array | JWKLookupFunction`
-  - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`.
+  - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`. The key is imported with `expect: "public"`, so an asymmetric JWK still carrying `d` throws `ERR_JWK_INVALID` instead of being imported; `sign` mirrors this with `expect: "private"`.
   - `JWKSet` stays fully permissive (`JWK[]`) because JWKS from the wire are heterogeneous; runtime filters candidates per header.
   - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
   - `JWKSet`: multi-key selection with automatic retry. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
@@ -78,6 +81,8 @@ Verifies a JWS token and returns its payload.
     - Token has no `kid` — every candidate is tried in order; the first to verify successfully wins
     - A candidate that cannot verify — unusable key material as much as a signature mismatch — only means "try the next one"; when none verifies, `ERR_JWS_SIGNATURE_INVALID` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
+  - A `JWKLookupFunction` that throws is a key that could not be resolved: the failure surfaces as `ERR_JWK_KEY_NOT_FOUND` with the thrown value as its `cause`
+  - A token that is not a string throws `ERR_JWS_INVALID` (`"Invalid JWS: token must be a string."`)
     - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
 
 - `options?: JWSVerifyOptions`

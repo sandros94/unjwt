@@ -542,6 +542,47 @@ export function applyB64Crit(header: { b64?: boolean; crit?: string[] }): void {
 }
 
 /**
+ * The rejection a compact entry point raises for a token that is not a string:
+ * `split` would otherwise decide the shape of the failure, or throw a raw
+ * `TypeError` before a single segment is looked at.
+ */
+export function assertCompactToken(token: unknown, family: "JWS" | "JWE"): asserts token is string {
+  if (typeof token !== "string") {
+    throw new JWTError(
+      `Invalid ${family}: token must be a string.`,
+      `ERR_${family}_INVALID` as JWTErrorCode,
+    );
+  }
+}
+
+/**
+ * The rejection a JSON-serialization helper raises for an argument that is not
+ * an object — there is no serialization to read members off.
+ */
+export function assertSerializationObject(
+  value: unknown,
+  family: "JWS" | "JWE",
+): asserts value is object {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new JWTError(
+      `Invalid ${family} JSON Serialization: expected an object.`,
+      `ERR_${family}_INVALID_SERIALIZATION` as JWTErrorCode,
+    );
+  }
+}
+
+/**
+ * A key-lookup function is caller code: whatever it throws means the key for
+ * this token could not be resolved, so it surfaces as `ERR_JWK_KEY_NOT_FOUND`
+ * with the thrown value as `cause`. A {@link JWTError} it raises itself is its
+ * own verdict and passes through.
+ */
+export function asKeyLookupError(error: unknown, what: string): JWTError {
+  if (error instanceof JWTError) return error;
+  return new JWTError(`Key lookup failed for ${what}.`, "ERR_JWK_KEY_NOT_FOUND", error);
+}
+
+/**
  * Normalize any non-{@link JWTError} raised while importing, resolving or
  * using a verification key (WebCrypto `TypeError`/`DOMException`, codec
  * `SyntaxError`, …) into `ERR_JWK_INVALID`, keeping the original as `cause`.

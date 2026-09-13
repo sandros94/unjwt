@@ -43,20 +43,22 @@ Produces a JWE Compact Serialization token.
     rather than being used as raw key bytes. JWE is the only family that takes a string at all, and PBKDF2
     is the only thing it does with one
   - `JWEEncryptJWK` → infers `alg`/`enc` from key properties. Narrows by family: `JWK_oct` with a JWE symmetric `alg` (AES-KW, AES-GCM, AES-GCM-KW, AES-CBC-HMAC, PBES2, `"dir"`) or an asymmetric _public_ JWK whose `alg` is RSA-OAEP or ECDH-ES. HMAC / signing-family JWKs are rejected at the type level.
-  - `CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array` with `alg: "dir"` → used directly as the CEK (`enc` required). A JWK declaring a content encryption `alg` may serve as the CEK for that `enc` and no other; one declaring a key wrapping `alg` is refused
-  - `Uint8Array` under any `alg` → valid, since the call names the `alg` itself; the matching `decrypt` must then be given the same `algorithms: [alg]`
+  - `CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array` with `alg: "dir"` → used directly as the CEK. An `oct` JWK whose `alg` is a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) _is_ a CEK: it infers `alg: "dir"` with that same algorithm as `enc`, and serves no other `enc`. One declaring a key wrapping `alg` is refused
+  - `Uint8Array` → infers nothing; bytes carry no role, so `alg` is required and `encrypt` throws `ERR_JWE_ALG_MISSING` without one. The matching `decrypt` must then be given the same `algorithms: [alg]`
   - `CryptoKey` with other algorithms → requires explicit `alg` and `enc`
 - `options?: JWEEncryptOptions`
   - `alg?: KeyManagementAlgorithm`
-  - `enc?: ContentEncryptionAlgorithm` — required when `alg` is `"dir"`
+  - `enc?: ContentEncryptionAlgorithm` — defaults to `A256GCM`; under `alg: "dir"` it comes from the CEK's own `alg` (or its `enc` hint) and is required when the key carries neither
   - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`)
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `currentDate?: Date`
-  - `cek?: Uint8Array` — custom Content Encryption Key
-  - `contentEncryptionIV?: Uint8Array` — custom IV
-  - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`)
+  - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`
+  - `contentEncryptionIV?: Uint8Array` — custom IV; must be exactly the length `enc` names, or `ERR_INVALID_OPTION`
+  - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `1_000_000` — the bounds `decrypt` enforces — or the call throws `ERR_INVALID_OPTION`. `p2c: 0` is rejected, never replaced by the default
   - `keyManagementIV?: Uint8Array` — IV for AES-GCM key wrapping
-  - `ecdh?` — `{ ephemeralKey?, partyUInfo?, partyVInfo?, enc? }` for ECDH-ES; `enc` required only for bare `"ECDH-ES"`
+  - `ecdh?` — `{ ephemeralKey?, partyUInfo?, partyVInfo? }` for ECDH-ES. The content encryption algorithm is the top-level `enc`; `wrapKey` is the one that takes `ecdh.enc`.
+
+An unsupported or misspelled `alg` / `enc` is refused before any key work, with the same code and message `decrypt` uses for the same string: `ERR_JWE_ALG_NOT_ALLOWED` for a key management algorithm (including `"none"`), `ERR_JWE_INVALID` for a content encryption algorithm.
 
 **Returns:** `Promise<string>` — JWE compact token
 
@@ -79,9 +81,9 @@ const token3 = await encrypt({ secret: "data" }, rsaKeys.publicKey);
 const cek = await generateKey("A256GCM");
 const token4 = await encrypt({ secret: "data" }, cek, { alg: "dir", enc: "A256GCM" });
 
-// Direct encryption with a JWK_oct that carries an enc hint
-const cekJwk = { ...(await generateJWK("A256GCM")), enc: "A256GCM" };
-const token5 = await encrypt({ secret: "data" }, cekJwk, { alg: "dir" }); // enc inferred from jwk.enc
+// Direct encryption with a CEK JWK — `alg: "dir"` and `enc` both come from the key
+const cekJwk = await generateJWK("A256GCM");
+const token5 = await encrypt({ secret: "data" }, cekJwk); // alg = "dir", enc = "A256GCM"
 
 // ECDH-ES
 const ecKeys = await generateJWK("ECDH-ES+A256KW");
@@ -96,7 +98,7 @@ Decrypts a JWE token.
 
 - `jwe` — `string` — the JWE compact token
 - `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWKLookupFunction`
-  - `JWEDecryptJWK` is the private-side counterpart of `JWEEncryptJWK`.
+  - `JWEDecryptJWK` is the private-side counterpart of `JWEEncryptJWK`. The key is imported with `expect: "private"`, so a public asymmetric JWK throws `ERR_JWK_INVALID`; `encrypt` mirrors this with `expect: "public"` and refuses one that still carries `d`.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
@@ -109,16 +111,19 @@ Decrypts a JWE token.
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata. A raw `Uint8Array` is such a key: it declares nothing, so `decrypt(jwe, rawBytes, { algorithms: ["A256KW"] })` names the `alg` the matching `encrypt` call was given. A password `string` still infers the PBES2 family plus `"dir"`
   - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls, never for one fetched from a `jwks_uri`
-  - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
-  - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the plaintext must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWE_INVALID` (`"Invalid JWE: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWE_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The decrypted content never decides its own shape, and `typ`/`cty` never pick it
-  - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
-  - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
-  - `returnCek?: boolean` — include raw `cek` and `aad` in result
-  - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
-  - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `1_000_000` to cap PBKDF2 DoS potential. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
-  - `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `1_000_000` and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 1000000 exhausted."`) and spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
-  - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
-  - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
+
+A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the thrown value as its `cause`. A token that is not a string throws `ERR_JWE_INVALID` (`"Invalid JWE: token must be a string."`).
+
+- `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
+- `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the plaintext must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWE_INVALID` (`"Invalid JWE: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWE_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The decrypted content never decides its own shape, and `typ`/`cty` never pick it
+- `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
+- `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
+- `returnCek?: boolean` — include raw `cek` and `aad` in result
+- `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
+- `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `1_000_000` to cap PBKDF2 DoS potential. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
+- `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `1_000_000` and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 1000000 exhausted."`) and spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
+- Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
+- `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 
 **Returns:** `Promise<JWEDecryptResult<T>>`
 
@@ -397,7 +402,7 @@ interface JWEDecryptOptions {
   issuer?: string | string[];
   subject?: string;
   maxTokenAge?: Duration;
-  clockTolerance?: number; // seconds
+  clockTolerance?: number | Duration; // seconds, or a Duration shorthand
   typ?: string;
   currentDate?: Date;
   requiredClaims?: string[];
@@ -537,7 +542,7 @@ interface JWEMultiDecryptOptions {
   issuer?: string | string[];
   subject?: string;
   maxTokenAge?: Duration;
-  clockTolerance?: number; // seconds
+  clockTolerance?: number | Duration; // seconds, or a Duration shorthand
   typ?: string;
   currentDate?: Date;
   requiredClaims?: string[];

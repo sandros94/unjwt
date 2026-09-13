@@ -39,8 +39,10 @@ import {
 import {
   JWS_ALG_CTX,
   applyB64Crit,
+  asKeyLookupError,
   asKeyUsageError,
   assertJWKSetCandidates,
+  assertSerializationObject,
   assertEntryLimit,
   buildJWKSetFilter,
   checkAlgAllowed,
@@ -257,13 +259,19 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const rawKeyMaterial =
-      typeof keyOrLookup === "function"
-        ? await (keyOrLookup as JWKLookupFunction)(
-            effective as Parameters<JWKLookupFunction>[0],
-            wireSig.protected ?? "",
-          )
-        : keyOrLookup;
+    let rawKeyMaterial: unknown;
+    try {
+      rawKeyMaterial =
+        typeof keyOrLookup === "function"
+          ? await (keyOrLookup as JWKLookupFunction)(
+              effective as Parameters<JWKLookupFunction>[0],
+              wireSig.protected ?? "",
+            )
+          : keyOrLookup;
+    } catch (err) {
+      lastError = asKeyLookupError(err, `signature[${i}]`);
+      continue;
+    }
 
     if (typeof rawKeyMaterial === "string") {
       lastError = stringKeyError();
@@ -461,6 +469,13 @@ export async function verifyMultiAll<T extends JOSEPayload = JOSEPayload>(
  * const flattened = generalToFlattenedJWS(general);
  */
 export function generalToFlattenedJWS(jws: JWSGeneralSerialization): JWSFlattenedSerialization {
+  assertSerializationObject(jws, "JWS");
+  if (!Array.isArray(jws.signatures)) {
+    throw new JWTError(
+      'Invalid JWS JSON Serialization: missing "signatures".',
+      "ERR_JWS_INVALID_SERIALIZATION",
+    );
+  }
   if (jws.signatures.length !== 1) {
     throw new JWTError(
       `Flattened JWS Serialization requires exactly one signature, got ${jws.signatures.length}.`,
@@ -497,9 +512,10 @@ function _checkUnprotectedCrit(header: JWSHeaderParameters | undefined): JWTErro
 
 function _resolveSignerAlg(signer: JWSMultiSigner, index: number): JWSAlgorithm {
   const alg = signer.alg ?? _inferSignerAlg(signer.key, index);
-  if ((alg as string) === "none") {
-    throw new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
-  }
+  // Settled before any key work, so a signer names an algorithm the library can
+  // actually produce — and is refused with the code verification would use.
+  const unsupported = checkJWSAlgSupported(alg);
+  if (unsupported) throw unsupported;
   return alg;
 }
 
@@ -789,11 +805,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
       wireSig.protected ?? "",
     );
   } catch (err) {
-    return fail(
-      _asJWTError(err, "ERR_JWK_KEY_NOT_FOUND", `Key resolver failed for signature[${index}]`),
-      protectedHeader,
-      unprotectedHeader,
-    );
+    return fail(asKeyLookupError(err, `signature[${index}]`), protectedHeader, unprotectedHeader);
   }
 
   if (typeof rawKeyMaterial === "string") {
