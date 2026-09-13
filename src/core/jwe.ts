@@ -8,7 +8,6 @@ import type {
   JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
-  UnwrapKeyOptions,
 } from "./types/jwk";
 import type { JOSEPayload, JWTClaims } from "./types/jwt";
 import type {
@@ -37,12 +36,13 @@ import {
 } from "./utils";
 import {
   JWE_ALG_CTX,
-  assertCandidateLimit,
   assertDirectKeyRole,
+  assertJWETyp,
+  assertJWKSetCandidates,
   assertNoZipOption,
   asKeyUsageError,
   buildJWKSetFilter,
-  cekFormatForEnc,
+  buildUnwrapKeyOptions,
   checkAlgAllowed,
   checkJWEAlgSupported,
   checkJWEContentSegments,
@@ -55,7 +55,6 @@ import {
   resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
-  typMatches,
   validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
@@ -307,12 +306,7 @@ export async function decrypt<T extends JOSEPayload>(
 
   validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
 
-  if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
-    throw new JWTError(
-      `Invalid JWE: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
-      "ERR_JWE_INVALID",
-    );
-  }
+  assertJWETyp(options.typ, protectedHeader.typ);
 
   const directKeyError = checkJWEDirectEncryptedKey(alg, encryptedKeyEncoded);
   if (directKeyError) throw directKeyError;
@@ -343,24 +337,7 @@ export async function decrypt<T extends JOSEPayload>(
   });
   if (algError) throw algError;
 
-  const unwrapKeyOpts: UnwrapKeyOptions = {
-    alg,
-    enc,
-    format: cekFormatForEnc(enc),
-    keyUsage: options?.keyUsage || ["decrypt"],
-  };
-  if (protectedHeader.iv) unwrapKeyOpts.iv = protectedHeader.iv;
-  if (protectedHeader.tag) unwrapKeyOpts.tag = protectedHeader.tag;
-  if (protectedHeader.p2s) unwrapKeyOpts.p2s = protectedHeader.p2s;
-  if (protectedHeader.p2c) unwrapKeyOpts.p2c = protectedHeader.p2c;
-  if (protectedHeader.epk) unwrapKeyOpts.epk = protectedHeader.epk;
-  if (protectedHeader.apu) unwrapKeyOpts.apu = protectedHeader.apu;
-  if (protectedHeader.apv) unwrapKeyOpts.apv = protectedHeader.apv;
-  if (options?.unwrappedKeyAlgorithm)
-    unwrapKeyOpts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
-  if (options?.extractable) unwrapKeyOpts.extractable = options.extractable;
-  if (options?.minIterations !== undefined) unwrapKeyOpts.minIterations = options.minIterations;
-  if (options?.maxIterations !== undefined) unwrapKeyOpts.maxIterations = options.maxIterations;
+  const unwrapKeyOpts = buildUnwrapKeyOptions(protectedHeader, { alg, enc }, options);
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
@@ -375,13 +352,10 @@ export async function decrypt<T extends JOSEPayload>(
         allowSymmetric: options?.allowSymmetricJWKSet,
       }),
     );
-    if (candidates.length === 0) {
-      throw new JWTError(
-        `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
-        "ERR_JWK_KEY_NOT_FOUND",
-      );
-    }
-    assertCandidateLimit(candidates.length, keyCandidateLimit);
+    assertJWKSetCandidates(candidates, {
+      limit: keyCandidateLimit,
+      notFound: `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
+    });
     // A candidate this token was not encrypted to — unusable key material as
     // much as a failed unwrap — only means "try the next one"; the collected
     // reasons become the `cause` when none decrypts.

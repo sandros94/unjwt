@@ -50,12 +50,13 @@ import {
 import {
   JWE_ALG_CTX,
   JWE_DIRECT_ALGS,
-  assertCandidateLimit,
   assertDirectKeyRole,
+  assertJWETyp,
+  assertJWKSetCandidates,
   assertEntryLimit,
   assertNoZipOption,
   buildJWKSetFilter,
-  cekFormatForEnc,
+  buildUnwrapKeyOptions,
   checkAlgAllowed,
   checkJWEAlgSupported,
   checkJWEContentSegments,
@@ -66,7 +67,6 @@ import {
   createPBES2Budget,
   decodeProtectedHeader,
   parseEphemeralKey,
-  typMatches,
   resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
@@ -297,12 +297,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
 
   validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
 
-  if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
-    throw new JWTError(
-      `Invalid JWE: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
-      "ERR_JWE_INVALID",
-    );
-  }
+  assertJWETyp(options.typ, protectedHeader.typ);
 
   const ivBytes = decodeSegment(general.iv, { family: "JWE", what: "Initialization vector" });
   const ciphertextBytes = decodeSegment(general.ciphertext, {
@@ -392,7 +387,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const unwrapKeyOpts = _buildUnwrapKeyOptions(effective, { alg, enc }, options);
+    const unwrapKeyOpts = buildUnwrapKeyOptions(effective, { alg, enc }, options);
 
     cryptoAttempted = true;
     let cek: Uint8Array<ArrayBuffer> | CryptoKey;
@@ -673,32 +668,6 @@ function _asJWTError(error: unknown): JWTError {
   return new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error);
 }
 
-function _buildUnwrapKeyOptions(
-  effectiveHeader: JWEHeaderParameters,
-  algorithms: { alg: KeyManagementAlgorithm; enc: ContentEncryptionAlgorithm },
-  options: JWEMultiDecryptOptions,
-): UnwrapKeyOptions {
-  const { alg, enc } = algorithms;
-  const opts: UnwrapKeyOptions = {
-    alg,
-    enc,
-    format: cekFormatForEnc(enc),
-    keyUsage: options.keyUsage || ["decrypt"],
-  };
-  if (effectiveHeader.iv) opts.iv = effectiveHeader.iv;
-  if (effectiveHeader.tag) opts.tag = effectiveHeader.tag;
-  if (effectiveHeader.p2s) opts.p2s = effectiveHeader.p2s;
-  if (effectiveHeader.p2c) opts.p2c = effectiveHeader.p2c;
-  if (effectiveHeader.epk) opts.epk = effectiveHeader.epk;
-  if (effectiveHeader.apu) opts.apu = effectiveHeader.apu;
-  if (effectiveHeader.apv) opts.apv = effectiveHeader.apv;
-  if (options.unwrappedKeyAlgorithm) opts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
-  if (options.extractable) opts.extractable = options.extractable;
-  if (options.minIterations !== undefined) opts.minIterations = options.minIterations;
-  if (options.maxIterations !== undefined) opts.maxIterations = options.maxIterations;
-  return opts;
-}
-
 interface UnwrapAndDecryptOptions {
   enc: ContentEncryptionAlgorithm;
   encryptedKey: Uint8Array<ArrayBuffer>;
@@ -740,10 +709,10 @@ async function _unwrapAndDecrypt(
       rawKeyMaterial,
       buildJWKSetFilter({ kid, alg }, { op: "enc", allowSymmetric }),
     );
-    if (candidates.length === 0) {
-      throw new JWTError("No key found in JWK Set.", "ERR_JWK_KEY_NOT_FOUND");
-    }
-    assertCandidateLimit(candidates.length, keyCandidates);
+    assertJWKSetCandidates(candidates, {
+      limit: keyCandidates,
+      notFound: "No key found in JWK Set.",
+    });
     // A candidate this recipient was not encrypted to — unusable key material
     // as much as a failed unwrap — only means "try the next one"; the collected
     // reasons become the `cause` when none decrypts.

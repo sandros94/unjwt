@@ -40,7 +40,7 @@ import {
   JWS_ALG_CTX,
   applyB64Crit,
   asKeyUsageError,
-  assertCandidateLimit,
+  assertJWKSetCandidates,
   assertEntryLimit,
   buildJWKSetFilter,
   checkAlgAllowed,
@@ -667,10 +667,10 @@ async function _verifyWithKeyMaterial(
       rawKeyMaterial,
       buildJWKSetFilter({ kid, alg }, { op: "sig", allowSymmetric }),
     );
-    if (candidates.length === 0) {
-      throw new JWTError("No key found in JWK Set.", "ERR_JWK_KEY_NOT_FOUND");
-    }
-    assertCandidateLimit(candidates.length, keyCandidates);
+    assertJWKSetCandidates(candidates, {
+      limit: keyCandidates,
+      notFound: "No key found in JWK Set.",
+    });
     // A candidate that cannot verify this signature — unusable key material as
     // much as a signature mismatch — only means "try the next one"; the
     // collected reasons become the `cause` when none verifies.

@@ -57,7 +57,7 @@ interface Entry {
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
-  // measured 23378
+  // measured 23437
   {
     name: "verify",
     module: "core/jws.ts",
@@ -71,7 +71,7 @@ const ENTRIES: ReadonlyArray<Entry> = [
     ceiling: 19700,
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
-  // measured 36230
+  // measured 36369
   { name: "decrypt", module: "core/jwe.ts", ceiling: 41700, absent: [MARKERS.thumbprint] },
   // measured 27772
   { name: "encrypt", module: "core/jwe.ts", ceiling: 32000, absent: [MARKERS.thumbprint] },

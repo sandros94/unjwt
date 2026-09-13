@@ -13,7 +13,9 @@ import type {
   JWTClaims,
   JWSAlgorithm,
   JOSEPayloadMode,
+  JWEHeaderParameters,
   KeyManagementAlgorithm,
+  UnwrapKeyOptions,
 } from "./types";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
@@ -88,6 +90,21 @@ export function assertCandidateLimit(count: number, limit: number): void {
     `${count} candidate keys exceed the limit of ${limit}; narrow the JWK Set with a "kid".`,
     "ERR_JWK_KEY_NOT_FOUND",
   );
+}
+
+/**
+ * The gate every JWK Set read passes: a set that offers no key for this token
+ * is a key-not-found failure, and one that offers more than the caller allows
+ * is refused before a single candidate is tried.
+ */
+export function assertJWKSetCandidates(
+  candidates: readonly unknown[],
+  options: { limit: number; notFound: string },
+): void {
+  if (candidates.length === 0) {
+    throw new JWTError(options.notFound, "ERR_JWK_KEY_NOT_FOUND");
+  }
+  assertCandidateLimit(candidates.length, options.limit);
 }
 
 /**
@@ -630,6 +647,44 @@ export function cekFormatForEnc(enc: ContentEncryptionAlgorithm): "cryptokey" | 
 }
 
 /**
+ * The unwrap options one JWE recipient is opened with: the algorithms it was
+ * encrypted under, the key management parameters its header carries, and the
+ * caller's own unwrap overrides. Parameters absent from the header are left
+ * off rather than set to `undefined`, so the primitive sees only what the
+ * token actually declared.
+ */
+export function buildUnwrapKeyOptions(
+  header: JWEHeaderParameters,
+  algorithms: { alg: KeyManagementAlgorithm; enc: ContentEncryptionAlgorithm },
+  options:
+    | Pick<
+        UnwrapKeyOptions,
+        "keyUsage" | "unwrappedKeyAlgorithm" | "extractable" | "minIterations" | "maxIterations"
+      >
+    | undefined,
+): UnwrapKeyOptions {
+  const { alg, enc } = algorithms;
+  const opts: UnwrapKeyOptions = {
+    alg,
+    enc,
+    format: cekFormatForEnc(enc),
+    keyUsage: options?.keyUsage || ["decrypt"],
+  };
+  if (header.iv) opts.iv = header.iv;
+  if (header.tag) opts.tag = header.tag;
+  if (header.p2s) opts.p2s = header.p2s;
+  if (header.p2c) opts.p2c = header.p2c;
+  if (header.epk) opts.epk = header.epk;
+  if (header.apu) opts.apu = header.apu;
+  if (header.apv) opts.apv = header.apv;
+  if (options?.unwrappedKeyAlgorithm) opts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
+  if (options?.extractable) opts.extractable = options.extractable;
+  if (options?.minIterations !== undefined) opts.minIterations = options.minIterations;
+  if (options?.maxIterations !== undefined) opts.maxIterations = options.maxIterations;
+  return opts;
+}
+
+/**
  * RFC 7516 §5.2 step 6 / §7.2.1 — direct key agreement carries no wrapped CEK,
  * so a non-empty encrypted key is a forgery attempt rather than ignorable bytes.
  */
@@ -706,6 +761,16 @@ export function checkJWEUnprotectedCrit(header: object | undefined): JWTError | 
 export function typMatches(expected: string, actual: unknown): boolean {
   if (typeof actual !== "string") return false;
   return normalizeTyp(expected) === normalizeTyp(actual);
+}
+
+/** Refuse a JWE whose `typ` is not the one the caller expects. */
+export function assertJWETyp(expected: string | undefined, actual: string | undefined): void {
+  if (expected && !typMatches(expected, actual)) {
+    throw new JWTError(
+      `Invalid JWE: "typ" (Type) Header Parameter mismatch. Expected "${expected}", got "${actual}".`,
+      "ERR_JWE_INVALID",
+    );
+  }
 }
 
 function normalizeTyp(typ: string): string {

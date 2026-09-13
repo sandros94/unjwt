@@ -30,7 +30,7 @@ import {
   JWS_ALG_CTX,
   applyB64Crit,
   asKeyUsageError,
-  assertCandidateLimit,
+  assertJWKSetCandidates,
   buildJWKSetFilter,
   checkAlgAllowed,
   checkJWSAlgSupported,
@@ -249,13 +249,10 @@ export async function verify<T extends JOSEPayload>(
           allowSymmetric: options.allowSymmetricJWKSet,
         }),
       );
-      if (candidates.length === 0) {
-        throw new JWTError(
-          `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
-          "ERR_JWK_KEY_NOT_FOUND",
-        );
-      }
-      assertCandidateLimit(candidates.length, keyCandidateLimit);
+      assertJWKSetCandidates(candidates, {
+        limit: keyCandidateLimit,
+        notFound: `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
+      });
       // A candidate this token cannot have been signed with — unusable key
       // material as much as a signature mismatch — only means "try the next
       // one"; the collected reasons become the `cause` when none verifies.
