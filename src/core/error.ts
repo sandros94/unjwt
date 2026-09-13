@@ -19,6 +19,7 @@ export { UnsecureError, type UnsecureErrorCode };
  *   ERR_JWS_*  — RFC 7515 JSON Web Signature
  *   ERR_JWE_*  — RFC 7516 JSON Web Encryption
  *   ERR_JWK_*  — RFC 7517 JSON Web Key
+ *   ERR_SESSION_* — the framework session adapters
  *
  * Use this type where a typo must not compile — {@link isJWTError} takes it,
  * so `isJWTError(err, "ERR_JWS_INVALD")` is a type error rather than a check
@@ -56,6 +57,11 @@ export type KnownJWTErrorCode =
   | "ERR_JWK_INVALID" // malformed or unsupported key material
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set
   | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
+  // Session adapters
+  | "ERR_SESSION_TOKEN_INVALID" // an incoming session token failed verification or decryption
+  | "ERR_SESSION_READONLY_EVENT" // update / clear on an event without a writable response
+  | "ERR_SESSION_KEY_INVALID" // session key missing, of the wrong shape, or a password string
+  | "ERR_SESSION_CONFIG_INVALID" // a session config combination that cannot work
   // Caller input that is not token or key material
   | "ERR_INVALID_OPTION"; // an option value is malformed or out of its documented range
 

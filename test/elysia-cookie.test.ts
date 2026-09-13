@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Elysia } from "elysia";
+import { isJWTError } from "../src/core/error";
 import {
   readChunkedCookie,
   writeChunkedCookie,
@@ -10,6 +11,15 @@ import {
 
 // ChunkableCookieJar is used by the mock-jar unit tests below; the real-Elysia
 // integration block passes ctx.cookie directly to prove structural assignability.
+
+function catchError(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
 
 interface MockEntry {
   value: unknown;
@@ -142,11 +152,29 @@ describe("elysia chunked cookies — unit", () => {
     expect(store.has("sess.1")).toBe(false);
   });
 
-  it("throws when a value would exceed the 100-chunk limit", () => {
+  it("throws when a value would exceed the 16-chunk limit", () => {
     const { jar } = makeJar();
-    expect(() => writeChunkedCookie(jar, "sess", "x".repeat(101), { chunkMaxLength: 1 })).toThrow(
-      /exceeding the limit of 100/,
+    const error = catchError(() =>
+      writeChunkedCookie(jar, "sess", "x".repeat(17), { chunkMaxLength: 1 }),
     );
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message).toMatch(/exceeding the limit of 16/);
+  });
+
+  it("bounds cleanup of a forged chunk marker to the chunk limit", () => {
+    const { jar, store } = makeJar({ sess: "__chunked__99" });
+    writeChunkedCookie(jar, "sess", "short");
+
+    expect(store.get("sess")?.value).toBe("short");
+    expect([...store.keys()].filter((key) => key.startsWith("sess."))).toHaveLength(0);
+  });
+
+  it("rejects a cookie jar entry that is not a reactive cookie", () => {
+    const error = catchError(() =>
+      writeChunkedCookie({} as Parameters<typeof writeChunkedCookie>[0], "sess", "value"),
+    );
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message).toMatch(/reactive cookie/);
   });
 });
 

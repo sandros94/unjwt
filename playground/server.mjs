@@ -6,12 +6,17 @@ import {
   getJWESession,
   updateJWSSession,
   generateJWK,
+  deriveJWKFromPassword,
 } from "unjwt/adapters/h3v2";
 
 const atJwk = await generateJWK("RS256");
+const rtJwk = await deriveJWKFromPassword("refresh_token_secret", "PBES2-HS256+A128KW", {
+  salt: "playground-salt",
+  iterations: 600_000,
+});
 
 const jweOptions = {
-  key: "refresh_token_secret",
+  key: rtJwk,
   name: "refresh_token",
   maxAge: 7 * 24 * 60 * 60, // 7 days
 };

@@ -13,7 +13,7 @@ Low-level JWT toolkit built on the Web Crypto API. Sign, verify, encrypt, decryp
 - **JWS** ([RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515)) — HMAC, RSA, RSA-PSS, ECDSA, EdDSA. Compact + General/Flattened JSON Serialization (multi-signature).
 - **JWE** ([RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516)) — `dir`, AES-KW, AES-GCM-KW, RSA-OAEP, PBES2, ECDH-ES. AES-GCM and AES-CBC-HMAC-SHA2 content encryption. Compact + General/Flattened JSON Serialization (multi-recipient).
 - **JWK** ([RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517)) — generate, import, export, wrap, unwrap. `CryptoKey` ↔ JWK ↔ PEM conversion. ECDH-ES shared-secret derivation. JWKS fetching, lookup, and rotation.
-- **Framework adapters** — cookie-based JWT sessions for [H3 v1](https://unjwt.s94.dev/adapters) (Nuxt v4 / Nitro v2) and [H3 v2](https://unjwt.s94.dev/adapters) (Nuxt v5 / Nitro v3).
+- **Framework adapters** — cookie-based JWT sessions for [H3 v1](https://unjwt.s94.dev/adapters) (Nuxt v4 / Nitro v2), [H3 v2](https://unjwt.s94.dev/adapters) (Nuxt v5 / Nitro v3) and [Elysia](https://unjwt.s94.dev/adapters/elysia-sessions).
 - **Runtime-agnostic** — Node 22+, Deno, Bun, Cloudflare Workers, browsers. Anywhere Web Crypto runs.
 - **Zero runtime dependencies** for core; optional peer deps for adapters (`h3`, `cookie-es`, `elysia`).
 
@@ -55,7 +55,7 @@ Full walkthroughs, recipes, and the complete API reference live at **[unjwt.s94.
 - [JWS — signing and verifying →](https://unjwt.s94.dev/jwt/jws)
 - [JWE — encrypting and decrypting →](https://unjwt.s94.dev/jwt/jwe)
 - [JWK — key management →](https://unjwt.s94.dev/jwk)
-- [H3 session adapters →](https://unjwt.s94.dev/adapters)
+- [Session adapters →](https://unjwt.s94.dev/adapters)
 - [Examples →](https://unjwt.s94.dev/examples) — authentication, JWKS endpoints, refresh tokens, end-to-end encryption, signed receipts.
 
 ## Development

@@ -4,28 +4,49 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
+import type { H3Event } from "h3v1";
+
 import type { CookieSerializeOptions } from "cookie-esv1";
-import { type H3Event, isEvent, setCookie } from "h3v1";
-import { parse as parseCookies } from "cookie-esv1";
-import { sanitizeObjectCopy } from "unsecure/sanitize";
+
 import type {
   ExpiresIn,
   JWEEncryptJWK,
   JWEDecryptJWK,
+  JWEDecryptOptions,
   JWEAsymmetricPublicJWK,
   JWEAsymmetricPrivateJWK,
   JWEEncryptOptions,
   JWEHeaderParameters,
-  JWTClaimValidationOptions,
 } from "../../../core/types";
-import { encrypt, decrypt, JWTError, isJWTError } from "../../../core/jwe";
+import type { StrictOmit } from "../../../core/utils/types";
+import { encrypt, decrypt, isJWTError } from "../../../core/jwe";
+import { isCryptoKey, isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../core/utils";
+import { sanitizeObjectCopy } from "unsecure/sanitize";
 import {
-  isSymmetricJWK,
-  isPrivateJWK,
-  isPublicJWK,
-  computeDurationInSeconds,
-} from "../../../core/utils";
+  type SessionIssueOptions,
+  assertKeyMaterial,
+  assertSessionContentType,
+  expiredSessionError,
+  invalidConfigError,
+  invalidKeyError,
+  readOnlyEventError,
+  resolveExpiresAt,
+  rethrowAsInvalidToken,
+  sanitizeSessionUpdate,
+  sessionRequiredClaims,
+  sessionTyp,
+  splitSessionClaims,
+} from "../../_session";
+import { setChunkedCookie, deleteChunkedCookie } from "../_cookie";
 import type { SessionClaims, SessionData, SessionUpdate, SessionManager } from "./types";
+import {
+  type CompatEvent,
+  PREFIX,
+  getSessionsContext,
+  hasWritableResponse,
+  readSessionToken,
+  sessionSlot,
+} from "./_shared";
 
 const kGetSessionPromise: unique symbol = Symbol("h3_jwe_getSession");
 
@@ -42,7 +63,7 @@ export interface SessionJWE<
   /** Session creation time in ms — mirrors the JWT `iat` claim (seconds). */
   createdAt: number;
   /** Session expiry time in ms — mirrors the JWT `exp` claim (seconds). */
-  expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
+  expiresAt: MaxAge extends ExpiresIn ? number : number | undefined;
   /** Session data — carried in the token payload, spread at the top level. */
   data: SessionData<T>;
   /** The current compact JWE token. `undefined` until the session is persisted. */
@@ -116,6 +137,12 @@ export interface SessionHooksJWE<
   }) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
 }
 
+/** JWE decrypt overrides a session accepts — everything the adapter does not own itself. */
+export type SessionDecryptOptions = StrictOmit<
+  JWEDecryptOptions,
+  "algorithms" | "encryptionAlgorithms" | "typ" | "validateClaims" | "forceUint8Array"
+>;
+
 /**
  * Configuration for a JWE-backed (encrypted) session.
  */
@@ -125,27 +152,29 @@ export interface SessionConfigJWE<
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 > {
   /**
-   * Secret used for sealing — a password string (PBES2), a symmetric JWK, or
-   * an asymmetric pair: the public key seals, the private key unseals.
+   * Key used for sealing — a symmetric JWK, a `CryptoKey`, or an asymmetric
+   * pair: the public key seals, the private key unseals. A `CryptoKey` carries
+   * no algorithm, so it additionally requires `jwe.encryptOptions.alg` and
+   * `enc`. Passwords are not keys — derive one once with
+   * `deriveJWKFromPassword()` and pass the JWK.
    */
   key:
-    | string
+    | CryptoKey
     | JWEEncryptJWK
     | {
-        privateKey: JWEAsymmetricPrivateJWK;
-        publicKey?: JWEAsymmetricPublicJWK;
+        privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
+        publicKey?: JWEAsymmetricPublicJWK | CryptoKey;
       };
   /**
-   * Session lifetime in seconds — sets `exp = iat + maxAge` in the token and
-   * drives the cookie expiry. Without it the library writes no `exp` — though
-   * an `exp` key in the session data is then carried into the token as its
-   * actual expiry claim.
+   * Session lifetime — sets `exp = iat + maxAge` in the token, bounds the age
+   * of an incoming token, and drives the cookie expiry. Without it the session
+   * writes no `exp` and never expires on its own.
    */
   maxAge?: MaxAge;
   /** Session name — drives the cookie name and the default session header. Default `"h3-jwe"`. */
   name?: string;
-  /** Cookie options (`false` to disable). Defaults: `path="/"`, `secure`, `httpOnly: true`. */
-  cookie?: false | CookieSerializeOptions;
+  /** Cookie options (`false` to disable). Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`. */
+  cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
   /** Request header to read the token from (`false` to disable). Default `x-<name>-session`. */
   sessionHeader?: false | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
@@ -153,7 +182,7 @@ export interface SessionConfigJWE<
   /** JWE encrypt/decrypt overrides. Set `encryptOptions.alg` and `enc` to pin the session algorithms — unsealing then accepts only them. */
   jwe?: {
     encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
-    decryptOptions?: JWTClaimValidationOptions;
+    decryptOptions?: SessionDecryptOptions;
   };
   /** Lifecycle hooks — see {@link SessionHooksJWE}. */
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
@@ -164,12 +193,8 @@ const DEFAULT_COOKIE: SessionConfigJWE["cookie"] = {
   path: "/",
   secure: true,
   httpOnly: true,
+  sameSite: "lax",
 };
-
-// Compatible type with h3 v2 and external usage
-type CompatEvent =
-  | { request: { headers: Headers }; context: any }
-  | { headers: Headers; context: any };
 
 /**
  * Create a session manager for the current request using JWE (encrypted).
@@ -179,30 +204,33 @@ export async function useJWESession<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<SessionManager<T, MaxAge>> {
-  const sessionName = config.name || DEFAULT_NAME;
+  const slot = sessionSlot("jwe", config.name || DEFAULT_NAME);
   await getJWESession(event, config);
 
   const sessionManager: SessionManager<T, MaxAge> = {
     get id() {
-      return event.context.sessions?.[sessionName]?.id;
+      return (event.context.sessions?.[slot] as SessionJWE<T, MaxAge> | undefined)?.id;
     },
     get createdAt() {
-      return event.context.sessions?.[sessionName]?.createdAt || Date.now();
-    },
-    get expiresAt() {
-      return event.context.sessions?.[sessionName]?.expiresAt;
-    },
-    get data() {
-      return (event.context.sessions?.[sessionName]?.data || {}) as T;
-    },
-    get token() {
       return (
-        (event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge>)?.token ??
-        getJWESessionToken(event, config)
+        (event.context.sessions?.[slot] as SessionJWE<T, MaxAge> | undefined)?.createdAt ??
+        Date.now()
       );
     },
-    update: async (update?: SessionUpdate<T>) => {
-      await updateJWESession(event, config, update);
+    get expiresAt() {
+      return (event.context.sessions?.[slot] as SessionJWE<T, MaxAge> | undefined)
+        ?.expiresAt as SessionManager<T, MaxAge>["expiresAt"];
+    },
+    get data() {
+      return ((event.context.sessions?.[slot] as SessionJWE<T, MaxAge> | undefined)?.data ||
+        {}) as T;
+    },
+    get token() {
+      const session = event.context.sessions?.[slot] as SessionJWE<T, MaxAge> | undefined;
+      return session ? session.token : getJWESessionToken(event, config);
+    },
+    update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
+      await updateJWESession(event, config, update, options);
       return sessionManager as Awaited<ReturnType<SessionManager<T, MaxAge>["update"]>>;
     },
     clear: async () => {
@@ -223,12 +251,11 @@ export async function getJWESession<
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<SessionJWE<T, MaxAge>> {
   const sessionName = config.name || DEFAULT_NAME;
+  const slot = sessionSlot("jwe", sessionName);
 
-  if (!event.context.sessions) {
-    event.context.sessions = Object.create(null);
-  }
+  const sessions = getSessionsContext(event);
 
-  const existingSession = event.context.sessions![sessionName] as SessionJWE<T, MaxAge>;
+  const existingSession = sessions[slot] as SessionJWE<T, MaxAge> | undefined;
   if (existingSession) {
     const session = existingSession[kGetSessionPromise]
       ? await existingSession[kGetSessionPromise]
@@ -248,43 +275,12 @@ export async function getJWESession<
           token: session.token!,
         },
         event,
-        error: new JWTError(
-          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(session.expiresAt * 1000).toISOString()})`,
-          "ERR_JWT_EXPIRED",
-          { jti: session.id, exp: session.expiresAt / 1000 },
-        ),
+        error: expiredSessionError({ id: session.id, expiresAt: session.expiresAt }),
         config,
       });
-      delete event.context.sessions![sessionName];
-      if (config.cookie !== false) {
-        if (isEvent(event)) {
-          setCookie(event, sessionName, "", {
-            ...DEFAULT_COOKIE,
-            ...config.cookie,
-            expires: new Date(0),
-            maxAge: undefined,
-          });
-        } else {
-          console.warn(
-            "[unjwt/h3] Session expired but cookie cannot be cleared on a read-only event.",
-          );
-        }
-      }
-      const freshNow = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-      const freshCreatedAt = freshNow - (freshNow % 1000);
-      const freshSession: SessionJWE<T, MaxAge> = {
-        id: undefined,
-        createdAt: freshCreatedAt,
-        expiresAt: (config.maxAge === undefined
-          ? undefined
-          : freshCreatedAt +
-            computeDurationInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
-          ? number
-          : T["exp"],
-        data: Object.create(null),
-        token: undefined,
-      };
-      event.context.sessions![sessionName] = freshSession;
+      dropSessionCookie(event, sessionName, config);
+      const freshSession = emptySession<T, MaxAge>(config);
+      sessions[slot] = freshSession;
       return freshSession;
     }
 
@@ -298,20 +294,8 @@ export async function getJWESession<
     return session;
   }
 
-  const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
-  const createdAt = now - (now % 1000);
-  const session: SessionJWE<T, MaxAge> = {
-    id: undefined,
-    createdAt,
-    expiresAt: (config.maxAge === undefined
-      ? undefined
-      : createdAt + computeDurationInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
-      ? number
-      : T["exp"],
-    data: Object.create(null),
-    token: undefined,
-  };
-  event.context.sessions![sessionName] = session;
+  const session = emptySession<T, MaxAge>(config);
+  sessions[slot] = session;
 
   const token = getJWESessionToken(event, config);
 
@@ -322,6 +306,8 @@ export async function getJWESession<
       .catch(async (error_) => {
         exclusiveHookFired = true;
         if (isJWTError(error_, "ERR_JWT_EXPIRED")) {
+          session.token = undefined;
+          dropSessionCookie(event, sessionName, config);
           await config.hooks?.onExpire?.({
             session: {
               id: error_.cause.jti,
@@ -329,15 +315,15 @@ export async function getJWESession<
               expiresAt: error_.cause.exp ? error_.cause.exp * 1000 : undefined,
               token,
             },
-            error: error_,
             event,
+            error: error_,
             config,
           });
         } else {
           await config.hooks?.onError?.({
             session,
-            error: error_,
             event,
+            error: error_,
             config,
           });
         }
@@ -347,10 +333,10 @@ export async function getJWESession<
         if (unsealed) {
           Object.assign(session, unsealed);
         }
-        delete event.context.sessions![sessionName][kGetSessionPromise];
+        delete session[kGetSessionPromise];
         return session as SessionJWE<T, MaxAge>;
       });
-    event.context.sessions![sessionName][kGetSessionPromise] = promise;
+    session[kGetSessionPromise] = promise;
     await promise;
   }
 
@@ -365,77 +351,21 @@ export async function getJWESession<
 }
 
 /**
- * Read the raw session token for the request. The session header (default
- * `x-<name>-session`, `Bearer ` prefix stripped) takes precedence, then a
- * freshly-minted token on the response's `Set-Cookie`, then the session cookie.
+ * Read the raw session token for the request. The cookie is consulted first,
+ * and the session header (default `x-<name>-session`, optional case-insensitive
+ * `Bearer` prefix) only when the cookie carries none.
  */
 export function getJWESessionToken<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): string | undefined {
-  const sessionName = config.name || DEFAULT_NAME;
-  let token: string | undefined;
-
-  if (config.sessionHeader !== false) {
-    const headerName =
-      typeof config.sessionHeader === "string"
-        ? config.sessionHeader.toLowerCase()
-        : `x-${sessionName.toLowerCase()}-session`;
-    const headerValue = _getReqHeader(event, headerName);
-    if (typeof headerValue === "string") {
-      token = headerValue.startsWith("Bearer ") ? headerValue.slice(7).trim() : headerValue;
-    }
-  }
-
-  // Set-Cookie header may carry a freshly-minted session on redirect responses.
-  if (config.cookie !== false) {
-    const setCookie = _getResHeader(event, "set-cookie");
-    if (typeof setCookie === "string") {
-      token = findSetCookie(setCookie, sessionName);
-    } else if (Array.isArray(setCookie)) {
-      for (const sc of setCookie) {
-        token = findSetCookie(sc, sessionName);
-        if (token) {
-          break;
-        }
-      }
-    }
-  }
-
-  if (!token) {
-    const cookieHeader = _getReqHeader(event, "cookie");
-    if (cookieHeader) {
-      token = parseCookies(String(cookieHeader))[sessionName];
-    }
-  }
-
-  return token;
-}
-
-function _getReqHeader(event: H3Event | CompatEvent, name: string) {
-  if ((event as H3Event).node) {
-    return (event as H3Event).node?.req.headers[name];
-  }
-  if ((event as { request?: Request }).request) {
-    return (event as { request?: Request }).request!.headers?.get(name);
-  }
-  if ((event as { headers?: Headers }).headers) {
-    return (event as { headers?: Headers }).headers!.get(name);
-  }
-}
-
-function _getResHeader(event: H3Event | CompatEvent, name: string) {
-  if ((event as H3Event).node) {
-    return (event as H3Event).node?.res.getHeader(name);
-  }
-  if ((event as { response?: Response }).response) {
-    return (event as { response?: Response }).response!.headers?.get(name);
-  }
+  return readSessionToken(event, config.name || DEFAULT_NAME, config);
 }
 
 /**
  * Update the session data (if provided) and reissue the JWE token.
+ * Pass `options.maxAge` to give this one token a lifetime of its own.
  */
 export async function updateJWESession<
   T extends Record<string, any> = SessionClaims,
@@ -445,43 +375,40 @@ export async function updateJWESession<
   event: TEvent,
   config: SessionConfigJWE<T, MaxAge, TEvent>,
   update?: SessionUpdate<T>,
-): Promise<SessionJWE<T, MaxAge> & { id: string; token: string }> {
-  const canWriteCookie = isEvent(event);
+  options?: SessionIssueOptions,
+): Promise<SessionJWE<T, MaxAge>> {
+  const canWriteCookie = hasWritableResponse(event);
   if (config.cookie !== false && !canWriteCookie) {
-    throw new Error("[unjwt/h3] Cannot update session on read-only event.");
+    throw readOnlyEventError(`${PREFIX} Cannot update session on read-only event.`);
   }
 
   const sessionName = config.name || DEFAULT_NAME;
+  const slot = sessionSlot("jwe", sessionName);
 
   const session: SessionJWE<T, MaxAge> & { id: string; token: string } =
-    (event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge> & {
-      id: string;
-      token: string;
-    }) || (await getJWESession(event, config));
+    (event.context.sessions?.[slot] as SessionJWE<T, MaxAge> & { id: string; token: string }) ||
+    (await getJWESession(event, config));
 
   // Snapshot before the updater runs, with a deep copy of `data`, so
   // `oldSession` is a true "before" state for hook diffing and rollback.
   const oldSession = { ...session, data: sanitizeObjectCopy(session.data) };
 
-  if (typeof update === "function") {
-    update = update(session.data);
+  const resolved = typeof update === "function" ? update(session.data) : update;
+  if (resolved) {
+    Object.assign(session.data, sanitizeSessionUpdate(resolved, { prefix: PREFIX }));
   }
 
-  if (update) {
-    Object.assign(session.data, update);
-  }
-
+  const maxAge = options?.maxAge ?? config.maxAge;
   const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
   const createdAt = now - (now % 1000);
   Object.assign(session, {
     id: config.generateId?.() || crypto.randomUUID(),
     createdAt,
-    expiresAt:
-      config.maxAge === undefined
-        ? undefined
-        : createdAt + computeDurationInSeconds(config.maxAge) * 1000,
+    expiresAt: resolveExpiresAt(createdAt, { maxAge }),
   });
 
+  // Always seal into a token and cache it so `session.token` stays accurate even
+  // when cookies are disabled or the response is not writable.
   let sealed: string;
   try {
     sealed = await sealJWESession(event, config);
@@ -497,14 +424,12 @@ export async function updateJWESession<
     throw error_;
   }
   session.token = sealed;
+
   if (config.cookie !== false && canWriteCookie) {
-    setCookie(event, sessionName, sealed, {
+    setChunkedCookie(event as H3Event, sessionName, sealed, {
       ...DEFAULT_COOKIE,
       ...config.cookie,
-      expires:
-        config.maxAge === undefined
-          ? undefined
-          : new Date(session.createdAt + computeDurationInSeconds(config.maxAge) * 1000),
+      expires: session.expiresAt === undefined ? undefined : new Date(session.expiresAt),
     });
   }
 
@@ -523,20 +448,18 @@ export async function updateJWESession<
 /**
  * Seal the current session as a compact JWE.
  * Payload: `session.data` spread at the top level, plus the reserved claims
- * `jti`, `iat`, and `exp` (when `maxAge` is set), which overwrite any
- * same-named keys in the session data.
+ * `jti`, `iat`, and `exp` (when the session has a lifetime).
  */
 export async function sealJWESession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<string> {
-  const key = getEncryptKey(config.key);
-
-  const sessionName = config.name || DEFAULT_NAME;
+  const key = getEncryptKey(config);
+  const slot = sessionSlot("jwe", config.name || DEFAULT_NAME);
 
   const session: SessionJWE<T, MaxAge> =
-    (event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge>) ||
+    (event.context.sessions?.[slot] as SessionJWE<T, MaxAge>) ||
     (await getJWESession(event, config));
 
   const iat = Math.floor(session.createdAt / 1000);
@@ -551,27 +474,16 @@ export async function sealJWESession<
     payload.exp = exp;
   }
 
-  let typ: string | undefined = undefined;
-  if (
-    config.jwe?.encryptOptions?.protectedHeader?.typ &&
-    typeof config.jwe.encryptOptions.protectedHeader.typ === "string" &&
-    config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
-  ) {
-    typ = config.jwe.encryptOptions.protectedHeader.typ;
-  }
-  const token = await encrypt(payload, key, {
+  return encrypt(payload as Record<string, unknown>, key as JWEEncryptJWK, {
     ...config.jwe?.encryptOptions,
-    // `exp` is computed from `maxAge` and carried via the `exp` claim above.
+    // `exp` is computed from the session lifetime and carried via the claim above.
     expiresIn: undefined,
     protectedHeader: {
       ...config.jwe?.encryptOptions?.protectedHeader,
-      kid: typeof key === "string" ? undefined : key.kid,
-      typ: typ || "JWT",
+      typ: sessionTyp(config.jwe?.encryptOptions?.protectedHeader?.typ),
       cty: "application/json",
     },
   });
-
-  return token;
 }
 
 /**
@@ -579,8 +491,8 @@ export async function sealJWESession<
  * Performs:
  *  - authenticated decryption
  *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
- *  - `typ` header check and alg/enc pinning when configured
- *  - `maxAge` enforced as `maxTokenAge` when provided
+ *  - `typ` and `cty` header checks, and alg/enc pinning when configured
+ *  - `maxAge` enforced as `maxTokenAge`, and `exp` required alongside it
  */
 export async function unsealJWESession<
   T extends Record<string, any> = SessionClaims,
@@ -598,80 +510,72 @@ export async function unsealJWESession<
           event,
           config,
         })
-    : getDecryptKey(config.key);
+    : getDecryptKey(config);
 
   const alg = config.jwe?.encryptOptions?.alg;
   const enc = config.jwe?.encryptOptions?.enc;
 
-  let typ: string | undefined = undefined;
-  if (
-    config.jwe?.encryptOptions?.protectedHeader?.typ &&
-    typeof config.jwe.encryptOptions.protectedHeader.typ === "string" &&
-    config.jwe.encryptOptions.protectedHeader.typ.toLowerCase().includes("jwt")
-  ) {
-    typ = config.jwe.encryptOptions.protectedHeader.typ;
-  }
-  const { payload } = await decrypt<T & { jti: string; iat: number; exp?: number }>(sealed, key, {
-    ...config.jwe?.decryptOptions,
-    requiredClaims: [
-      ...new Set([...(config.jwe?.decryptOptions?.requiredClaims || []), "jti", "iat"]),
-    ],
-    typ: typ || "JWT",
-    maxTokenAge: config.maxAge,
-    algorithms: alg ? [alg] : undefined,
-    encryptionAlgorithms: enc ? [enc] : undefined,
-    unwrappedKeyAlgorithm: undefined,
-    keyUsage: undefined,
-    forceUint8Array: false,
-    validateClaims: true,
-  }).catch((error_) => {
-    if (isJWTError(error_, "ERR_JWT_EXPIRED")) throw error_;
-    const message = error_ instanceof Error ? error_.message : String(error_);
-    throw new Error(`Invalid session token: ${message}`);
-  });
+  const { payload, protectedHeader } = await decrypt<T & { jti: string; iat: number }>(
+    sealed,
+    key as JWEDecryptJWK,
+    {
+      ...config.jwe?.decryptOptions,
+      maxIterations: sessionMaxIterations(config),
+      requiredClaims: sessionRequiredClaims(config.jwe?.decryptOptions?.requiredClaims, {
+        maxAge: config.maxAge,
+      }),
+      typ: sessionTyp(config.jwe?.encryptOptions?.protectedHeader?.typ),
+      maxTokenAge: config.maxAge,
+      algorithms: alg ? [alg] : undefined,
+      encryptionAlgorithms: enc ? [enc] : undefined,
+      forceUint8Array: false,
+      validateClaims: true,
+    },
+  ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix: PREFIX }));
 
-  const { jti, iat, exp, ...data } = payload;
+  assertSessionContentType(protectedHeader.cty, { prefix: PREFIX });
+
+  const { jti, iat, exp, data } = splitSessionClaims(payload);
 
   return {
     id: jti,
     createdAt: iat * 1000,
-    expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn ? number : T["exp"],
-    data: (data && typeof data === "object" ? data : Object.create(null)) as any,
+    expiresAt: (exp ? exp * 1000 : undefined) as SessionJWE<T, MaxAge>["expiresAt"],
+    data: data as SessionData<T>,
   };
 }
 
 /**
- * Clear the session (delete from context and drop cookie).
+ * Clear the session: drop the cookie and leave an empty session behind, so a
+ * later read in the same request sees no session rather than the request cookie.
  */
 export async function clearJWESession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<void> {
-  const canWriteCookie = isEvent(event);
+  const canWriteCookie = hasWritableResponse(event);
   if (config.cookie !== false && !canWriteCookie) {
-    throw new Error("[unjwt/h3] Cannot clear session on read-only event.");
+    throw readOnlyEventError(`${PREFIX} Cannot clear session on read-only event.`);
   }
 
   const sessionName = config.name || DEFAULT_NAME;
+  const slot = sessionSlot("jwe", sessionName);
+  const sessions = getSessionsContext(event);
 
-  let session = event.context.sessions?.[sessionName] as SessionJWE<T, MaxAge> | undefined;
+  let session = sessions[slot] as SessionJWE<T, MaxAge> | undefined;
   if (session && session[kGetSessionPromise]) {
     session = await session[kGetSessionPromise];
   }
-  const oldSession = session ? { ...session, data: sanitizeObjectCopy(session.data) } : undefined;
+  const oldSession =
+    session && (session.id !== undefined || session.token !== undefined)
+      ? { ...session, data: sanitizeObjectCopy(session.data) }
+      : undefined;
 
-  if (event.context.sessions?.[sessionName]) {
-    delete event.context.sessions[sessionName];
-  }
+  sessions[slot] = emptySession<T, MaxAge>(config);
 
   if (config.cookie !== false && canWriteCookie) {
-    setCookie(event, sessionName, "", {
-      ...DEFAULT_COOKIE,
-      ...config.cookie,
-      expires: new Date(0),
-      maxAge: undefined,
-    });
+    deleteChunkedCookie(event as H3Event, sessionName, { ...DEFAULT_COOKIE, ...config.cookie });
   }
 
   await config.hooks?.onClear?.({
@@ -681,58 +585,108 @@ export async function clearJWESession<
   });
 }
 
-function getEncryptKey(key: SessionConfigJWE["key"] | undefined): string | JWEEncryptJWK {
-  if (!key) {
-    throw new Error("Session: JWE key is required.");
-  }
+function emptySession<T extends Record<string, any>, MaxAge extends ExpiresIn | undefined>(
+  config: SessionConfigJWE<T, MaxAge, any>,
+): SessionJWE<T, MaxAge> {
+  const now = config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now();
+  const createdAt = now - (now % 1000);
+  return {
+    id: undefined,
+    createdAt,
+    expiresAt: resolveExpiresAt(createdAt, { maxAge: config.maxAge }) as SessionJWE<
+      T,
+      MaxAge
+    >["expiresAt"],
+    data: Object.create(null),
+    token: undefined,
+  };
+}
 
-  let _key: string | JWEEncryptJWK | undefined;
-  if (typeof key === "string") {
+function dropSessionCookie(
+  event: CompatEvent | H3Event,
+  sessionName: string,
+  config: SessionConfigJWE<any, any, any>,
+): void {
+  if (config.cookie === false) return;
+  if (!hasWritableResponse(event)) {
+    console.warn(`${PREFIX} Session expired but cookie cannot be cleared on a read-only event.`);
+    return;
+  }
+  deleteChunkedCookie(event, sessionName, { ...DEFAULT_COOKIE, ...config.cookie });
+}
+
+/**
+ * PBES2 unwrap accepts at most the `p2c` the session itself mints, so a token
+ * that pins a pinned-algorithm session to a costlier iteration count is refused.
+ */
+function sessionMaxIterations(config: SessionConfigJWE<any, any, any>): number | undefined {
+  const configured = config.jwe?.decryptOptions?.maxIterations;
+  if (configured !== undefined) return configured;
+  const alg = config.jwe?.encryptOptions?.alg;
+  return typeof alg === "string" && alg.startsWith("PBES2")
+    ? config.jwe?.encryptOptions?.p2c
+    : undefined;
+}
+
+function getEncryptKey(config: SessionConfigJWE<any, any, any>): JWEEncryptJWK | CryptoKey {
+  const key = config.key;
+  assertKeyMaterial(key, { prefix: PREFIX });
+
+  let _key: JWEEncryptJWK | CryptoKey | undefined;
+  if (isCryptoKey(key)) {
     _key = key;
   } else if (isSymmetricJWK(key)) {
-    _key = key;
-  } else if ("publicKey" in key && key.publicKey && isPublicJWK(key.publicKey)) {
-    _key = key.publicKey;
-  } else if ("privateKey" in key && isPrivateJWK(key.privateKey)) {
+    _key = key as JWEEncryptJWK;
+  } else if ("publicKey" in key && key.publicKey) {
+    const publicKey = key.publicKey;
+    if (isCryptoKey(publicKey) || isPublicJWK(publicKey)) _key = publicKey as JWEEncryptJWK;
+  }
+  if (!_key && "privateKey" in key) {
     // Fall back to the private JWK — `encrypt` accepts a symmetric oct here or
     // extracts the public parts internally when the caller has no public half.
-    _key = key.privateKey as unknown as JWEEncryptJWK;
+    const privateKey = key.privateKey;
+    if (isCryptoKey(privateKey) || isPrivateJWK(privateKey)) {
+      _key = privateKey as unknown as JWEEncryptJWK;
+    }
   }
 
   if (!_key) {
-    throw new Error("Session: Invalid JWE key. It must be a password string or valid JWK.", {
-      cause: key,
-    });
+    throw invalidKeyError(`${PREFIX} Invalid JWE key. It must be a JWK or a CryptoKey.`, key);
   }
 
+  assertPinnedAlgEnc(_key, config);
   return _key;
 }
-function getDecryptKey(key: SessionConfigJWE["key"] | undefined): string | JWEDecryptJWK {
-  if (!key) {
-    throw new Error("Session: JWE key is required.");
-  }
 
-  let _key: string | JWEDecryptJWK | undefined = undefined;
-  if (typeof key === "string") {
+function getDecryptKey(config: SessionConfigJWE<any, any, any>): JWEDecryptJWK | CryptoKey {
+  const key = config.key;
+  assertKeyMaterial(key, { prefix: PREFIX });
+
+  let _key: JWEDecryptJWK | CryptoKey | undefined;
+  if (isCryptoKey(key)) {
     _key = key;
   } else if (isSymmetricJWK(key)) {
-    _key = key;
+    _key = key as JWEDecryptJWK;
   } else if ("privateKey" in key) {
-    _key = key.privateKey;
+    _key = key.privateKey as JWEAsymmetricPrivateJWK;
   }
 
   if (!_key) {
-    throw new Error(
-      "Session: Invalid JWE key. It must be a password string or a valid private JWK.",
-      { cause: key },
+    throw invalidKeyError(
+      `${PREFIX} Invalid JWE key. It must be a JWK, a private JWK, or a CryptoKey.`,
+      key,
     );
   }
 
+  assertPinnedAlgEnc(_key, config);
   return _key;
 }
-function findSetCookie(setCookie: string, name: string): string | undefined {
-  const regex = new RegExp(`(?:^|,\\s*)${name}=([^;]+)`);
-  const match = setCookie.match(regex);
 
-  return match ? match[1] : undefined;
+function assertPinnedAlgEnc(key: unknown, config: SessionConfigJWE<any, any, any>): void {
+  if (!isCryptoKey(key)) return;
+  if (!config.jwe?.encryptOptions?.alg || !config.jwe?.encryptOptions?.enc) {
+    throw invalidConfigError(
+      `${PREFIX} A CryptoKey session key carries no algorithm: set "jwe.encryptOptions.alg" and "enc".`,
+    );
+  }
 }

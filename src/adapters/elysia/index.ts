@@ -1,9 +1,10 @@
 export type {
   SessionClaims,
+  SessionContext,
   SessionData,
+  SessionIssueOptions,
   SessionManager,
   SessionUpdate,
-  SessionContext,
 } from "./session/types.ts";
 export {
   type SessionConfigJWS,
@@ -14,6 +15,7 @@ export {
 } from "./session/jws.ts";
 export {
   type SessionConfigJWE,
+  type SessionDecryptOptions,
   type SessionHooksJWE,
   type SessionJWE,
   createJWESession,

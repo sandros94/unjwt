@@ -14,19 +14,22 @@ import type {
 import { Elysia } from "elysia";
 import { sign, verify, isJWTError } from "../../../core/jws";
 import { guardName, type SessionPlugin } from "../_plugin";
-import {
-  isSymmetricJWK,
-  isPrivateJWK,
-  isPublicJWK,
-  computeDurationInSeconds,
-} from "../../../core/utils";
+import { isCryptoKey, isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../../../core/utils";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import {
-  readChunkedCookie,
-  writeChunkedCookie,
-  removeChunkedCookie,
-  type CookieAttributes,
-} from "../_cookie";
+  type SessionIssueOptions,
+  assertKeyMaterial,
+  assertSessionContentType,
+  invalidConfigError,
+  invalidKeyError,
+  resolveExpiresAt,
+  rethrowAsInvalidToken,
+  sanitizeSessionUpdate,
+  sessionRequiredClaims,
+  sessionTyp,
+  splitSessionClaims,
+} from "../../_session";
+import { writeChunkedCookie, removeChunkedCookie, type CookieAttributes } from "../_cookie";
 import type {
   SessionClaims,
   SessionData,
@@ -34,6 +37,7 @@ import type {
   SessionManager,
   SessionContext,
 } from "./types";
+import { PREFIX, emptyData, readSessionToken } from "./_shared";
 
 export type { SessionContext };
 
@@ -43,7 +47,7 @@ export interface SessionJWS<
 > {
   id: string | undefined;
   createdAt: number;
-  expiresAt: MaxAge extends ExpiresIn ? number : T["exp"];
+  expiresAt: MaxAge extends ExpiresIn ? number : number | undefined;
   data: SessionData<T>;
   token: string | undefined;
 }
@@ -98,12 +102,22 @@ export interface SessionConfigJWS<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TContext extends SessionContext = SessionContext,
 > {
+  /**
+   * Key used for signing — a symmetric `oct` (HS*) JWK, a `CryptoKey`, or an
+   * asymmetric pair. A `CryptoKey` carries no algorithm, so it additionally
+   * requires `jws.signOptions.alg`.
+   */
   key:
+    | CryptoKey
     | JWK_oct<JWK_HMAC>
     | {
-        privateKey: JWSAsymmetricPrivateJWK;
-        publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet;
+        privateKey: JWSAsymmetricPrivateJWK | CryptoKey;
+        publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet | CryptoKey;
       };
+  /**
+   * Session lifetime — sets `exp = iat + maxAge` in the token, bounds the age
+   * of an incoming token, and drives the cookie expiry.
+   */
   maxAge?: MaxAge;
   name?: string;
   /** Context property the session is exposed under. Default `"session"`. */
@@ -148,7 +162,10 @@ export function jwsSession<
     (K extends "session" ? { contextKey?: K } : { contextKey: K }),
 ): SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`> {
   const contextKey = (config.contextKey ?? "session") as K;
-  return new Elysia({ name: "unjwt/elysia-jws", seed: contextKey })
+  // The seed carries the session name as well as the context key, so two
+  // differently-named sessions register as two plugins rather than one.
+  const seed = `${config.name || DEFAULT_NAME}:${contextKey}`;
+  return new Elysia({ name: "unjwt/elysia-jws", seed })
     .resolve({ as: "scoped" }, async ({ cookie, request }) => {
       const session = await createJWSSession<T, MaxAge, SessionContext>(
         { cookie, request },
@@ -197,8 +214,8 @@ function buildManager<
     get token() {
       return state.token;
     },
-    update: async (update?: SessionUpdate<T>) => {
-      await updateSession(context, config, state, update);
+    update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
+      await updateSession(context, config, state, update, options);
       return manager;
     },
     clear: async () => {
@@ -218,7 +235,7 @@ async function initFromToken<
   config: SessionConfigJWS<T, MaxAge, TContext>,
   state: SessionJWS<T, MaxAge>,
 ): Promise<void> {
-  const token = readToken(context, config);
+  const token = readSessionToken(context, config.name || DEFAULT_NAME, config);
   if (!token) return;
 
   state.token = token;
@@ -230,6 +247,8 @@ async function initFromToken<
   } catch (error_) {
     exclusiveHookFired = true;
     if (isJWTError(error_, "ERR_JWT_EXPIRED")) {
+      state.token = undefined;
+      dropSessionCookie(context, config);
       await config.hooks?.onExpire?.({
         session: {
           id: error_.cause.jti,
@@ -264,23 +283,21 @@ async function updateSession<
   config: SessionConfigJWS<T, MaxAge, TContext>,
   state: SessionJWS<T, MaxAge>,
   update?: SessionUpdate<T>,
+  options?: SessionIssueOptions,
 ): Promise<void> {
   const oldSession: SessionJWS<T, MaxAge> = { ...state, data: sanitizeObjectCopy(state.data) };
 
   const resolvedUpdate = typeof update === "function" ? update(state.data) : update;
   if (resolvedUpdate) {
-    Object.assign(state.data, resolvedUpdate);
+    Object.assign(state.data, sanitizeSessionUpdate(resolvedUpdate, { prefix: PREFIX }));
   }
 
+  const maxAge = options?.maxAge ?? config.maxAge;
   const now = config.jws?.signOptions?.currentDate?.getTime() ?? Date.now();
   const createdAt = now - (now % 1000);
   state.id = config.generateId?.() || crypto.randomUUID();
   state.createdAt = createdAt;
-  state.expiresAt = (
-    config.maxAge === undefined
-      ? undefined
-      : createdAt + computeDurationInSeconds(config.maxAge) * 1000
-  ) as SessionJWS<T, MaxAge>["expiresAt"];
+  state.expiresAt = resolveExpiresAt(createdAt, { maxAge }) as SessionJWS<T, MaxAge>["expiresAt"];
 
   let token: string;
   try {
@@ -301,10 +318,7 @@ async function updateSession<
     writeChunkedCookie(context.cookie, config.name || DEFAULT_NAME, token, {
       ...attrs,
       chunkMaxLength,
-      expires:
-        config.maxAge === undefined
-          ? undefined
-          : new Date(createdAt + computeDurationInSeconds(config.maxAge) * 1000),
+      expires: state.expiresAt === undefined ? undefined : new Date(state.expiresAt),
     });
   }
 
@@ -337,10 +351,7 @@ async function clearSession<
   state.data = fresh.data;
   state.token = fresh.token;
 
-  if (config.cookie !== false) {
-    const { chunkMaxLength: _chunkMaxLength, ...attrs } = { ...DEFAULT_COOKIE, ...config.cookie };
-    removeChunkedCookie(context.cookie, config.name || DEFAULT_NAME, attrs);
-  }
+  dropSessionCookie(context, config);
 
   await config.hooks?.onClear?.({ oldSession, context, config });
 }
@@ -350,7 +361,7 @@ async function signSession<
   MaxAge extends ExpiresIn | undefined,
   TContext extends SessionContext,
 >(config: SessionConfigJWS<T, MaxAge, TContext>, state: SessionJWS<T, MaxAge>): Promise<string> {
-  const key = getSignKey(config.key);
+  const key = getSignKey(config);
 
   const iat = Math.floor(state.createdAt / 1000);
   const exp = state.expiresAt ? Math.floor(state.expiresAt / 1000) : undefined;
@@ -360,13 +371,13 @@ async function signSession<
     payload.exp = exp;
   }
 
-  return sign(payload, key, {
+  return sign(payload as Record<string, unknown>, key as JWSSignJWK, {
     ...config.jws?.signOptions,
     expiresIn: undefined,
     protectedHeader: {
       ...config.jws?.signOptions?.protectedHeader,
       kid: "kid" in key ? key.kid : undefined,
-      typ: resolveTyp(config) || "JWT",
+      typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
       cty: "application/json",
     },
   });
@@ -385,29 +396,32 @@ async function verifySession<
   const jwk = config.hooks?.onVerifyKeyLookup
     ? (header: JWKLookupFunctionHeader) =>
         config.hooks!.onVerifyKeyLookup!({ header, context, config })
-    : getVerifyKey(config.key);
+    : getVerifyKey(config);
 
-  const { payload } = await verify<T & { iat: number }>(token, jwk, {
-    ...config.jws?.verifyOptions,
-    requiredClaims: [
-      ...new Set([...(config.jws?.verifyOptions?.requiredClaims || []), "jti", "iat"]),
-    ],
-    typ: resolveTyp(config) || "JWT",
-    algorithms: alg ? [alg] : undefined,
-    forceUint8Array: false,
-    validateClaims: true,
-  }).catch((error_: unknown) => {
-    if (isJWTError(error_, "ERR_JWT_EXPIRED")) throw error_;
-    const message = error_ instanceof Error ? error_.message : String(error_);
-    throw new Error(`Invalid session token: ${message}`);
-  });
+  const { payload, protectedHeader } = await verify<T & { jti: string; iat: number }>(
+    token,
+    jwk as JWSVerifyJWK,
+    {
+      ...config.jws?.verifyOptions,
+      requiredClaims: sessionRequiredClaims(config.jws?.verifyOptions?.requiredClaims, {
+        maxAge: config.maxAge,
+      }),
+      typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
+      maxTokenAge: config.maxAge,
+      algorithms: alg ? [alg] : undefined,
+      forceUint8Array: false,
+      validateClaims: true,
+    },
+  ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix: PREFIX }));
 
-  const { jti, iat, exp, ...data } = payload;
+  assertSessionContentType(protectedHeader.cty, { prefix: PREFIX });
+
+  const { jti, iat, exp, data } = splitSessionClaims(payload);
   return {
     id: jti,
     createdAt: iat * 1000,
     expiresAt: (exp ? exp * 1000 : undefined) as SessionJWS<T, MaxAge>["expiresAt"],
-    data: (data && typeof data === "object" ? data : emptyData<T>()) as SessionData<T>,
+    data: data as SessionData<T>,
   };
 }
 
@@ -419,9 +433,7 @@ function emptySession<T extends Record<string, any>, MaxAge extends ExpiresIn | 
   return {
     id: undefined,
     createdAt,
-    expiresAt: (config.maxAge === undefined
-      ? undefined
-      : createdAt + computeDurationInSeconds(config.maxAge) * 1000) as SessionJWS<
+    expiresAt: resolveExpiresAt(createdAt, { maxAge: config.maxAge }) as SessionJWS<
       T,
       MaxAge
     >["expiresAt"],
@@ -430,78 +442,51 @@ function emptySession<T extends Record<string, any>, MaxAge extends ExpiresIn | 
   };
 }
 
-function emptyData<T extends Record<string, any>>(): SessionData<T> {
-  return Object.create(null) as SessionData<T>;
+function dropSessionCookie(context: SessionContext, config: SessionConfigJWS<any, any, any>): void {
+  if (config.cookie === false) return;
+  const { chunkMaxLength: _chunkMaxLength, ...attrs } = { ...DEFAULT_COOKIE, ...config.cookie };
+  removeChunkedCookie(context.cookie, config.name || DEFAULT_NAME, attrs);
 }
 
-function readToken<
-  T extends Record<string, any>,
-  MaxAge extends ExpiresIn | undefined,
-  TContext extends SessionContext,
->(context: TContext, config: SessionConfigJWS<T, MaxAge, TContext>): string | undefined {
-  const sessionName = config.name || DEFAULT_NAME;
+function getSignKey(config: SessionConfigJWS<any, any, any>): JWSSignJWK | CryptoKey {
+  const key = config.key;
+  assertKeyMaterial(key, { prefix: PREFIX });
 
-  if (config.sessionHeader !== false) {
-    const headerName =
-      typeof config.sessionHeader === "string"
-        ? config.sessionHeader.toLowerCase()
-        : `x-${sessionName.toLowerCase()}-session`;
-    const headerValue = context.request.headers.get(headerName);
-    if (typeof headerValue === "string") {
-      return headerValue.startsWith("Bearer ") ? headerValue.slice(7).trim() : headerValue;
-    }
-  }
-
-  if (config.cookie !== false) {
-    return readChunkedCookie(context.cookie, sessionName);
-  }
-
-  return undefined;
-}
-
-function resolveTyp(config: SessionConfigJWS<any, any, any>): string | undefined {
-  const typ = config.jws?.signOptions?.protectedHeader?.typ;
-  if (typeof typ === "string" && typ.toLowerCase().includes("jwt")) {
-    return typ;
-  }
-  return undefined;
-}
-
-function getSignKey(key: SessionConfigJWS["key"] | undefined): JWSSignJWK {
-  if (!key) {
-    throw new Error("[unjwt/elysia] JWS key is required.");
-  }
-
-  let _key: JWSSignJWK | undefined;
-  if (isSymmetricJWK(key)) {
+  let _key: JWSSignJWK | CryptoKey | undefined;
+  if (isCryptoKey(key)) {
     _key = key;
-  } else if ("privateKey" in key && isPrivateJWK(key.privateKey)) {
-    _key = key.privateKey;
+  } else if (isSymmetricJWK(key)) {
+    _key = key;
+  } else if ("privateKey" in key) {
+    const privateKey = key.privateKey;
+    if (isCryptoKey(privateKey) || isPrivateJWK(privateKey)) _key = privateKey;
   }
 
   if (!_key) {
-    throw new Error(
-      "[unjwt/elysia] Invalid JWS key. It must be a symmetric JWK or a private JWK.",
-      {
-        cause: key,
-      },
+    throw invalidKeyError(
+      `${PREFIX} Invalid JWS key. It must be a symmetric JWK, a private JWK, or a CryptoKey.`,
+      key,
     );
   }
 
+  assertPinnedAlg(_key, config);
   return _key;
 }
 
-function getVerifyKey(key: SessionConfigJWS["key"] | undefined): JWSVerifyJWK | JWKSet {
-  if (!key) {
-    throw new Error("[unjwt/elysia] JWS key is required.");
-  }
+function getVerifyKey(config: SessionConfigJWS<any, any, any>): JWSVerifyJWK | JWKSet | CryptoKey {
+  const key = config.key;
+  assertKeyMaterial(key, { prefix: PREFIX });
 
-  let _key: JWSVerifyJWK | JWKSet | undefined;
-  if (isSymmetricJWK(key)) {
+  let _key: JWSVerifyJWK | JWKSet | CryptoKey | undefined;
+  if (isCryptoKey(key)) {
+    _key = key;
+  } else if (isSymmetricJWK(key)) {
     _key = key;
   } else if ("publicKey" in key) {
     const publicKey = key.publicKey;
-    if (isPublicJWK(publicKey)) {
+    if (isCryptoKey(publicKey)) {
+      _key = publicKey;
+    } else if (isPublicJWK(publicKey)) {
       _key = publicKey;
     } else if (Array.isArray(publicKey)) {
       const keys = publicKey.filter((candidate) => isPublicJWK(candidate));
@@ -521,13 +506,20 @@ function getVerifyKey(key: SessionConfigJWS["key"] | undefined): JWSVerifyJWK | 
   }
 
   if (!_key) {
-    throw new Error(
-      "[unjwt/elysia] Invalid JWS key. It must be a symmetric JWK or a public JWK/set.",
-      {
-        cause: key,
-      },
+    throw invalidKeyError(
+      `${PREFIX} Invalid JWS key. It must be a symmetric JWK, a public JWK/set, or a CryptoKey.`,
+      key,
     );
   }
 
+  assertPinnedAlg(_key, config);
   return _key;
+}
+
+function assertPinnedAlg(key: unknown, config: SessionConfigJWS<any, any, any>): void {
+  if (isCryptoKey(key) && !config.jws?.signOptions?.alg) {
+    throw invalidConfigError(
+      `${PREFIX} A CryptoKey session key carries no algorithm: set "jws.signOptions.alg".`,
+    );
+  }
 }

@@ -60,12 +60,19 @@ src/
     _crypto/            # low-level crypto primitives — originally derived from panva/jose, now maintained in-tree
                         # (_sign-verify, _aes, _ecdh, _pbes2, _rsa, _key-codec, _key-encryption, _pem)
   adapters/
+    _session.ts         # framework-agnostic session contract shared by every adapter
+                        # (error factories, reserved-claim stripping, token-source rules, typ/exp helpers)
+    _chunked-cookie.ts  # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
     h3v1/               # H3 v1 session adapter (useJWSSession, useJWESession)
+      _cookie.ts        # chunked-cookie layer over h3 v1's getCookie/setCookie
+      session/_shared.ts# CompatEvent, context slots, token reading
     h3v2/               # H3 v2 session adapter (same API, different h3 import)
+      session/_shared.ts# context slots, token reading, res.errHeaders staging
     elysia/             # Elysia session adapter
       _cookie.ts        # chunked-cookie layer over Elysia's reactive cookie jar
       _plugin.ts        # SessionPlugin<> explicit return type + guardName() helper
       session/          # createJWSSession/createJWESession cores, jwsSession/jweSession plugins, shared types
+      session/_shared.ts# token reading, empty session data
 ```
 
 ### Key design patterns
@@ -76,7 +83,7 @@ src/
 - **Bundled `unsecure` dependency:** core imports primitives from [`unsecure`](https://github.com/sandros94/unsecure) (`base64UrlEncode`/`base64UrlDecode`, `secureRandomBytes`, `sanitizeObjectCopy`/`safeJsonParse`). It is a devDependency inlined into dist at build time (not marked external in `build.config.ts`), so the published package keeps zero runtime dependencies.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
-- **Session adapters** store JWT tokens in chunked cookies (via h3's `getChunkedCookie`/`setChunkedCookie`). Sessions are lazy — `id` is `undefined` until `session.update()` is called.
+- **Session adapters** store JWT tokens in chunked cookies — h3 v2 through h3's own `getChunkedCookie`/`setChunkedCookie`, h3 v1 and Elysia through `src/adapters/_chunked-cookie.ts` over their own primitives, all writing the same `__chunked__N` + `<name>.1…N` layout. Sessions are lazy — `id` is `undefined` until `session.update()` is called. `jti`/`iat`/`exp`/`nbf` are adapter-owned; the cookie is read before the session header; every adapter error is a `JWTError` (`ERR_SESSION_*`). The three adapters remain separate forks of one design — anything framework-agnostic belongs in `src/adapters/_session.ts` or `_chunked-cookie.ts`, anything framework-coupled in that adapter's `_shared.ts`.
 
 ## Testing conventions
 

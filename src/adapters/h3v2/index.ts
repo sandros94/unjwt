@@ -1,6 +1,13 @@
-export type { SessionClaims, SessionData, SessionManager, SessionUpdate } from "./session/types.ts";
+export type {
+  SessionClaims,
+  SessionData,
+  SessionIssueOptions,
+  SessionManager,
+  SessionUpdate,
+} from "./session/types.ts";
 export {
   type SessionConfigJWE,
+  type SessionDecryptOptions,
   type SessionHooksJWE,
   type SessionJWE,
   clearJWESession,
