@@ -19,6 +19,7 @@ import { deriveKey as deriveKeyPBES2 } from "../src/core/_crypto/_pbes2";
 import { jwkTokey, keyToJWK } from "../src/core/_crypto/_key-codec";
 import { fromSPKI, fromPKCS8, toPKCS8, toSPKI } from "../src/core/_crypto/_pem";
 import { rsa, ec } from "./keys";
+import { isJWTError } from "../src/core/error";
 
 describe.concurrent("_crypto primitives", () => {
   describe("_sign-verify", () => {
@@ -279,6 +280,17 @@ describe.concurrent("_crypto primitives", () => {
       expect((exported as any).n).toBe(rsa.jwk.public.n);
     });
 
+    it("jwkTokey rejects an OKP JWK whose crv is not a known curve", async () => {
+      const error = await jwkTokey({
+        kty: "OKP",
+        alg: "EdDSA",
+        crv: "Curve25519",
+        x: "",
+      } as any).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("Curve25519");
+    });
+
     it("keyToJWK — Uint8Array produces oct JWK", async () => {
       const raw = crypto.getRandomValues(new Uint8Array(32));
       const jwk = await keyToJWK(raw);
@@ -314,6 +326,17 @@ describe.concurrent("_crypto primitives", () => {
       expect(cryptoKey.type).toBe("private");
       const pem = await toPKCS8(cryptoKey);
       expect(pem).toContain("-----BEGIN PRIVATE KEY-----");
+    });
+
+    it("fromSPKI rejects a bundle of two armoured blocks", async () => {
+      const error = await fromSPKI(rsa.pem.spki + ec.pem.spki, "RS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("exactly one");
+    });
+
+    it("fromPKCS8 rejects data outside the armoured block", async () => {
+      const error = await fromPKCS8(`${rsa.pem.pkcs8}trailing`, "RS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
     });
   });
 });

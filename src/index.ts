@@ -1,7 +1,12 @@
 export type * from "./core/types";
 
 export { JWTError, isJWTError, UnsecureError, isUnsecureError } from "./core/error";
-export type { JWTErrorCode, JWTErrorCauseMap, UnsecureErrorCode } from "./core/error";
+export type {
+  JWTErrorCode,
+  KnownJWTErrorCode,
+  JWTErrorCauseMap,
+  UnsecureErrorCode,
+} from "./core/error";
 
 export {
   sign,
@@ -32,18 +37,7 @@ export {
   configureJWKCache,
   clearJWKCache,
 } from "./core/jwk";
-export {
-  isJWK,
-  isJWKSet,
-  assertCryptoKey,
-  isCryptoKey,
-  isCryptoKeyPair,
-  isSymmetricJWK,
-  isAsymmetricJWK,
-  isPrivateJWK,
-  isPublicJWK,
-  validateJwtClaims,
-  computeDurationInSeconds,
-  computeExpiresInSeconds,
-  computeMaxTokenAgeSeconds,
-} from "./core/utils";
+// The whole `unjwt/utils` surface — base64url codecs, type guards, claim
+// validation, algorithm inference — is re-exported as named exports, so the
+// root entry point carries no less than the subpath it mirrors.
+export * from "./core/utils";

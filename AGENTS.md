@@ -34,7 +34,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 
 ### Module structure (each is a separate export path)
 
-- `unjwt` — barrel re-export of `jws`, `jwe`, `jwk`, `utils` namespaces
+- `unjwt` — flat named exports of everything in `jws`, `jwe`, `jwk` and `utils` (no namespace objects)
 - `unjwt/jws` — `sign()`, `verify()` (Compact) plus `signMulti()`/`verifyMulti()`/`verifyMultiAll()` (General/Flattened)
 - `unjwt/jwe` — `encrypt()`, `decrypt()` (Compact) plus `encryptMulti()`/`decryptMulti()` (General/Flattened)
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
@@ -46,7 +46,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 
 ```
 src/
-  index.ts              # barrel: re-exports core modules as namespaces
+  index.ts              # root entry: flat named re-exports of the core modules
   core/
     jws.ts              # sign/verify (compact); re-exports the multi-recipient API
     jwe.ts              # encrypt/decrypt (compact); re-exports the multi-recipient API
@@ -86,7 +86,7 @@ src/
 ## Planning & design docs
 
 - **`.agents/vision/`** — working space for drafting **new** features before implementation. Empty when no design is in flight; it is not a historical archive — completed designs live in the code and git history.
-- **`.agents/TODO.md`** — deferred backlog (e.g. deprecated-alias removals slated for a future major version).
+- **`.agents/TODO.md`** — deprecation ledger: every `@deprecated` symbol with its replacement, the release that deprecated it and the release that removes it.
 
 ## Code Conventions
 

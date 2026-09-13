@@ -28,7 +28,8 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
   - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`
   - `extractable?: boolean` — default `true`; ignored when `toJWK: true` (the JWK output requires exporting the intermediate key)
   - `keyUsage?: KeyUsage[]`
-  - `modulusLength?: number` — RSA only, default `2048`
+  - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw
+    `ERR_INVALID_OPTION` (RFC 7518 §3.3 / §3.5 set 2048 as the floor for `RS*`, `PS*` and `RSA-OAEP*`)
   - `publicExponent?: Uint8Array` — RSA only, default `0x010001`
   - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`
 
@@ -49,7 +50,7 @@ Always returns JWK format with a `kid` (auto-generated via `crypto.randomUUID()`
 - `alg: GenerateKeyAlgorithm`
 - `options?` — combined `GenerateKeyOptions` (minus `toJWK`) and JWK metadata (`kid`, `use`,
   `x5c`, etc.). `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot be
-  overridden here.
+  overridden here — the generated key wins over anything passed in.
 
 ```ts
 import { generateKey, generateJWK } from "unjwt/jwk";
@@ -75,6 +76,12 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 - `JWK_oct` → `k` decoded to `Uint8Array` (default)
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
 - Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`)
+
+For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it is never assumed
+from `alg`. `EC` + `ECDH-ES*` accepts `P-256` / `P-384` / `P-521`; `OKP` + `Ed25519` / `EdDSA`
+accepts `Ed25519` / `Ed448`; `OKP` + `ECDH-ES*` accepts `X25519` / `X448`. Any other `crv`
+throws `ERR_JWK_INVALID` before Web Crypto is reached. The same rule applies to `importPEM`,
+which reads the curve OID out of the key body.
 
 `oct` key lengths are validated against the JWK's `alg` (or the positional hint) at import:
 HS\* require at least the hash output size (32/48/64 bytes, RFC 7518 §3.2); A\*KW, A\*GCMKW,
@@ -110,8 +117,12 @@ const recipientPub = await importKey(recipientJwk, { alg: "RSA-OAEP-256", expect
 ### `exportKey(key, jwkParams?)`
 
 Exports a `CryptoKey` to JWK format. `jwkParams` optionally merges metadata fields
-(`kid`, `use`, `x5c`, etc.) onto the result. `alg`, `kty`, `key_ops`, and `ext` are
-preserved from Web Crypto's authoritative export and cannot be overridden here.
+(`kid`, `use`, `x5c`, etc.) onto the result.
+
+`jwkParams` may only decorate the key, never redescribe it: passing `kty`, `alg`, `key_ops`,
+`ext`, or any key-material member (`k`, `d`, `n`, `e`, `p`, `q`, `dp`, `dq`, `qi`, `x`, `y`,
+`crv`) throws `ERR_INVALID_OPTION` naming the offending members. The key's own values come
+from Web Crypto's authoritative export.
 
 Returns `Promise<JWK>`.
 
@@ -188,7 +199,8 @@ Low-level ECDH-ES key derivation (Concat KDF, NIST SP 800-56A). Useful for multi
 - `privateKey: CryptoKey | JWK_EC_Private` — sender's ephemeral private key (sender side), or recipient's static private key (recipient side)
 - `alg: JWK_ECDH_ES | ContentEncryptionAlgorithm` — used as the `AlgorithmID` in the KDF info structure
 - `options?`
-  - `keyLength?: number` — derived key length in bits; required when `alg` is `"ECDH-ES"`, inferred otherwise
+  - `keyLength?: number` — derived key length in bits; required when `alg` is `"ECDH-ES"`, inferred
+    otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
   - `partyUInfo?`, `partyVInfo?` — agreement party info
 
 Returns `Promise<Uint8Array>` — the derived key material.
@@ -225,13 +237,20 @@ Imports a PEM-encoded key and returns it as a JWK. The PEM type is inferred from
 - `alg: JWKPEMAlgorithm`
 - `options?`
   - `pemType?: "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
-  - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`)
+  - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`); the
+    reserved members listed under `exportKey` throw `ERR_INVALID_OPTION`
 
 The returned JWK always contains the key material in plain JavaScript. To obtain a
 non-extractable `CryptoKey`, pass the result to `importKey(jwk, { extractable: false })`.
 
+**Exactly one armoured block.** The input must contain a single `-----BEGIN <LABEL>-----` /
+`-----END <LABEL>-----` pair. Text before it is ignored (RFC 7468 §2); nothing but whitespace may
+follow it. A bundle of two blocks, or trailing data, is `ERR_JWK_INVALID` instead of silently
+importing the first key.
+
 Throws `ERR_JWK_INVALID` when the PEM has no recognisable label and `pemType` is not supplied,
-or when the label does not match the requested/inferred type.
+when the label does not match the requested/inferred type, or when the body is not a key the
+requested `alg` can import (a truncated certificate included).
 
 Returns `Promise<JWK>`.
 

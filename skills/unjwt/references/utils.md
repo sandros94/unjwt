@@ -4,6 +4,8 @@ Encoding, type guards, JWT claim validation, and sanitization utilities.
 
 Import: `import { ... } from "unjwt/utils"`
 
+Every name below is also a named export of the root entry point `unjwt` — it re-exports this whole module flat, no namespace objects.
+
 `secureRandomBytes`, the sanitizers and `textEncoder`/`textDecoder` are re-exported from the [`unsecure`](https://github.com/sandros94/unsecure) package; the Base64 helpers are thin unjwt wrappers over unsecure's `base64Stringify`/`base64Parse` with the alphabet fixed. Failures inside them surface as unsecure's `UnsecureError` (`code`: `MALFORMED`, `INVALID_TYPE`, …), not native `TypeError`/`SyntaxError`.
 
 `UnsecureError`, `UnsecureErrorCode` and `isUnsecureError` are re-exported from this module (and from `unjwt`, `unjwt/jws`, `unjwt/jwe`, `unjwt/jwk`). Because `unsecure` is inlined into unjwt's dist, a consumer-installed `unsecure` exposes a _different_ class — `instanceof` only matches unjwt's re-export. These primitives throw `UnsecureError` directly; the JOSE operations (`verify`, `decrypt`, `importKey`, `unwrapKey`, `importPEM`, …) wrap it in a `JWTError` and keep the original as `cause`.

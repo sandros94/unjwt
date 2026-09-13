@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { secureRandomBytes } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+import {
+  base64UrlStringify,
+  base64UrlParse,
+  base64Stringify,
+  base64Parse,
+} from "../src/core/utils/base64";
 import * as jose from "jose";
 import {
   generateKey,
@@ -33,6 +38,8 @@ import type {
   JWK_EC_Public,
   JWK_RSA_Private,
   JWK_RSA_Public,
+  JWK_OKP_Private,
+  JWK_OKP_Public,
   JWKPEMAlgorithm,
 } from "../src/core/types";
 import { rsa, ec } from "./keys";
@@ -80,7 +87,7 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("should generate asymmetric CryptoKeyPair (RS256)", async () => {
-      const keyPair = await generateKey("RS256", { modulusLength: 1024 });
+      const keyPair = await generateKey("RS256", { modulusLength: 2048 });
       expect(isCryptoKeyPair(keyPair)).toBe(true);
       expect(keyPair.publicKey.algorithm.name).toBe("RSASSA-PKCS1-v1_5");
       expect(keyPair.privateKey.algorithm.name).toBe("RSASSA-PKCS1-v1_5");
@@ -92,7 +99,7 @@ describe.concurrent("JWK Utilities", () => {
     it("should generate asymmetric JWK pair (RS256, toJWK: true)", async () => {
       const jwkPair = await generateKey("RS256", {
         toJWK: true,
-        modulusLength: 1024,
+        modulusLength: 2048,
       });
       expect(jwkPair.privateKey.kty).toBe("RSA");
       expect(jwkPair.privateKey.alg).toBe("RS256");
@@ -1592,4 +1599,246 @@ describe.concurrent("JWK Utilities", () => {
       expect(isUnsecureError(error.cause.cause, "MALFORMED")).toBe(true);
     });
   });
+
+  describe("reserved jwkParams", () => {
+    const RESERVED = [
+      "kty",
+      "alg",
+      "key_ops",
+      "ext",
+      "k",
+      "d",
+      "n",
+      "e",
+      "p",
+      "q",
+      "dp",
+      "dq",
+      "qi",
+      "x",
+      "y",
+      "crv",
+    ];
+
+    it.each(RESERVED)("exportKey rejects %s in jwkParams", async (member) => {
+      const key = (await generateKey("HS256")) as CryptoKey;
+      const error = await exportKey(key, { [member]: "pwned" } as any).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain(member);
+    });
+
+    it("exportKey reports every reserved member it found", async () => {
+      const key = (await generateKey("HS256")) as CryptoKey;
+      const error = await exportKey(key, { kty: "EC", k: "pwned", kid: "ok" } as any).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain("kty");
+      expect(error.message).toContain("k");
+      expect(error.message).not.toContain("kid");
+    });
+
+    it("exportKey still merges non-reserved metadata", async () => {
+      const key = (await generateKey("HS256")) as CryptoKey;
+      const jwk = await exportKey<JWK_oct>(key, { kid: "k1", use: "sig" });
+      expect(jwk.kid).toBe("k1");
+      expect(jwk.use).toBe("sig");
+      expect(jwk.kty).toBe("oct");
+    });
+
+    it("importPEM rejects reserved members in jwkParams", async () => {
+      const error = await importPEM(rsa.pem.spki, "RS256", {
+        jwkParams: { n: "pwned" } as any,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain("n");
+    });
+  });
+
+  describe("PEM input strictness", () => {
+    const pemBlock = (label: string, bytes: Uint8Array<ArrayBuffer>) =>
+      `-----BEGIN ${label}-----\n${(base64Stringify(bytes).match(/.{1,64}/g) ?? []).join(
+        "\n",
+      )}\n-----END ${label}-----\n`;
+
+    it("does not overflow the stack on an OID-dense body", async () => {
+      const body = new Uint8Array(60_000).fill(0x06);
+      const error = await importPEM(pemBlock("PUBLIC KEY", body), "ECDH-ES").catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    });
+
+    it("rejects a two-block PEM bundle instead of importing the first key", async () => {
+      const error = await importPEM(rsa.pem.spki + rsa.pem.spki, "RS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("exactly one");
+    });
+
+    it("rejects trailing garbage after a valid block", async () => {
+      const error = await importPEM(`${rsa.pem.spki}trailing garbage`, "RS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    });
+
+    it("accepts text before the block (RFC 7468 §2, e.g. openssl attribute dumps)", async () => {
+      const jwk = await importPEM<JWK_RSA_Public>(
+        `Bag Attributes\n    friendlyName: test\nsubject=CN=test\n${rsa.pem.spki}`,
+        "RS256",
+      );
+      expect(jwk.kty).toBe("RSA");
+    });
+
+    it("still accepts surrounding whitespace", async () => {
+      const jwk = await importPEM<JWK_RSA_Public>(`\n\n  ${rsa.pem.spki}  \n`, "RS256");
+      expect(jwk.kty).toBe("RSA");
+    });
+
+    it("rejects a two-certificate bundle", async () => {
+      const error = await importPEM(rsa.pem.x509 + rsa.pem.x509, "RS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(isJWTError(error.cause, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.cause.message).toContain("exactly one");
+    });
+
+    // A truncated certificate used to be parsed with clamped subarrays: short
+    // prefixes leaked a raw DataError, longer ones imported a key regardless.
+    it.each([96, 200, 400, 500, 700])(
+      "rejects a certificate truncated to %s bytes",
+      async (length) => {
+        const der = base64Parse(
+          rsa.pem.x509.replaceAll(/(?:-----(?:BEGIN|END) CERTIFICATE-----|\s)/g, ""),
+          { returnAs: "uint8array" },
+        );
+        const error = await importPEM(pemBlock("CERTIFICATE", der.slice(0, length)), "RS256").catch(
+          (e) => e,
+        );
+        expect(error).toBeInstanceOf(JWTError);
+        expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      },
+    );
+
+    it.each([
+      ["Ed448", "EdDSA"],
+      ["X448", "ECDH-ES+A256KW"],
+    ] as const)("round-trips a %s key through PEM", async (crv, alg) => {
+      const { privateKey, publicKey } = await okpJWKPair(crv, alg);
+      const [pkcs8, spki] = await Promise.all([exportPEM(privateKey), exportPEM(publicKey)]);
+      const [priv, pub] = await Promise.all([
+        importPEM<JWK_OKP_Private>(pkcs8, alg),
+        importPEM<JWK_OKP_Public>(spki, alg),
+      ]);
+      expect(priv.crv).toBe(crv);
+      expect(pub.crv).toBe(crv);
+      expect(pub.x).toBe(publicKey.x);
+    });
+  });
+
+  describe("deriveSharedSecret keyLength validation", () => {
+    let pair: CryptoKeyPair;
+    beforeAll(async () => {
+      pair = (await generateKey("ECDH-ES", { namedCurve: "P-256" })) as CryptoKeyPair;
+    });
+
+    it.each([0, -8, 12, 8200, 1.5, Number.NaN])("rejects keyLength %s", async (keyLength) => {
+      const error = await deriveSharedSecret(pair.publicKey, pair.privateKey, "ECDH-ES", {
+        keyLength,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+
+    it("still accepts a valid keyLength", async () => {
+      const secret = await deriveSharedSecret(pair.publicKey, pair.privateKey, "ECDH-ES", {
+        keyLength: 256,
+      });
+      expect(secret.length).toBe(32);
+    });
+  });
+
+  describe("RSA modulus floor", () => {
+    it.each(["RS256", "PS256", "RSA-OAEP-256"] as const)(
+      "generateKey rejects %s below 2048 bits",
+      async (alg) => {
+        const error = await generateKey(alg, { modulusLength: 1024 }).catch((e) => e);
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect(error.message).toContain("2048");
+      },
+    );
+
+    it("generateJWK rejects a weak modulusLength", async () => {
+      const error = await generateJWK("RS256", { modulusLength: 512 }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+  });
+
+  describe("OKP curve handling", () => {
+    it.each([
+      ["Ed25519", "EdDSA"],
+      ["Ed448", "EdDSA"],
+      ["X25519", "ECDH-ES+A256KW"],
+      ["X448", "ECDH-ES+A256KW"],
+    ] as const)("imports an %s JWK on its own curve", async (crv, alg) => {
+      const { privateKey, publicKey } = await okpJWKPair(crv, alg);
+      expect(privateKey.crv).toBe(crv);
+      const priv = (await importKey(privateKey)) as CryptoKey;
+      const pub = (await importKey(publicKey)) as CryptoKey;
+      expect(priv.algorithm.name).toBe(crv);
+      expect(pub.algorithm.name).toBe(crv);
+    });
+
+    it("rejects an unknown OKP curve for EdDSA", async () => {
+      const error = await importKey({
+        kty: "OKP",
+        alg: "EdDSA",
+        crv: "Ed99999",
+        x: base64UrlStringify(new Uint8Array(32)),
+      } as any).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("Ed99999");
+    });
+
+    it("rejects an unknown OKP curve for ECDH-ES", async () => {
+      const error = await importKey({
+        kty: "OKP",
+        alg: "ECDH-ES",
+        crv: "X99999",
+        x: base64UrlStringify(new Uint8Array(32)),
+      } as any).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("X99999");
+    });
+
+    it("rejects an unknown EC curve for ECDH-ES", async () => {
+      const error = await importKey({
+        kty: "EC",
+        alg: "ECDH-ES",
+        crv: "secp256k1",
+        x: base64UrlStringify(new Uint8Array(32)),
+        y: base64UrlStringify(new Uint8Array(32)),
+      } as any).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("secp256k1");
+    });
+  });
 });
+
+/**
+ * OKP key pair as JWKs, generated through Web Crypto directly: `generateKey`
+ * does not offer X448 as a `namedCurve`, and these tests are about the import
+ * path, not the generation surface.
+ */
+async function okpJWKPair(
+  crv: "Ed25519" | "Ed448" | "X25519" | "X448",
+  alg: string,
+): Promise<{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }> {
+  const { privateKey, publicKey } = (await crypto.subtle.generateKey(
+    { name: crv },
+    true,
+    crv.startsWith("Ed") ? ["sign", "verify"] : ["deriveBits"],
+  )) as CryptoKeyPair;
+
+  const [priv, pub] = await Promise.all([
+    exportKey<JWK_OKP_Private>(privateKey),
+    exportKey<JWK_OKP_Public>(publicKey),
+  ]);
+
+  return { privateKey: { ...priv, alg }, publicKey: { ...pub, alg } };
+}

@@ -67,7 +67,7 @@ export {
   UnsecureError,
   isUnsecureError,
 } from "./error";
-export type { JWTErrorCode, JWTErrorCauseMap } from "./error";
+export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error";
 
 /**
  * Generates a cryptographic key for the specified JWA algorithm.
@@ -537,8 +537,10 @@ function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | 
  * Exports a CryptoKey to a JWK (JSON Web Key) format.
  *
  * @param key The CryptoKey to export.
- * @param jwk Optional partial JWK to merge with the exported key, allowing overrides.
+ * @param jwkParams Optional JWK metadata (`kid`, `use`, `x5c`, …) merged onto the exported key.
+ *        `alg`, `kty`, `key_ops`, `ext` and the key material members are reserved.
  * @returns A Promise resolving to the exported JWK.
+ * @throws `JWTError("ERR_INVALID_OPTION")` if `jwkParams` carries a reserved member.
  */
 export async function exportKey<T extends JWK>(
   key: CryptoKey,
@@ -546,7 +548,9 @@ export async function exportKey<T extends JWK>(
 ): Promise<T> {
   const exportedJwk = await keyToJWK<T>(key);
   if (jwkParams) {
-    return { ...exportedJwk, ...sanitizeObjectCopy(jwkParams) };
+    const extraParams = sanitizeObjectCopy(jwkParams);
+    assertNoReservedJWKParams(extraParams);
+    return { ...exportedJwk, ...extraParams };
   }
   return exportedJwk;
 }
@@ -1211,6 +1215,10 @@ export async function deriveSharedSecret(
     partyVInfo?: Uint8Array<ArrayBuffer>;
   },
 ): Promise<Uint8Array<ArrayBuffer>> {
+  if (options?.keyLength !== undefined) {
+    assertDerivedKeyLength(options.keyLength);
+  }
+
   const pubCryptoKey = isCryptoKey(publicKey)
     ? publicKey
     : ((await importKey(publicKey as JWK, { alg: "ECDH-ES", expect: "public" })) as CryptoKey);
@@ -1365,7 +1373,7 @@ function getGenerateKeyParams(
     case "RS512": {
       algorithm = {
         name: "RSASSA-PKCS1-v1_5",
-        modulusLength: options?.modulusLength ?? 2048,
+        modulusLength: assertModulusLength(options?.modulusLength),
         publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
         hash: `SHA-${alg.slice(2)}`,
       };
@@ -1378,7 +1386,7 @@ function getGenerateKeyParams(
     case "PS512": {
       algorithm = {
         name: "RSA-PSS",
-        modulusLength: options?.modulusLength ?? 2048,
+        modulusLength: assertModulusLength(options?.modulusLength),
         publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
         hash: `SHA-${alg.slice(2)}`,
       };
@@ -1392,7 +1400,7 @@ function getGenerateKeyParams(
     case "RSA-OAEP-512": {
       algorithm = {
         name: "RSA-OAEP",
-        modulusLength: options?.modulusLength ?? 2048,
+        modulusLength: assertModulusLength(options?.modulusLength),
         publicExponent: options?.publicExponent ?? new Uint8Array([0x01, 0x00, 0x01]),
         hash: `SHA-${Number.parseInt(alg.slice(9), 10) || 1}`,
       };
@@ -1588,4 +1596,60 @@ function inferAesImportAlgorithm(
   }
 
   return undefined;
+}
+
+/**
+ * JWK members the library derives from the key itself. A caller-supplied
+ * `jwkParams` may decorate a key, never rewrite it: letting `kty`, `alg`,
+ * `key_ops`, `ext` or any key-material member through would produce a JWK that
+ * misdescribes the bytes it carries.
+ */
+const RESERVED_JWK_PARAMS = new Set([
+  "kty",
+  "alg",
+  "key_ops",
+  "ext",
+  "k",
+  "d",
+  "n",
+  "e",
+  "p",
+  "q",
+  "dp",
+  "dq",
+  "qi",
+  "oth",
+  "x",
+  "y",
+  "crv",
+]);
+
+function assertNoReservedJWKParams(jwkParams: object): void {
+  const reserved = Object.keys(jwkParams).filter((name) => RESERVED_JWK_PARAMS.has(name));
+  if (reserved.length > 0) {
+    throw new JWTError(
+      `jwkParams must not set reserved JWK members: ${reserved.join(", ")}`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+function assertModulusLength(modulusLength: number | undefined): number {
+  const length = modulusLength ?? 2048;
+  if (!Number.isInteger(length) || length < 2048) {
+    throw new JWTError(
+      "modulusLength must be at least 2048 bits (RFC 7518 §3.3)",
+      "ERR_INVALID_OPTION",
+    );
+  }
+  return length;
+}
+
+function assertDerivedKeyLength(keyLength: number): void {
+  if (!Number.isInteger(keyLength) || keyLength <= 0 || keyLength % 8 !== 0 || keyLength > 8192) {
+    throw new JWTError(
+      `keyLength must be a positive multiple of 8 no greater than 8192 bits, got ${keyLength}`,
+      "ERR_INVALID_OPTION",
+    );
+  }
 }
