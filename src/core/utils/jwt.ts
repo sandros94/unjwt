@@ -1,4 +1,5 @@
-import { base64UrlDecode, textDecoder, textEncoder } from "unsecure/utils";
+import { textDecoder, textEncoder } from "unsecure/utils";
+import { base64UrlDecode } from "./encoding";
 import { safeJsonParse } from "unsecure/sanitize";
 
 import type { JWTClaims, JWTClaimValidationOptions, Duration, ExpiresIn } from "../types";
@@ -66,8 +67,10 @@ export function decodePayloadFromB64UrlSegment<T = unknown>(
   payloadEncoded: string,
   forceUint8Array?: boolean,
 ): T | Uint8Array<ArrayBuffer> | string {
-  if (forceUint8Array) return base64UrlDecode(payloadEncoded, { returnAs: "uint8array" });
-  return decodeMaybeJWTString<T>(base64UrlDecode(payloadEncoded));
+  return decodePayloadFromBytes<T>(
+    base64UrlDecode(payloadEncoded, { returnAs: "uint8array" }),
+    forceUint8Array,
+  );
 }
 
 /** Convert plaintext input to bytes, shared by JWS & JWE when preparing payload. */

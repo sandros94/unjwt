@@ -1,6 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
-import { base64UrlEncode, base64UrlDecode, textEncoder, textDecoder } from "unsecure";
+import { textEncoder, textDecoder } from "unsecure";
+import { base64UrlEncode, base64UrlDecode } from "../src/core/utils/encoding";
 
 import { sign, verify, JWTError, isJWTError } from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";

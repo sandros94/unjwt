@@ -1,5 +1,5 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
-import { base64UrlEncode, base64UrlDecode } from "unsecure/utils";
+import { base64UrlEncode, base64UrlDecode } from "../utils/encoding";
 
 import type {
   JWEKeyManagementHeaderParameters,

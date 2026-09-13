@@ -9,7 +9,6 @@ import {
 
 import type { CookieSerializeOptions } from "cookie-esv3";
 
-import { NullProtoObj } from "rou3";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import type {
   ExpiresIn,
@@ -230,7 +229,7 @@ export async function getJWSSession<
   const context = getEventContext<H3EventContext>(event);
 
   if (!context.sessions) {
-    context.sessions = new NullProtoObj();
+    context.sessions = Object.create(null);
   }
 
   const existingSession = context.sessions![sessionName] as SessionJWS<T, MaxAge> | undefined;
@@ -281,7 +280,7 @@ export async function getJWSSession<
             computeDurationInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
           ? number
           : T["exp"],
-        data: new NullProtoObj(),
+        data: Object.create(null),
         token: undefined,
       };
       // @ts-expect-error upstream types expect an empty id string
@@ -309,7 +308,7 @@ export async function getJWSSession<
       : createdAt + computeDurationInSeconds(config.maxAge) * 1000) as MaxAge extends ExpiresIn
       ? number
       : T["exp"],
-    data: new NullProtoObj(),
+    data: Object.create(null),
     token: undefined,
   };
   // @ts-expect-error upstream types expect an empty id string
@@ -604,7 +603,7 @@ export async function verifyJWSSession<
     id: jti,
     createdAt: iat * 1000,
     expiresAt: (exp ? exp * 1000 : undefined) as MaxAge extends ExpiresIn ? number : T["exp"],
-    data: (data && typeof data === "object" ? data : new NullProtoObj()) as SessionData<T>,
+    data: (data && typeof data === "object" ? data : Object.create(null)) as SessionData<T>,
   };
 }
 

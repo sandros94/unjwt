@@ -2,13 +2,8 @@ import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError } from "../src/core/jwe";
 import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
-import {
-  secureRandomBytes,
-  textEncoder,
-  textDecoder,
-  base64UrlEncode,
-  base64UrlDecode,
-} from "unsecure";
+import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
+import { base64UrlEncode, base64UrlDecode } from "../src/core/utils/encoding";
 import type {
   JWK,
   JWK_EC_Public,

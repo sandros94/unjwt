@@ -272,8 +272,8 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       unsecure:
-        specifier: ^0.2.3
-        version: 0.2.3
+        specifier: ^0.3.1
+        version: 0.3.1
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.13.3)(@vitest/coverage-v8@4.1.11)(vite@8.2.2(@types/node@24.13.3)(jiti@2.7.0))
@@ -1847,8 +1847,8 @@ packages:
       rou3:
         optional: true
 
-  unsecure@0.2.3:
-    resolution: {integrity: sha512-5twLFfxyuDvjzKdRL6zxtcjRSvfb+qBEYQVKuYGfavdss9FDDb6rZAmZnSwY6vX+2djw0AOjSJUyY/+HdNnm8A==}
+  unsecure@0.3.1:
+    resolution: {integrity: sha512-jOTdGOo7vEKI3qrXRZBQK0N2HUkKZNDZxZGxQEPHVHc8zIk3j9LNIFMGqDhyk5QKYxc2WFP0rjqG2WofITBhXg==}
 
   untyped@2.0.0:
     resolution: {integrity: sha512-nwNCjxJTjNuLCgFr42fEak5OcLuB3ecca+9ksPFNvtfYSLpjf+iJqSIaSnIile6ZPbKYxI5k2AfXqeopGudK/g==}
@@ -3188,7 +3188,7 @@ snapshots:
       h3: 2.0.1-rc.29
       rou3: 0.8.1
 
-  unsecure@0.2.3: {}
+  unsecure@0.3.1: {}
 
   untyped@2.0.0:
     dependencies:

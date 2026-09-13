@@ -88,7 +88,7 @@
     "simple-git-hooks": "^2.13.1",
     "supertest": "^7.2.2",
     "typescript": "^7.0.2",
-    "unsecure": "^0.2.3",
+    "unsecure": "^0.3.1",
     "vitest": "^4.1.11"
   },
   "peerDependencies": {

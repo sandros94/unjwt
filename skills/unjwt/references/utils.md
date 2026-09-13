@@ -4,13 +4,13 @@ Encoding, type guards, JWT claim validation, and sanitization utilities.
 
 Import: `import { ... } from "unjwt/utils"`
 
-These primitives are re-exported from the [`unsecure`](https://github.com/sandros94/unsecure) package. Typings and options listed here match the current re-exports.
+`secureRandomBytes`, the sanitizers and `textEncoder`/`textDecoder` are re-exported from the [`unsecure`](https://github.com/sandros94/unsecure) package; the Base64 helpers are thin unjwt wrappers over unsecure's `base64Stringify`/`base64Parse` with the alphabet fixed. Failures inside them surface as unsecure's `UnsecureError` (`code`: `MALFORMED`, `INVALID_TYPE`, …), not native `TypeError`/`SyntaxError`.
 
 ## Encoding / Decoding
 
 ### `base64UrlEncode(data)`
 
-Encodes `Uint8Array<ArrayBuffer> | string` to Base64URL (no padding). Returns `string`. Empty inputs return `""`. Throws `TypeError` on `null` / `undefined`.
+Encodes `string | ArrayBuffer | ArrayBufferView` to Base64URL (no padding). Returns `string`. Empty inputs return `""`. Throws `UnsecureError` (`INVALID_TYPE`) on anything that is not text or bytes.
 
 ### `base64UrlDecode(data, options?)`
 
@@ -18,6 +18,7 @@ Decodes a Base64URL string (or raw bytes). The second argument is an options obj
 
 - When `options` is omitted the return type **mirrors the input**: `string` input decodes to `string`, `Uint8Array<ArrayBuffer>` input decodes to `Uint8Array<ArrayBuffer>`.
 - Pass `{ returnAs: "uint8array" }` (or `"bytes"`) to always get raw bytes, or `{ returnAs: "string" }` to always get a UTF-8 string.
+- **Strict by default**: only the canonical encoding of a byte string is accepted (padding optional, no whitespace, no stray bits); a `string` result must be valid UTF-8. Anything else throws `UnsecureError` (`MALFORMED`). Pass `{ loose: true }` to drop unusable characters and substitute U+FFFD instead.
 
 ```ts
 base64UrlDecode("SGVsbG8"); // → "Hello"

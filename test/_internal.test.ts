@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { base64UrlEncode, textDecoder, textEncoder } from "unsecure/utils";
+import { textDecoder, textEncoder } from "unsecure/utils";
+import { base64UrlEncode } from "../src/core/utils/encoding";
 
 import {
   JWS_ALG_CTX,

@@ -1,5 +1,6 @@
 import { safeJsonParse } from "unsecure/sanitize";
-import { textEncoder, base64UrlDecode } from "unsecure/utils";
+import { textEncoder } from "unsecure/utils";
+import { base64UrlDecode } from "./utils/encoding";
 
 import type {
   JWK,

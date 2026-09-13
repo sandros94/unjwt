@@ -1,4 +1,4 @@
-import { base64Encode, base64Decode } from "unsecure/utils";
+import { base64Encode, base64Decode } from "../utils/encoding";
 
 import { isCryptoKey } from "../utils";
 import { JWTError } from "../error";

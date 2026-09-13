@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { secureRandomBytes, base64UrlEncode, base64UrlDecode } from "unsecure";
+import { secureRandomBytes } from "unsecure";
+import { base64UrlEncode, base64UrlDecode } from "../src/core/utils/encoding";
 import * as jose from "jose";
 import {
   generateKey,

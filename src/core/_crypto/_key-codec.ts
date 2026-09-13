@@ -1,4 +1,4 @@
-import { base64UrlEncode } from "unsecure/utils";
+import { base64UrlEncode } from "../utils/encoding";
 
 import type { JWK, JWK_RSA_Private, JWK_EC_Private, JWK_OKP_Private } from "../types";
 import { isCryptoKey } from "../utils";

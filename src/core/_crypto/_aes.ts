@@ -1,4 +1,4 @@
-import { base64UrlEncode } from "unsecure/utils";
+import { base64UrlEncode } from "../utils/encoding";
 
 import { concatUint8Arrays, isCryptoKey } from "../utils";
 import { JWTError } from "../error";
