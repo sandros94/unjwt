@@ -213,9 +213,6 @@ importers:
       h3:
         specifier: ^1.15.4 || >=2.0.1-rc.22 || ^2.0.1
         version: 2.0.1-rc.29
-      rou3:
-        specifier: ^0.8.1
-        version: 0.8.1
     devDependencies:
       '@types/node':
         specifier: ^24.13.3
@@ -3053,7 +3050,8 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.2.5
       '@rolldown/binding-win32-x64-msvc': 1.2.5
 
-  rou3@0.8.1: {}
+  rou3@0.8.1:
+    optional: true
 
   rou3@0.9.2: {}
 

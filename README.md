@@ -15,7 +15,7 @@ Low-level JWT toolkit built on the Web Crypto API. Sign, verify, encrypt, decryp
 - **JWK** ([RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517)) — generate, import, export, wrap, unwrap. `CryptoKey` ↔ JWK ↔ PEM conversion. ECDH-ES shared-secret derivation. JWKS fetching, lookup, and rotation.
 - **Framework adapters** — cookie-based JWT sessions for [H3 v1](https://unjwt.s94.dev/adapters) (Nuxt v4 / Nitro v2) and [H3 v2](https://unjwt.s94.dev/adapters) (Nuxt v5 / Nitro v3).
 - **Runtime-agnostic** — Node 22+, Deno, Bun, Cloudflare Workers, browsers. Anywhere Web Crypto runs.
-- **Zero runtime dependencies** for core; optional peer deps for adapters (`h3`, `cookie-es`, `rou3`).
+- **Zero runtime dependencies** for core; optional peer deps for adapters (`h3`, `cookie-es`, `elysia`).
 
 ## Install
 
