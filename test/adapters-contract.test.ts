@@ -1,7 +1,7 @@
 import supertest from "supertest";
 import { describe, it, expect, vi } from "vitest";
 import { H3 } from "h3v2";
-import { createApp, createRouter, toNodeListener, eventHandler, type App } from "h3v1";
+import { createApp, createRouter, createError, toNodeListener, eventHandler, type App } from "h3v1";
 import { Elysia } from "elysia";
 
 import { isJWTError } from "../src/core/error";
@@ -566,6 +566,41 @@ describe("session adapters — shared contract", () => {
       router.use("/", eventHandler(handler));
       return app;
     }
+
+    it("keeps the session cookie on an error response", async () => {
+      const app = h3v1App(async (event) => {
+        const session = await useJWSSessionV1(event, jwsConfig);
+        await session.update({ user: "alice" });
+        throw createError({ statusCode: 418 });
+      });
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
+        cookie.startsWith("contract-jws="),
+      );
+
+      expect(response.status).toBe(418);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^contract-jws=[\w-]+\.[\w-]+\.[\w-]+;/);
+    });
+
+    it("keeps the cookie deletion on an error response after clear()", async () => {
+      const app = h3v1App(async (event) => {
+        const session = await useJWSSessionV1(event, jwsConfig);
+        await session.update({ user: "alice" });
+        await session.clear();
+        throw createError({ statusCode: 500 });
+      });
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
+        cookie.startsWith("contract-jws="),
+      );
+
+      expect(response.status).toBe(500);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^contract-jws=;/);
+    });
 
     it("writes a lax session cookie", async () => {
       const app = h3v1App(async (event) => {
