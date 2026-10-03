@@ -38,21 +38,23 @@ Peer dep: `h3`
   or on one call via `session.update(data, { maxAge })`. A `__proto__`, `constructor` or
   `prototype` key in an update throws `ERR_INVALID_OPTION`.
 - **Foreign tokens.** An incoming token is only a session when it carries
-  `cty: "application/json"`; with `maxAge` set it must also carry `exp`, and its `iat` must
-  fall within `maxAge` (`maxTokenAge`). Anything else is `ERR_SESSION_TOKEN_INVALID`, whose
+  `cty: "application/json"`; with `maxAge` set it must also carry `exp`. That `exp` alone bounds
+  its life (no `maxTokenAge`), so a token issued with `update(data, { maxAge })` keeps its own
+  lifetime past the config's `maxAge`. Anything else is `ERR_SESSION_TOKEN_INVALID`, whose
   `cause` is the failure underneath.
 - **Token source.** The cookie is read first; the session header is consulted only when the
   cookie carries no token. A present-but-empty or whitespace-only header never hides the
   cookie, and the `Bearer ` prefix is matched case-insensitively. `cookie: false` plus
-  `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use.
+  `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use of a session manager;
+  `signJWSSession` / `sealJWESession` accept it and issue a one-off token (fresh `jti`, no cookie).
 
 ## Cookie chunking
 
 A token longer than `cookie.chunkMaxLength` (default 4000) is split: the base cookie holds
 `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks
 (beyond which the write throws `ERR_SESSION_CONFIG_INVALID`). h3 v1 and h3 v2 write the same
-layout — h3 v2 through h3's own `setChunkedCookie`, h3 v1 through the adapter's port over
-`setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by
+layout — h3 v2 and h3 v1 each through the adapter's own chunk layer
+(`src/adapters/_chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by
 the others. Cleanup of a previous chunk set is bounded by the same 16-chunk limit, so a
 forged marker cannot inflate the number of `Set-Cookie` headers on a response.
 
@@ -85,7 +87,10 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **`clear()` is final for the request.** The context slot is left holding an empty session,
   so a later `useSession`/`getSession` on the same event does not restore the request cookie.
 - **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
-  (same as upstream), so throwing after `update()`/`clear()` still reaches the client.
+  (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless
+  an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
+- **h3 v1 after the response is sent** (`res.headersSent` / `res.writableEnded`): `update()` and
+  `clear()` throw `ERR_SESSION_READONLY_EVENT` and leave the session as it was.
 
 Both h3 adapters and the Elysia one run the same session core (`src/adapters/_session-core.ts`)
 over a JWS/JWE codec and a per-framework port (`session/_shared.ts`), so the lifecycle, hook
@@ -186,21 +191,24 @@ interface SessionConfigJWE<
   key:
     | CryptoKey // requires jwe.encryptOptions.alg + enc
     | JWK_Symmetric // symmetric JWK
-    | { privateKey: JWK_Private | JWK_Symmetric | CryptoKey; publicKey?: JWK_Public | CryptoKey };
+    // each half must be key material of its own side, else ERR_SESSION_KEY_INVALID
+    | { privateKey: JWK_Private | CryptoKey; publicKey?: JWK_Public | CryptoKey };
   maxAge?: MaxAge;
   name?: string; // cookie name (default: "h3-jwe")
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
   sessionHeader?: false | string; // header to read token from
   generateId?: () => string; // default: crypto.randomUUID()
   jwe?: {
-    // Options passed through to `encrypt()`; `expiresIn` is managed via `maxAge`
-    // and cannot be overridden here.
-    encryptOptions?: JWEEncryptOptions;
+    // Options passed through to `encrypt()`; `exp` comes from `maxAge` and a
+    // session writes no `nbf`, so expiresIn / expiresAt / notBeforeIn /
+    // notBeforeAt are not accepted here.
+    encryptOptions?: SessionEncryptOptions;
     // JWEDecryptOptions minus the fields the adapter owns: algorithms,
     // encryptionAlgorithms, typ, validateClaims, forceUint8Array. So
     // minIterations / maxIterations / clockTolerance / issuer / audience are
-    // settable. With a PBES2 `alg` pinned, `maxIterations` defaults to the
-    // `p2c` the session itself mints.
+    // settable. When the session is PBES2 — a pinned PBES2 `alg`, or a key
+    // carrying one — `maxIterations` defaults to the `p2c` the session itself
+    // mints.
     decryptOptions?: SessionDecryptOptions;
   };
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
@@ -228,10 +236,11 @@ interface SessionConfigJWS<
   sessionHeader?: false | string;
   generateId?: () => string;
   jws?: {
-    // Options passed through to `sign()`; `expiresIn` is managed via `maxAge`
-    // and cannot be overridden here.
-    signOptions?: JWSSignOptions;
-    /** Claim validation the adapter does not own — `maxTokenAge` follows `maxAge`, `typ` the signed `typ`. */
+    // Options passed through to `sign()`; `exp` comes from `maxAge` and a
+    // session writes no `nbf`, so expiresIn / expiresAt / notBeforeIn /
+    // notBeforeAt are not accepted here.
+    signOptions?: SessionSignOptions;
+    /** Claim validation the adapter does not own — a token's own `exp` bounds its life, `typ` is the signed `typ`. */
     verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;

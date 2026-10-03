@@ -43,14 +43,25 @@ export type JWSSessionKey =
 
 /**
  * JWS claim-validation overrides a session accepts — everything the adapter
- * does not own itself. `maxTokenAge` follows the session's `maxAge`, and `typ`
- * the `typ` it signs with, so neither is the caller's to set here.
+ * does not own itself. A session token's life is bounded by its own `exp`, and
+ * its `typ` is the one the session signs with, so neither `maxTokenAge` nor
+ * `typ` is the caller's to set here.
  */
 export type SessionVerifyOptions = StrictOmit<JWTClaimValidationOptions, "maxTokenAge" | "typ">;
 
+/**
+ * JWS sign options a session accepts. `exp` and `nbf` are the adapter's to
+ * mint — `exp` from `maxAge`, never an `nbf` — so the options that would set
+ * them are not the caller's.
+ */
+export type SessionSignOptions = StrictOmit<
+  JWSSignOptions,
+  "expiresIn" | "expiresAt" | "notBeforeIn" | "notBeforeAt"
+>;
+
 /** JWS sign/verify overrides a session accepts. */
 export interface JWSSessionOptions {
-  signOptions?: Omit<JWSSignOptions, "expiresIn">;
+  signOptions?: SessionSignOptions;
   verifyOptions?: SessionVerifyOptions;
 }
 
@@ -62,9 +73,9 @@ export interface JWSSessionConfig<
   /** Key used for signing — see {@link JWSSessionKey}. */
   key: JWSSessionKey;
   /**
-   * Session lifetime — sets `exp = iat + maxAge` in the token, bounds the age
-   * of an incoming token, and drives the cookie expiry. Without it the session
-   * writes no `exp` and never expires on its own.
+   * Session lifetime — sets `exp = iat + maxAge` in the token, requires an
+   * incoming token to carry an `exp`, and drives the cookie expiry. Without it
+   * the session writes no `exp` and never expires on its own.
    */
   maxAge?: MaxAge;
   /** Session name — drives the cookie name and the default session header. */
@@ -105,8 +116,8 @@ export const JWS_DEFAULT_COOKIE = {
  * verify one back.
  *
  * Verification always runs claim validation (`jti` & `iat` required, `exp`
- * honoured), checks the `typ` and `cty` headers, pins the algorithm when the
- * config does, and enforces `maxAge` as `maxTokenAge`.
+ * honoured and required alongside a `maxAge`), checks the `typ` and `cty`
+ * headers, and pins the algorithm when the config does.
  */
 export function createJWSCodec(options: {
   prefix: string;
@@ -146,8 +157,12 @@ export function createJWSCodec(options: {
 
       return sign(payload as Record<string, unknown>, key as JWSSignJWK, {
         ...config.jws?.signOptions,
-        // `exp` is computed from the session lifetime and carried via the claim above.
+        // `exp` is computed from the session lifetime and carried via the claim
+        // above; a session never writes `nbf`.
         expiresIn: undefined,
+        expiresAt: undefined,
+        notBeforeIn: undefined,
+        notBeforeAt: undefined,
         protectedHeader: {
           ...config.jws?.signOptions?.protectedHeader,
           kid: "kid" in (key as object) ? (key as JWSSignJWK).kid : undefined,
@@ -170,7 +185,7 @@ export function createJWSCodec(options: {
             maxAge: config.maxAge,
           }),
           typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
-          maxTokenAge: config.maxAge,
+          maxTokenAge: undefined,
           algorithms: alg ? [alg] : undefined,
           payload: "json",
           validateClaims: true,

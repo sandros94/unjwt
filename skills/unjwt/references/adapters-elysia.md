@@ -86,12 +86,18 @@ With defaults, two plugins would both expose `ctx.session` (later wins) — alwa
 `contextKey` + `name` when combining. Each plugin's Elysia identity is seeded from `name` and
 `contextKey`, so two differently-named sessions register side by side instead of deduplicating.
 
-A `name` spells one cookie and one cookie carries one token, so a name belongs to one session
-across the whole application — families included. Binding a second family under a name already
+A `name` spells one cookie and one cookie carries one token, so on any one request a name belongs
+to one session — families included. Binding a second family under a name already
 bound on the same request throws `ERR_SESSION_CONFIG_INVALID`
 (`'[unjwt/elysia] Session name "app" is already used by a JWS session on this request; …'`).
 Re-creating the same family under the same name — a hook re-reading its own session — is the same
-session and is always allowed.
+session and is always allowed. All bindings of one family and name on a request (plugin, handler,
+hook) share one state: a hook's `clear()` empties `ctx.session` and closes `requireSession`, a hook's
+`update()` hands the handler the new session.
+
+Elysia serializes cookies when it builds the response and exposes no sign it has done so: an
+`update()`/`clear()` after that point (e.g. `onAfterResponse`) resolves, but its cookie is never sent.
+Write the session before the response is built.
 
 ## SessionManager Interface
 
@@ -146,8 +152,11 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
   sessionHeader?: false | string; // default x-<name>-session; "Bearer " stripped (case-insensitive)
   generateId?: () => string;
   jws?: {
-    signOptions?: Omit<JWSSignOptions, "expiresIn">;
-    /** Claim validation the adapter does not own — `maxTokenAge` follows `maxAge`, `typ` the signed `typ`. */
+    signOptions?: StrictOmit<
+      JWSSignOptions,
+      "expiresIn" | "expiresAt" | "notBeforeIn" | "notBeforeAt"
+    >;
+    /** Claim validation the adapter does not own — a token's own `exp` bounds its life, `typ` is the signed `typ`. */
     verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TContext>;
@@ -172,7 +181,10 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
   sessionHeader?: false | string;
   generateId?: () => string;
   jwe?: {
-    encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
+    encryptOptions?: StrictOmit<
+      JWEEncryptOptions,
+      "expiresIn" | "expiresAt" | "notBeforeIn" | "notBeforeAt"
+    >;
     // JWEDecryptOptions minus the adapter-owned algorithms, encryptionAlgorithms,
     // typ, validateClaims and forceUint8Array — so minIterations/maxIterations,
     // clockTolerance, issuer and audience are settable. With a PBES2 `alg` pinned,
@@ -200,7 +212,8 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
   carries no token. A present-but-empty or whitespace-only header never hides the cookie.
   `cookie: false` + `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use.
 - **Foreign tokens.** A token is only a session when it carries `cty: "application/json"`; with
-  `maxAge` set it must also carry `exp` and its `iat` must fall within `maxAge`.
+  `maxAge` set it must also carry `exp`. That `exp` alone bounds its life, so a token issued with
+  `update(data, { maxAge })` keeps its own lifetime past the config's `maxAge`.
 - **Chunking.** The base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` …
   `<name>.<count>`, up to 16 chunks; the same layout as both H3 adapters, so cookies are
   interchangeable. Cleanup of a previous set is bounded by the same limit.
@@ -220,16 +233,16 @@ Each hook receives `{ session, context, config }` — `context` is the Elysia co
 `event`). Guarantees (ported from H3v2):
 
 - `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires on
-  each read of a session established from a valid token, so dedupe on `session.id` where
-  once-per-request is what you want.
+  each read of a session that holds a token — the incoming one, or one `update()` issued earlier in
+  the request — so dedupe on `session.id` where once-per-request is what you want.
 - Every hook is dispatched with the session state already settled, so a hook may call
   `createJWSSession` / `createJWESession` again on the same context without deadlocking.
 - `onExpire` receives the expired token's decoded claims via `error.cause` (`jti`/`iat`/`exp`), so
   `session.id` is available. The session cookie is removed and `session.token` reset before it fires.
 - `onUpdate` fires after every successful sign/seal (including data-less token refresh) with a
   deep-cloned `oldSession`.
-- `onError` fires on read-path failures other than expiry, and on write-path sign/seal failures
-  (with `session.data` rolled back). A read-path `error` is always an `ERR_SESSION_TOKEN_INVALID`
+- `onError` fires on read-path failures other than expiry, and on write-path sign/seal or cookie
+  write failures (with `session.data` rolled back). A read-path `error` is always an `ERR_SESSION_TOKEN_INVALID`
   `JWTError` whose `cause` is the failure underneath.
 
 ```ts

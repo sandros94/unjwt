@@ -49,9 +49,11 @@ export interface SessionManager<
  */
 export interface SessionHooks<TSession, TCarrier extends Record<string, unknown>, TConfig> {
   /**
-   * Fires when an incoming token was opened and the session established. May
-   * fire more than once per request when the session is created concurrently
-   * in the same handler — dedupe via `session.id` if needed.
+   * Fires each time a session that holds a token is read: once the incoming
+   * token was opened and the session established, and again on every later
+   * read of it during the same request — another `useJWSSession` /
+   * `createJWSSession` call, a hook reading it, or a read after `update()`
+   * issued a new token. Dedupe via `session.id` if needed.
    */
   onRead?: (
     args: TCarrier & { session: TSession & { id: string; token: string }; config: TConfig },

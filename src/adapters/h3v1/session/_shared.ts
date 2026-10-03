@@ -2,13 +2,7 @@ import { type H3Event, isEvent } from "h3v1";
 import { parse as parseCookies } from "cookie-esv1";
 import type { CookieSerializeOptions } from "cookie-esv1";
 import { readChunkedFrom, readChunkedFromSetCookie } from "../../_chunked-cookie";
-import {
-  type SessionTokenSource,
-  assertTokenSource,
-  headerToken,
-  pickToken,
-  sessionHeaderName,
-} from "../../_session";
+import { type SessionTokenSource, headerToken, pickToken, sessionHeaderName } from "../../_session";
 import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
 import { setChunkedCookie, deleteChunkedCookie } from "../_cookie";
 
@@ -74,8 +68,14 @@ export function getSessionsContext(event: H3Event | CompatEvent): Record<string,
   return event.context.sessions as Record<string, any>;
 }
 
-export function hasWritableResponse(event: H3Event | CompatEvent): event is H3Event {
-  return isEvent(event);
+/**
+ * Whether the response can still take a `Set-Cookie`: an h3 event whose
+ * headers have not been sent yet.
+ */
+export function hasWritableResponse(event: H3Event | CompatEvent): boolean {
+  if (!isEvent(event)) return false;
+  const { res } = event.node;
+  return !res.headersSent && !res.writableEnded;
 }
 
 /**
@@ -89,8 +89,6 @@ export function readSessionToken(
   sessionName: string,
   source: SessionTokenSource,
 ): string | undefined {
-  assertTokenSource(source, { prefix: PREFIX });
-
   let cookieValue: string | undefined;
   if (source.cookie !== false) {
     cookieValue = readChunkedFromSetCookie(getResponseSetCookie(event), sessionName);

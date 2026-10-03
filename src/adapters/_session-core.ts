@@ -8,6 +8,7 @@ import type { ExpiresIn } from "../core/types";
 import {
   type SessionTokenSource,
   assertSessionName,
+  assertTokenSource,
   invalidConfigError,
   resolveExpiresAt,
 } from "./_session";
@@ -158,7 +159,13 @@ export function bindSession<TCarrier, Config extends SessionCoreConfig>(
 export function sessionToken<TCarrier, Config extends SessionCoreConfig>(
   binding: SessionBinding<TCarrier, Config>,
 ): string | undefined {
+  assertTokenSource(binding.config, { prefix: binding.port.prefix });
   return binding.port.readToken(binding.carrier, binding.name, binding.config);
+}
+
+/** A fresh session ID — the JWT `jti` — from the config's generator, else a random UUID. */
+export function mintSessionId(config: SessionCoreConfig): string {
+  return config.generateId?.() || crypto.randomUUID();
 }
 
 /** A session with no token yet: the state a request that carried none starts from. */

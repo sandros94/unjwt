@@ -121,7 +121,10 @@ export async function updateJWSSession<
 }
 
 /**
- * Sign the current session as a compact JWS.
+ * Sign the current session as a compact JWS and return it — no cookie is
+ * written. A session with no ID yet is signed under a fresh `jti`, and a
+ * config with neither a cookie nor a session header signs an empty session,
+ * so one-off tokens (magic links, password resets) need no token source.
  * Payload: `session.data` spread at the top level, plus the reserved claims
  * `jti`, `iat`, and `exp` (when the session has a lifetime).
  */
@@ -139,7 +142,7 @@ export async function signJWSSession<
  *  - cryptographic signature verification
  *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
  *  - `typ` and `cty` header checks, and algorithm pinning when configured
- *  - `maxAge` enforced as `maxTokenAge`, and `exp` required alongside it
+ *  - `exp` required when the session has a `maxAge`
  */
 export async function verifyJWSSession<
   T extends Record<string, any> = SessionClaims,

@@ -96,9 +96,14 @@ export function assertSessionName(name: string, options: { prefix: string }): vo
   );
 }
 
+/** Whether a config leaves the adapter somewhere to read the token from. */
+export function hasTokenSource(source: SessionTokenSource): boolean {
+  return source.cookie !== false || source.sessionHeader !== false;
+}
+
 /** Reject a config that leaves the adapter with nowhere to read the token from. */
 export function assertTokenSource(source: SessionTokenSource, options: { prefix: string }): void {
-  if (source.cookie === false && source.sessionHeader === false) {
+  if (!hasTokenSource(source)) {
     throw invalidConfigError(
       `${options.prefix} Session has no token source: "cookie" and "sessionHeader" are both disabled.`,
     );
@@ -175,7 +180,8 @@ export function resolveExpiresAt(
 
 /**
  * Claims an incoming token must carry: always `jti` and `iat`, plus `exp` when
- * the session has a `maxAge` — a token without one could otherwise outlive it.
+ * the session has a `maxAge`. A token's `exp` is what bounds its life, so a
+ * session with a lifetime refuses a token that carries none.
  */
 export function sessionRequiredClaims(
   configured: string[] | undefined,

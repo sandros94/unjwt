@@ -14,13 +14,7 @@ import {
 import type { CookieSerializeOptions } from "cookie-esv3";
 import { readChunkedBy, readChunkedFromSetCookie } from "../../_chunked-cookie";
 import { setChunkedCookie, deleteChunkedCookie } from "../_cookie";
-import {
-  type SessionTokenSource,
-  assertTokenSource,
-  headerToken,
-  pickToken,
-  sessionHeaderName,
-} from "../../_session";
+import { type SessionTokenSource, headerToken, pickToken, sessionHeaderName } from "../../_session";
 import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
 
 export type { SessionTokenSource };
@@ -96,8 +90,6 @@ export function readSessionToken(
   sessionName: string,
   source: SessionTokenSource,
 ): string | undefined {
-  assertTokenSource(source, { prefix: PREFIX });
-
   let cookieValue: string | undefined;
   if (source.cookie !== false) {
     if (hasWritableResponse(event)) {

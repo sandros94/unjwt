@@ -125,7 +125,10 @@ export async function updateJWESession<
 }
 
 /**
- * Seal the current session as a compact JWE.
+ * Seal the current session as a compact JWE and return it — no cookie is
+ * written. A session with no ID yet is sealed under a fresh `jti`, and a
+ * config with neither a cookie nor a session header seals an empty session,
+ * so one-off tokens (magic links, password resets) need no token source.
  * Payload: `session.data` spread at the top level, plus the reserved claims
  * `jti`, `iat`, and `exp` (when the session has a lifetime).
  */
@@ -143,7 +146,7 @@ export async function sealJWESession<
  *  - authenticated decryption
  *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
  *  - `typ` and `cty` header checks, and alg/enc pinning when configured
- *  - `maxAge` enforced as `maxTokenAge`, and `exp` required alongside it
+ *  - `exp` required when the session has a `maxAge`
  */
 export async function unsealJWESession<
   T extends Record<string, any> = SessionClaims,

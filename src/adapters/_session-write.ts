@@ -8,6 +8,7 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import type { ExpiresIn } from "../core/types";
 import {
   type SessionIssueOptions,
+  hasTokenSource,
   readOnlyEventError,
   resolveExpiresAt,
   sanitizeSessionUpdate,
@@ -18,13 +19,16 @@ import {
   type SessionState,
   emptySession,
   kSessionPending,
+  mintSessionId,
   sessionToken,
 } from "./_session-core";
 import { loadSession } from "./_session-read";
 import type { SessionData, SessionManager, SessionUpdate } from "./_session-types";
 
 /**
- * Issue the current session as a compact token.
+ * Issue the current session as a compact token, handed back to the caller
+ * rather than written anywhere. A session that has no ID yet is issued under a
+ * fresh `jti`, and a config with no token source issues from an empty session.
  * Payload: `session.data` spread at the top level, plus the reserved claims
  * `jti`, `iat`, and `exp` (when the session has a lifetime).
  */
@@ -33,8 +37,13 @@ export async function encodeSession<TCarrier, Config extends SessionCoreConfig>(
 ): Promise<string> {
   const { config, codec, store } = binding;
   const key = codec.issueKey(config);
-  const session = store.get() || (await loadSession(binding));
-  return codec.issue(config, session, key);
+  const session =
+    store.get() || (hasTokenSource(config) ? await loadSession(binding) : emptySession(binding));
+  return codec.issue(
+    config,
+    session.id === undefined ? { ...session, id: mintSessionId(config) } : session,
+    key,
+  );
 }
 
 /**
@@ -53,8 +62,7 @@ export async function issueSession<
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
   const { config, codec, port, store, args } = binding;
 
-  const writable = port.writable(binding.carrier);
-  if (config.cookie !== false && !writable) {
+  if (config.cookie !== false && !port.writable(binding.carrier)) {
     throw readOnlyEventError(`${port.prefix} Cannot update session on read-only event.`);
   }
 
@@ -75,16 +83,23 @@ export async function issueSession<
   const now = codec.now(config);
   const createdAt = now - (now % 1000); // round to seconds
   Object.assign(session, {
-    id: config.generateId?.() || crypto.randomUUID(),
+    id: mintSessionId(config),
     createdAt,
     expiresAt: resolveExpiresAt(createdAt, { maxAge }),
   });
 
   // Always issue a token and cache it so `session.token` stays accurate even
-  // when cookies are disabled or the response is not writable.
-  let token: string;
+  // when cookies are disabled.
   try {
-    token = await encodeSession(binding);
+    const token = await encodeSession(binding);
+    if (config.cookie !== false) {
+      port.setCookie(binding.carrier, binding.name, token, {
+        defaults: codec.defaultCookie,
+        cookie: config.cookie,
+        expiresAt: session.expiresAt,
+      });
+    }
+    session.token = token;
   } catch (error_) {
     Object.assign(session, {
       id: oldSession.id,
@@ -95,15 +110,6 @@ export async function issueSession<
     session.token = oldSession.token;
     await config.hooks?.onError?.({ session, ...args, error: error_, config });
     throw error_;
-  }
-  session.token = token;
-
-  if (config.cookie !== false && writable) {
-    port.setCookie(binding.carrier, binding.name, token, {
-      defaults: codec.defaultCookie,
-      cookie: config.cookie,
-      expiresAt: session.expiresAt,
-    });
   }
 
   // Fires after issuing so the hook receives the definitive new token, jti, and
@@ -125,8 +131,7 @@ export async function dropSession<
 >(binding: SessionBinding<TCarrier, Config>): Promise<void> {
   const { config, codec, port, store, args } = binding;
 
-  const writable = port.writable(binding.carrier);
-  if (config.cookie !== false && !writable) {
+  if (config.cookie !== false && !port.writable(binding.carrier)) {
     throw readOnlyEventError(`${port.prefix} Cannot clear session on read-only event.`);
   }
 
@@ -141,7 +146,7 @@ export async function dropSession<
 
   store.set(emptySession<T, MaxAge, TCarrier, Config>(binding));
 
-  if (config.cookie !== false && writable) {
+  if (config.cookie !== false) {
     port.deleteCookie(binding.carrier, binding.name, {
       defaults: codec.defaultCookie,
       cookie: config.cookie,

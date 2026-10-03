@@ -4,13 +4,7 @@ import {
   writeChunkedCookie,
   removeChunkedCookie,
 } from "../_cookie";
-import {
-  type SessionTokenSource,
-  assertTokenSource,
-  headerToken,
-  pickToken,
-  sessionHeaderName,
-} from "../../_session";
+import { type SessionTokenSource, headerToken, pickToken, sessionHeaderName } from "../../_session";
 import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
 import type { SessionContext } from "./types";
 
@@ -19,32 +13,43 @@ export type { SessionTokenSource };
 /** Message prefix for every error the Elysia adapter emits. */
 export const PREFIX = "[unjwt/elysia]";
 
+/** The session states of each request, keyed by family and name. */
+const SESSIONS = /* @__PURE__ */ new WeakMap<object, Record<string, SessionState<any, any>>>();
+
 /**
  * The Elysia side of a session: the reactive cookie jar it reads its token
- * from and writes it back to. A session lives as long as the context it was
- * created for, so it is held by the port rather than stored on the context.
+ * from and writes it back to. Elysia's context carries no slot of its own for
+ * the session, so its state is held per request, and every binding of one
+ * family and name on that request — the plugin's, a handler's, a hook's —
+ * shares it.
  */
 export const elysiaSessionPort: SessionPort<SessionContext> = {
   prefix: PREFIX,
 
   carrier: (context) => ({ context }),
 
-  store: () => {
-    let state: SessionState<any, any> | undefined;
-    return {
-      get: () => state,
-      set: (next) => {
-        state = next;
-      },
-    };
-  },
+  store: (context, slot) => ({
+    get: () => SESSIONS.get(context.request)?.[slot],
+    set: (state) => {
+      let sessions = SESSIONS.get(context.request);
+      if (!sessions) {
+        sessions = Object.create(null) as Record<string, SessionState<any, any>>;
+        SESSIONS.set(context.request, sessions);
+      }
+      sessions[slot] = state;
+    },
+  }),
 
   readToken: readSessionToken,
 
   /** The request is the one object every session of it is created from. */
   scope: (context) => context.request,
 
-  /** Elysia hands the cookie jar to every handler, so the response is always writable. */
+  /**
+   * Elysia hands the cookie jar to every lifecycle stage and exposes no sign
+   * that the response was already built, so a write is always accepted; one
+   * made once the response is built (e.g. in `onAfterResponse`) is not sent.
+   */
   writable: () => true,
 
   setCookie: (context, sessionName, token, options) => {
@@ -71,8 +76,6 @@ export function readSessionToken(
   sessionName: string,
   source: SessionTokenSource,
 ): string | undefined {
-  assertTokenSource(source, { prefix: PREFIX });
-
   const cookieValue =
     source.cookie === false ? undefined : readChunkedCookie(context.cookie, sessionName);
 

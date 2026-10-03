@@ -195,6 +195,31 @@ describe("elysia session — plugin API (jwsSession / jweSession)", () => {
     expect(((await allowed.json()) as { user: string }).user).toBe("bob");
   });
 
+  it("an update made once the response is built never reaches the client", async () => {
+    let settle!: (outcome: { error: unknown; id: string | null }) => void;
+    const outcome = new Promise<{ error: unknown; id: string | null }>((resolve) => {
+      settle = resolve;
+    });
+    const app = new Elysia()
+      .use(jwsSession({ key: jwsKey, maxAge: "1h" }))
+      .onAfterResponse(async ({ session }) => {
+        const error = await session.update({ late: true }).then(
+          () => undefined,
+          (error_: unknown) => error_,
+        );
+        settle({ error, id: session.id ?? null });
+      })
+      .get("/", () => ({ ok: true }));
+
+    const response = await app.handle(new Request("http://localhost/"));
+    expect(await response.json()).toEqual({ ok: true });
+    expect(response.headers.getSetCookie()).toEqual([]);
+
+    const { error, id } = await outcome;
+    expect(error).toBeUndefined();
+    expect(id).toBeTypeOf("string");
+  });
+
   it("supports a custom contextKey", async () => {
     const app = new Elysia()
       .use(jwsSession({ key: jwsKey, contextKey: "auth" }))
