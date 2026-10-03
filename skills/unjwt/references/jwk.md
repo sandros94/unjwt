@@ -103,7 +103,7 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 
 For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it is never assumed
 from `alg`. `EC` + `ECDH-ES*` accepts `P-256` / `P-384` / `P-521`; `OKP` + `Ed25519` / `EdDSA`
-accepts `Ed25519` / `Ed448`; `OKP` + `ECDH-ES*` accepts `X25519` / `X448`. Any other `crv`
+accepts `Ed25519` / `Ed448`; `OKP` + `ECDH-ES*` accepts `X25519`. Any other `crv`
 throws `ERR_JWK_INVALID` before Web Crypto is reached. The same rule applies to `importPEM`,
 which reads the curve OID out of the key body.
 
@@ -568,7 +568,7 @@ interface JWK_RSA_Private<
 type JWK_RSA<Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string> =
   JWK_RSA_Public<Alg> | JWK_RSA_Private<Alg>;
 
-// OKP — Ed signing or ECDH-ES (X25519 / X448)
+// OKP — Ed signing or ECDH-ES (X25519)
 interface JWK_OKP_Public<
   Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
 > extends JWKParameters<Alg> {

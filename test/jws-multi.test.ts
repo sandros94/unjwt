@@ -987,6 +987,81 @@ describe.concurrent("JWS multi-signature hardening", () => {
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
       expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).');
     });
+
+    it.each([["false"], [0], [null], [1]])(
+      "verifyMulti rejects a non-boolean b64 (%j)",
+      async (b64) => {
+        const jws: JWSGeneralSerialization = {
+          payload: "raw-payload",
+          signatures: [
+            {
+              protected: encodeHeader(JSON.stringify({ alg: "HS256", b64 })),
+              signature: "AAAA",
+            },
+          ],
+        };
+        const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+        expect(error.message).toBe('Invalid JWS: "b64" must be a boolean (RFC 7797 §3).');
+      },
+    );
+
+    it("condemns only the signature whose unprotected header carries b64", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }, { key: keys.hs256 }]);
+      const tampered: JWSGeneralSerialization = {
+        payload: jws.payload,
+        signatures: [{ ...jws.signatures[0]!, header: { b64: true } }, jws.signatures[1]!],
+      };
+
+      const { signerIndex } = await verifyMulti(tampered, keys.hs256);
+      expect(signerIndex).toBe(1);
+
+      const [first, second] = await verifyMultiAll(tampered, () => keys.hs256);
+      const failed = expectUnverified(first);
+      expect(failed.error.code).toBe("ERR_JWS_INVALID");
+      expect(failed.error.message).toBe(
+        'Invalid JWS: "b64" must occur only within the protected header (RFC 7797 §3).',
+      );
+      expect(second?.verified).toBe(true);
+    });
+
+    it("verifyMulti rejects b64 in the unprotected header of its only signature", async () => {
+      const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+      const flattened: JWSFlattenedSerialization = {
+        payload: jws.payload,
+        protected: jws.signatures[0]!.protected!,
+        header: { b64: false },
+        signature: jws.signatures[0]!.signature,
+      };
+      const error = await verifyMulti(flattened, keys.hs256).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toContain('"b64"');
+    });
+  });
+
+  describe('"typ" is read from the protected header only', () => {
+    it("reports a protected header without typ as carrying none", async () => {
+      const jws = await signMulti("raw-payload", [{ key: keys.hs256 }]);
+      const error = await verifyMulti(jws, keys.hs256, {
+        typ: "at+jwt",
+        payload: "string",
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'Invalid JWS: the protected header on signature[0] carries no "typ"; expected "at+jwt".',
+      );
+    });
+
+    it("ignores a typ that only the unprotected header carries", async () => {
+      const jws = await signMulti("raw-payload", [
+        { key: keys.hs256, unprotectedHeader: { typ: "at+jwt" } },
+      ]);
+      const [outcome] = await verifyMultiAll(jws, () => keys.hs256, {
+        typ: "at+jwt",
+        payload: "string",
+      });
+      expect(expectUnverified(outcome).error.message).toContain('carries no "typ"');
+    });
   });
 });
 
@@ -1042,6 +1117,49 @@ describe.concurrent("signMulti header tiers", () => {
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain('"crit"');
   });
+
+  it("refuses b64 in a per-signature unprotected header", async () => {
+    const error = await signMulti("payload", [
+      { key, unprotectedHeader: { b64: false } as never },
+    ]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe(
+      'JWS "b64" must be integrity protected; move it from the unprotected header to the protected header.',
+    );
+  });
+
+  it.each([["false"], [0], [null], [1]])(
+    "refuses a non-boolean b64 (%j) in a signer protected header",
+    async (b64) => {
+      const error = await signMulti("payload", [
+        { key, protectedHeader: { b64: false } },
+        { key, protectedHeader: { b64 } as never },
+      ]).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe('"b64" must be a boolean (RFC 7797 §3).');
+    },
+  );
+
+  it.each([
+    ["null", null],
+    ["a string", "signer"],
+    ["an array", []],
+  ])("refuses a signer entry that is %s", async (_label, signer) => {
+    const error = await signMulti("payload", [signer as never]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"signers[0]" must be an object.');
+  });
+
+  it.each(["protectedHeader", "unprotectedHeader"])(
+    "refuses a signer %s that is not an object",
+    async (member) => {
+      const error = await signMulti("payload", [{ key }, { key, [member]: "abc" } as never]).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe(`"signers[1].${member}" must be an object.`);
+    },
+  );
 
   it('refuses "b64" in crit when the signer header carries no b64 member', async () => {
     const error = await signMulti("payload", [{ key, protectedHeader: { crit: ["b64"] } }]).catch(

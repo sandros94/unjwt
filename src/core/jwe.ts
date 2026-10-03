@@ -46,7 +46,8 @@ import {
   JWE_ALG_CTX,
   assertCompactToken,
   assertDirectKeyRole,
-  assertJWETyp,
+  checkProtectedTyp,
+  assertOptionEntry,
   assertJWKSetCandidates,
   assertNoZipOption,
   assertProducerCEK,
@@ -127,6 +128,7 @@ export async function encrypt(
   key: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions = {},
 ): Promise<string> {
+  assertOptionEntry(options, { label: "options", headers: ["protectedHeader"] });
   const {
     protectedHeader: userHeader,
     cek: providedCek,
@@ -353,7 +355,8 @@ export async function decrypt<T extends JOSEPayload>(
 
   validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
 
-  assertJWETyp(options.typ, protectedHeader.typ);
+  const typError = checkProtectedTyp(options.typ, protectedHeader, { family: "JWE" });
+  if (typError) throw typError;
 
   const directKeyError = checkJWEDirectEncryptedKey(alg, encryptedKeyEncoded);
   if (directKeyError) throw directKeyError;
@@ -416,7 +419,7 @@ export async function decrypt<T extends JOSEPayload>(
     for (const candidate of candidates) {
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
-        pbes2Budget.spend(alg, unwrapKeyOpts.p2c);
+        pbes2Budget.spend(unwrapKeyOpts);
         const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
         const candidateCek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
         plaintextBytes = await joseDecrypt(
@@ -439,7 +442,7 @@ export async function decrypt<T extends JOSEPayload>(
     }
   } else {
     if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
-    pbes2Budget.spend(alg, unwrapKeyOpts.p2c);
+    pbes2Budget.spend(unwrapKeyOpts);
     const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
       alg,
       expect: "private",

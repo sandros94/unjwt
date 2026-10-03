@@ -1552,6 +1552,17 @@ describe.concurrent("JWE Utilities", () => {
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
       expect(error.message).toMatch(/"typ"/);
     });
+
+    it("reports a protected header without typ as carrying none", async () => {
+      const token = await encrypt("payload", kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const error = await decrypt(token, kwKey, { typ: "at+jwt", payload: "string" }).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'Invalid JWE: the protected header carries no "typ"; expected "at+jwt".',
+      );
+    });
   });
 });
 
@@ -1682,6 +1693,16 @@ describe.concurrent("JWE producer option gates", () => {
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     },
   );
+
+  it.each([
+    ["a string", "abc"],
+    ["an array", ["typ"]],
+    ["null", null],
+  ])("refuses a protected header that is %s", async (_label, protectedHeader) => {
+    const error = await encrypt("payload", aesKey, { protectedHeader } as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"options.protectedHeader" must be an object.');
+  });
 
   it("refuses a crit naming a parameter the header does not carry", async () => {
     const error = await encrypt("payload", aesKey, {

@@ -53,7 +53,7 @@ import {
   JWE_ALG_CTX,
   JWE_DIRECT_ALGS,
   assertDirectKeyRole,
-  assertJWETyp,
+  checkProtectedTyp,
   assertJWKSetCandidates,
   assertEntryLimit,
   assertNoZipOption,
@@ -62,7 +62,8 @@ import {
   assertProducerIV,
   assertProducerPartyInfo,
   asKeyLookupError,
-  assertNoUnprotectedCritOption,
+  assertOptionEntry,
+  assertProtectedOnlyOption,
   assertSerializationObject,
   buildJWKSetFilter,
   buildUnwrapKeyOptions,
@@ -113,12 +114,20 @@ export async function encryptMulti(
     throw new JWTError("encryptMulti requires at least one recipient.", "ERR_JWE_INVALID");
   }
 
+  assertOptionEntry(options, {
+    label: "options",
+    headers: ["protectedHeader", "sharedUnprotectedHeader"],
+  });
   assertNoZipOption(options.protectedHeader, "protected");
   assertNoZipOption(options.sharedUnprotectedHeader, "shared unprotected");
-  assertNoUnprotectedCritOption(options.sharedUnprotectedHeader, "shared unprotected", "JWE");
-  for (const recipient of recipients) {
-    assertNoZipOption(recipient?.header, "per-recipient");
-    assertNoUnprotectedCritOption(recipient?.header, "per-recipient", "JWE");
+  assertProtectedOnlyOption(options.sharedUnprotectedHeader, {
+    tier: "shared unprotected",
+    family: "JWE",
+  });
+  for (const [index, recipient] of recipients.entries()) {
+    assertOptionEntry(recipient, { label: `recipients[${index}]`, headers: ["header"] });
+    assertNoZipOption(recipient.header, "per-recipient");
+    assertProtectedOnlyOption(recipient.header, { tier: "per-recipient", family: "JWE" });
   }
 
   const resolvedAlgs: KeyManagementAlgorithm[] = recipients.map((r, i) =>
@@ -340,7 +349,8 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
 
   validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
 
-  assertJWETyp(options.typ, protectedHeader.typ);
+  const typError = checkProtectedTyp(options.typ, protectedHeader, { family: "JWE" });
+  if (typError) throw typError;
 
   const ivBytes = decodeSegment(general.iv, { family: "JWE", what: "Initialization vector" });
   const ciphertextBytes = decodeSegment(general.ciphertext, {
@@ -656,35 +666,33 @@ function _normalizeSerialization(
 
   const obj = input as unknown as Record<string, unknown>;
 
-  if (Array.isArray(obj.recipients)) {
+  // RFC 7516 §7.2 — General and Flattened are alternatives, never both. Only
+  // `recipients` tells them apart: the Flattened `header` and `encrypted_key`
+  // are both OPTIONAL (§7.2.2), and a `dir` or `ECDH-ES` token carries neither.
+  if ("recipients" in obj) {
+    if ("encrypted_key" in obj || "header" in obj) {
+      throw new JWTError(
+        'Invalid JWE JSON Serialization: "recipients" must not be combined with a top-level "header" or "encrypted_key".',
+        "ERR_JWE_INVALID_SERIALIZATION",
+      );
+    }
     return obj as unknown as JWEGeneralSerialization;
   }
 
-  if ("encrypted_key" in obj || "header" in obj) {
-    const flattened = obj as unknown as JWEFlattenedSerialization;
-    const general: JWEGeneralSerialization = {
-      recipients: [
-        {
-          ...(flattened.header !== undefined ? { header: flattened.header } : {}),
-          ...(flattened.encrypted_key !== undefined
-            ? { encrypted_key: flattened.encrypted_key }
-            : {}),
-        },
-      ],
-      iv: flattened.iv,
-      ciphertext: flattened.ciphertext,
-      tag: flattened.tag,
-    };
-    if (flattened.protected !== undefined) general.protected = flattened.protected;
-    if (flattened.unprotected !== undefined) general.unprotected = flattened.unprotected;
-    if (flattened.aad !== undefined) general.aad = flattened.aad;
-    return general;
-  }
-
-  throw new JWTError(
-    "Invalid JWE JSON Serialization: missing both recipients[] and flattened header/encrypted_key.",
-    "ERR_JWE_INVALID_SERIALIZATION",
-  );
+  const flattened = obj as unknown as JWEFlattenedSerialization;
+  const recipient: JWEGeneralRecipient = {};
+  if (flattened.header !== undefined) recipient.header = flattened.header;
+  if (flattened.encrypted_key !== undefined) recipient.encrypted_key = flattened.encrypted_key;
+  const general: JWEGeneralSerialization = {
+    recipients: [recipient],
+    iv: flattened.iv,
+    ciphertext: flattened.ciphertext,
+    tag: flattened.tag,
+  };
+  if (flattened.protected !== undefined) general.protected = flattened.protected;
+  if (flattened.unprotected !== undefined) general.unprotected = flattened.unprotected;
+  if (flattened.aad !== undefined) general.aad = flattened.aad;
+  return general;
 }
 
 /**
@@ -797,7 +805,7 @@ async function _unwrapAndDecrypt(
     for (const candidate of candidates) {
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
-        pbes2Budget.spend(alg, unwrapKeyOptions.p2c);
+        pbes2Budget.spend(unwrapKeyOptions);
         const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
         const cek = await unwrapKey(encryptedKey, unwrappingKey, unwrapKeyOptions);
         const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
@@ -810,7 +818,7 @@ async function _unwrapAndDecrypt(
   }
 
   if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
-  pbes2Budget.spend(alg, unwrapKeyOptions.p2c);
+  pbes2Budget.spend(unwrapKeyOptions);
   const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
     alg,
     expect: "private",

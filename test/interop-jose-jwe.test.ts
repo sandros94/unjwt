@@ -152,6 +152,24 @@ describe.concurrent("interop with jose: JWE JSON serialization", () => {
     expect(res.payload).toEqual(bytes);
   });
 
+  // RFC 7516 §7.2.2 — a Flattened `dir` / `ECDH-ES` token carries neither `header` nor `encrypted_key`.
+  it.each([
+    ["dir", "A256GCM"],
+    ["ECDH-ES", "A256GCM"],
+  ] as const)("Flattened %s: jose -> unjwt", async (alg, enc) => {
+    const k = await jweKeys(alg, enc);
+    const flat = await new jose.FlattenedEncrypt(bytes)
+      .setProtectedHeader({ alg, enc })
+      .encrypt(k.jEnc);
+    expect(flat).not.toHaveProperty("header");
+    expect(flat).not.toHaveProperty("encrypted_key");
+    const res = await decryptMulti(flat as JWEFlattenedSerialization, k.uDec as JWEDecryptJWK, {
+      payload: "bytes",
+    });
+    expect(res.payload).toEqual(bytes);
+    expect(res.protectedHeader).toMatchObject({ alg, enc });
+  });
+
   // RFC 7516 §7.2.1 lets `enc` sit in the shared unprotected header.
   it("General JWE with enc in shared unprotected header: both accept", async () => {
     const key = (await keysFor("A256KW")).priv;

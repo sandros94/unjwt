@@ -39,7 +39,9 @@ import {
 import {
   JWS_ALG_CTX,
   applyB64Header,
-  assertNoUnprotectedCritOption,
+  assertB64Option,
+  assertOptionEntry,
+  assertProtectedOnlyOption,
   assertProducerCrit,
   asKeyLookupError,
   asKeyUsageError,
@@ -50,7 +52,7 @@ import {
   buildJWKSetFilter,
   checkAlgAllowed,
   checkJWSAlgSupported,
-  checkJWSB64Crit,
+  checkJWSB64,
   assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
@@ -59,7 +61,7 @@ import {
   resolveSigningKey,
   serializeProtectedHeader,
   stringKeyError,
-  typMatches,
+  checkProtectedTyp,
   validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
@@ -94,9 +96,14 @@ export async function signMulti(
     throw new JWTError("signMulti requires at least one signer.", "ERR_JWS_INVALID");
   }
 
-  for (const signer of signers) {
-    assertNotStringKey(signer?.key);
-    assertNoUnprotectedCritOption(signer?.unprotectedHeader, "unprotected", "JWS");
+  for (const [index, signer] of signers.entries()) {
+    assertOptionEntry(signer, {
+      label: `signers[${index}]`,
+      headers: ["protectedHeader", "unprotectedHeader"],
+    });
+    assertNotStringKey(signer.key);
+    assertProtectedOnlyOption(signer.unprotectedHeader, { tier: "unprotected", family: "JWS" });
+    assertB64Option(signer.protectedHeader);
   }
 
   const resolvedAlgs: JWSAlgorithm[] = signers.map((s, i) => _resolveSignerAlg(s, i));
@@ -224,11 +231,12 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
     }
     const { wireSig, protectedHeader, unprotectedHeader, effective, alg } = read;
 
-    if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
-      lastError = new JWTError(
-        `Invalid JWS: "typ" Header Parameter mismatch on signature[${i}]. Expected "${options.typ}", got "${protectedHeader.typ}".`,
-        "ERR_JWS_INVALID",
-      );
+    const typError = checkProtectedTyp(options.typ, protectedHeader, {
+      family: "JWS",
+      label: `signature[${i}]`,
+    });
+    if (typError) {
+      lastError = typError;
       continue;
     }
 
@@ -474,13 +482,26 @@ const PER_SIGNATURE_ERROR_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "ERR_JWK_INVALID",
 ]);
 
-/** RFC 7515 §4.1.11 — `crit` is only meaningful when it is integrity protected. */
-function _checkUnprotectedCrit(header: JWSHeaderParameters | undefined): JWTError | undefined {
-  if (!header || !Object.hasOwn(header, "crit")) return undefined;
-  return new JWTError(
-    'Invalid JWS: "crit" must be integrity protected (RFC 7515 §4.1.11).',
-    "ERR_JWS_INVALID",
-  );
+/**
+ * RFC 7515 §4.1.11 / RFC 7797 §3 — `crit` and `b64` are only meaningful when
+ * they are integrity protected, so either one in an unprotected header
+ * condemns the signature.
+ */
+function _checkUnprotectedHeader(header: JWSHeaderParameters | undefined): JWTError | undefined {
+  if (!header) return undefined;
+  if (Object.hasOwn(header, "crit")) {
+    return new JWTError(
+      'Invalid JWS: "crit" must be integrity protected (RFC 7515 §4.1.11).',
+      "ERR_JWS_INVALID",
+    );
+  }
+  if (Object.hasOwn(header, "b64")) {
+    return new JWTError(
+      'Invalid JWS: "b64" must occur only within the protected header (RFC 7797 §3).',
+      "ERR_JWS_INVALID",
+    );
+  }
+  return undefined;
 }
 
 type SignatureHeaders =
@@ -536,8 +557,8 @@ function _readSignatureHeaders(entry: unknown, index: number): SignatureHeaders 
     ...(unprotectedHeader ? { unprotectedHeader } : {}),
   });
 
-  const critError = _checkUnprotectedCrit(unprotectedHeader);
-  if (critError) return failed(critError);
+  const unprotectedError = _checkUnprotectedHeader(unprotectedHeader);
+  if (unprotectedError) return failed(unprotectedError);
   try {
     _assertDisjointHeaders(protectedHeader, unprotectedHeader);
   } catch (err) {
@@ -555,7 +576,7 @@ function _readSignatureHeaders(entry: unknown, index: number): SignatureHeaders 
     );
   }
 
-  const algError = checkJWSAlgSupported(alg) ?? checkJWSB64Crit(protectedHeader);
+  const algError = checkJWSAlgSupported(alg) ?? checkJWSB64(protectedHeader);
   if (algError) return failed(algError);
 
   return {
@@ -807,16 +828,11 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   if (read.error) return fail(read.error, read.protectedHeader, read.unprotectedHeader);
   const { wireSig, protectedHeader, unprotectedHeader, effective, alg } = read;
 
-  if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
-    return fail(
-      new JWTError(
-        `Invalid JWS: "typ" Header Parameter mismatch on signature[${index}]. Expected "${options.typ}", got "${protectedHeader.typ}".`,
-        "ERR_JWS_INVALID",
-      ),
-      protectedHeader,
-      unprotectedHeader,
-    );
-  }
+  const typError = checkProtectedTyp(options.typ, protectedHeader, {
+    family: "JWS",
+    label: `signature[${index}]`,
+  });
+  if (typError) return fail(typError, protectedHeader, unprotectedHeader);
 
   let rawKeyMaterial: unknown;
   try {

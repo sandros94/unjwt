@@ -56,15 +56,18 @@ export async function pbes2Wrap(
   return { encryptedKey, p2c, p2s: base64UrlStringify(p2s) };
 }
 
-export async function pbes2Unwrap(
-  alg: string,
-  key: CryptoKey | Uint8Array<ArrayBuffer>,
-  encryptedKey: Uint8Array<ArrayBuffer>,
+/**
+ * The `p2c` bounds one PBES2 unwrap accepts: `minIterations` (default 1000,
+ * RFC 7518 §4.8.1.2) to `maxIterations` (default {@link DEFAULT_PBES2_MAX_ITERATIONS}).
+ */
+export function assertPBES2Iterations(
   p2c: number,
-  p2s: Uint8Array<ArrayBuffer>,
-  minIterations: number = DEFAULT_PBES2_MIN_ITERATIONS,
-  maxIterations: number = DEFAULT_PBES2_MAX_ITERATIONS,
-): Promise<Uint8Array<ArrayBuffer>> {
+  bounds: { minIterations?: number; maxIterations?: number },
+): void {
+  const {
+    minIterations = DEFAULT_PBES2_MIN_ITERATIONS,
+    maxIterations = DEFAULT_PBES2_MAX_ITERATIONS,
+  } = bounds;
   if (p2c < minIterations) {
     throw new JWTError(
       `PBES2 "p2c" below the minimum of ${minIterations} iterations (got ${p2c}).`,
@@ -77,6 +80,18 @@ export async function pbes2Unwrap(
       "ERR_JWE_INVALID",
     );
   }
+}
+
+export async function pbes2Unwrap(
+  alg: string,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  encryptedKey: Uint8Array<ArrayBuffer>,
+  p2c: number,
+  p2s: Uint8Array<ArrayBuffer>,
+  minIterations?: number,
+  maxIterations?: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  assertPBES2Iterations(p2c, { minIterations, maxIterations });
   const derived = await deriveKey(p2s, alg, p2c, key);
   return aesKwUnwrap(alg.slice(-6), derived, encryptedKey);
 }

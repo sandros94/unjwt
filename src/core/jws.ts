@@ -38,7 +38,7 @@ import {
   buildJWKSetFilter,
   checkAlgAllowed,
   checkJWSAlgSupported,
-  checkJWSB64Crit,
+  checkJWSB64,
   assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
@@ -46,7 +46,8 @@ import {
   resolvePayloadMode,
   resolveSigningKey,
   serializeProtectedHeader,
-  typMatches,
+  checkProtectedTyp,
+  assertOptionEntry,
   validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
@@ -88,6 +89,7 @@ export async function sign(
   key: CryptoKey | JWSSignJWK | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
+  assertOptionEntry(options, { label: "options", headers: ["protectedHeader"] });
   assertNotStringKey(key);
 
   const { protectedHeader: userHeader } = options;
@@ -221,15 +223,10 @@ export async function verify<T extends JOSEPayload>(
   const algSupportError = checkJWSAlgSupported(alg);
   if (algSupportError) throw algSupportError;
 
-  const b64Error = checkJWSB64Crit(protectedHeader);
-  if (b64Error) throw b64Error;
-
-  if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
-    throw new JWTError(
-      `Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "${options.typ}", got "${protectedHeader.typ}".`,
-      "ERR_JWS_INVALID",
-    );
-  }
+  const headerError =
+    checkJWSB64(protectedHeader) ??
+    checkProtectedTyp(options.typ, protectedHeader, { family: "JWS" });
+  if (headerError) throw headerError;
 
   const signatureBytes = decodeSegment(signatureEncoded, { family: "JWS", what: "Signature" });
 

@@ -365,13 +365,43 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWE_INVALID_SERIALIZATION"));
       });
 
-      it("rejects an object with neither recipients[] nor flattened fields", async () => {
-        await expect(
-          decryptMulti(
-            { iv: "x", ciphertext: "y", tag: "z" } as unknown as JWEGeneralSerialization,
-            keys.a256kw,
-          ),
-        ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWE_INVALID_SERIALIZATION"));
+      it("reads an object without recipients[] as the Flattened form", async () => {
+        const error = await decryptMulti(
+          { iv: "x", ciphertext: "y", tag: "z" } as unknown as JWEGeneralSerialization,
+          keys.a256kw,
+        ).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+        expect(error.message).toBe(
+          'Invalid JWE: "enc" is missing from the protected and shared unprotected headers.',
+        );
+      });
+
+      it.each(["header", "encrypted_key"])(
+        "rejects recipients[] alongside a top-level %s",
+        async (member) => {
+          const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }]);
+          const ambiguous = {
+            ...jwe,
+            [member]: member === "header" ? { alg: "A256KW" } : jwe.recipients[0]!.encrypted_key,
+          };
+          const error = await decryptMulti(ambiguous, keys.a256kw).catch((e) => e);
+          expect(isJWTError(error, "ERR_JWE_INVALID_SERIALIZATION")).toBe(true);
+        },
+      );
+
+      it("decrypts a Flattened dir token that carries neither header nor encrypted_key", async () => {
+        const cek = await generateJWK("A256GCM");
+        const compact = await encrypt({ x: 1 }, cek, { alg: "dir", enc: "A256GCM" });
+        const [protectedHeader, , iv, ciphertext, tag] = compact.split(".");
+        const flattened: JWEFlattenedSerialization = {
+          protected: protectedHeader!,
+          iv: iv!,
+          ciphertext: ciphertext!,
+          tag: tag!,
+        };
+        const { payload, recipientIndex } = await decryptMulti(flattened, cek);
+        expect(payload).toEqual({ x: 1 });
+        expect(recipientIndex).toBe(0);
       });
 
       it("rejects a JWE missing enc in protected header", async () => {
@@ -1155,6 +1185,46 @@ describe.concurrent("encryptMulti header tiers", () => {
     ]).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain('"crit"');
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "recipient"],
+    ["an array", []],
+  ])("refuses a recipient entry that is %s", async (_label, recipient) => {
+    const error = await encryptMulti("payload", [{ key }, recipient as never]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"recipients[1]" must be an object.');
+  });
+
+  it("refuses a per-recipient header that is not an object", async () => {
+    const error = await encryptMulti("payload", [{ key, header: "abc" as never }]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"recipients[0].header" must be an object.');
+  });
+
+  it.each(["protectedHeader", "sharedUnprotectedHeader"])(
+    "refuses a %s option that is not an object",
+    async (member) => {
+      const error = await encryptMulti("payload", [{ key }], { [member]: "abc" } as never).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe(`"options.${member}" must be an object.`);
+    },
+  );
+
+  it("reads typ from the protected header only", async () => {
+    const jwe = await encryptMulti("payload", [{ key, header: { typ: "at+jwt" } }], {
+      sharedUnprotectedHeader: { cty: "text/plain" },
+    });
+    const error = await decryptMulti(jwe, key, { typ: "at+jwt", payload: "string" }).catch(
+      (e) => e,
+    );
+    expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    expect(error.message).toBe(
+      'Invalid JWE: the protected header carries no "typ"; expected "at+jwt".',
+    );
   });
 });
 

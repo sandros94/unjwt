@@ -1665,6 +1665,16 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).');
     });
 
+    it.each([["false"], [0], [null], [1]])(
+      "rejects a non-boolean b64 (%j) on verify",
+      async (b64) => {
+        const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "HS256", b64 })));
+        const error = await verify(jws, hs256Key).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+        expect(error.message).toBe('Invalid JWS: "b64" must be a boolean (RFC 7797 §3).');
+      },
+    );
+
     it('rejects an unencoded compact payload containing "."', async () => {
       const error = await sign("a.b", hs256Key, {
         alg: "HS256",
@@ -1699,6 +1709,18 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         protectedHeader: { typ: "application/at+jwt" },
       });
       await expect(verify(jws, hs256Key, { typ: "at+jwt" })).resolves.toBeDefined();
+    });
+
+    it("reports a protected header without typ as carrying none", async () => {
+      const jws = await sign("payload", hs256Key, { alg: "HS256" });
+      expect(JSON.parse(base64UrlParse(jws.split(".")[0]!)).typ).toBeUndefined();
+      const error = await verify(jws, hs256Key, { typ: "at+jwt", payload: "string" }).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'Invalid JWS: the protected header carries no "typ"; expected "at+jwt".',
+      );
     });
 
     it("still rejects a genuine typ mismatch", async () => {
@@ -1921,6 +1943,27 @@ describe.concurrent("JWS producer header gates", () => {
     }).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain("b64");
+  });
+
+  it.each([["false"], [0], [null], [1]])(
+    "refuses a non-boolean b64 (%j) in the protected header",
+    async (b64) => {
+      const error = await sign("payload", key, {
+        protectedHeader: { b64 } as never,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe('"b64" must be a boolean (RFC 7797 §3).');
+    },
+  );
+
+  it.each([
+    ["a string", "abc"],
+    ["an array", ["typ"]],
+    ["null", null],
+  ])("refuses a protected header that is %s", async (_label, protectedHeader) => {
+    const error = await sign("payload", key, { protectedHeader } as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"options.protectedHeader" must be an object.');
   });
 
   it("refuses a protected header that cannot be serialized", async () => {

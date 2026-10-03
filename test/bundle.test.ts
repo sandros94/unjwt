@@ -73,8 +73,8 @@ const ENTRIES: ReadonlyArray<Entry> = [
   },
   // measured 36369
   { name: "decrypt", module: "core/jwe.ts", ceiling: 41700, absent: [MARKERS.thumbprint] },
-  // measured 27772
-  { name: "encrypt", module: "core/jwe.ts", ceiling: 32000, absent: [MARKERS.thumbprint] },
+  // measured 32119
+  { name: "encrypt", module: "core/jwe.ts", ceiling: 37000, absent: [MARKERS.thumbprint] },
   // measured 8868
   { name: "importKey", module: "core/jwk.ts", ceiling: 10200, absent: [MARKERS.pem] },
   // measured 8656 — every JWK it emits carries its RFC 7638 thumbprint as `kid`

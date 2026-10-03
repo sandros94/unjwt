@@ -12,7 +12,7 @@ import {
 import { encrypt, decrypt, encryptMulti, decryptMulti } from "../src/core/jwe";
 import { generateJWK } from "../src/core/jwk";
 import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal";
-import { base64UrlStringify } from "../src/core/utils/base64";
+import { base64UrlParse, base64UrlStringify } from "../src/core/utils/base64";
 import { textEncoder } from "unsecure/utils";
 import type {
   JWK_EC_Private,
@@ -295,6 +295,43 @@ describe("limits", () => {
       ]);
 
       expect((jwe.recipients[1]!.header as { p2c: number }).p2c).toBe(DEFAULT_PBES2_ITERATIONS);
+
+      const { payload, recipientIndex } = await decryptMulti<{ sub: string }>(jwe, holder);
+      expect(payload.sub).toBe("u1");
+      expect(recipientIndex).toBe(1);
+    });
+
+    it("reports a compact p2c above the ceiling as the ceiling, not as the budget", async () => {
+      const jwe = await encrypt({ sub: "u1" }, "correct horse battery staple", {
+        alg: "PBES2-HS256+A128KW",
+        enc: "A256GCM",
+        p2c: 2000,
+      });
+      const [protectedEncoded, ...rest] = jwe.split(".");
+      const header = JSON.parse(base64UrlParse(protectedEncoded!)) as Record<string, unknown>;
+      const forged = [
+        base64UrlStringify(JSON.stringify({ ...header, p2c: 3_000_000 })),
+        ...rest,
+      ].join(".");
+
+      await expect(decrypt(forged, "correct horse battery staple")).rejects.toThrow(
+        `PBES2 "p2c" above the maximum of ${DEFAULT_PBES2_ITERATIONS} iterations (got 3000000).`,
+      );
+      await expect(
+        decrypt(jwe, "correct horse battery staple", {
+          maxIterations: 1500,
+          limits: { pbes2Iterations: 1500 },
+        }),
+      ).rejects.toThrow('PBES2 "p2c" above the maximum of 1500 iterations (got 2000).');
+    });
+
+    it("charges nothing for a recipient whose p2c is above the ceiling", async () => {
+      const holder = passwordJWK("the real one");
+      const jwe = await encryptMulti({ sub: "u1" }, [
+        { key: passwordJWK("decoy one"), p2c: 2000 },
+        { key: holder },
+      ]);
+      (jwe.recipients[0]!.header as { p2c: number }).p2c = 2_000_000;
 
       const { payload, recipientIndex } = await decryptMulti<{ sub: string }>(jwe, holder);
       expect(payload.sub).toBe("u1");

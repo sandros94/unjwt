@@ -33,6 +33,7 @@ import {
 import {
   DEFAULT_PBES2_ITERATIONS,
   assertOctKeyLength,
+  assertPBES2Iterations,
   bitLengthCEK,
   bitLengthIV,
   bitLengthTag,
@@ -138,24 +139,28 @@ export function assertJWKSetCandidates(
  */
 export interface PBES2Budget {
   /**
-   * Charge one PBES2 attempt. A `p2c` that no longer fits in what is left
-   * throws, and the attempt is not made: the iterations are never spent, so a
+   * Charge one PBES2 attempt, given the unwrap options it is about to run with.
+   * A `p2c` outside `minIterations`/`maxIterations` throws that bound and
+   * charges nothing; one that no longer fits in what is left throws, and the
+   * attempt is not made. Either way the iterations are never spent, so a
    * recipient the caller does hold a key for is still tried on what remains.
    * A no-op under every other key management algorithm.
    */
-  spend(alg: string, p2c: unknown): void;
+  spend(attempt: Pick<UnwrapKeyOptions, "alg" | "p2c" | "minIterations" | "maxIterations">): void;
 }
 
 /** Open a {@link PBES2Budget} of `limit` iterations for one call. */
 export function createPBES2Budget(limit: number): PBES2Budget {
   let remaining = limit;
   return {
-    spend(alg, p2c) {
+    spend(attempt) {
+      const { alg, p2c } = attempt;
       if (!alg.startsWith("PBES2")) return;
       // A `p2c` that is not a positive number is rejected by the PBES2
       // primitive itself; charging it here would move the budget on a value
       // that never derives anything.
       if (typeof p2c !== "number" || !(p2c > 0)) return;
+      assertPBES2Iterations(p2c, attempt);
       if (p2c > remaining) {
         throw new JWTError(`PBES2 iteration budget of ${limit} exhausted.`, "ERR_JWE_INVALID");
       }
@@ -204,21 +209,51 @@ export function assertProducerCrit(header: Record<string, unknown>, family: "JWS
   }
 }
 
+const PROTECTED_ONLY_PARAMS = {
+  JWS: ["crit", "b64"],
+  JWE: ["crit"],
+} as const;
+
 /**
- * RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` must be integrity protected, so a
- * consumer refuses it in any unprotected header. The producer refuses to write
- * it there.
+ * The header parameters a consumer refuses in any unprotected header, so the
+ * producer refuses to write them there: `crit` (RFC 7515 §4.1.11 / RFC 7516
+ * §4.1.13) and, for JWS, `b64` (RFC 7797 §3).
  */
-export function assertNoUnprotectedCritOption(
+export function assertProtectedOnlyOption(
   header: object | undefined,
-  tier: string,
-  family: "JWS" | "JWE",
+  options: { tier: string; family: "JWS" | "JWE" },
 ): void {
-  if (!header || !Object.hasOwn(header, "crit")) return;
-  throw new JWTError(
-    `${family} "crit" must be integrity protected; move it from the ${tier} header to the protected header.`,
-    "ERR_INVALID_OPTION",
-  );
+  if (!header) return;
+  const { tier, family } = options;
+  for (const param of PROTECTED_ONLY_PARAMS[family]) {
+    if (!Object.hasOwn(header, param)) continue;
+    throw new JWTError(
+      `${family} "${param}" must be integrity protected; move it from the ${tier} header to the protected header.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/**
+ * The producer counterpart of {@link checkSerializationEntry}: an options bag,
+ * signer or recipient is an object, and each header member listed in `headers`
+ * is an object when present. Checked before any of it is read, so a malformed
+ * entry is the caller's option error rather than a `TypeError` or a header
+ * spread out of a string.
+ */
+export function assertOptionEntry(
+  entry: unknown,
+  options: { label: string; headers: readonly string[] },
+): void {
+  const { label, headers } = options;
+  if (!isJSONObject(entry)) {
+    throw new JWTError(`"${label}" must be an object.`, "ERR_INVALID_OPTION");
+  }
+  for (const member of headers) {
+    if (entry[member] !== undefined && !isJSONObject(entry[member])) {
+      throw new JWTError(`"${label}.${member}" must be an object.`, "ERR_INVALID_OPTION");
+    }
+  }
 }
 
 /**
@@ -649,17 +684,27 @@ export function checkJWSAlgSupported(alg: string): JWTError | undefined {
 }
 
 /**
- * RFC 7797 §6 — an unencoded payload (`b64: false`) is only honoured when
- * `"b64"` is integrity protected by being listed in `crit`. Returns the
- * {@link JWTError} to throw (compact) or collect (multi) otherwise.
+ * RFC 7797 §3 / §6 — `b64` is a boolean, and an unencoded payload (`b64: false`)
+ * is only honoured when `"b64"` is integrity protected by being listed in
+ * `crit`. Returns the {@link JWTError} to throw (compact) or collect (multi)
+ * otherwise.
  */
-export function checkJWSB64Crit(header: { b64?: boolean; crit?: unknown }): JWTError | undefined {
+export function checkJWSB64(header: { b64?: unknown; crit?: unknown }): JWTError | undefined {
+  if (Object.hasOwn(header, "b64") && typeof header.b64 !== "boolean") {
+    return new JWTError('Invalid JWS: "b64" must be a boolean (RFC 7797 §3).', "ERR_JWS_INVALID");
+  }
   if (header.b64 !== false) return undefined;
   if (Array.isArray(header.crit) && header.crit.includes("b64")) return undefined;
   return new JWTError(
     'Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).',
     "ERR_JWS_INVALID",
   );
+}
+
+/** RFC 7797 §3 — a `b64` a caller sets on a protected header is a boolean. */
+export function assertB64Option(header: { b64?: unknown } | undefined): void {
+  if (!header || !Object.hasOwn(header, "b64") || typeof header.b64 === "boolean") return;
+  throw new JWTError('"b64" must be a boolean (RFC 7797 §3).', "ERR_INVALID_OPTION");
 }
 
 /**
@@ -670,6 +715,7 @@ export function checkJWSB64Crit(header: { b64?: boolean; crit?: unknown }): JWTE
  * and never duplicating the entry.
  */
 export function applyB64Header(header: { b64?: boolean; crit?: string[] }): void {
+  assertB64Option(header);
   if (header.b64 === true) {
     if (!(Array.isArray(header.crit) && header.crit.includes("b64"))) delete header.b64;
     return;
@@ -977,14 +1023,26 @@ export function typMatches(expected: string, actual: unknown): boolean {
   return normalizeTyp(expected) === normalizeTyp(actual);
 }
 
-/** Refuse a JWE whose `typ` is not the one the caller expects. */
-export function assertJWETyp(expected: string | undefined, actual: string | undefined): void {
-  if (expected && !typMatches(expected, actual)) {
-    throw new JWTError(
-      `Invalid JWE: "typ" (Type) Header Parameter mismatch. Expected "${expected}", got "${actual}".`,
-      "ERR_JWE_INVALID",
-    );
-  }
+/**
+ * RFC 7515 §4.1.9 / RFC 7516 §4.1.11 — the `typ` a caller expects is matched
+ * against the protected header alone, so an unprotected tier cannot satisfy a
+ * type gate. `label` names the signature a JSON serialization failed on.
+ */
+export function checkProtectedTyp(
+  expected: string | undefined,
+  protectedHeader: { typ?: unknown },
+  options: { family: "JWS" | "JWE"; label?: string },
+): JWTError | undefined {
+  if (!expected) return undefined;
+  const actual = protectedHeader.typ;
+  if (typMatches(expected, actual)) return undefined;
+  const { family, label } = options;
+  const where = label ? ` on ${label}` : "";
+  const message =
+    actual === undefined
+      ? `Invalid ${family}: the protected header${where} carries no "typ"; expected "${expected}".`
+      : `Invalid ${family}: "typ" (Type) Header Parameter mismatch${where}. Expected "${expected}", got ${JSON.stringify(actual)}.`;
+  return new JWTError(message, `ERR_${family}_INVALID` as JWTErrorCode);
 }
 
 function normalizeTyp(typ: string): string {
