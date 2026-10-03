@@ -59,7 +59,10 @@ export interface SessionConfigJWS<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 > extends JWSSessionConfig<MaxAge, CookieSerializeOptions> {
-  /** Session name — drives the cookie name and the default session header. Default `"h3-jws"`. */
+  /**
+   * Session name — drives the cookie name and the default session header. Default `"h3-jws"`.
+   * Prefer a `__Host-` prefix; a name ending in a dot and digits is refused.
+   */
   name?: string;
   /** Lifecycle hooks — see {@link SessionHooksJWS}. */
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;

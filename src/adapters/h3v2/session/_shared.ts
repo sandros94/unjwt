@@ -12,9 +12,20 @@ import {
   getCookie,
 } from "h3v2";
 import type { CookieSerializeOptions } from "cookie-esv3";
-import { readChunkedBy, readChunkedFromSetCookie } from "../../_chunked-cookie";
+import {
+  isChunkName,
+  readChunkedBy,
+  readChunkedFromSetCookie,
+  setCookieName,
+} from "../../_chunked-cookie";
 import { setChunkedCookie, deleteChunkedCookie } from "../_cookie";
-import { type SessionTokenSource, headerToken, pickToken, sessionHeaderName } from "../../_session";
+import {
+  type SessionTokenSource,
+  headerToken,
+  pickToken,
+  sessionCookieAttributes,
+  sessionHeaderName,
+} from "../../_session";
 import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
 
 export type { SessionTokenSource };
@@ -54,13 +65,12 @@ export const h3SessionPort: SessionPort<HTTPEvent> = {
   writable: hasWritableResponse,
 
   setCookie: (event, sessionName, token, options) => {
-    setChunkedCookie(event as H3Event, sessionName, token, {
-      ...options.defaults,
-      ...options.cookie,
-      // The token's own lifetime decides when the cookie stops being sent: a
-      // cookie outliving the token it carries is a request that cannot work.
-      expires: options.expiresAt === undefined ? undefined : new Date(options.expiresAt),
-    } as CookieSerializeOptions & { chunkMaxLength?: number });
+    setChunkedCookie(
+      event as H3Event,
+      sessionName,
+      token,
+      sessionCookieAttributes(options) as CookieSerializeOptions & { chunkMaxLength?: number },
+    );
     stageSessionErrCookies(event as H3Event, sessionName);
   },
 
@@ -105,10 +115,12 @@ export function readSessionToken(
 ): string | undefined {
   let cookieValue: string | undefined;
   if (source.cookie !== false) {
-    if (hasResponse(event)) {
-      cookieValue = readChunkedFromSetCookie(event.res.headers.getSetCookie(), sessionName);
-    }
-    cookieValue ??= readChunkedBy((name) => getCookie(event, name), sessionName);
+    const written = hasResponse(event)
+      ? readChunkedFromSetCookie(event.res.headers.getSetCookie(), sessionName)
+      : undefined;
+    // A deletion this response already wrote leaves the request without a token.
+    if (written === "") return undefined;
+    cookieValue = written ?? readChunkedBy((name) => getCookie(event, name), sessionName);
   }
 
   const headerValue =
@@ -126,8 +138,10 @@ export function readSessionToken(
  * earlier ones for the same session.
  */
 export function stageSessionErrCookies(event: H3Event, sessionName: string): void {
-  const isSessionCookie = (cookie: string) =>
-    cookie.startsWith(`${sessionName}=`) || cookie.startsWith(`${sessionName}.`);
+  const isSessionCookie = (cookie: string) => {
+    const name = setCookieName(cookie);
+    return name !== undefined && (name === sessionName || isChunkName(name, sessionName));
+  };
   const errHeaders = event.res.errHeaders;
   const staged = [
     ...errHeaders.getSetCookie().filter((cookie) => !isSessionCookie(cookie)),
@@ -142,9 +156,10 @@ function expireSessionCookie(
   sessionName: string,
   options: SessionCookieOptions,
 ): void {
-  deleteChunkedCookie(event as H3Event, sessionName, {
-    ...options.defaults,
-    ...options.cookie,
-  } as CookieSerializeOptions);
+  deleteChunkedCookie(
+    event as H3Event,
+    sessionName,
+    sessionCookieAttributes(options) as CookieSerializeOptions,
+  );
   stageSessionErrCookies(event as H3Event, sessionName);
 }

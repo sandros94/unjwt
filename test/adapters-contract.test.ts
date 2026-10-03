@@ -28,6 +28,8 @@ import {
   unsealJWESession as unsealJWESessionV2,
   clearJWSSession as clearJWSSessionV2,
   clearJWESession as clearJWESessionV2,
+  getJWSSessionToken as getJWSSessionTokenV2,
+  getJWESessionToken as getJWESessionTokenV2,
 } from "../src/adapters/h3v2";
 import {
   useJWSSession as useJWSSessionV1,
@@ -38,8 +40,10 @@ import {
   unsealJWESession as unsealJWESessionV1,
   clearJWSSession as clearJWSSessionV1,
   clearJWESession as clearJWESessionV1,
+  getJWSSessionToken as getJWSSessionTokenV1,
+  getJWESessionToken as getJWESessionTokenV1,
 } from "../src/adapters/h3v1";
-import { MAX_CHUNK_COUNT } from "../src/adapters/_chunked-cookie";
+import { MAX_CHUNK_COUNT, parseChunkCount, readChunkedFrom } from "../src/adapters/_chunked-cookie";
 import { createJWSSession, jwsSession } from "../src/adapters/elysia/session/jws";
 import { createJWESession, jweSession } from "../src/adapters/elysia/session/jwe";
 import type { SessionContext } from "../src/adapters/elysia/session/types";
@@ -2480,6 +2484,284 @@ describe("session adapters — shared contract", () => {
     );
   });
   // #endregion
+
+  // #region cookie lifetime
+  describe("cookie lifetime", () => {
+    const base = (port: PortFamilyCase) => ({
+      name: port.name,
+      key: port.key,
+      cookie: { secure: false },
+    });
+    const far = new Date(Date.now() + 10 * 365 * 24 * 3600 * SECOND);
+
+    it.each(portFamilyCases())(
+      "$label: a token with a lifetime drops a configured cookie maxAge and expires with the token",
+      async (port) => {
+        const response = await port.serve(
+          { ...base(port), maxAge: "1m", cookie: { secure: false, maxAge: 10 * 365 * 24 * 3600 } },
+          async (open) => {
+            const session = await open();
+            await session.update({ user: "alice" });
+            return { expiresAt: session.expiresAt };
+          },
+        );
+
+        const cookie = liveSetCookie(response.cookies, port.name)!;
+        expect(cookieAttribute(cookie, "max-age")).toBeUndefined();
+        expect(Date.parse(cookieAttribute(cookie, "expires")!)).toBe(response.body.expiresAt);
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a token without a lifetime keeps the configured cookie expires and maxAge",
+      async (port) => {
+        const response = await port.serve(
+          { ...base(port), cookie: { secure: false, expires: far, maxAge: 3600 } },
+          async (open) => {
+            const session = await open();
+            await session.update({ user: "alice" });
+            return { expiresAt: session.expiresAt ?? null };
+          },
+        );
+
+        const cookie = liveSetCookie(response.cookies, port.name)!;
+        expect(response.body.expiresAt).toBeNull();
+        expect(cookieAttribute(cookie, "max-age")).toBe("3600");
+        expect(new Date(cookieAttribute(cookie, "expires")!).getUTCFullYear()).toBe(
+          far.getUTCFullYear(),
+        );
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a request that carried no token never reports an expiry",
+      async (port) => {
+        const onExpire = vi.fn();
+        const config = { ...base(port), maxAge: 1, hooks: { onExpire } };
+        const response = await port.serve(config, async (open) => {
+          await open({
+            ...config,
+            ...issueOptions(port.family, { currentDate: new Date(Date.now() - 5 * SECOND) }),
+          });
+          const again = await open();
+          return { id: again.id ?? null, token: again.token ?? null };
+        });
+
+        expect(response.body).toEqual({ id: null, token: null });
+        expect(onExpire).not.toHaveBeenCalled();
+        expect(response.cookies).toEqual([]);
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a chunk set that shrinks within one request expires the chunks it no longer uses",
+      async (port) => {
+        const chunkMaxLength = 64;
+        const response = await port.serve(
+          { ...base(port), cookie: { secure: false, chunkMaxLength } },
+          async (open) => {
+            const session = await open();
+            await session.update(bulkyData(6, chunkMaxLength));
+            const longest = session.token.length;
+            await session.update({ pad: "x" });
+            return { token: session.token, shrunk: session.token.length < longest };
+          },
+        );
+
+        const live = liveCookies(response.cookies);
+        const count = parseChunkCount(live[port.name]);
+        const chunks = Object.keys(live).filter((name) => name.startsWith(`${port.name}.`));
+        expect(response.body.shrunk).toBe(true);
+        expect(readChunkedFrom(live, port.name)).toBe(response.body.token);
+        expect(chunks.toSorted()).toEqual(
+          Array.from({ length: count }, (_, index) => `${port.name}.${index + 1}`).toSorted(),
+        );
+      },
+    );
+  });
+  // #endregion
+
+  // #region session names
+  describe("session names", () => {
+    it.each(portFamilyCases())(
+      "$label: a name spelling another name's chunk cookie is a config failure",
+      async (port) => {
+        const body = await port.run(
+          { name: port.name, key: port.key, cookie: { secure: false } },
+          async (open) => {
+            const codes: boolean[] = [];
+            for (const name of [`${port.name}.1`, `${port.name}.16`]) {
+              const error = await caught(() =>
+                open({ name, key: port.key, cookie: { secure: false } }),
+              );
+              codes.push(isJWTError(error, "ERR_SESSION_CONFIG_INVALID"));
+            }
+            const dotted = await open({
+              name: `${port.name}.v1`,
+              key: port.key,
+              cookie: { secure: false },
+            });
+            return { codes, dotted: dotted.id ?? null };
+          },
+        );
+
+        expect(body).toEqual({ codes: [true, true], dotted: null });
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a __Host- prefixed name round-trips under its prefix rules",
+      async (port) => {
+        const config = { name: `__Host-${port.name}`, key: port.key };
+        const minted = await port.serve(config, async (open) => {
+          const session = await open();
+          await session.update({ user: "alice" });
+          return { token: session.token };
+        });
+        const cookie = liveSetCookie(minted.cookies, config.name)!;
+
+        const body = await port.run(
+          config,
+          async (open) => ({ user: (await open()).data.user ?? null }),
+          { cookies: { [config.name]: minted.body.token } },
+        );
+
+        expect(setCookieAttributes(cookie)).toMatchObject({ path: "/", secure: true });
+        expect(cookieAttribute(cookie, "domain")).toBeUndefined();
+        expect(body).toEqual({ user: "alice" });
+      },
+    );
+  });
+  // #endregion
+
+  // #region session header
+  describe("session header", () => {
+    const base = (port: PortFamilyCase) => ({
+      name: port.name,
+      key: port.key,
+      cookie: { secure: false },
+    });
+
+    it.each(portFamilyCases())(
+      "$label: a session header that is not a header name is a config failure",
+      async (port) => {
+        const body = await port.run(base(port), async (open) => {
+          const codes: boolean[] = [];
+          for (const sessionHeader of ["bad header", "", "x-session\r\n", "x-sess:ion"]) {
+            const error = await caught(() => open({ ...base(port), sessionHeader }));
+            codes.push(isJWTError(error, "ERR_SESSION_CONFIG_INVALID"));
+          }
+          return { codes };
+        });
+
+        expect(body).toEqual({ codes: [true, true, true, true] });
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: an Authorization header without a Bearer token carries no token",
+      async (port) => {
+        const onError = vi.fn();
+        const config = { ...base(port), sessionHeader: "authorization", hooks: { onError } };
+        const bodies: Record<string, unknown>[] = [];
+        for (const value of ["Bearer", "Bearer   ", "Basic dXNlcjpwYXNz", "Bearer a b"]) {
+          bodies.push(
+            await port.run(config, async (open) => ({ id: (await open()).id ?? null }), {
+              headers: { authorization: value },
+            }),
+          );
+        }
+
+        expect(bodies).toEqual([{ id: null }, { id: null }, { id: null }, { id: null }]);
+        expect(onError).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(portFamilyCases().filter((port) => port.port !== "elysia"))(
+      "$label: the session token reads as absent once the session is cleared",
+      async (port) => {
+        const cookieToken = await mintToken(port, base(port), { who: "cookie" });
+        const headerToken = await mintToken(port, base(port), { who: "header" });
+        const { read, clear } = h3TokenFunctions(port);
+
+        const response = await serveOn(
+          port.port,
+          async (event) => {
+            const before = read(event) ?? null;
+            await clear(event);
+            return { before, after: read(event) ?? null };
+          },
+          {
+            cookies: { [port.name]: cookieToken },
+            headers: { [`x-${port.name}-session`]: headerToken },
+          },
+        );
+
+        expect(response.body).toEqual({ before: cookieToken, after: null });
+      },
+    );
+  });
+  // #endregion
+
+  // #region update hooks and payload round trip
+  describe("update hooks and the data round trip", () => {
+    const base = (port: PortFamilyCase) => ({
+      name: port.name,
+      key: port.key,
+      cookie: { secure: false },
+    });
+
+    it.each(portFamilyCases())(
+      "$label: an onUpdate hook that throws rejects the update, which stays issued",
+      async (port) => {
+        const onError = vi.fn();
+        const config = {
+          ...base(port),
+          hooks: {
+            onUpdate: () => {
+              throw new Error("hook failed");
+            },
+            onError,
+          },
+        };
+        const response = await port.serve(config, async (open) => {
+          const session = await open();
+          const error = await caught(() => session.update({ user: "alice" }));
+          return {
+            message: (error as Error).message,
+            id: session.id ?? null,
+            user: session.data.user ?? null,
+            token: session.token ?? null,
+          };
+        });
+
+        expect(response.body).toMatchObject({ message: "hook failed", user: "alice" });
+        expect(response.body.id).toBeTypeOf("string");
+        expect(liveCookies(response.cookies)[port.name]).toBe(response.body.token);
+        expect(onError).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: session data reads back as its JSON round trip",
+      async (port) => {
+        const token = await mintToken(port, base(port), {
+          at: new Date(0),
+          ratio: Number.NaN,
+          gone: undefined,
+        });
+
+        const body = await port.run(
+          base(port),
+          async (open) => ({ data: { ...(await open()).data } }),
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(body).toEqual({ data: { at: "1970-01-01T00:00:00.000Z", ratio: null } });
+      },
+    );
+  });
+  // #endregion
 });
 
 /** The attributes a `Set-Cookie` header carries, normalized for comparison. */
@@ -2494,6 +2776,34 @@ function setCookieAttributes(setCookie: string): Record<string, unknown> {
     httpOnly: attributes.includes("httponly"),
     sameSite: attributes.find((a) => a.startsWith("samesite="))?.slice("samesite=".length),
   };
+}
+
+/** The cookies a response leaves set, last write winning, without the ones it expires. */
+function liveCookies(setCookies: string[]): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  for (const setCookie of setCookies) {
+    const pair = setCookie.split(";", 1)[0]!;
+    const separator = pair.indexOf("=");
+    cookies[pair.slice(0, separator).trim()] = decodeURIComponent(pair.slice(separator + 1).trim());
+  }
+  for (const [name, value] of Object.entries(cookies)) if (!value) delete cookies[name];
+  return cookies;
+}
+
+/** The last `Set-Cookie` header a response writes for `name` with a value. */
+function liveSetCookie(setCookies: string[], name: string): string | undefined {
+  return setCookies.findLast(
+    (setCookie) => setCookie.startsWith(`${name}=`) && !setCookie.startsWith(`${name}=;`),
+  );
+}
+
+/** One attribute of a `Set-Cookie` header, matched case-insensitively. */
+function cookieAttribute(setCookie: string, attribute: string): string | undefined {
+  for (const part of setCookie.split(";").slice(1)) {
+    const [key = "", ...value] = part.trim().split("=");
+    if (key.toLowerCase() === attribute) return value.join("=");
+  }
+  return undefined;
 }
 
 type Family = "jws" | "jwe";
@@ -2655,6 +2965,35 @@ function served(status: number, text: string, cookies: string[]): Served {
     body = JSON.parse(text);
   } catch {}
   return { status, body, cookies };
+}
+
+/** The h3 lower-level token reader and clearer of `port`, bound to its session. */
+function h3TokenFunctions(port: PortFamilyCase): {
+  read: (event: any) => string | undefined;
+  clear: (event: any) => Promise<void>;
+} {
+  const jws = { name: port.name, key: jwsKey, cookie: { secure: false } };
+  const jwe = { name: port.name, key: jweKey, cookie: { secure: false } };
+  if (port.port === "h3 v2") {
+    return port.family === "jws"
+      ? {
+          read: (event) => getJWSSessionTokenV2(event, jws),
+          clear: (event) => clearJWSSessionV2(event, jws),
+        }
+      : {
+          read: (event) => getJWESessionTokenV2(event, jwe),
+          clear: (event) => clearJWESessionV2(event, jwe),
+        };
+  }
+  return port.family === "jws"
+    ? {
+        read: (event) => getJWSSessionTokenV1(event, jws),
+        clear: (event) => clearJWSSessionV1(event, jws),
+      }
+    : {
+        read: (event) => getJWESessionTokenV1(event, jwe),
+        clear: (event) => clearJWESessionV1(event, jwe),
+      };
 }
 
 /** A token minted by the adapter itself, through one request of `port`. */

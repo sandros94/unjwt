@@ -31,6 +31,14 @@ export interface SessionManager<
   /**
    * Issue a new token, merging `update` into the session data first. Pass
    * `options.maxAge` to give this one token a lifetime of its own.
+   *
+   * Session data travels as JSON: this request keeps the values as given,
+   * later reads get their JSON round trip — a `Date` as its ISO string, `NaN`
+   * and `±Infinity` as `null`, `undefined` members dropped.
+   *
+   * Rejects and rolls the session back when the token cannot be issued or its
+   * cookie written. An `onUpdate` hook that throws rejects it too, but runs
+   * once the new token is committed, so the new session stays in place.
    */
   update: (
     update?: SessionUpdate<T>,
@@ -58,7 +66,11 @@ export interface SessionHooks<TSession, TCarrier extends Record<string, unknown>
   onRead?: (
     args: TCarrier & { session: TSession & { id: string; token: string }; config: TConfig },
   ) => void | Promise<void>;
-  /** Fires after a new token was issued — including pure token refreshes (update with no data). */
+  /**
+   * Fires after a new token was issued and its cookie written — including pure
+   * token refreshes (update with no data). Throwing makes `update()` reject
+   * with that error; the new session is not rolled back.
+   */
   onUpdate?: (
     args: TCarrier & {
       /** Session after the update. */

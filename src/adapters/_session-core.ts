@@ -7,6 +7,7 @@
 import type { ExpiresIn } from "../core/types";
 import {
   type SessionTokenSource,
+  assertSessionHeader,
   assertSessionName,
   assertTokenSource,
   invalidConfigError,
@@ -148,6 +149,7 @@ export function bindSession<TCarrier, Config extends SessionCoreConfig>(
   const { port, codec } = options;
   const name = config.name || codec.defaultName;
   assertSessionName(name, { prefix: port.prefix });
+  assertSessionHeader(config.sessionHeader, { prefix: port.prefix });
   claimSessionName(port.scope(carrier), name, codec.family, port.prefix);
   return {
     carrier,

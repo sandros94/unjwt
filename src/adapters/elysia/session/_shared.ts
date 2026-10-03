@@ -4,7 +4,13 @@ import {
   writeChunkedCookie,
   removeChunkedCookie,
 } from "../_cookie";
-import { type SessionTokenSource, headerToken, pickToken, sessionHeaderName } from "../../_session";
+import {
+  type SessionTokenSource,
+  headerToken,
+  pickToken,
+  sessionCookieAttributes,
+  sessionHeaderName,
+} from "../../_session";
 import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
 import type { SessionContext } from "./types";
 
@@ -53,12 +59,7 @@ export const elysiaSessionPort: SessionPort<SessionContext> = {
   writable: () => true,
 
   setCookie: (context, sessionName, token, options) => {
-    const { chunkMaxLength, ...attrs } = cookieAttributes(options);
-    writeChunkedCookie(context.cookie, sessionName, token, {
-      ...attrs,
-      chunkMaxLength,
-      expires: options.expiresAt === undefined ? undefined : new Date(options.expiresAt),
-    });
+    writeChunkedCookie(context.cookie, sessionName, token, cookieAttributes(options));
   },
 
   deleteCookie: expireSessionCookie,
@@ -99,9 +100,7 @@ function expireSessionCookie(
 }
 
 function cookieAttributes(
-  options: SessionCookieOptions,
+  options: SessionCookieOptions & { expiresAt?: number | undefined },
 ): CookieAttributes & { chunkMaxLength?: number } {
-  return { ...options.defaults, ...options.cookie } as CookieAttributes & {
-    chunkMaxLength?: number;
-  };
+  return sessionCookieAttributes(options) as CookieAttributes & { chunkMaxLength?: number };
 }

@@ -1,6 +1,11 @@
 import type { CookieSerializeOptions } from "cookie-esv1";
 import { type H3Event, getCookie, setCookie } from "h3v1";
-import { type ChunkedCookieStore, writeChunked, removeChunked } from "../_chunked-cookie";
+import {
+  type ChunkedCookieStore,
+  writeChunked,
+  removeChunked,
+  setCookieValues,
+} from "../_chunked-cookie";
 
 export type ChunkedCookieOptions = CookieSerializeOptions & { chunkMaxLength?: number };
 
@@ -30,9 +35,16 @@ export function deleteChunkedCookie(
   removeChunked(eventStore(event), name, { attrs });
 }
 
+/** The `Set-Cookie` headers the response carries so far. */
+export function responseSetCookies(event: H3Event): string[] {
+  const value = event.node.res.getHeader("set-cookie");
+  if (Array.isArray(value)) return value;
+  return typeof value === "string" ? [value] : [];
+}
+
 function eventStore(event: H3Event): ChunkedCookieStore<CookieSerializeOptions> {
   return {
-    read: (name) => getCookie(event, name),
+    read: (name) => setCookieValues(responseSetCookies(event))[name] ?? getCookie(event, name),
     write: (name, value, attrs) => setCookie(event, name, value, attrs),
     expire: (name, attrs) =>
       setCookie(event, name, "", { ...attrs, expires: new Date(0), maxAge: undefined }),

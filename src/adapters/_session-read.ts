@@ -37,12 +37,17 @@ export async function loadSession<
     const session = existing[kSessionPending] ? await existing[kSessionPending] : existing;
 
     /**
-     * A session is checked for expiry before it is handed back. An expired one
-     * is dropped and replaced by an empty session, so a later read in the same
-     * request — including one made by the hook below — sees no session rather
-     * than a stale one.
+     * A session holding a token is checked for expiry before it is handed back.
+     * An expired one is dropped and replaced by an empty session, so a later
+     * read in the same request — including one made by the hook below — sees
+     * no session rather than a stale one. A session without a token has
+     * nothing to expire: its `expiresAt` is the lifetime an update would give.
      */
-    if (session.expiresAt !== undefined && session.expiresAt < codec.now(config)) {
+    if (
+      session.token !== undefined &&
+      session.expiresAt !== undefined &&
+      session.expiresAt < codec.now(config)
+    ) {
       dropSessionCookie(binding);
       const freshSession = emptySession<T, MaxAge, TCarrier, Config>(binding);
       store.set(freshSession);
@@ -51,7 +56,7 @@ export async function loadSession<
           id: session.id,
           createdAt: session.createdAt,
           expiresAt: session.expiresAt,
-          token: session.token!,
+          token: session.token,
         },
         ...args,
         error: expiredSessionError({ id: session.id, expiresAt: session.expiresAt }),

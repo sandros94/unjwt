@@ -1227,6 +1227,22 @@ describe("adapter h3 v2", () => {
       expect(cookies.filter((c) => c.startsWith("h3-jws-err="))).toHaveLength(1);
     });
 
+    it("keeps an error-response cookie whose name only starts with the session name", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        event.res.errHeaders.append("set-cookie", "h3-jws-err.theme=dark; Path=/");
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie();
+
+      expect(cookies.filter((c) => c.startsWith("h3-jws-err.theme=dark"))).toHaveLength(1);
+      expect(cookies.filter((c) => c.startsWith("h3-jws-err="))).toHaveLength(1);
+    });
+
     it("a successful response is unaffected", async () => {
       const localApp = new H3({ debug: true });
       localApp.all("/", async (event) => {

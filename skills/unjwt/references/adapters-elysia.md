@@ -133,6 +133,8 @@ type SessionUpdate<T> =
 - Reserved claims `jti`, `iat`, `exp` and `nbf` are adapter-owned: stripped from every `update()`
   payload and never read back out of `session.data`. A token's lifetime comes only from `maxAge`.
   A `__proto__`, `constructor` or `prototype` key in an update throws `ERR_INVALID_OPTION`.
+  Data travels as JSON: the writing request keeps the values as given, later reads get their JSON
+  round trip (`Date` → ISO string, `NaN`/`±Infinity` → `null`, `undefined` members dropped).
 
 ## Config
 
@@ -212,8 +214,17 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
   imported when the session is created: one it cannot use (undecodable `k`, wrong AES key length)
   throws `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`.
 - **Token source.** The cookie is read first; the session header is the fallback when the cookie
-  carries no token. A present-but-empty or whitespace-only header never hides the cookie.
-  `cookie: false` + `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use.
+  carries no token. The header carries the bare token or `Bearer <token>`; any other value —
+  blank, another scheme such as `Basic …`, a `Bearer` with no token — carries none, so it never
+  hides the cookie nor reaches `onError`. A `sessionHeader` that is not a header name, or
+  `cookie: false` + `sessionHeader: false`, throws `ERR_SESSION_CONFIG_INVALID` on first use.
+- **Cookie lifetime.** A session with a lifetime sets the cookie's `expires` to the token's `exp`
+  and drops a configured `cookie.maxAge` (`Max-Age` beats `Expires`, RFC 6265 §5.3); without one,
+  `cookie.expires` / `cookie.maxAge` are written as configured.
+- **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a
+  cookie that shadows the session (the adapter reads the first cookie of a name); the defaults
+  satisfy the prefix. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another
+  session and throws `ERR_SESSION_CONFIG_INVALID`.
 - **Foreign tokens.** A token is only a session when it carries `cty: "application/json"`
   (case-insensitive, parameters ignored) and the session `typ`; with
   `maxAge` set it must also carry `exp`. That `exp` alone bounds its life, so a token issued with
@@ -247,8 +258,9 @@ Each hook receives `{ session, context, config }` — `context` is the Elysia co
   `createJWSSession` / `createJWESession` again on the same context without deadlocking.
 - `onExpire` receives the expired token's decoded claims via `error.cause` (`jti`/`iat`/`exp`), so
   `session.id` is available. The session cookie is removed and `session.token` reset before it fires.
-- `onUpdate` fires after every successful sign/seal (including data-less token refresh) with a
-  deep-cloned `oldSession`.
+- `onUpdate` fires after every successful sign/seal and cookie write (including data-less token
+  refresh) with a deep-cloned `oldSession`. A hook that throws makes `update()` reject with its
+  error while the new session stays in place — no rollback, no `onError`.
 - `onError` fires on read-path failures other than expiry, and on write-path sign/seal or cookie
   write failures (with `session.data` rolled back). A read-path `error` is always an `ERR_SESSION_TOKEN_INVALID`
   `JWTError` whose `cause` is the failure underneath.

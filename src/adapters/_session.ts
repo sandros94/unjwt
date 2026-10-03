@@ -95,17 +95,36 @@ export function rethrowAsInvalidToken(
 }
 
 /**
- * RFC 6265 §4.1.1 — a cookie name is an RFC 7230 token, and so is the header
- * name a session's `name` also spells. A name outside those characters cannot
- * be written: some frameworks refuse it outright, others emit a header no
- * client will parse back, so it is refused where it is configured.
+ * RFC 6265 §4.1.1 — a cookie name is an RFC 7230 token, and so is a header
+ * name, whether configured as `sessionHeader` or spelled from the session's
+ * `name`. A name outside those characters cannot be written: some frameworks
+ * refuse it outright, others emit a header no client will parse back, so it is
+ * refused where it is configured.
  */
-const COOKIE_NAME = /^[!#$%&'*+\-.^_`|~\w]+$/;
+const TOKEN = /^[!#$%&'*+\-.^_`|~\w]+$/;
+
+/** `<name>.<n>` is the cookie holding chunk `n` of the session called `<name>`. */
+const CHUNK_SUFFIX = /\.\d+$/;
 
 export function assertSessionName(name: string, options: { prefix: string }): void {
-  if (typeof name === "string" && COOKIE_NAME.test(name)) return;
+  if (typeof name !== "string" || !TOKEN.test(name)) {
+    throw invalidConfigError(
+      `${options.prefix} Session "name" must be a cookie name (RFC 6265 §4.1.1): letters, digits and !#$%&'*+-.^_\`|~ only. Got ${JSON.stringify(name)}.`,
+    );
+  }
+  if (CHUNK_SUFFIX.test(name)) {
+    throw invalidConfigError(
+      `${options.prefix} Session "name" cannot end in a dot and digits: ${JSON.stringify(name)} is the cookie holding a chunk of the session named ${JSON.stringify(name.replace(CHUNK_SUFFIX, ""))}.`,
+    );
+  }
+}
+
+/** Reject a `sessionHeader` that is not a header name (RFC 7230 §3.2). */
+export function assertSessionHeader(header: unknown, options: { prefix: string }): void {
+  if (header === undefined || header === false) return;
+  if (typeof header === "string" && TOKEN.test(header)) return;
   throw invalidConfigError(
-    `${options.prefix} Session "name" must be a cookie name (RFC 6265 §4.1.1): letters, digits and !#$%&'*+-.^_\`|~ only. Got ${JSON.stringify(name)}.`,
+    `${options.prefix} Session "sessionHeader" must be false or a header name: letters, digits and !#$%&'*+-.^_\`|~ only. Got ${JSON.stringify(header)}.`,
   );
 }
 
@@ -190,15 +209,18 @@ export function sessionHeaderName(
 }
 
 /**
- * The token carried by a session header value, with an optional `Bearer`
- * prefix removed (case-insensitive, RFC 7235 §2.1). An absent, empty or
- * whitespace-only value yields `undefined` so it never hides the cookie.
+ * The token carried by a session header value: the bare token, or one behind a
+ * `Bearer` scheme matched case-insensitively (RFC 7235 §2.1). A compact token
+ * holds no whitespace, so any other value — absent or blank, another scheme
+ * such as `Basic`, a `Bearer` with no token — carries none and yields
+ * `undefined`, never hiding the cookie.
  */
 export function headerToken(value: string | null | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  const token = /^bearer\s+/i.test(trimmed) ? trimmed.replace(/^bearer\s+/i, "") : trimmed;
-  return token || undefined;
+  const words = value.trim().split(/\s+/);
+  const [first = "", second] = words;
+  if (/^bearer$/i.test(first)) return words.length === 2 ? second : undefined;
+  return words.length === 1 && first ? first : undefined;
 }
 
 /** The first candidate that actually carries a token. */
@@ -207,6 +229,22 @@ export function pickToken(...candidates: (string | undefined)[]): string | undef
     if (typeof candidate === "string" && candidate.length > 0) return candidate;
   }
   return undefined;
+}
+
+/**
+ * The attributes a session cookie is written with: the family's defaults, then
+ * the configured ones. A token that expires sets the cookie's `expires` and
+ * drops a configured `maxAge`, which takes precedence over `expires`
+ * (RFC 6265 §5.3) and would keep the cookie alive past its token.
+ */
+export function sessionCookieAttributes(options: {
+  defaults: Record<string, unknown>;
+  cookie: object | undefined;
+  expiresAt?: number | undefined;
+}): Record<string, unknown> {
+  const attributes = { ...options.defaults, ...options.cookie };
+  if (options.expiresAt === undefined) return attributes;
+  return { ...attributes, expires: new Date(options.expiresAt), maxAge: undefined };
 }
 
 /** `exp` in ms for a session issued at `createdAt`, or `undefined` for no expiry. */

@@ -39,7 +39,9 @@ Peer dep: `h3`
   back out of `session.data`. A token's lifetime comes only from `maxAge` — on the config,
   or on one call via `session.update(data, { maxAge })`. Update data that is not a plain object
   (a string, an array), or a `__proto__`, `constructor` or `prototype` key in it, throws
-  `ERR_INVALID_OPTION`.
+  `ERR_INVALID_OPTION`. Data travels as JSON: the writing request keeps the values as given,
+  later reads get their JSON round trip (`Date` → ISO string, `NaN`/`±Infinity` → `null`,
+  `undefined` members dropped).
 - **Foreign tokens.** An incoming token is only a session when it carries
   `cty: "application/json"` (case-insensitive, parameters ignored) and the session `typ`
   (`signOptions.protectedHeader.typ` / `encryptOptions.protectedHeader.typ`, default `"JWT"`);
@@ -49,11 +51,25 @@ Peer dep: `h3`
   `cause` is the failure underneath — an expired token that is not a session included, so it
   reaches `onError`, never `onExpire`.
 - **Token source.** The cookie is read first; the session header is consulted only when the
-  cookie carries no token. A present-but-empty or whitespace-only header never hides the
-  cookie, and the `Bearer ` prefix is matched case-insensitively. `cookie: false` plus
+  cookie carries no token. The header carries the bare token or `Bearer <token>` (scheme
+  case-insensitive); any other value — blank, another scheme such as `Basic …`, a `Bearer` with
+  no token — carries none, so it never hides the cookie nor reaches `onError`. A `sessionHeader`
+  that is not a header name (RFC 7230 token) throws `ERR_SESSION_CONFIG_INVALID` where the
+  session is bound. `cookie: false` plus
   `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use of a session manager
   and from `clearJWSSession` / `clearJWESession`;
   `signJWSSession` / `sealJWESession` accept it and issue a one-off token (fresh `jti`, no cookie).
+  Once `clear()` has written its deletion, `getJWSSessionToken` / `getJWESessionToken` return
+  `undefined` for the rest of the request, header token included.
+- **Cookie lifetime.** A session with a lifetime (config `maxAge` or `update(data, { maxAge })`)
+  sets the cookie's `expires` to the token's `exp` and drops a configured `cookie.maxAge`
+  (`Max-Age` beats `Expires`, RFC 6265 §5.3). Without a lifetime, `cookie.expires` /
+  `cookie.maxAge` are written as configured.
+- **Names.** Prefer a `__Host-` name (`"__Host-session"`): every adapter reads the first cookie
+  of a name, so a sibling subdomain could otherwise plant one that shadows the session; the
+  defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix. A name ending in a dot and
+  digits (`app.1`) spells a chunk cookie of another session and throws
+  `ERR_SESSION_CONFIG_INVALID`.
 
 ## Cookie chunking
 
@@ -63,7 +79,9 @@ A token longer than `cookie.chunkMaxLength` (default 4000) is split: the base co
 layout — h3 v2 and h3 v1 each through the adapter's own chunk layer
 (`src/adapters/_chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by
 the others. Cleanup of a previous chunk set is bounded by the same 16-chunk limit, so a
-forged marker cannot inflate the number of `Set-Cookie` headers on a response.
+forged marker cannot inflate the number of `Set-Cookie` headers on a response. The previous
+set is the one the response already wrote, else the request's, so a set that shrinks within one
+request expires the chunks it no longer uses.
 
 ## Error codes
 
@@ -378,7 +396,7 @@ interface SessionHooksJWE<
 | Hook       | When it fires                                                                                                                                                                                                                                                                                                                            | Mutually exclusive with |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
 | `onRead`   | Each read of a session decoded from a valid token (`id` and `token` set) — dedupe on `session.id` for once-per-request                                                                                                                                                                                                                   | `onExpire`, `onError`   |
-| `onUpdate` | After seal/sign succeeds                                                                                                                                                                                                                                                                                                                 | —                       |
+| `onUpdate` | After seal/sign and the cookie write succeed; a hook that throws makes `update()` reject with its error, the new session staying in place (no rollback, no `onError`)                                                                                                                                                                    | —                       |
 | `onClear`  | After explicit `session.clear()` call                                                                                                                                                                                                                                                                                                    | `onExpire`              |
 | `onExpire` | Token's `exp` claim is in the past                                                                                                                                                                                                                                                                                                       | `onRead`, `onClear`     |
 | `onError`  | A read-path failure other than expiry, and a write-path sign/seal failure — the read-path `error` is always an `ERR_SESSION_TOKEN_INVALID` `JWTError` whose `cause` is the underlying failure, while the write-path `error` is the issue failure itself (e.g. `ERR_INVALID_OPTION`) and `session` is rolled back to its pre-update state | `onRead` (read path)    |

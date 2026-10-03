@@ -15,6 +15,11 @@ export const MAX_CHUNK_COUNT = 16;
 
 /** The cookie primitives a framework provides, over which chunking is layered. */
 export interface ChunkedCookieStore<A> {
+  /**
+   * The value `name` holds for this response: the one it already wrote, else
+   * the request's. A write sizes its cleanup from it, so a set that shrinks
+   * within one request still expires the chunks it no longer uses.
+   */
   read: (name: string) => string | undefined;
   write: (name: string, value: string, attrs: A) => void;
   expire: (name: string, attrs: A) => void;
@@ -113,19 +118,37 @@ export function readChunkedFromSetCookie(
   setCookies: readonly string[],
   name: string,
 ): string | undefined {
-  const cookies: Record<string, string> = Object.create(null);
-  for (const setCookie of setCookies) {
-    const pair = setCookie.split(";", 1)[0]!;
-    const separator = pair.indexOf("=");
-    if (separator === -1) continue;
-    cookies[pair.slice(0, separator).trim()] = decodeValue(pair.slice(separator + 1).trim());
-  }
+  const cookies = setCookieValues(setCookies);
   if (cookies[name] === undefined) return undefined;
   return readChunkedFrom(cookies, name);
 }
 
+/** The value each cookie is assigned by a list of `Set-Cookie` headers, the last write winning. */
+export function setCookieValues(setCookies: readonly string[]): Record<string, string> {
+  const cookies: Record<string, string> = Object.create(null);
+  for (const setCookie of setCookies) {
+    const [pair = ""] = setCookie.split(";", 1);
+    const separator = pair.indexOf("=");
+    if (separator === -1) continue;
+    cookies[pair.slice(0, separator).trim()] = decodeValue(pair.slice(separator + 1).trim());
+  }
+  return cookies;
+}
+
+/** The cookie a `Set-Cookie` header assigns, or `undefined` for a malformed header. */
+export function setCookieName(setCookie: string): string | undefined {
+  const [pair = ""] = setCookie.split(";", 1);
+  const separator = pair.indexOf("=");
+  return separator === -1 ? undefined : pair.slice(0, separator).trim();
+}
+
 export function chunkName(name: string, index: number): string {
   return `${name}.${index}`;
+}
+
+/** Whether `cookieName` is one of the chunk cookies `<name>.<n>` of `name`. */
+export function isChunkName(cookieName: string, name: string): boolean {
+  return cookieName.startsWith(`${name}.`) && /^\d+$/.test(cookieName.slice(name.length + 1));
 }
 
 /**

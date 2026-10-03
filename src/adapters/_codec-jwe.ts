@@ -82,11 +82,20 @@ export interface JWESessionConfig<
    * the session writes no `exp` and never expires on its own.
    */
   maxAge?: MaxAge;
-  /** Session name — drives the cookie name and the default session header. */
+  /**
+   * Session name — drives the cookie name and the default session header.
+   * Prefer a `__Host-` prefix; a name ending in a dot and digits is refused.
+   */
   name?: string;
-  /** Cookie options (`false` to disable). Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`. */
+  /**
+   * Cookie options (`false` to disable). Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`.
+   * With a lifetime, `expires` follows the token's `exp` and `maxAge` is dropped.
+   */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
-  /** Request header to read the token from (`false` to disable). Default `x-<name>-session`. */
+  /**
+   * Request header to read the token from (`false` to disable), as a bare token
+   * or `Bearer <token>`. Must be a header name. Default `x-<name>-session`.
+   */
   sessionHeader?: false | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
