@@ -14,6 +14,7 @@ import type {
   JWSAlgorithm,
   JOSEPayloadMode,
   JWEHeaderParameters,
+  JWKLookupFunctionHeader,
   KeyManagementAlgorithm,
   UnwrapKeyOptions,
 } from "./types";
@@ -30,6 +31,7 @@ import {
   assertCritShape,
   validateJwtClaims,
 } from "./utils";
+import { assertClaimValidationOptions, assertStringList } from "./utils/jwt";
 import {
   DEFAULT_PBES2_ITERATIONS,
   assertOctKeyLength,
@@ -119,14 +121,20 @@ export function assertCandidateLimit(count: number, limit: number): void {
 /**
  * The gate every JWK Set read passes: a set that offers no key for this token
  * is a key-not-found failure, and one that offers more than the caller allows
- * is refused before a single candidate is tried.
+ * is refused before a single candidate is tried. The header `kid` the set was
+ * searched for is named in the message quoted and bounded, since it is token
+ * input.
  */
 export function assertJWKSetCandidates(
   candidates: readonly unknown[],
-  options: { limit: number; notFound: string },
+  options: { limit: number; kid: unknown },
 ): void {
   if (candidates.length === 0) {
-    throw new JWTError(options.notFound, "ERR_JWK_KEY_NOT_FOUND");
+    const { kid } = options;
+    throw new JWTError(
+      `No key found in JWK Set${kid ? ` with kid ${quoteTokenValue(kid)}` : ""}.`,
+      "ERR_JWK_KEY_NOT_FOUND",
+    );
   }
   assertCandidateLimit(candidates.length, options.limit);
 }
@@ -235,21 +243,21 @@ export function assertProtectedOnlyOption(
 }
 
 /**
- * The producer counterpart of {@link checkSerializationEntry}: an options bag,
- * signer or recipient is an object, and each header member listed in `headers`
- * is an object when present. Checked before any of it is read, so a malformed
- * entry is the caller's option error rather than a `TypeError` or a header
- * spread out of a string.
+ * The caller-side counterpart of {@link checkSerializationEntry}: an options
+ * bag, signer or recipient is an object, and each member listed in `objects`
+ * (a header, the `limits`) is an object when present. Checked before any of it
+ * is read, so a malformed entry is the caller's option error rather than a
+ * `TypeError`, a header spread out of a string or a limit silently defaulted.
  */
 export function assertOptionEntry(
   entry: unknown,
-  options: { label: string; headers: readonly string[] },
+  options: { label: string; objects: readonly string[] },
 ): void {
-  const { label, headers } = options;
+  const { label, objects } = options;
   if (!isJSONObject(entry)) {
     throw new JWTError(`"${label}" must be an object.`, "ERR_INVALID_OPTION");
   }
-  for (const member of headers) {
+  for (const member of objects) {
     if (entry[member] !== undefined && !isJSONObject(entry[member])) {
       throw new JWTError(`"${label}.${member}" must be an object.`, "ERR_INVALID_OPTION");
     }
@@ -307,6 +315,33 @@ export function assertProducerIV(
       "ERR_INVALID_OPTION",
     );
   }
+}
+
+// -----------------------------------------------------------------------------
+// Consumer option gate (JWS verify + JWE decrypt, compact & multi).
+// -----------------------------------------------------------------------------
+
+/**
+ * The option gate every verification and decryption passes before the token is
+ * read. An expected `typ`, an allowlist or a claim expectation that is present
+ * but empty or of the wrong shape is refused rather than read as "no check" —
+ * the way `algorithms: []` already admits nothing.
+ */
+export function assertConsumerOptions(
+  options: JWTClaimValidationOptions & {
+    algorithms?: readonly string[];
+    encryptionAlgorithms?: readonly string[];
+  },
+): void {
+  assertOptionEntry(options, { label: "options", objects: ["limits"] });
+  const typ: unknown = options.typ;
+  if (typ !== undefined && (typeof typ !== "string" || typ === "")) {
+    throw new JWTError('"typ" must be a non-empty string.', "ERR_INVALID_OPTION");
+  }
+  assertStringList(options.algorithms, "algorithms");
+  assertStringList(options.encryptionAlgorithms, "encryptionAlgorithms");
+  assertStringList(options.recognizedHeaders, "recognizedHeaders");
+  assertClaimValidationOptions(options);
 }
 
 // -----------------------------------------------------------------------------
@@ -620,7 +655,7 @@ export function checkAlgAllowed(
   },
 ): JWTError | undefined {
   const { ctx, algorithms, allowSymmetric } = options;
-  if (algorithms) {
+  if (algorithms !== undefined) {
     return algorithms.includes(alg) ? undefined : notAllowed(alg, ctx);
   }
   if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
@@ -801,6 +836,33 @@ export function asKeyLookupError(error: unknown, what: string): JWTError {
   return new JWTError(`Key lookup failed for ${what}.`, "ERR_JWK_KEY_NOT_FOUND", error);
 }
 
+/** The key material a key argument stands for once its lookup function, if it is one, has run. */
+export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R ? Awaited<R> : K;
+
+/**
+ * Resolve the key material a token is checked against: a static key as given,
+ * or what a key-lookup function returns for this header. A lookup that throws
+ * (see {@link asKeyLookupError}) or returns no key at all (`undefined` /
+ * `null`) is `ERR_JWK_KEY_NOT_FOUND`.
+ */
+export async function resolveKeyInput<K>(
+  key: K,
+  options: { header: JWKLookupFunctionHeader; token: string; what: string },
+): Promise<ResolvedKeyInput<K>> {
+  if (typeof key !== "function") return key as ResolvedKeyInput<K>;
+  const { header, token, what } = options;
+  let resolved: unknown;
+  try {
+    resolved = await key(header, token);
+  } catch (error) {
+    throw asKeyLookupError(error, what);
+  }
+  if (resolved === undefined || resolved === null) {
+    throw new JWTError(`Key lookup returned no key for ${what}.`, "ERR_JWK_KEY_NOT_FOUND");
+  }
+  return resolved as ResolvedKeyInput<K>;
+}
+
 /**
  * Normalize any non-{@link JWTError} raised while importing, resolving or
  * using a verification key (WebCrypto `TypeError`/`DOMException`, codec
@@ -901,6 +963,37 @@ export function checkJWEEncSupported(enc: string): JWTError | undefined {
   return new JWTError(`Invalid JWE: unsupported "enc" ${enc}`, "ERR_JWE_INVALID");
 }
 
+/** Reject an `enc` outside the caller's `encryptionAlgorithms` allowlist, when one is given. */
+export function checkJWEEncAllowed(
+  enc: string,
+  encryptionAlgorithms: readonly string[] | undefined,
+): JWTError | undefined {
+  if (encryptionAlgorithms === undefined || encryptionAlgorithms.includes(enc)) return undefined;
+  return new JWTError(
+    `Content encryption algorithm not allowed: ${enc}`,
+    "ERR_JWE_ALG_NOT_ALLOWED",
+  );
+}
+
+/**
+ * The CEK a decryption returns under `returnCek`, as bytes. A CEK that cannot
+ * leave WebCrypto — a non-extractable `dir` key, or one unwrapped under
+ * `extractable: false` — cannot be returned, which is the caller's own option
+ * combination rather than a failure of the token.
+ */
+export async function exportReturnedCek(
+  cek: CryptoKey | Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
+  if (!isCryptoKey(cek)) return cek;
+  if (!cek.extractable) {
+    throw new JWTError(
+      '"returnCek" requires an extractable content encryption key.',
+      "ERR_INVALID_OPTION",
+    );
+  }
+  return new Uint8Array(await crypto.subtle.exportKey("raw", cek));
+}
+
 /** The CEK form `enc` consumes. Call only after {@link checkJWEEncSupported}. */
 export function cekFormatForEnc(enc: ContentEncryptionAlgorithm): "cryptokey" | "raw" {
   return JWE_ENC_CEK_FORMAT[enc];
@@ -938,7 +1031,7 @@ export function buildUnwrapKeyOptions(
   if (header.apu) opts.apu = header.apu;
   if (header.apv) opts.apv = header.apv;
   if (options?.unwrappedKeyAlgorithm) opts.unwrappedKeyAlgorithm = options.unwrappedKeyAlgorithm;
-  if (options?.extractable) opts.extractable = options.extractable;
+  if (options?.extractable !== undefined) opts.extractable = options.extractable;
   if (options?.minIterations !== undefined) opts.minIterations = options.minIterations;
   if (options?.maxIterations !== undefined) opts.maxIterations = options.maxIterations;
   return opts;
@@ -1033,7 +1126,7 @@ export function checkProtectedTyp(
   protectedHeader: { typ?: unknown },
   options: { family: "JWS" | "JWE"; label?: string },
 ): JWTError | undefined {
-  if (!expected) return undefined;
+  if (expected === undefined) return undefined;
   const actual = protectedHeader.typ;
   if (typMatches(expected, actual)) return undefined;
   const { family, label } = options;
@@ -1149,4 +1242,14 @@ export function decodeJWSPayload<T>(
 
 function isJSONObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const MAX_QUOTED_TOKEN_VALUE = 64;
+
+/** A token-supplied value as an error message may name it: JSON-quoted and bounded. */
+function quoteTokenValue(value: unknown): string {
+  const text = String(value);
+  return JSON.stringify(
+    text.length > MAX_QUOTED_TOKEN_VALUE ? `${text.slice(0, MAX_QUOTED_TOKEN_VALUE)}…` : text,
+  );
 }

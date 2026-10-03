@@ -1389,3 +1389,40 @@ describe.concurrent('JWS JSON serialization "crit" members', () => {
     expect(expectUnverified(outcome).error.code).toBe("ERR_JWS_INVALID");
   });
 });
+
+describe.concurrent("JWS JSON verification option gates", () => {
+  let key: JWK_oct<"HS256">;
+  let jws: JWSGeneralSerialization;
+
+  beforeAll(async () => {
+    key = await generateJWK("HS256");
+    jws = await signMulti({ sub: "u" }, [{ key, protectedHeader: { typ: "at+jwt" } }]);
+  });
+
+  it("refuses an unencoded payload whose bytes are not UTF-8", async () => {
+    const error = await signMulti(new Uint8Array([0x61, 0xff, 0x62]), [
+      { key, protectedHeader: { b64: false } },
+    ]).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    expect(error.message).toBe("Invalid JWS: Payload is not valid UTF-8.");
+  });
+
+  it.each([
+    ["an empty typ", { typ: "" }],
+    ["a typ that is not a string", { typ: 1 }],
+    ["an algorithms allowlist that is not an array", { algorithms: "HS256-disabled" }],
+    ["an empty audience", { audience: "" }],
+  ])("verifyMulti refuses %s", async (_label, options) => {
+    const error = await verifyMulti(jws, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it("verifyMultiAll throws an option error rather than reporting it per signature", async () => {
+    await expect(verifyMultiAll(jws, () => key, { typ: "" })).rejects.toSatisfy((error) =>
+      isJWTError(error, "ERR_INVALID_OPTION"),
+    );
+    await expect(verifyMultiAll(jws, () => key, { subject: "" })).rejects.toSatisfy((error) =>
+      isJWTError(error, "ERR_INVALID_OPTION"),
+    );
+  });
+});

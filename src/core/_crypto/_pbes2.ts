@@ -29,16 +29,34 @@ export function assertPBES2Params(params: {
   p2c: number | undefined;
 }): void {
   const { p2s, p2c } = params;
-  if (p2s !== undefined && (!(p2s instanceof Uint8Array) || p2s.length < 8)) {
-    throw new JWTError(`"p2s" must be 8 or more octets (RFC 7518 §4.8.1.1).`, "ERR_INVALID_OPTION");
-  }
+  if (p2s !== undefined) assertPBES2Salt(p2s, '"p2s"');
   if (p2c === undefined) return;
-  if (typeof p2c !== "number" || !Number.isInteger(p2c) || p2c < 1) {
-    throw new JWTError('"p2c" must be a positive integer.', "ERR_INVALID_OPTION");
-  }
-  if (p2c < DEFAULT_PBES2_MIN_ITERATIONS || p2c > DEFAULT_PBES2_MAX_ITERATIONS) {
+  assertPBES2Count(p2c, '"p2c"');
+  if (p2c > DEFAULT_PBES2_MAX_ITERATIONS) {
     throw new JWTError(
       `"p2c" must be between ${DEFAULT_PBES2_MIN_ITERATIONS} and ${DEFAULT_PBES2_MAX_ITERATIONS} iterations (got ${p2c}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/** RFC 7518 §4.8.1.1 — a PBES2 salt input is at least 8 octets. */
+export function assertPBES2Salt(salt: unknown, name: string): void {
+  if (salt instanceof Uint8Array && salt.length >= 8) return;
+  throw new JWTError(`${name} must be 8 or more octets (RFC 7518 §4.8.1.1).`, "ERR_INVALID_OPTION");
+}
+
+/**
+ * RFC 7518 §4.8.1.2 — a PBES2 iteration count is an integer of at least
+ * {@link DEFAULT_PBES2_MIN_ITERATIONS}.
+ */
+export function assertPBES2Count(count: unknown, name: string): asserts count is number {
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
+    throw new JWTError(`${name} must be a positive integer.`, "ERR_INVALID_OPTION");
+  }
+  if (count < DEFAULT_PBES2_MIN_ITERATIONS) {
+    throw new JWTError(
+      `${name} must be at least ${DEFAULT_PBES2_MIN_ITERATIONS} iterations (got ${count}).`,
       "ERR_INVALID_OPTION",
     );
   }

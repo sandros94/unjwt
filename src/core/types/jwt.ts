@@ -91,8 +91,9 @@ export interface JWT<T = JWTClaims> {
  * A token names how much work its verifier is asked for — how many signatures
  * or recipients to try, and at what PBKDF2 cost — and a JWK Set names how many
  * keys to try it against. Each of these is bounded per call, so an attacker who
- * holds no key cannot turn one request into unbounded CPU. Every entry is a
- * positive integer; anything else is `ERR_INVALID_OPTION`.
+ * holds no key cannot turn one request into unbounded CPU. `limits` is an
+ * object and every entry a positive integer; anything else is
+ * `ERR_INVALID_OPTION`.
  *
  * The defaults are {@link DEFAULT_JOSE_LIMITS}. Each operation exposes the
  * subset that applies to it.
@@ -113,6 +114,12 @@ export interface JOSELimits {
   pbes2Iterations?: number;
 }
 
+/**
+ * Claim expectations for verification and decryption. Each one is checked
+ * whenever it is set: an empty `audience`, `issuer`, `subject` or `typ`,
+ * `maxTokenAge: 0`, or a list option that is not an array of strings is
+ * `ERR_INVALID_OPTION` rather than a check that is skipped.
+ */
 export interface JWTClaimValidationOptions {
   /**
    * Expected JWT "aud" (Audience) Claim value(s).

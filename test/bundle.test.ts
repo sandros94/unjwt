@@ -95,11 +95,11 @@ const ENTRIES: ReadonlyArray<Entry> = [
     ceiling: 200,
     absent: [MARKERS.randomBytes, MARKERS.base64],
   },
-  // measured 3381
+  // measured 4499
   {
     name: "validateJwtClaims",
     module: "core/utils/jwt.ts",
-    ceiling: 3900,
+    ceiling: 5200,
     absent: [MARKERS.subtleImport],
   },
 ];

@@ -83,6 +83,8 @@ Converts a `Duration` (integer seconds or shorthand string) into a positive inte
 
 Validates JWT claims against `JWTClaimValidationOptions`. Throws `JWTError` on failure. Checks: `exp`, `nbf`, `iat`, `iss`, `sub`, `aud`, `maxTokenAge`, `requiredClaims`.
 
+Each expectation is checked when it is set (`!== undefined`), never skipped for being empty: `audience` / `issuer` are a non-empty string or an array of non-empty strings, `subject` a non-empty string, `requiredClaims` an array of strings and `maxTokenAge` a positive duration — anything else throws `ERR_INVALID_OPTION`. An empty `audience` or `issuer` list is a check no token satisfies.
+
 `exp`, `nbf`, and `iat` are strictly validated per RFC 7519 §4.1 — if the claim is present but not a finite number (string, `null`, `NaN`, etc.) the function throws `ERR_JWT_CLAIM_INVALID` rather than silently skipping the comparison.
 
 ```ts
@@ -125,7 +127,7 @@ Returns the set of JWS signing algorithms a given key can unambiguously produce,
 
 Returns the set of JWE key-management algorithms a given key can unambiguously handle, or `undefined` when inference is not possible. Used by `decrypt()` as the default allowlist when `options.algorithms` is omitted.
 
-- A password `string` infers the three PBES2 variants plus `"dir"`.
+- A password `string` infers the three PBES2 variants.
 - A raw `Uint8Array` infers nothing — bytes carry no role, so the caller names the algorithm.
 - An `oct` JWK infers its own `alg` alone, except that an `alg` naming a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is a CEK and infers `"dir"`.
 - An EC or OKP JWK without an `alg` infers the four ECDH-ES variants from its `crv`.

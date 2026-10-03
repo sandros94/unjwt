@@ -63,9 +63,16 @@ export async function thumbprint(
     throw new JWTError('"hash" must be "SHA-256", "SHA-384" or "SHA-512".', "ERR_INVALID_OPTION");
   }
 
-  const members = THUMBPRINT_MEMBERS[jwk?.kty as string];
+  const kty: unknown = jwk.kty;
+  const members =
+    typeof kty === "string" && Object.hasOwn(THUMBPRINT_MEMBERS, kty)
+      ? THUMBPRINT_MEMBERS[kty]
+      : undefined;
   if (!members) {
-    throw new JWTError(`JWK thumbprint is not defined for kty "${jwk?.kty}".`, "ERR_JWK_INVALID");
+    throw new JWTError(
+      `JWK thumbprint is not defined for kty "${String(kty)}".`,
+      "ERR_JWK_INVALID",
+    );
   }
 
   const key = jwk as unknown as Record<string, unknown>;

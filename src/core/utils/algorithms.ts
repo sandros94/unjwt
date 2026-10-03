@@ -47,7 +47,7 @@ export function inferJWEAllowedAlgorithms(
 ): KeyManagementAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
   if (typeof key === "string") {
-    return ["PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW", "dir"];
+    return ["PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW"];
   }
   if (key instanceof Uint8Array) return undefined;
   if (typeof key !== "object") return undefined;

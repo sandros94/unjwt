@@ -1,5 +1,5 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
-import { textEncoder, textDecoder } from "unsecure/utils";
+import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
 
 import type {
@@ -36,10 +36,12 @@ import {
   inferJWSAllowedAlgorithms,
   validateCriticalHeadersJWS,
 } from "./utils";
+import { decodePayloadText } from "./utils/jwt";
 import {
   JWS_ALG_CTX,
   applyB64Header,
   assertB64Option,
+  assertConsumerOptions,
   assertOptionEntry,
   assertProtectedOnlyOption,
   assertProducerCrit,
@@ -56,6 +58,7 @@ import {
   assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
+  resolveKeyInput,
   resolveLimit,
   resolvePayloadMode,
   resolveSigningKey,
@@ -99,7 +102,7 @@ export async function signMulti(
   for (const [index, signer] of signers.entries()) {
     assertOptionEntry(signer, {
       label: `signers[${index}]`,
-      headers: ["protectedHeader", "unprotectedHeader"],
+      objects: ["protectedHeader", "unprotectedHeader"],
     });
     assertNotStringKey(signer.key);
     assertProtectedOnlyOption(signer.unprotectedHeader, { tier: "unprotected", family: "JWS" });
@@ -113,7 +116,11 @@ export async function signMulti(
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
   const payloadBytes = getPlaintextBytes(computedPayload || payload);
 
-  const payloadEncoded = b64 ? base64UrlStringify(payloadBytes) : textDecoder.decode(payloadBytes);
+  // RFC 7797 §5.3 — an unencoded payload is carried as a JSON string, so its
+  // bytes must be UTF-8 to have one.
+  const payloadEncoded = b64
+    ? base64UrlStringify(payloadBytes)
+    : decodePayloadText(payloadBytes, "JWS");
 
   const wireSignatures: JWSGeneralSignature[] = [];
   for (let i = 0; i < signers.length; i++) {
@@ -199,6 +206,7 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
   keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSMultiVerifyOptions = {},
 ): Promise<JWSMultiVerifyResult<T>> {
+  assertConsumerOptions(options);
   const payloadMode = resolvePayloadMode(options);
   const signatureLimit = resolveLimit(options.limits, "signatures");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
@@ -242,13 +250,11 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
 
     let rawKeyMaterial: unknown;
     try {
-      rawKeyMaterial =
-        typeof keyOrLookup === "function"
-          ? await (keyOrLookup as JWKLookupFunction)(
-              effective as Parameters<JWKLookupFunction>[0],
-              wireSig.protected ?? "",
-            )
-          : keyOrLookup;
+      rawKeyMaterial = await resolveKeyInput(keyOrLookup, {
+        header: effective,
+        token: wireSig.protected ?? "",
+        what: `signature[${i}]`,
+      });
     } catch (err) {
       lastError = asKeyLookupError(err, `signature[${i}]`);
       continue;
@@ -397,6 +403,7 @@ export async function verifyMultiAll<T extends JOSEPayload = JOSEPayload>(
   keyResolver: JWKLookupFunction,
   options: JWSMultiVerifyAllOptions = {},
 ): Promise<JWSMultiVerifyOutcome<T>[]> {
+  assertConsumerOptions(options);
   const payloadMode = resolvePayloadMode(options);
   const signatureLimit = resolveLimit(options.limits, "signatures");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
@@ -761,10 +768,7 @@ async function _verifyWithKeyMaterial(
       rawKeyMaterial,
       buildJWKSetFilter({ kid, alg }, { op: "sig", allowSymmetric }),
     );
-    assertJWKSetCandidates(candidates, {
-      limit: keyCandidates,
-      notFound: "No key found in JWK Set.",
-    });
+    assertJWKSetCandidates(candidates, { limit: keyCandidates, kid });
     // A candidate that cannot verify this signature — unusable key material as
     // much as a signature mismatch — only means "try the next one"; the
     // collected reasons become the `cause` when none verifies.
@@ -836,10 +840,11 @@ async function _verifyOneSignature<T extends JOSEPayload>(
 
   let rawKeyMaterial: unknown;
   try {
-    rawKeyMaterial = await keyResolver(
-      effective as Parameters<JWKLookupFunction>[0],
-      wireSig.protected ?? "",
-    );
+    rawKeyMaterial = await resolveKeyInput(keyResolver, {
+      header: effective,
+      token: wireSig.protected ?? "",
+      what: `signature[${index}]`,
+    });
   } catch (err) {
     return fail(asKeyLookupError(err, `signature[${index}]`), protectedHeader, unprotectedHeader);
   }

@@ -49,6 +49,8 @@ Creates a JWS Compact Serialization token.
 - If `expiresIn` is set and `iat` is missing, `iat` is set to current time
 - `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt)). `"b64"` is added to `crit` automatically (created when absent, never duplicated) — RFC 7797 §6 requires the flag to be integrity protected, and jose/other verifiers reject the token otherwise
 - With `b64: false`, a compact payload containing `"."` throws `ERR_JWS_INVALID` (RFC 7797 §5.2 — it would split the compact serialization). Use the JSON serialization (`signMulti`) for such payloads
+- With `b64: false`, payload bytes that are not valid UTF-8 throw `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not valid UTF-8."`) in `sign` and `signMulti` — the unencoded payload travels as text
+- A `protectedHeader.typ` that is not a string throws `ERR_INVALID_OPTION` (`'"typ" must be a string.'`)
 - When a JWK with a `kid` is used, the `kid` is added to the header as a fallback — an explicit `protectedHeader.kid` always takes precedence
 
 ```ts
@@ -83,7 +85,8 @@ Verifies a JWS token and returns its payload.
     - Token has no `kid` — every candidate is tried in order; the first to verify successfully wins
     - A candidate that cannot verify — unusable key material as much as a signature mismatch — only means "try the next one"; when none verifies, `ERR_JWS_SIGNATURE_INVALID` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
-  - A `JWKLookupFunction` that throws is a key that could not be resolved: the failure surfaces as `ERR_JWK_KEY_NOT_FOUND` with the thrown value as its `cause`
+  - A `JWKLookupFunction` that throws is a key that could not be resolved: the failure surfaces as `ERR_JWK_KEY_NOT_FOUND` with the thrown value as its `cause`. One that returns `undefined` or `null` is `ERR_JWK_KEY_NOT_FOUND` too (`"Key lookup returned no key for the JWS."`)
+  - The `kid` named in a key-not-found message is JSON-quoted and cut at 64 characters — it is token input
   - A token that is not a string throws `ERR_JWS_INVALID` (`"Invalid JWS: token must be a string."`)
     - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
 
@@ -96,6 +99,7 @@ Verifies a JWS token and returns its payload.
   - `limits?: { keyCandidates?: number }` — how many JWK Set candidates one token may be tried against after `kid`/`alg`/`use` filtering. Default `8` (`DEFAULT_JOSE_LIMITS.keyCandidates`); a wider set throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. Must be a positive integer, else `ERR_INVALID_OPTION`
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
   - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a verifier that configures none; configure `audience` to enforce RFC 7519 §4.1.3
+  - Every option is checked before the token is read, and a configured check is never skipped for being empty: `audience: ""` (or a list with an empty entry), `issuer: ""`, `subject: ""`, `typ: ""` or a non-string `typ`, `maxTokenAge: 0`, an `options` that is not an object, `limits` that is not an object, and an `algorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings each throw `ERR_INVALID_OPTION` (`'"algorithms" must be an array of strings.'`). An empty list (`audience: []`, `algorithms: []`) is a check no token passes
   - `clockTolerance?: number | Duration` — seconds, or a `Duration` shorthand (`"5m"`, `"1h"`). Negative, non-finite or unparseable values throw `ERR_INVALID_OPTION` instead of silently disabling the `exp`/`nbf`/`iat` checks
   - `exp`/`nbf`/`iat` must be non-negative NumericDates (fractions allowed, RFC 7519 §2); a negative value throws `ERR_JWT_CLAIM_INVALID`
 

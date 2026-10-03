@@ -27,6 +27,8 @@ export { jwkTokey, keyToJWK } from "./_key-codec";
 export {
   DEFAULT_PBES2_ITERATIONS,
   assertPBES2Params,
+  assertPBES2Salt,
+  assertPBES2Count,
   assertPBES2Iterations,
   deriveKey as deriveKeyPBES2,
   pbes2Wrap,

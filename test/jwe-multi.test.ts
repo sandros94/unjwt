@@ -11,7 +11,7 @@ import {
   isJWTError,
   isUnsecureError,
 } from "../src/core/jwe";
-import { generateJWK } from "../src/core/jwk";
+import { generateJWK, wrapKey } from "../src/core/jwk";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import { secureRandomBytes } from "unsecure/random";
 import type {
@@ -1388,5 +1388,80 @@ describe.concurrent("JWE enc in the shared unprotected header", () => {
     const error = await decryptMulti(tampered, key, { payload: "bytes" }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
     expect(error.message).toContain('"enc"');
+  });
+});
+
+describe.concurrent("JWE JSON additional authenticated data and option gates", () => {
+  let key: JWK_oct<"A256KW">;
+  let jwe: JWEGeneralSerialization;
+
+  beforeAll(async () => {
+    key = await generateJWK("A256KW");
+    jwe = await encryptMulti({ sub: "u" }, [{ key }], { enc: "A256GCM" });
+  });
+
+  it("omits an empty aad from the token (RFC 7516 §7.2.1)", async () => {
+    for (const aad of ["", new Uint8Array(0)]) {
+      const withEmptyAad = await encryptMulti("payload", [{ key }], { aad });
+      expect(withEmptyAad).not.toHaveProperty("aad");
+      const { payload } = await decryptMulti(withEmptyAad, key, { payload: "string" });
+      expect(payload).toBe("payload");
+    }
+  });
+
+  it("opens a token whose aad member is present but empty (RFC 7516 §5.2 step 15)", async () => {
+    const protectedHeader = base64UrlStringify(JSON.stringify({ alg: "A256KW", enc: "A256GCM" }));
+    const cek = secureRandomBytes(32);
+    const { encryptedKey } = await wrapKey(cek, key, { alg: "A256KW" });
+    const iv = secureRandomBytes(12);
+    const sealed = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv, additionalData: textEncoder.encode(`${protectedHeader}.`) },
+        await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]),
+        textEncoder.encode("payload"),
+      ),
+    );
+    const token: JWEFlattenedSerialization = {
+      protected: protectedHeader,
+      encrypted_key: base64UrlStringify(encryptedKey),
+      iv: base64UrlStringify(iv),
+      ciphertext: base64UrlStringify(sealed.slice(0, -16)),
+      tag: base64UrlStringify(sealed.slice(-16)),
+      aad: "",
+    };
+    const { payload, aad } = await decryptMulti(token, key, { payload: "string", returnCek: true });
+    expect(payload).toBe("payload");
+    expect(textDecoder.decode(aad)).toBe(`${protectedHeader}.`);
+  });
+
+  it.each([
+    ["a number", 123],
+    ["an object", { a: 1 }],
+    ["null", null],
+  ])("refuses an aad that is %s", async (_label, aad) => {
+    const error = await encryptMulti("payload", [{ key }], { aad } as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"aad" must be a string or a Uint8Array.');
+  });
+
+  it("honours extractable: false for the unwrapped content encryption key", async () => {
+    const error = await decryptMulti(jwe, key, { returnCek: true, extractable: false }).catch(
+      (e) => e,
+    );
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"returnCek"');
+  });
+
+  it.each([
+    ["an empty typ", { typ: "" }],
+    [
+      "an encryptionAlgorithms allowlist that is not an array",
+      { encryptionAlgorithms: "A256GCM-disabled" },
+    ],
+    ["an algorithms allowlist that is not an array", { algorithms: "A256KW-disabled" }],
+    ["requiredClaims that is not an array", { requiredClaims: "sub" }],
+  ])("decryptMulti refuses %s", async (_label, options) => {
+    const error = await decryptMulti(jwe, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
   });
 });

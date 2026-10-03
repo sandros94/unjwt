@@ -319,6 +319,37 @@ describe.concurrent("JWK Utilities", () => {
       ).rejects.toThrow("must be a positive integer");
     });
 
+    it.each([[1], [1.5], [999], [1000.5], ["2000"], [undefined]])(
+      "refuses %j iterations, as PBES2 encryption does",
+      async (count) => {
+        const error = await deriveKeyFromPassword(password, {
+          alg: "PBES2-HS256+A128KW",
+          salt,
+          iterations: count as never,
+        }).catch((e) => e);
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect(error.message).toContain('"iterations"');
+      },
+    );
+
+    it("derives at the iteration floor and above the encryption default", async () => {
+      for (const count of [1000, 600_001]) {
+        await expect(
+          deriveKeyFromPassword(password, { alg: "PBES2-HS256+A128KW", salt, iterations: count }),
+        ).resolves.toSatisfy(isCryptoKey);
+      }
+    });
+
+    it("refuses a salt shorter than 8 octets as an option error", async () => {
+      const error = await deriveKeyFromPassword(password, {
+        alg: "PBES2-HS256+A128KW",
+        salt: "short",
+        iterations,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain('"salt"');
+    });
+
     it("should derive JWK with custom `kid`", async () => {
       const kid = "custom-key-id";
       const jwk = await deriveJWKFromPassword(password, {
@@ -2132,6 +2163,17 @@ describe.concurrent("thumbprint (RFC 7638)", () => {
     expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
     expect(error.message).toBe('JWK thumbprint is not defined for kty "XYZ".');
   });
+
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+    "rejects the inherited property name %s as a key type",
+    async (kty) => {
+      const error = await thumbprint({ kty, k: "abc" } as unknown as JWK_oct).catch(
+        (error_) => error_,
+      );
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe(`JWK thumbprint is not defined for kty "${kty}".`);
+    },
+  );
 
   it("rejects an unsupported hash", async () => {
     const error = await thumbprint(rfcExample, {

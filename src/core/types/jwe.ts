@@ -243,7 +243,7 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   /**
    * A list of allowed JWE "alg" (Algorithm) Header Parameter values for key management.
    * When omitted, the allowlist is inferred from the key's shape — a password
-   * string infers the PBES2 family plus `dir`; raw `Uint8Array` keys and lookup
+   * string infers the PBES2 family alone; raw `Uint8Array` keys and lookup
    * functions carry no algorithm of their own and require this option
    * explicitly, matching the `alg` they were encrypted with.
    */
@@ -438,7 +438,9 @@ export interface JWEMultiEncryptOptions extends StrictOmit<
   /**
    * External Additional Authenticated Data (RFC 7516 §5.1). Encoded as
    * base64url and written to the `aad` field; the content cipher AAD becomes
-   * `BASE64URL(protected) || '.' || BASE64URL(aad)`.
+   * `BASE64URL(protected) || '.' || BASE64URL(aad)`. An empty value is no AAD
+   * at all and leaves the field out (RFC 7516 §7.2.1). Anything but a string
+   * or bytes is `ERR_INVALID_OPTION`.
    */
   aad?: Uint8Array<ArrayBuffer> | string;
 }

@@ -1,14 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe";
-import {
-  generateKey,
-  generateJWK,
-  exportKey,
-  unwrapKey,
-  wrapKey,
-  deriveJWKFromPassword,
-} from "../src/core/jwk";
+import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal";
@@ -396,12 +389,20 @@ describe.concurrent("JWE Utilities", () => {
     const alg = "PBES2-HS256+A128KW" as const;
 
     /**
-     * A wrapped key at an iteration count `wrapKey` itself refuses: the PBES2
-     * key is derived and the CEK AES-KW wrapped with it, which is exactly what
-     * the PBES2 branch does once it has its parameters.
+     * A wrapped key at an iteration count the library itself refuses to mint:
+     * the PBES2 key is derived with WebCrypto (RFC 7518 §4.8.1.1 salt) and the
+     * CEK AES-KW wrapped with it, which is exactly what the PBES2 branch does
+     * once it has its parameters.
      */
     async function wrapBelowFloor(cek: Uint8Array<ArrayBuffer>, p2s: Uint8Array<ArrayBuffer>) {
-      const derived = await deriveJWKFromPassword(password, { alg, salt: p2s, iterations: 500 });
+      const salt = new Uint8Array([...textEncoder.encode(alg), 0, ...p2s]);
+      const base = await crypto.subtle.importKey("raw", password, "PBKDF2", false, ["deriveBits"]);
+      const bits = await crypto.subtle.deriveBits(
+        { name: "PBKDF2", hash: "SHA-256", salt, iterations: 500 },
+        base,
+        128,
+      );
+      const derived = await crypto.subtle.importKey("raw", bits, "AES-KW", false, ["wrapKey"]);
       return wrapKey(cek, derived, { alg: "A128KW" });
     }
 
@@ -1759,6 +1760,83 @@ describe.concurrent("JWE producer option gates", () => {
     });
     const { payload } = await decrypt(jwe, ecdhKey.privateKey, { payload: "string" });
     expect(payload).toBe("payload");
+  });
+
+  it.each([[123], [null], [["JWT"]]])("refuses a protected header typ of %j", async (typ) => {
+    for (const payload of [{ sub: "u" }, "payload"]) {
+      const error = await encrypt(payload, aesKey, { protectedHeader: { typ } as never }).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe('"typ" must be a string.');
+    }
+  });
+});
+
+describe.concurrent("JWE decryption option gates", () => {
+  let key: JWK_oct<"A256KW">;
+  let token: string;
+
+  beforeAll(async () => {
+    key = await generateJWK("A256KW");
+    token = await encrypt({ sub: "u", aud: "a" }, key, {
+      enc: "A256GCM",
+      protectedHeader: { typ: "at+jwt" },
+    });
+  });
+
+  it.each([
+    ["an empty typ", { typ: "" }],
+    ["a typ that is not a string", { typ: 123 }],
+    ["an algorithms allowlist that is not an array", { algorithms: "A256KW-disabled" }],
+    [
+      "an encryptionAlgorithms allowlist that is not an array",
+      { encryptionAlgorithms: "A256GCM-disabled" },
+    ],
+    ["an empty audience", { audience: "" }],
+    ["maxTokenAge: 0", { maxTokenAge: 0 }],
+  ])("refuses %s", async (_label, options) => {
+    const error = await decrypt(token, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it("refuses options that are not an object", async () => {
+    const error = await decrypt(token, key, null as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"options" must be an object.');
+  });
+
+  it("quotes and bounds a header kid echoed in a key-not-found message", async () => {
+    const kid = `evil\nInjected: yes ${"x".repeat(200)}`;
+    const encrypted = await encrypt({ sub: "u" }, { ...key, kid }, { enc: "A256GCM" });
+    const set = { keys: [{ ...key, kid: "other" }] };
+    const error = await decrypt(encrypted, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+    expect(error.message).not.toContain("\n");
+    expect(error.message).toContain(String.raw`with kid "evil\nInjected: yes x`);
+    expect(error.message.length).toBeLessThan(120);
+  });
+
+  it("honours extractable: false for the unwrapped content encryption key", async () => {
+    const { cek } = await decrypt(token, key, { returnCek: true });
+    expect(cek).toBeInstanceOf(Uint8Array);
+    const error = await decrypt(token, key, { returnCek: true, extractable: false }).catch(
+      (e) => e,
+    );
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"returnCek"');
+  });
+
+  it("refuses returnCek over a dir key that is not extractable", async () => {
+    const cekKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
+      "encrypt",
+      "decrypt",
+    ]);
+    const encrypted = await encrypt({ sub: "u" }, cekKey, { alg: "dir", enc: "A256GCM" });
+    await expect(decrypt(encrypted, cekKey)).resolves.toHaveProperty("payload", { sub: "u" });
+    const error = await decrypt(encrypted, cekKey, { returnCek: true }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"returnCek"');
   });
 });
 

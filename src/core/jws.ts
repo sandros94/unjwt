@@ -1,5 +1,5 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
-import { textEncoder, textDecoder } from "unsecure/utils";
+import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
 
 import type {
@@ -27,13 +27,14 @@ import {
   getPlaintextBytes,
   validateCriticalHeadersJWS,
 } from "./utils";
+import { decodePayloadText } from "./utils/jwt";
 import {
   JWS_ALG_CTX,
   applyB64Header,
   assertProducerCrit,
-  asKeyLookupError,
   asKeyUsageError,
   assertCompactToken,
+  assertConsumerOptions,
   assertJWKSetCandidates,
   buildJWKSetFilter,
   checkAlgAllowed,
@@ -42,6 +43,7 @@ import {
   assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
+  resolveKeyInput,
   resolveLimit,
   resolvePayloadMode,
   resolveSigningKey,
@@ -89,7 +91,7 @@ export async function sign(
   key: CryptoKey | JWSSignJWK | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
-  assertOptionEntry(options, { label: "options", headers: ["protectedHeader"] });
+  assertOptionEntry(options, { label: "options", objects: ["protectedHeader"] });
   assertNotStringKey(key);
 
   const { protectedHeader: userHeader } = options;
@@ -137,8 +139,9 @@ export async function sign(
   if (useB64) {
     payloadEncoded = base64UrlStringify(payloadBytes);
   } else {
-    payloadEncoded = textDecoder.decode(payloadBytes);
-    // RFC 7797 §5.2 — a "." in an unencoded payload would split the compact form.
+    // An unencoded payload travels as text inside the token, so its bytes must
+    // be UTF-8; RFC 7797 §5.2 — a "." in it would split the compact form.
+    payloadEncoded = decodePayloadText(payloadBytes, "JWS");
     if (payloadEncoded.includes(".")) {
       throw new JWTError(
         'Invalid JWS: unencoded compact payload must not contain "." (RFC 7797 §5.2).',
@@ -196,6 +199,7 @@ export async function verify<T extends JOSEPayload>(
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult<T>> {
   assertCompactToken(jws, "JWS");
+  assertConsumerOptions(options);
 
   const payloadMode = resolvePayloadMode(options);
   const keyCandidateLimit = resolveLimit(options.limits, "keyCandidates");
@@ -230,12 +234,11 @@ export async function verify<T extends JOSEPayload>(
 
   const signatureBytes = decodeSegment(signatureEncoded, { family: "JWS", what: "Signature" });
 
-  let keyInput: Exclude<typeof key, JWKLookupFunction> | Awaited<ReturnType<JWKLookupFunction>>;
-  try {
-    keyInput = typeof key === "function" ? await key(protectedHeader, jws) : key;
-  } catch (error) {
-    throw asKeyLookupError(error, "the JWS");
-  }
+  const keyInput = await resolveKeyInput(key, {
+    header: protectedHeader,
+    token: jws,
+    what: "the JWS",
+  });
   assertNotStringKey(keyInput);
 
   const algError = checkAlgAllowed(alg, keyInput, {
@@ -259,10 +262,7 @@ export async function verify<T extends JOSEPayload>(
           allowSymmetric: options.allowSymmetricJWKSet,
         }),
       );
-      assertJWKSetCandidates(candidates, {
-        limit: keyCandidateLimit,
-        notFound: `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
-      });
+      assertJWKSetCandidates(candidates, { limit: keyCandidateLimit, kid: protectedHeader.kid });
       // A candidate this token cannot have been signed with — unusable key
       // material as much as a signature mismatch — only means "try the next
       // one"; the collected reasons become the `cause` when none verifies.

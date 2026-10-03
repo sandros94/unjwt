@@ -44,6 +44,8 @@ import {
   jwkTokey,
   keyToJWK,
   assertPBES2Params,
+  assertPBES2Salt,
+  assertPBES2Count,
   bitLengthCEK,
   assertOctKeyLength,
   deriveKeyPBES2,
@@ -284,7 +286,8 @@ export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
  *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`). Any other
  *     algorithm throws `ERR_JWK_UNSUPPORTED`: a password derives a key under PBES2 alone.
  *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets.
- *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
+ *   - `iterations` — PBKDF2 iteration count (`p2c`). An integer of at least 1000
+ *     (RFC 7518 §4.8.1.2); anything else throws `ERR_INVALID_OPTION`.
  *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
  *   - `extractable?` — defaults to `false`. Ignored when `toJWK` is set.
  *   - `toJWK?` — return the derived key as a `JWK_oct` instead of a `CryptoKey`.
@@ -307,15 +310,8 @@ export async function deriveKeyFromPassword(
   const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
 
   const saltBytes = typeof salt === "string" ? textEncoder.encode(salt) : salt;
-  if (!(saltBytes instanceof Uint8Array) || saltBytes.length < 8) {
-    throw new JWTError("PBES2 Salt Input (salt) must be 8 or more octets", "ERR_JWE_INVALID");
-  }
-  if (typeof iterations !== "number" || iterations < 1) {
-    throw new JWTError(
-      "PBES2 Iteration Count (iterations) must be a positive integer",
-      "ERR_JWE_INVALID",
-    );
-  }
+  assertPBES2Salt(saltBytes, '"salt"');
+  assertPBES2Count(iterations, '"iterations"');
 
   const passwordBytes = typeof password === "string" ? textEncoder.encode(password) : password;
 
@@ -355,7 +351,8 @@ export async function deriveKeyFromPassword(
  *   - `alg` — the PBES2 algorithm identifier (e.g. `"PBES2-HS256+A128KW"`). Any other
  *     algorithm throws `ERR_JWK_UNSUPPORTED`.
  *   - `salt` — PBKDF2 salt input (`p2s`). Must be at least 8 octets (RFC 7518 §4.8.1.1).
- *   - `iterations` — PBKDF2 iteration count (`p2c`). Must be a positive integer.
+ *   - `iterations` — PBKDF2 iteration count (`p2c`). An integer of at least 1000
+ *     (RFC 7518 §4.8.1.2); anything else throws `ERR_INVALID_OPTION`.
  *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
  *   - JWK metadata (`kid`, `use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the
  *     result. `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot

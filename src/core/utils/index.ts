@@ -27,7 +27,21 @@ export {
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
 } from "./algorithms";
-export * from "./jwt";
+export {
+  type DecodePayloadOptions,
+  type ComputeJwtTimeClaimsOptions,
+  applyTypCtyDefaults,
+  isJWTContent,
+  decodePayloadFromBytes,
+  decodePayloadFromB64UrlSegment,
+  getPlaintextBytes,
+  computeDurationInSeconds,
+  computeJwtTimeClaims,
+  validateJwtClaims,
+  validateCriticalHeadersJWS,
+  validateCriticalHeadersJWE,
+  assertCritShape,
+} from "./jwt";
 export type * from "./types";
 
 /** Concatenate multiple `Uint8Array`s into a single contiguous buffer. */

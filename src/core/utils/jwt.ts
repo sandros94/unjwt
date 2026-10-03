@@ -22,6 +22,10 @@ export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
   header: T,
   payload: unknown,
 ): T {
+  const declared: unknown = header.typ;
+  if (declared !== undefined && typeof declared !== "string") {
+    throw new JWTError('"typ" must be a string.', "ERR_INVALID_OPTION");
+  }
   const isObjectPayload =
     typeof payload === "object" && payload !== null && !(payload instanceof Uint8Array);
   if (!isObjectPayload) return header;
@@ -78,9 +82,19 @@ export function decodePayloadFromBytes<T = JWTClaims>(
   if (mode === "bytes") return bytes;
 
   const family = options?.family ?? "JWS";
-  let text: string;
+  const text = decodePayloadText(bytes, family);
+  if (mode === "string") return text;
+  return _parsePayloadObject<T>(text, family);
+}
+
+/**
+ * Payload bytes as text, refusing anything that is not UTF-8 with
+ * `ERR_JWS_INVALID` / `ERR_JWE_INVALID`. Internal to the library: the `utils`
+ * entry point does not re-export it.
+ */
+export function decodePayloadText(bytes: Uint8Array<ArrayBuffer>, family: "JWS" | "JWE"): string {
   try {
-    text = _utf8Decoder.decode(bytes);
+    return _utf8Decoder.decode(bytes);
   } catch (error) {
     throw new JWTError(
       `Invalid ${family}: Payload is not valid UTF-8.`,
@@ -88,8 +102,6 @@ export function decodePayloadFromBytes<T = JWTClaims>(
       error,
     );
   }
-  if (mode === "string") return text;
-  return _parsePayloadObject<T>(text, family);
 }
 
 /** {@link decodePayloadFromBytes} over a Base64URL-encoded payload segment. */
@@ -289,27 +301,36 @@ export function computeJwtTimeClaims(
   return claims;
 }
 
-/** Validate JWT claims under JWS verification rules (or custom JWE implementations). */
+/**
+ * Validate JWT claims under JWS verification rules (or custom JWE implementations).
+ *
+ * Each expectation is checked when it is set: `issuer`, `audience` and `subject`
+ * name non-empty strings, `requiredClaims` is an array of claim names, and
+ * `maxTokenAge` is a positive duration. An empty or malformed expectation is
+ * `ERR_INVALID_OPTION` rather than a check that is skipped; an empty `audience`
+ * or `issuer` list is a check no token satisfies.
+ */
 export function validateJwtClaims(
   jwtClaims: JWTClaims,
   options: JWTClaimValidationOptions = {},
 ): void {
+  assertClaimValidationOptions(options);
   const clockTolerance = _normalizeClockTolerance(options.clockTolerance);
   const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
 
   // Skip the Set allocations for the common "no required claims" path.
   if (
-    options.requiredClaims ||
-    options.issuer ||
-    options.audience ||
-    options.subject ||
-    options.maxTokenAge
+    options.requiredClaims !== undefined ||
+    options.issuer !== undefined ||
+    options.audience !== undefined ||
+    options.subject !== undefined ||
+    options.maxTokenAge !== undefined
   ) {
-    const allRequiredClaims = new Set<string>(options.requiredClaims || []);
-    if (options.issuer) allRequiredClaims.add("iss");
-    if (options.audience) allRequiredClaims.add("aud");
-    if (options.subject) allRequiredClaims.add("sub");
-    if (options.maxTokenAge) allRequiredClaims.add("iat");
+    const allRequiredClaims = new Set<string>(options.requiredClaims);
+    if (options.issuer !== undefined) allRequiredClaims.add("iss");
+    if (options.audience !== undefined) allRequiredClaims.add("aud");
+    if (options.subject !== undefined) allRequiredClaims.add("sub");
+    if (options.maxTokenAge !== undefined) allRequiredClaims.add("iat");
 
     const missingClaims: string[] = [];
     for (const claimName of allRequiredClaims) {
@@ -329,7 +350,7 @@ export function validateJwtClaims(
   _assertNumericDate(jwtClaims.nbf, "nbf", "Not Before");
   _assertNumericDate(jwtClaims.iat, "iat", "Issued At");
 
-  if (options.issuer) {
+  if (options.issuer !== undefined) {
     const expectedIssuers = maybeArray(options.issuer);
     if (!jwtClaims.iss || !expectedIssuers.includes(jwtClaims.iss)) {
       throw new JWTError(
@@ -339,14 +360,14 @@ export function validateJwtClaims(
     }
   }
 
-  if (options.subject && jwtClaims.sub !== options.subject) {
+  if (options.subject !== undefined && jwtClaims.sub !== options.subject) {
     throw new JWTError(
       `Invalid JWT "sub" (Subject) Claim: Expected ${options.subject}, got ${jwtClaims.sub}`,
       "ERR_JWT_CLAIM_INVALID",
     );
   }
 
-  if (options.audience) {
+  if (options.audience !== undefined) {
     const expectedAudiences = maybeArray(options.audience);
     const claimAudience = maybeArray(jwtClaims.aud || []);
     if (!claimAudience.some((aud) => expectedAudiences.includes(aud))) {
@@ -372,7 +393,7 @@ export function validateJwtClaims(
     );
   }
 
-  if (options.maxTokenAge) {
+  if (options.maxTokenAge !== undefined) {
     if (typeof jwtClaims.iat !== "number") {
       throw new JWTError(
         'JWT "iat" (Issued At) Claim must be a number when maxTokenAge is set.',
@@ -396,6 +417,34 @@ export function validateJwtClaims(
       );
     }
   }
+}
+
+/**
+ * The shape of every {@link JWTClaimValidationOptions} expectation, checked
+ * before any claim is read. Internal to the library: the `utils` entry point
+ * does not re-export it.
+ */
+export function assertClaimValidationOptions(options: JWTClaimValidationOptions): void {
+  _assertExpectedValues(options.issuer, "issuer");
+  _assertExpectedValues(options.audience, "audience");
+  const subject: unknown = options.subject;
+  if (subject !== undefined && !_isNonEmptyString(subject)) {
+    throw new JWTError('"subject" must be a non-empty string.', "ERR_INVALID_OPTION");
+  }
+  if (options.maxTokenAge !== undefined) computeDurationInSeconds(options.maxTokenAge);
+  assertStringList(options.requiredClaims, "requiredClaims");
+  _normalizeClockTolerance(options.clockTolerance);
+}
+
+/**
+ * A list option (an allowlist, claim or header names) is an array of strings
+ * when present. Internal to the library: the `utils` entry point does not
+ * re-export it.
+ */
+export function assertStringList(value: unknown, name: string): void {
+  if (value === undefined) return;
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) return;
+  throw new JWTError(`"${name}" must be an array of strings.`, "ERR_INVALID_OPTION");
 }
 
 // RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` entries must be extension parameters the recipient
@@ -542,6 +591,20 @@ function _invalidClockTolerance(): JWTError {
     "clockTolerance must be a non-negative number of seconds or a Duration.",
     "ERR_INVALID_OPTION",
   );
+}
+
+/** An expected `iss` / `aud`: one non-empty string, or a list of them. */
+function _assertExpectedValues(value: unknown, name: "issuer" | "audience"): void {
+  if (value === undefined || _isNonEmptyString(value)) return;
+  if (Array.isArray(value) && value.every((entry) => _isNonEmptyString(entry))) return;
+  throw new JWTError(
+    `"${name}" must be a non-empty string or an array of non-empty strings.`,
+    "ERR_INVALID_OPTION",
+  );
+}
+
+function _isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
 }
 
 /** RFC 7519 §2 — a NumericDate is a finite, non-negative number (fractions allowed). */

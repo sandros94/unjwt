@@ -72,7 +72,7 @@ hmac.kid === (await thumbprint(hmac)); // true
 
 RFC 7638 JWK Thumbprint: the base64url digest of the key's required members alone, as JSON with no whitespace and member names in lexicographic order.
 
-- `jwk: JWK` — required members per `kty`: `EC` → `crv`, `kty`, `x`, `y`; `RSA` → `e`, `kty`, `n`; `OKP` → `crv`, `kty`, `x`; `oct` → `k`, `kty`. A missing member, or a `kty` with no defined members, throws `ERR_JWK_INVALID`
+- `jwk: JWK` — required members per `kty`: `EC` → `crv`, `kty`, `x`, `y`; `RSA` → `e`, `kty`, `n`; `OKP` → `crv`, `kty`, `x`; `oct` → `k`, `kty`. A missing member, or a `kty` with no defined members (an inherited name such as `"constructor"` included), throws `ERR_JWK_INVALID`
 - `options?: { hash?: "SHA-256" | "SHA-384" | "SHA-512" }` — defaults to `"SHA-256"` (RFC 7638 §3.4). Any other value is `ERR_INVALID_OPTION`
 
 Returns `Promise<string>`.
@@ -355,7 +355,8 @@ PBKDF2 derivation for PBES2 algorithms.
 - `password: string | Uint8Array`
 - `options: DeriveKeyOptions` — `{ alg: JWK_PBES2, salt: string | Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
   - `alg` is **required**: `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`. Any other algorithm throws `ERR_JWK_UNSUPPORTED` before a single PBKDF2 round — a password derives a key under PBES2 alone
-  - `salt` accepts text or raw bytes; a `string` is UTF-8 encoded, and the 8-octet minimum (RFC 7518 §4.8.1.1) is measured on the encoded bytes — a 3-character salt throws `ERR_JWE_INVALID`
+  - `salt` accepts text or raw bytes; a `string` is UTF-8 encoded, and the 8-octet minimum (RFC 7518 §4.8.1.1) is measured on the encoded bytes — a 3-character salt throws `ERR_INVALID_OPTION`
+  - `iterations` is an integer of at least `1000` (RFC 7518 §4.8.1.2), the floor `encrypt` / `wrapKey` hold PBES2 to; `1`, `999`, `1.5` or a non-number throws `ERR_INVALID_OPTION`. There is no ceiling here — the `600_000` cap applies to the `p2c` a token is minted with, not to key derivation
   - `extractable` is ignored when `toJWK: true` — the JWK output requires exporting the derived key
 
 Returns `CryptoKey` or `JWK_oct` based on `toJWK`.

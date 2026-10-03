@@ -1691,6 +1691,15 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       }).catch((e) => e);
       expect(isJWTError(bytesError, "ERR_JWS_INVALID")).toBe(true);
     });
+
+    it("refuses an unencoded payload whose bytes are not UTF-8", async () => {
+      const error = await sign(new Uint8Array([0x61, 0xff, 0x62]), hs256Key, {
+        alg: "HS256",
+        protectedHeader: { b64: false },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS: Payload is not valid UTF-8.");
+    });
   });
 
   describe('"typ" normalization (RFC 7515 §4.1.9)', () => {
@@ -1975,6 +1984,90 @@ describe.concurrent("JWS producer header gates", () => {
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect(error.message).toContain("protected header");
     }
+  });
+
+  it.each([[123], [null], [["JWT"]]])("refuses a protected header typ of %j", async (typ) => {
+    for (const payload of [{ sub: "u" }, "payload"]) {
+      const error = await sign(payload, key, { protectedHeader: { typ } as never }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe('"typ" must be a string.');
+    }
+  });
+});
+
+describe.concurrent("JWS verification option gates", () => {
+  let key: JWK_oct<"HS256">;
+  let token: string;
+
+  beforeAll(async () => {
+    key = await generateJWK("HS256");
+    token = await sign({ sub: "u", iss: "i", aud: "a", iat: Math.floor(Date.now() / 1000) }, key, {
+      protectedHeader: { typ: "at+jwt" },
+    });
+  });
+
+  it.each([
+    ["an empty audience", { audience: "" }],
+    ["an audience list with an empty entry", { audience: ["a", ""] }],
+    ["an empty issuer", { issuer: "" }],
+    ["an empty subject", { subject: "" }],
+    ["an empty typ", { typ: "" }],
+    ["maxTokenAge: 0", { maxTokenAge: 0 }],
+  ])("refuses %s instead of skipping the check", async (_label, options) => {
+    const error = await verify(token, key, options).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+
+  it("keeps an empty audience list as a check nothing satisfies", async () => {
+    const error = await verify(token, key, { audience: [] }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWT_CLAIM_INVALID")).toBe(true);
+  });
+
+  it.each([[123], [null], [["at+jwt"]]])("refuses a typ option of %j", async (typ) => {
+    const error = await verify(token, key, { typ } as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"typ" must be a non-empty string.');
+  });
+
+  it("refuses an algorithms allowlist that is not an array", async () => {
+    const error = await verify(token, key, { algorithms: "HS256-disabled" } as never).catch(
+      (e) => e,
+    );
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"algorithms" must be an array of strings.');
+  });
+
+  it("refuses requiredClaims that is not an array", async () => {
+    const error = await verify(token, key, { requiredClaims: "exp" } as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"requiredClaims" must be an array of strings.');
+  });
+
+  it("refuses recognizedHeaders that is not an array", async () => {
+    const critical = await sign("payload", key, { protectedHeader: { crit: ["app"], app: "web" } });
+    const error = await verify(critical, key, {
+      payload: "string",
+      recognizedHeaders: "app",
+    } as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"recognizedHeaders" must be an array of strings.');
+  });
+
+  it("refuses options that are not an object", async () => {
+    const error = await verify(token, key, null as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"options" must be an object.');
+  });
+
+  it("quotes and bounds a header kid echoed in a key-not-found message", async () => {
+    const kid = `evil\nInjected: yes ${"x".repeat(200)}`;
+    const signed = await sign({ sub: "u" }, { ...key, kid });
+    const set: JWKSet = { keys: [{ ...key, kid: "other" }] };
+    const error = await verify(signed, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+    expect(error.message).not.toContain("\n");
+    expect(error.message).toContain(String.raw`with kid "evil\nInjected: yes x`);
+    expect(error.message.length).toBeLessThan(120);
   });
 });
 

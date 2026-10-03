@@ -34,7 +34,6 @@ import { isContentEncryptionAlgorithm } from "./utils/algorithms";
 import {
   isJWK,
   isJWKSet,
-  isCryptoKey,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   decodePayloadFromBytes,
@@ -54,19 +53,22 @@ import {
   assertProducerCrit,
   assertProducerIV,
   assertProducerPartyInfo,
-  asKeyLookupError,
   asKeyUsageError,
+  assertConsumerOptions,
   buildJWKSetFilter,
   buildUnwrapKeyOptions,
   checkAlgAllowed,
   checkJWEAlgSupported,
   checkJWEContentSegments,
   checkJWEDirectEncryptedKey,
+  checkJWEEncAllowed,
   checkJWEEncSupported,
   checkJWEZip,
   createPBES2Budget,
   decodeProtectedHeader,
+  exportReturnedCek,
   parseEphemeralKey,
+  resolveKeyInput,
   resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
@@ -128,7 +130,7 @@ export async function encrypt(
   key: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions = {},
 ): Promise<string> {
-  assertOptionEntry(options, { label: "options", headers: ["protectedHeader"] });
+  assertOptionEntry(options, { label: "options", objects: ["protectedHeader"] });
   const {
     protectedHeader: userHeader,
     cek: providedCek,
@@ -307,6 +309,7 @@ export async function decrypt<T extends JOSEPayload>(
   options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult<T>> {
   assertCompactToken(jwe, "JWE");
+  assertConsumerOptions(options);
 
   const payloadMode = resolvePayloadMode(options);
   const keyCandidateLimit = resolveLimit(options.limits, "keyCandidates");
@@ -343,17 +346,13 @@ export async function decrypt<T extends JOSEPayload>(
   // compression, `crit`, `typ` — is settled before any key is resolved or
   // imported, so a malformed token never reaches key management.
   const headerError =
-    checkJWEAlgSupported(alg) ?? checkJWEEncSupported(enc) ?? checkJWEZip(protectedHeader);
+    checkJWEAlgSupported(alg) ??
+    checkJWEEncSupported(enc) ??
+    checkJWEZip(protectedHeader) ??
+    checkJWEEncAllowed(enc, options.encryptionAlgorithms);
   if (headerError) throw headerError;
 
-  if (options?.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
-    throw new JWTError(
-      `Content encryption algorithm not allowed: ${enc}`,
-      "ERR_JWE_ALG_NOT_ALLOWED",
-    );
-  }
-
-  validateCriticalHeadersJWE(protectedHeader, options?.recognizedHeaders);
+  validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
 
   const typError = checkProtectedTyp(options.typ, protectedHeader, { family: "JWE" });
   if (typError) throw typError;
@@ -378,17 +377,16 @@ export async function decrypt<T extends JOSEPayload>(
   const segmentError = checkJWEContentSegments(enc, contentIVBytes, contentAuthTagBytes);
   if (segmentError) throw segmentError;
 
-  let rawKeyMaterial: unknown;
-  try {
-    rawKeyMaterial = typeof key === "function" ? await key(protectedHeader, jwe) : key;
-  } catch (error) {
-    throw asKeyLookupError(error, "the JWE");
-  }
+  const rawKeyMaterial = await resolveKeyInput(key, {
+    header: protectedHeader,
+    token: jwe,
+    what: "the JWE",
+  });
 
   const algError = checkAlgAllowed(alg, rawKeyMaterial, {
     ctx: JWE_ALG_CTX,
-    algorithms: options?.algorithms,
-    allowSymmetric: options?.allowSymmetricJWKSet,
+    algorithms: options.algorithms,
+    allowSymmetric: options.allowSymmetricJWKSet,
   });
   if (algError) throw algError;
 
@@ -407,10 +405,7 @@ export async function decrypt<T extends JOSEPayload>(
         allowSymmetric: options?.allowSymmetricJWKSet,
       }),
     );
-    assertJWKSetCandidates(candidates, {
-      limit: keyCandidateLimit,
-      notFound: `No key found in JWK Set${protectedHeader.kid ? ` with kid "${protectedHeader.kid}"` : ""}.`,
-    });
+    assertJWKSetCandidates(candidates, { limit: keyCandidateLimit, kid: protectedHeader.kid });
     // A candidate this token was not encrypted to — unusable key material as
     // much as a failed unwrap — only means "try the next one"; the collected
     // reasons become the `cause` when none decrypts.
@@ -443,11 +438,11 @@ export async function decrypt<T extends JOSEPayload>(
   } else {
     if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
     pbes2Budget.spend(unwrapKeyOpts);
-    const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
-      alg,
-      expect: "private",
-    });
     try {
+      const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial), {
+        alg,
+        expect: "private",
+      });
       cek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
       plaintextBytes = await joseDecrypt(
         enc,
@@ -476,7 +471,7 @@ export async function decrypt<T extends JOSEPayload>(
   };
 
   if (options.returnCek) {
-    result.cek = isCryptoKey(cek) ? new Uint8Array(await crypto.subtle.exportKey("raw", cek)) : cek;
+    result.cek = await exportReturnedCek(cek);
     result.aad = aadBytes;
   }
 

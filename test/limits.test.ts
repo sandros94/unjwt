@@ -381,6 +381,25 @@ describe("limits", () => {
       ).rejects.toSatisfy((error) => isJWTError(error, "ERR_INVALID_OPTION"));
     });
 
+    it.each([
+      ["a string", "x"],
+      ["an array", [1]],
+      ["null", null],
+    ])("rejects limits that are %s", async (_label, limits) => {
+      const jws = await sign({ sub: "u1" }, signer);
+      const jwe = await encrypt({ sub: "u1" }, octKeys[0]!, { enc: "A256GCM" });
+      const general = await signMulti({ sub: "u1" }, [{ key: signer }]);
+      const runs = [
+        () => verify(jws, publicKey, { limits } as never),
+        () => verifyMulti(general, publicKey, { limits } as never),
+        () => verifyMultiAll(general, () => publicKey, { limits } as never),
+        () => decrypt(jwe, octKeys[0]!, { limits } as never),
+      ];
+      for (const run of runs) {
+        await expect(run()).rejects.toThrow('"options.limits" must be an object.');
+      }
+    });
+
     it("rejects a malformed JWE limit", async () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[0]! }], { enc: "A256GCM" });
       await expect(decryptMulti(jwe, octKeys[0]!, { limits: { recipients: 0 } })).rejects.toThrow(

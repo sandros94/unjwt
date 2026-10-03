@@ -404,6 +404,33 @@ describe("validateJwtClaims additional cases", () => {
       validateJwtClaims({ sub: "actual-subject" }, { subject: "expected-subject" }),
     ).toThrow('"sub" (Subject) Claim');
   });
+
+  it.each([
+    ["an empty audience", { audience: "" }],
+    ["an audience list with an empty entry", { audience: [""] }],
+    ["an audience that is not a string", { audience: 1 }],
+    ["an empty issuer", { issuer: "" }],
+    ["an issuer list with a non-string entry", { issuer: ["i", 2] }],
+    ["an empty subject", { subject: "" }],
+    ["a subject that is not a string", { subject: 1 }],
+    ["maxTokenAge: 0", { maxTokenAge: 0 }],
+    ["requiredClaims that is a string", { requiredClaims: "exp" }],
+    ["requiredClaims with a non-string entry", { requiredClaims: ["exp", 1] }],
+  ])("refuses %s instead of skipping the check", (_label, options) => {
+    const claims = { sub: "u", iss: "i", aud: "a", iat: Math.floor(Date.now() / 1000) };
+    expect(() => validateJwtClaims(claims, options as never)).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_OPTION" }),
+    );
+  });
+
+  it("keeps an empty audience or issuer list as a check nothing satisfies", () => {
+    expect(() => validateJwtClaims({ aud: "a" }, { audience: [] })).toThrow(
+      expect.objectContaining({ code: "ERR_JWT_CLAIM_INVALID" }),
+    );
+    expect(() => validateJwtClaims({ iss: "i" }, { issuer: [] })).toThrow(
+      expect.objectContaining({ code: "ERR_JWT_CLAIM_INVALID" }),
+    );
+  });
 });
 
 describe("inferJWSAllowedAlgorithms", () => {
@@ -474,12 +501,11 @@ describe("inferJWSAllowedAlgorithms", () => {
 });
 
 describe("inferJWEAllowedAlgorithms", () => {
-  it("infers a password string to PBES2 + dir", () => {
+  it("infers a password string to the PBES2 family alone", () => {
     expect(inferJWEAllowedAlgorithms("pw")).toEqual([
       "PBES2-HS256+A128KW",
       "PBES2-HS384+A192KW",
       "PBES2-HS512+A256KW",
-      "dir",
     ]);
   });
 

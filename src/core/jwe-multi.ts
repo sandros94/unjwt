@@ -5,7 +5,6 @@ import { base64UrlStringify } from "./utils/base64";
 
 import type {
   JWK,
-  JWKLookupFunction,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
   UnwrapKeyOptions,
@@ -35,7 +34,7 @@ import {
   encryptKey,
 } from "./_crypto";
 import { JWTError } from "./error";
-import type { PBES2Budget } from "./_internal";
+import type { PBES2Budget, ResolvedKeyInput } from "./_internal";
 import { isContentEncryptionAlgorithm } from "./utils/algorithms";
 import {
   isJWK,
@@ -62,6 +61,7 @@ import {
   assertProducerIV,
   assertProducerPartyInfo,
   asKeyLookupError,
+  assertConsumerOptions,
   assertOptionEntry,
   assertProtectedOnlyOption,
   assertSerializationObject,
@@ -71,13 +71,16 @@ import {
   checkJWEAlgSupported,
   checkJWEContentSegments,
   checkJWEDirectEncryptedKey,
+  checkJWEEncAllowed,
   checkJWEEncSupported,
   checkJWEUnprotectedCrit,
   checkJWEZip,
   checkSerializationEntry,
   createPBES2Budget,
   decodeProtectedHeader,
+  exportReturnedCek,
   parseEphemeralKey,
+  resolveKeyInput,
   resolveLimit,
   resolvePasswordKey,
   resolvePayloadMode,
@@ -116,8 +119,9 @@ export async function encryptMulti(
 
   assertOptionEntry(options, {
     label: "options",
-    headers: ["protectedHeader", "sharedUnprotectedHeader"],
+    objects: ["protectedHeader", "sharedUnprotectedHeader"],
   });
+  _assertAADOption(options.aad);
   assertNoZipOption(options.protectedHeader, "protected");
   assertNoZipOption(options.sharedUnprotectedHeader, "shared unprotected");
   assertProtectedOnlyOption(options.sharedUnprotectedHeader, {
@@ -125,7 +129,7 @@ export async function encryptMulti(
     family: "JWE",
   });
   for (const [index, recipient] of recipients.entries()) {
-    assertOptionEntry(recipient, { label: `recipients[${index}]`, headers: ["header"] });
+    assertOptionEntry(recipient, { label: `recipients[${index}]`, objects: ["header"] });
     assertNoZipOption(recipient.header, "per-recipient");
     assertProtectedOnlyOption(recipient.header, { tier: "per-recipient", family: "JWE" });
   }
@@ -197,9 +201,9 @@ export async function encryptMulti(
 
   let aadEncoded: string | undefined;
   let aadForCipher: string = protectedHeaderEncoded;
-  if (options.aad !== undefined) {
-    const aadBytes =
-      typeof options.aad === "string" ? textEncoder.encode(options.aad) : options.aad;
+  const aadBytes = typeof options.aad === "string" ? textEncoder.encode(options.aad) : options.aad;
+  // RFC 7516 §7.2.1 — the "aad" member is present only for a non-empty JWE AAD.
+  if (aadBytes !== undefined && aadBytes.length > 0) {
     aadEncoded = base64UrlStringify(aadBytes);
     aadForCipher = `${protectedHeaderEncoded}.${aadEncoded}`;
   }
@@ -274,6 +278,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   keyOrLookup: JWEMultiDecryptKey,
   options: JWEMultiDecryptOptions = {},
 ): Promise<JWEMultiDecryptResult<T>> {
+  assertConsumerOptions(options);
   const payloadMode = resolvePayloadMode(options);
   const recipientLimit = resolveLimit(options.limits, "recipients");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
@@ -337,15 +342,9 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       "ERR_JWE_INVALID",
     );
   }
-  const encError = checkJWEEncSupported(enc);
+  const encError =
+    checkJWEEncSupported(enc) ?? checkJWEEncAllowed(enc, options.encryptionAlgorithms);
   if (encError) throw encError;
-
-  if (options.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
-    throw new JWTError(
-      `Content encryption algorithm not allowed: ${enc}`,
-      "ERR_JWE_ALG_NOT_ALLOWED",
-    );
-  }
 
   validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
 
@@ -362,8 +361,9 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   const segmentError = checkJWEContentSegments(enc, ivBytes, tagBytes);
   if (segmentError) throw segmentError;
 
+  // RFC 7516 §5.2 step 15 — a present `aad` member takes part even when empty.
   const contentAadBytes = textEncoder.encode(
-    general.aad ? `${protectedHeaderEncoded}.${general.aad}` : protectedHeaderEncoded,
+    general.aad === undefined ? protectedHeaderEncoded : `${protectedHeaderEncoded}.${general.aad}`,
   );
 
   let lastError: JWTError | undefined;
@@ -417,15 +417,13 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    let rawKeyMaterial: unknown;
+    let rawKeyMaterial: ResolvedKeyInput<JWEMultiDecryptKey>;
     try {
-      rawKeyMaterial =
-        typeof keyOrLookup === "function"
-          ? await (keyOrLookup as JWKLookupFunction)(
-              effective as Parameters<JWKLookupFunction>[0],
-              protectedHeaderEncoded,
-            )
-          : keyOrLookup;
+      rawKeyMaterial = await resolveKeyInput(keyOrLookup, {
+        header: effective,
+        token: protectedHeaderEncoded,
+        what: `recipient[${i}]`,
+      });
     } catch (err) {
       lastError = asKeyLookupError(err, `recipient[${i}]`);
       continue;
@@ -497,9 +495,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     if (sharedUnprotected) result.sharedUnprotectedHeader = sharedUnprotected;
     if (recipientHeader) result.recipientHeader = recipientHeader;
     if (options.returnCek) {
-      result.cek = isCryptoKey(cek)
-        ? new Uint8Array(await crypto.subtle.exportKey("raw", cek))
-        : cek;
+      result.cek = await exportReturnedCek(cek);
       result.aad = contentAadBytes;
     }
     return result;
@@ -747,6 +743,12 @@ function _keyCurve(key: JWK | CryptoKey): string | undefined {
   return (key as { crv?: string }).crv;
 }
 
+/** RFC 7516 §7.2.1 — the JWE AAD is octets, given as bytes or as text to UTF-8 encode. */
+function _assertAADOption(aad: unknown): void {
+  if (aad === undefined || typeof aad === "string" || aad instanceof Uint8Array) return;
+  throw new JWTError('"aad" must be a string or a Uint8Array.', "ERR_INVALID_OPTION");
+}
+
 /** Normalize anything thrown while trying one recipient into a collectable error. */
 function _asJWTError(error: unknown): JWTError {
   if (error instanceof JWTError) return error;
@@ -769,7 +771,7 @@ interface UnwrapAndDecryptOptions {
 
 async function _unwrapAndDecrypt(
   alg: KeyManagementAlgorithm,
-  rawKeyMaterial: unknown,
+  rawKeyMaterial: ResolvedKeyInput<JWEMultiDecryptKey>,
   options: UnwrapAndDecryptOptions,
 ): Promise<{
   cek: Uint8Array<ArrayBuffer> | CryptoKey;
@@ -794,10 +796,7 @@ async function _unwrapAndDecrypt(
       rawKeyMaterial,
       buildJWKSetFilter({ kid, alg }, { op: "enc", allowSymmetric }),
     );
-    assertJWKSetCandidates(candidates, {
-      limit: keyCandidates,
-      notFound: "No key found in JWK Set.",
-    });
+    assertJWKSetCandidates(candidates, { limit: keyCandidates, kid });
     // A candidate this recipient was not encrypted to — unusable key material
     // as much as a failed unwrap — only means "try the next one"; the collected
     // reasons become the `cause` when none decrypts.
@@ -819,11 +818,11 @@ async function _unwrapAndDecrypt(
 
   if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
   pbes2Budget.spend(unwrapKeyOptions);
-  const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial) as any, {
-    alg,
-    expect: "private",
-  });
   try {
+    const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial), {
+      alg,
+      expect: "private",
+    });
     const cek = await unwrapKey(encryptedKey, unwrappingKey, unwrapKeyOptions);
     const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
     return { cek, plaintextBytes };
