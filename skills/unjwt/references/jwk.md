@@ -31,7 +31,7 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
   - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw
     `ERR_INVALID_OPTION` (RFC 7518 §3.3 / §3.5 set 2048 as the floor for `RS*`, `PS*` and `RSA-OAEP*`)
   - `publicExponent?: Uint8Array` — RSA only, the exponent's big-endian bytes, default `0x010001`. Anything that is not a non-empty `Uint8Array` throws `ERR_INVALID_OPTION`
-  - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448"`. `ES256` / `ES384` / `ES512` are defined over `P-256` / `P-384` / `P-521` and `Ed25519` over its own curve, so a `namedCurve` contradicting them throws `ERR_INVALID_OPTION`; `EdDSA` (`Ed25519` default, `Ed448`) and `ECDH-ES*` (`P-256` default) choose among theirs
+  - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519"`. `ES256` / `ES384` / `ES512` are defined over `P-256` / `P-384` / `P-521` and `Ed25519` over its own curve, so a `namedCurve` contradicting them throws `ERR_INVALID_OPTION`; `EdDSA` accepts `Ed25519` alone (anything else, `Ed448` included, is `ERR_JWK_UNSUPPORTED`) and `ECDH-ES*` (`P-256` default) chooses among `P-256` / `P-384` / `P-521` / `X25519`. `Ed448` / `X448` are not supported anywhere in the library
 
 PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriveJWKFromPassword`.
 
@@ -103,7 +103,7 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 
 For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it is never assumed
 from `alg`. `EC` + `ECDH-ES*` accepts `P-256` / `P-384` / `P-521`; `OKP` + `Ed25519` / `EdDSA`
-accepts `Ed25519` / `Ed448`; `OKP` + `ECDH-ES*` accepts `X25519`. Any other `crv`
+accepts `Ed25519`; `OKP` + `ECDH-ES*` accepts `X25519`. Any other `crv` (`Ed448`, `X448`, …)
 throws `ERR_JWK_INVALID` before Web Crypto is reached. The same rule applies to `importPEM`,
 which reads the curve OID out of the key body.
 
@@ -419,7 +419,7 @@ const recentKeys = getJWKsFromSet(jwkSet, (k) => k.kid?.endsWith("-2025") ?? fal
 
 ## JWK Import Cache
 
-By default, `importKey()` caches imported `CryptoKey` results in a module-level `WeakMap` keyed by the JWK object reference. A cache hit requires passing the **exact same object variable** — a spread copy (`{ ...jwk }`) will miss.
+By default, `importKey()` caches imported `CryptoKey` results in a module-level `WeakMap` keyed by the JWK object reference. A cache hit requires passing the **exact same object variable** — a spread copy (`{ ...jwk }`) will miss. A JWK object is treated as **immutable once imported**: mutating it in place (`Object.assign(jwk, rotated)`) keeps serving the pre-rotation `CryptoKey`; rotation replaces the object.
 
 A replacement adapter keys on the key material itself — `thumbprint(jwk)` plus the half of the pair (whether the JWK carries `d`) plus the algorithm. The half is required: a thumbprint covers the public members only (RFC 7638 §3.2), so a private JWK and its public counterpart share one, and keyed on `thumbprint:alg` alone a `sign` then `verify` with one pair is served the wrong half. A `kid` is not a safe cache key: it is a label its publisher chooses and two different keys may carry the same one (during a rotation, or across merged sets), so an entry stored under a `kid` can serve the wrong key material. `get` and `set` may both return a promise; `importKey` awaits them.
 

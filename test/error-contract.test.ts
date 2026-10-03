@@ -418,32 +418,32 @@ describe("key lookup returning no key", () => {
 
   it.each(nothing)("verify reports a lookup returning %s as key-not-found", async (found) => {
     const token = await sign(payload, hs256);
-    await expectCode(() => verify(token, () => found as never), "ERR_JWK_KEY_NOT_FOUND");
+    await expectCode(() => verify(token, () => found), "ERR_JWK_KEY_NOT_FOUND");
     await expectCode(
-      () => verify(token, () => found as never, { algorithms: ["HS256"] }),
+      () => verify(token, () => found, { algorithms: ["HS256"] }),
       "ERR_JWK_KEY_NOT_FOUND",
     );
   });
 
   it.each(nothing)("decrypt reports a lookup returning %s as key-not-found", async (found) => {
     const token = await encrypt(payload, a128kw);
-    await expectCode(() => decrypt(token, () => found as never), "ERR_JWK_KEY_NOT_FOUND");
+    await expectCode(() => decrypt(token, () => found), "ERR_JWK_KEY_NOT_FOUND");
     await expectCode(
-      () => decrypt(token, () => found as never, { algorithms: ["A128KW"] }),
+      () => decrypt(token, () => found, { algorithms: ["A128KW"] }),
       "ERR_JWK_KEY_NOT_FOUND",
     );
   });
 
   it.each(nothing)("verifyMulti reports a lookup returning %s as key-not-found", async (found) => {
     const general = await signMulti(payload, [{ key: hs256 }]);
-    await expectCode(() => verifyMulti(general, () => found as never), "ERR_JWK_KEY_NOT_FOUND");
+    await expectCode(() => verifyMulti(general, () => found), "ERR_JWK_KEY_NOT_FOUND");
   });
 
   it.each(nothing)(
     "verifyMultiAll records a lookup returning %s as key-not-found",
     async (found) => {
       const general = await signMulti(payload, [{ key: hs256 }]);
-      const [outcome] = await verifyMultiAll(general, () => found as never);
+      const [outcome] = await verifyMultiAll(general, () => found);
       expect(outcome).toMatchObject({
         verified: false,
         error: expect.objectContaining({ code: "ERR_JWK_KEY_NOT_FOUND" }),
@@ -453,7 +453,7 @@ describe("key lookup returning no key", () => {
 
   it.each(nothing)("decryptMulti reports a lookup returning %s as key-not-found", async (found) => {
     const general = await encryptMulti(payload, [{ key: a128kw }]);
-    await expectCode(() => decryptMulti(general, () => found as never), "ERR_JWK_KEY_NOT_FOUND");
+    await expectCode(() => decryptMulti(general, () => found), "ERR_JWK_KEY_NOT_FOUND");
   });
 });
 

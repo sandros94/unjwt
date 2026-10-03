@@ -40,6 +40,10 @@
       "types": "./dist/core/utils/index.d.mts",
       "default": "./dist/core/utils/index.mjs"
     },
+    "./internal": {
+      "types": "./dist/core/internal.d.mts",
+      "default": "./dist/core/internal.mjs"
+    },
     "./adapters/h3": {
       "types": "./dist/adapters/h3v1/index.d.mts",
       "default": "./dist/adapters/h3v1/index.mjs"

@@ -1584,7 +1584,18 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "HS1024" })));
       const error = await verify(jws, hs256Key).catch((e) => e);
       expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
-      expect(error.message).toBe("Algorithm not supported: HS1024");
+      expect(error.message).toBe('Algorithm not supported: "HS1024"');
+    });
+
+    it("quotes and bounds an unsupported alg in the error message", async () => {
+      const alg = `HS1024\n"${"x".repeat(10_000)}`;
+      const jws = await craft(base64UrlStringify(JSON.stringify({ alg })));
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe(
+        `Algorithm not supported: ${JSON.stringify(`${alg.slice(0, 64)}…`)}`,
+      );
+      expect(error.message.length).toBeLessThan(120);
     });
 
     it("still rejects a supported-but-disallowed alg with the allowlist message", async () => {

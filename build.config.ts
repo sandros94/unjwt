@@ -24,6 +24,7 @@ export default defineBuildConfig({
         "./src/core/jwe",
         "./src/core/jwk",
         "./src/core/utils/index",
+        "./src/core/internal",
         "./src/adapters/h3v1/index",
         "./src/adapters/h3v2/index",
         "./src/adapters/elysia/index",

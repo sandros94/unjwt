@@ -153,7 +153,7 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
   name?: string; // default "elysia-jws"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
-  sessionHeader?: false | string; // default x-<name>-session; "Bearer " stripped (case-insensitive)
+  sessionHeader?: false | string; // default x-<name>-session (name without __Host-/__Secure-); "Bearer " stripped (case-insensitive)
   generateId?: () => string;
   jws?: {
     // JWSSignOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
@@ -223,7 +223,8 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
   `cookie.expires` / `cookie.maxAge` are written as configured.
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a
   cookie that shadows the session (the adapter reads the first cookie of a name); the defaults
-  satisfy the prefix. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another
+  satisfy the prefix. The default session header drops a `__Host-` / `__Secure-` prefix:
+  `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another
   session and throws `ERR_SESSION_CONFIG_INVALID`.
 - **Foreign tokens.** A token is only a session when it carries `cty: "application/json"`
   (case-insensitive, parameters ignored) and the session `typ`; with

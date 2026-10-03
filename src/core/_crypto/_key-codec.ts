@@ -175,7 +175,7 @@ function subtleMapping(jwk: JWK): {
       switch (jwk.alg) {
         case "Ed25519":
         case "EdDSA": {
-          algorithm = { name: requireCurve(jwk, ["Ed25519", "Ed448"]) };
+          algorithm = { name: requireCurve(jwk, ["Ed25519"]) };
           keyUsages = (jwk as JWK_OKP_Private).d ? ["sign"] : ["verify"];
           break;
         }
@@ -183,7 +183,7 @@ function subtleMapping(jwk: JWK): {
         case "ECDH-ES+A128KW":
         case "ECDH-ES+A192KW":
         case "ECDH-ES+A256KW": {
-          algorithm = { name: requireCurve(jwk, ["X25519", "X448"]) };
+          algorithm = { name: requireCurve(jwk, ["X25519"]) };
           keyUsages = (jwk as JWK_OKP_Private).d ? ["deriveBits"] : [];
           break;
         }
@@ -212,7 +212,7 @@ function subtleMapping(jwk: JWK): {
  *
  * The curve drives the WebCrypto algorithm name, so an unknown value must never
  * reach `crypto.subtle` — nor may a curve be assumed from `alg` alone, which
- * would import an `Ed448` key as `Ed25519`.
+ * would import a key on another curve as `Ed25519`.
  */
 function requireCurve(jwk: JWK, allowed: readonly string[]): string {
   const crv = (jwk as JWK_EC_Private | JWK_OKP_Private).crv as string | undefined;

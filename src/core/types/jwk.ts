@@ -29,20 +29,29 @@ export type JWKLookupFunctionHeader = {
  * Returning a `string` is meaningful for JWE only (PBES2 password); for JWS
  * a string return is encoded to bytes and used as a raw symmetric key.
  *
+ * Returning `undefined` or `null` means there is no key for this token: the
+ * call fails with `ERR_JWK_KEY_NOT_FOUND`, as it does when the function throws.
+ *
  * The optional `TReturn` generic lets callers who always hand back a specific
  * key shape (e.g. a `JWK_EC_Public<"ES256">`) preserve that narrowing all the
  * way into the `verify` / `decrypt` key resolution path.
  */
 export type JWKLookupFunction<
   TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>,
-> = (header: JWKLookupFunctionHeader, token: string) => TReturn | Promise<TReturn>;
+> = (
+  header: JWKLookupFunctionHeader,
+  token: string,
+) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
 
 /**
  * Interface for custom JWK import cache implementations.
  *
  * The adapter receives the full JWK object so each implementation can choose
  * its own keying strategy:
- * - {@link WeakMapJWKCache} uses the object reference (GC-friendly, no string hashing needed)
+ * - {@link WeakMapJWKCache} uses the object reference (GC-friendly, no string hashing needed),
+ *   so a JWK object is treated as immutable once imported: one mutated in place
+ *   keeps resolving to the `CryptoKey` imported before the change. Rotation
+ *   replaces the object.
  * - A shared cache keys on the key material itself — its {@link thumbprint} —
  *   plus the half of the pair it is (whether the JWK carries `d`) and the
  *   algorithm it is imported under. The thumbprint covers the public members
@@ -104,7 +113,7 @@ export interface GenerateKeyOptions {
   /** RSA public exponent. Defaults to 65537 (0x010001). */
   publicExponent?: Uint8Array<ArrayBuffer>;
   /** Named curve for EC or OKP keys. Defaults to "P-256" for EC and "Ed25519" for OKP. */
-  namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448";
+  namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519";
   /**
    * Export the generated key(s) as JWK. When `true`, keys are returned in JWK
    * format with a generated `kid`. To include additional JWK parameters

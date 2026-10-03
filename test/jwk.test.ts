@@ -199,11 +199,16 @@ describe.concurrent("JWK Utilities", () => {
       expect(key.extractable).toBe(true); // Default is true
     });
 
-    it("should generate asymmetric CryptoKeyPair (EdDSA, Ed448)", async () => {
-      const keyPair = await generateKey("EdDSA", { namedCurve: "Ed448" });
-      expect(isCryptoKeyPair(keyPair)).toBe(true);
-      expect(keyPair.publicKey.algorithm.name).toBe("Ed448");
-      expect(keyPair.privateKey.algorithm.name).toBe("Ed448");
+    it.each(["Ed448", "X448"])("refuses to generate an EdDSA key on %s", async (namedCurve) => {
+      const error = await generateKey("EdDSA", { namedCurve: namedCurve as never }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_UNSUPPORTED")).toBe(true);
+    });
+
+    it("refuses to generate an ECDH-ES key on X448", async () => {
+      const error = await generateJWK("ECDH-ES", { namedCurve: "X448" as never }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_UNSUPPORTED")).toBe(true);
     });
 
     it("should generate ECDH-ES CryptoKeyPair with X25519 curve", async () => {
@@ -217,7 +222,7 @@ describe.concurrent("JWK Utilities", () => {
       await expect(
         // @ts-expect-error Intentionally passing an unsupported namedCurve
         generateKey("EdDSA", { namedCurve: "Ed999" }),
-      ).rejects.toThrow("Unsupported namedCurve provided. Supported values are: Ed25519 and Ed448");
+      ).rejects.toThrow("Unsupported namedCurve provided. Supported values are: Ed25519");
     });
 
     it("should throw for unsupported ECDH-ES namedCurve", async () => {
@@ -1854,8 +1859,8 @@ describe.concurrent("JWK Utilities", () => {
     );
 
     it.each([
-      ["Ed448", "EdDSA"],
-      ["X448", "ECDH-ES+A256KW"],
+      ["Ed25519", "EdDSA"],
+      ["X25519", "ECDH-ES+A256KW"],
     ] as const)("round-trips a %s key through PEM", async (crv, alg) => {
       const { privateKey, publicKey } = await okpJWKPair(crv, alg);
       const [pkcs8, spki] = await Promise.all([exportPEM(privateKey), exportPEM(publicKey)]);
@@ -1866,6 +1871,19 @@ describe.concurrent("JWK Utilities", () => {
       expect(priv.crv).toBe(crv);
       expect(pub.crv).toBe(crv);
       expect(pub.x).toBe(publicKey.x);
+    });
+
+    it.each([
+      ["Ed448", "EdDSA", OKP448_FIXTURES.Ed448.spki],
+      ["X448", "ECDH-ES+A256KW", OKP448_FIXTURES.X448.spki],
+    ] as const)("refuses a %s public key PEM", async (_crv, alg, spki) => {
+      const error = await importPEM(
+        pemBlock("PUBLIC KEY", base64Parse(spki, { returnAs: "uint8array" })),
+        alg,
+      ).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("unsupported curve");
     });
   });
 
@@ -1911,9 +1929,7 @@ describe.concurrent("JWK Utilities", () => {
   describe("OKP curve handling", () => {
     it.each([
       ["Ed25519", "EdDSA"],
-      ["Ed448", "EdDSA"],
       ["X25519", "ECDH-ES+A256KW"],
-      ["X448", "ECDH-ES+A256KW"],
     ] as const)("imports an %s JWK on its own curve", async (crv, alg) => {
       const { privateKey, publicKey } = await okpJWKPair(crv, alg);
       expect(privateKey.crv).toBe(crv);
@@ -1921,6 +1937,21 @@ describe.concurrent("JWK Utilities", () => {
       const pub = (await importKey(publicKey)) as CryptoKey;
       expect(priv.algorithm.name).toBe(crv);
       expect(pub.algorithm.name).toBe(crv);
+    });
+
+    it.each([
+      ["Ed448", "EdDSA"],
+      ["X448", "ECDH-ES+A256KW"],
+    ] as const)("refuses an %s JWK", async (crv, alg) => {
+      const error = await importKey({
+        kty: "OKP",
+        crv,
+        x: OKP448_FIXTURES[crv].x,
+        alg,
+      }).catch((e) => e);
+      expect(error).toBeInstanceOf(JWTError);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain(crv);
     });
 
     it("rejects an unknown OKP curve for EdDSA", async () => {
@@ -2067,12 +2098,11 @@ describe.concurrent("JWK Utilities", () => {
 });
 
 /**
- * OKP key pair as JWKs, generated through Web Crypto directly: `generateKey`
- * does not offer X448 as a `namedCurve`, and these tests are about the import
- * path, not the generation surface.
+ * OKP key pair as JWKs, generated through Web Crypto directly: these tests are
+ * about the import path, not the generation surface.
  */
 async function okpJWKPair(
-  crv: "Ed25519" | "Ed448" | "X25519" | "X448",
+  crv: "Ed25519" | "X25519",
   alg: string,
 ): Promise<{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }> {
   const { privateKey, publicKey } = (await crypto.subtle.generateKey(
@@ -2088,6 +2118,21 @@ async function okpJWKPair(
 
   return { privateKey: { ...priv, alg }, publicKey: { ...pub, alg } };
 }
+
+/**
+ * Public keys on the curves the library does not support, minted once with
+ * Node's WebCrypto: the `x` of each JWK and its SPKI body in standard base64.
+ */
+const OKP448_FIXTURES = {
+  Ed448: {
+    x: "p_6ZAjpLN3gDMhLshcsaaQs1NnrmoRQflJUrXUucc1k0PHKCJ9K58bUDj_Rwr7trpSsIKVeenjCA",
+    spki: "MEMwBQYDK2VxAzoAp/6ZAjpLN3gDMhLshcsaaQs1NnrmoRQflJUrXUucc1k0PHKCJ9K58bUDj/Rwr7trpSsIKVeenjCA",
+  },
+  X448: {
+    x: "m_1D9zT15vlRSQFlLEjBAJ0eq4v7n9aqWGM_5UW9CImAdNL3ER5IwfSVCIyZbulyeDWRKYC_f-c",
+    spki: "MEIwBQYDK2VvAzkAm/1D9zT15vlRSQFlLEjBAJ0eq4v7n9aqWGM/5UW9CImAdNL3ER5IwfSVCIyZbulyeDWRKYC/f+c=",
+  },
+} as const;
 
 describe.concurrent("thumbprint (RFC 7638)", () => {
   /**

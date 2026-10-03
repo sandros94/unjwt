@@ -13,6 +13,18 @@ import type {
 } from "../types";
 
 import { JWTError } from "../error";
+import {
+  type ParsePayloadOptions,
+  type ComputeJwtTimeClaimsOptions as _ComputeJwtTimeClaimsOptions,
+  applyTypCtyDefaults as _applyTypCtyDefaults,
+  parsePayloadBytes,
+  parsePayloadSegment,
+  getPlaintextBytes as _getPlaintextBytes,
+  computeJwtTimeClaims as _computeJwtTimeClaims,
+  validateCriticalHeadersJWS as _validateCriticalHeadersJWS,
+  validateCriticalHeadersJWE as _validateCriticalHeadersJWE,
+  assertCritShape as _assertCritShape,
+} from "../_jwt-internal";
 
 export { UnsecureError, isUnsecureError, type UnsecureErrorCode } from "../error";
 
@@ -27,22 +39,31 @@ export {
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
 } from "./algorithms";
-export {
-  type DecodePayloadOptions,
-  type ComputeJwtTimeClaimsOptions,
-  applyTypCtyDefaults,
-  isJWTContent,
-  decodePayloadFromBytes,
-  decodePayloadFromB64UrlSegment,
-  getPlaintextBytes,
-  computeDurationInSeconds,
-  computeJwtTimeClaims,
-  validateJwtClaims,
-  validateCriticalHeadersJWS,
-  validateCriticalHeadersJWE,
-  assertCritShape,
-} from "./jwt";
+export { isJWTContent, computeDurationInSeconds, validateJwtClaims } from "./jwt";
 export type * from "./types";
+
+/** @deprecated Use `ParsePayloadOptions` from `unjwt/internal`; removed in v0.9.0. */
+export type DecodePayloadOptions = ParsePayloadOptions;
+/** @deprecated Use `ComputeJwtTimeClaimsOptions` from `unjwt/internal`; removed in v0.9.0. */
+export type ComputeJwtTimeClaimsOptions = _ComputeJwtTimeClaimsOptions;
+/** @deprecated Use `applyTypCtyDefaults` from `unjwt/internal`; removed in v0.9.0. */
+export const applyTypCtyDefaults: typeof _applyTypCtyDefaults = _applyTypCtyDefaults;
+/** @deprecated Use `parsePayloadBytes` from `unjwt/internal`; removed in v0.9.0. */
+export const decodePayloadFromBytes: typeof parsePayloadBytes = parsePayloadBytes;
+/** @deprecated Use `parsePayloadSegment` from `unjwt/internal`; removed in v0.9.0. */
+export const decodePayloadFromB64UrlSegment: typeof parsePayloadSegment = parsePayloadSegment;
+/** @deprecated Use `getPlaintextBytes` from `unjwt/internal`; removed in v0.9.0. */
+export const getPlaintextBytes: typeof _getPlaintextBytes = _getPlaintextBytes;
+/** @deprecated Use `computeJwtTimeClaims` from `unjwt/internal`; removed in v0.9.0. */
+export const computeJwtTimeClaims: typeof _computeJwtTimeClaims = _computeJwtTimeClaims;
+/** @deprecated Use `validateCriticalHeadersJWS` from `unjwt/internal`; removed in v0.9.0. */
+export const validateCriticalHeadersJWS: typeof _validateCriticalHeadersJWS =
+  _validateCriticalHeadersJWS;
+/** @deprecated Use `validateCriticalHeadersJWE` from `unjwt/internal`; removed in v0.9.0. */
+export const validateCriticalHeadersJWE: typeof _validateCriticalHeadersJWE =
+  _validateCriticalHeadersJWE;
+/** @deprecated Use `assertCritShape` from `unjwt/internal`; removed in v0.9.0. */
+export const assertCritShape: typeof _assertCritShape = _assertCritShape;
 
 /** Concatenate multiple `Uint8Array`s into a single contiguous buffer. */
 export function concatUint8Arrays(

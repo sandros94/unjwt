@@ -1058,7 +1058,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       });
       const error = await decryptMulti(tampered, keys.a256kw).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
-      expect(error.message).toBe('Invalid JWE: unsupported "enc" A256CBC');
+      expect(error.message).toBe('Invalid JWE: unsupported "enc" "A256CBC"');
     });
 
     it('rejects a recipient alg of "none" even when allowlisted', async () => {
@@ -1365,7 +1365,7 @@ describe.concurrent("JWE enc in the shared unprotected header", () => {
     const tampered = { ...jwe, unprotected: { enc: "A256CBC" } } as JWEGeneralSerialization;
     const error = await decryptMulti(tampered, key, { payload: "bytes" }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
-    expect(error.message).toBe('Invalid JWE: unsupported "enc" A256CBC');
+    expect(error.message).toBe('Invalid JWE: unsupported "enc" "A256CBC"');
   });
 
   it("rejects enc carried in both the protected and the shared unprotected header", async () => {

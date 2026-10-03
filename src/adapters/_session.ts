@@ -198,14 +198,19 @@ export function sessionTyp(configured: unknown): string {
   return typeof configured === "string" && configured ? configured : "JWT";
 }
 
-/** The header name a session reads its token from. */
+/**
+ * The header name a session reads its token from: the configured one, else
+ * `x-<name>-session` with the name's `__Host-` / `__Secure-` cookie prefix
+ * dropped.
+ */
 export function sessionHeaderName(
   sessionName: string,
   configured: false | string | undefined,
 ): string {
-  return typeof configured === "string"
-    ? configured.toLowerCase()
-    : `x-${sessionName.toLowerCase()}-session`;
+  if (typeof configured === "string") return configured.toLowerCase();
+  // RFC 6265bis §4.1.3 — cookie prefixes are matched case-insensitively.
+  const bare = sessionName.replace(/^__(?:host|secure)-/i, "");
+  return `x-${bare.toLowerCase()}-session`;
 }
 
 /**

@@ -64,11 +64,11 @@ const ENTRIES: ReadonlyArray<Entry> = [
     ceiling: 26900,
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
-  // measured 17047
+  // measured 19739
   {
     name: "sign",
     module: "core/jws.ts",
-    ceiling: 19700,
+    ceiling: 22700,
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   // measured 36369

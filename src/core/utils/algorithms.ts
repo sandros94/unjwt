@@ -97,7 +97,6 @@ function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
     // `EdDSA` (RFC 8037) leads: it is the interoperable spelling, so any caller
     // taking the first entry as "the" alg produces a widely accepted token.
     if (crv === "Ed25519") return ["EdDSA", "Ed25519"];
-    if (crv === "Ed448") return ["EdDSA"];
   }
   return undefined;
 }
@@ -113,9 +112,6 @@ function jweAlgsFromJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   }
   if (jwk.kty === "OKP") {
     const crv = (jwk as JWK & { crv?: string }).crv;
-    // X448 is absent: `generateKey` cannot produce it and the ECDH primitive has
-    // no derivation length for it, so inferring it would promise an alg that
-    // always fails at derivation time.
     if (crv === "X25519") {
       return ["ECDH-ES", "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"];
     }

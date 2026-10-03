@@ -67,7 +67,8 @@ Peer dep: `h3`
   `cookie.maxAge` are written as configured.
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`): every adapter reads the first cookie
   of a name, so a sibling subdomain could otherwise plant one that shadows the session; the
-  defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix. A name ending in a dot and
+  defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix. The default session header
+  drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and
   digits (`app.1`) spells a chunk cookie of another session and throws
   `ERR_SESSION_CONFIG_INVALID`.
 

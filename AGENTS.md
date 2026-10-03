@@ -39,6 +39,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - `unjwt/jwe` — `encrypt()`, `decrypt()` (Compact) plus `encryptMulti()`/`decryptMulti()` (General/Flattened)
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
 - `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), `secureRandomBytes`
+- `unjwt/internal` — JOSE plumbing (`parsePayloadBytes`, `computeJwtTimeClaims`, `crit` checks, …) for tests and tooling; no semver guarantee, not re-exported from `unjwt`
 - `unjwt/adapters/h3v1` and `unjwt/adapters/h3v2` — `useJWSSession()`, `useJWESession()` for cookie-based JWT sessions
 - `unjwt/adapters/elysia` — `jwsSession()`/`jweSession()` Elysia plugins (ambient `ctx.session`, `requireSession` guard macro) + `createJWSSession()`/`createJWESession()` lower-level
 
@@ -54,6 +55,8 @@ src/
     jwe-multi.ts        # encryptMulti/decryptMulti (General/Flattened JWE)
     jwk.ts              # key management (generateKey, importKey, exportKey, wrapKey, unwrapKey, PEM conversion)
     _internal.ts        # shared signing-key resolver + JWKSet candidate filter for jws/jwe
+    _jwt-internal.ts    # JOSE plumbing: typ/cty defaults, payload parsing, time claims, crit checks
+    internal.ts         # `unjwt/internal` entry point over _jwt-internal.ts
     error.ts            # JWTError class + error codes (ERR_JWT_EXPIRED, …)
     types/              # TypeScript types for JWK, JWS, JWE, JWT
     utils/              # encoding, type guards, JWT claim validation, sanitization

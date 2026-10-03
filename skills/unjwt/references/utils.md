@@ -138,28 +138,45 @@ Returns the set of JWE key-management algorithms a given key can unambiguously h
 
 Wraps a value in an array if it isn't one already.
 
-### `applyTypCtyDefaults(header, payload)`
-
-Sets `typ: "JWT"` for object payloads when `typ` is undefined. Mutates the header in place (internal use only — always called on freshly constructed objects).
-
 ### `isJWTContent(header)`
 
-Returns `true` when headers indicate JWT/JSON content. Informational only — `verify()` and
-`decrypt()` read the payload under the caller's `payload` option and never consult `typ`/`cty`.
+Returns `true` when headers indicate JWT/JSON content: a `typ` naming JWT, or a JSON `cty`. A
+non-string `typ`/`cty` indicates nothing (returns `false`, never throws). Informational only —
+`verify()` and `decrypt()` read the payload under the caller's `payload` option and never consult
+`typ`/`cty`.
 
-### `decodePayloadFromBytes(bytes, options?)` / `decodePayloadFromB64UrlSegment(segment, options?)`
+## Internal plumbing (`unjwt/internal`)
 
-Decode a verified/decrypted payload under a declared mode. `options`:
+**Internal: for tests and tooling only. No semver guarantee — any export may change or disappear in
+any release. Not for production use.** Production code uses `unjwt/jws`, `unjwt/jwe`, `unjwt/utils`.
+Not re-exported from the root `unjwt`.
 
-- `payload?: "json" | "string" | "bytes"` — `"json"` (default) requires UTF-8 JSON naming a
-  non-null, non-array object; `"string"` requires valid UTF-8; `"bytes"` returns the input.
-- `family?: "JWS" | "JWE"` — which error code a rejection carries (`ERR_JWS_INVALID` by default).
+Import: `import { ... } from "unjwt/internal"`
 
-Both take an options object; the pre-0.8 boolean `forceUint8Array` second argument is gone.
+- `applyTypCtyDefaults(header, payload)` — sets `typ: "JWT"` (and `cty: "application/json"` for a
+  JWT `typ`) on an object payload's header; mutates the header in place.
+- `parsePayloadBytes(bytes, options?)` / `parsePayloadSegment(segment, options?)` — a
+  verified/decrypted payload under a declared mode. `options.payload?: "json" | "string" | "bytes"`
+  — `"json"` (default) requires UTF-8 JSON naming a non-null, non-array object; `"string"` requires
+  valid UTF-8; `"bytes"` returns the input. `options.family?: "JWS" | "JWE"` picks the rejection code
+  (`ERR_JWS_INVALID` by default). Options type: `ParsePayloadOptions`.
+- `parsePayloadText(bytes, options?)` — payload bytes as UTF-8 text, `options.family` as above.
+- `getPlaintextBytes(payload)` — `string | Uint8Array | Record<string, unknown>` to bytes; a
+  non-serializable object is `ERR_INVALID_OPTION`.
+- `computeJwtTimeClaims(payload, options?)` — `iat` plus `exp`/`nbf` from
+  `expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`).
+- `validateCriticalHeadersJWS(header, recognized?)` / `validateCriticalHeadersJWE(header, recognized?)`
+  — RFC 7515 §4.1.11 / RFC 7516 §4.1.13 `crit` processing.
+- `assertCritShape(crit, { family, code? })` — `crit` is a non-empty string array naming no
+  registered header parameter.
 
-### `getPlaintextBytes(payload)`
+### Deprecated aliases in `unjwt/utils` (removed in v0.9)
 
-Converts `string | Uint8Array | Record<string, unknown>` to `Uint8Array` bytes.
+`applyTypCtyDefaults`, `decodePayloadFromBytes` → `parsePayloadBytes`,
+`decodePayloadFromB64UrlSegment` → `parsePayloadSegment`, `getPlaintextBytes`,
+`computeJwtTimeClaims`, `validateCriticalHeadersJWS`, `validateCriticalHeadersJWE`,
+`assertCritShape`, and the types `DecodePayloadOptions` → `ParsePayloadOptions`,
+`ComputeJwtTimeClaimsOptions`. Same bindings; import them from `unjwt/internal`.
 
 ## Utility Types
 

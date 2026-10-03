@@ -21,16 +21,14 @@ import type {
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
 import {
-  decodePayloadFromB64UrlSegment,
-  decodePayloadFromBytes,
   inferJWEAllowedAlgorithms,
   inferJWSAllowedAlgorithms,
   isCryptoKey,
   isCryptoKeyPair,
   isJWK,
-  assertCritShape,
   validateJwtClaims,
 } from "./utils";
+import { assertCritShape, parsePayloadBytes, parsePayloadSegment } from "./_jwt-internal";
 import { assertClaimValidationOptions, assertStringList } from "./utils/jwt";
 import {
   DEFAULT_PBES2_ITERATIONS,
@@ -713,7 +711,10 @@ export function checkJWSAlgSupported(alg: string): JWTError | undefined {
     return new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
   }
   if (!JWS_ALGORITHM_SET.has(alg)) {
-    return new JWTError(`Algorithm not supported: ${alg}`, "ERR_JWS_ALG_NOT_ALLOWED");
+    return new JWTError(
+      `Algorithm not supported: ${quoteTokenValue(alg)}`,
+      "ERR_JWS_ALG_NOT_ALLOWED",
+    );
   }
   return undefined;
 }
@@ -837,7 +838,9 @@ export function asKeyLookupError(error: unknown, what: string): JWTError {
 }
 
 /** The key material a key argument stands for once its lookup function, if it is one, has run. */
-export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R ? Awaited<R> : K;
+export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R
+  ? NonNullable<Awaited<R>>
+  : K;
 
 /**
  * Resolve the key material a token is checked against: a static key as given,
@@ -950,7 +953,7 @@ export function checkJWEAlgSupported(alg: string): JWTError | undefined {
   }
   if (!JWE_ALGORITHM_SET.has(alg)) {
     return new JWTError(
-      `Key management algorithm not supported: ${alg}`,
+      `Key management algorithm not supported: ${quoteTokenValue(alg)}`,
       "ERR_JWE_ALG_NOT_ALLOWED",
     );
   }
@@ -960,7 +963,7 @@ export function checkJWEAlgSupported(alg: string): JWTError | undefined {
 /** Reject an `enc` outside {@link ContentEncryptionAlgorithm}. */
 export function checkJWEEncSupported(enc: string): JWTError | undefined {
   if (Object.hasOwn(JWE_ENC_CEK_FORMAT, enc)) return undefined;
-  return new JWTError(`Invalid JWE: unsupported "enc" ${enc}`, "ERR_JWE_INVALID");
+  return new JWTError(`Invalid JWE: unsupported "enc" ${quoteTokenValue(enc)}`, "ERR_JWE_INVALID");
 }
 
 /** Reject an `enc` outside the caller's `encryptionAlgorithms` allowlist, when one is given. */
@@ -1224,13 +1227,13 @@ export function decodeJWSPayload<T>(
 ): T {
   if (!useB64) {
     if (mode === "string") return payloadSegment as T;
-    return decodePayloadFromBytes<T>(textEncoder.encode(payloadSegment), {
+    return parsePayloadBytes<T>(textEncoder.encode(payloadSegment), {
       payload: mode,
       family: "JWS",
     }) as T;
   }
   try {
-    return decodePayloadFromB64UrlSegment<T>(payloadSegment, {
+    return parsePayloadSegment<T>(payloadSegment, {
       payload: mode,
       family: "JWS",
     }) as T;

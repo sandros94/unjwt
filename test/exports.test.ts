@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as root from "../src/index";
+import * as utils from "../src/core/utils";
+import * as internal from "../src/core/internal";
 import { base64UrlParse, validateJwtClaims, isJWK } from "../src/core/utils";
 import { generateKey } from "../src/core/jwk";
 
@@ -86,3 +88,45 @@ describe("root barrel (unjwt)", () => {
 });
 
 /** Run `fn` and return whatever it throws (or `undefined` when it does not throw). */
+
+describe("internal plumbing (unjwt/internal)", () => {
+  const INTERNAL = [
+    "applyTypCtyDefaults",
+    "assertCritShape",
+    "computeJwtTimeClaims",
+    "getPlaintextBytes",
+    "parsePayloadBytes",
+    "parsePayloadSegment",
+    "parsePayloadText",
+    "validateCriticalHeadersJWE",
+    "validateCriticalHeadersJWS",
+  ];
+
+  it("exports exactly the JOSE plumbing", () => {
+    expect(Object.keys(internal).toSorted()).toEqual(INTERNAL);
+  });
+
+  it("keeps the new names off unjwt/utils and the root entry point", () => {
+    for (const name of ["parsePayloadBytes", "parsePayloadSegment", "parsePayloadText"]) {
+      expect(utils).not.toHaveProperty(name);
+      expect(root).not.toHaveProperty(name);
+    }
+    expect(utils).not.toHaveProperty("decodePayloadText");
+  });
+
+  // Deprecated in 0.8, removed in 0.9: each old `unjwt/utils` name is the
+  // `unjwt/internal` binding under its previous spelling.
+  it.each([
+    ["applyTypCtyDefaults", internal.applyTypCtyDefaults],
+    ["decodePayloadFromBytes", internal.parsePayloadBytes],
+    ["decodePayloadFromB64UrlSegment", internal.parsePayloadSegment],
+    ["getPlaintextBytes", internal.getPlaintextBytes],
+    ["computeJwtTimeClaims", internal.computeJwtTimeClaims],
+    ["validateCriticalHeadersJWS", internal.validateCriticalHeadersJWS],
+    ["validateCriticalHeadersJWE", internal.validateCriticalHeadersJWE],
+    ["assertCritShape", internal.assertCritShape],
+  ] as const)("still exports %s from unjwt/utils as an alias", (name, binding) => {
+    expect(utils[name]).toBe(binding);
+    expect(root[name]).toBe(binding);
+  });
+});

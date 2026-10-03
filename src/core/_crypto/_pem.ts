@@ -182,14 +182,14 @@ const genericImport = async (
       if (namedCurve) {
         algorithm = { name: "ECDH", namedCurve };
       } else {
-        algorithm = { name: requireOKPCurve(keyData, ["X25519", "X448"]) };
+        algorithm = { name: requireOKPCurve(keyData, "X25519") };
       }
       keyUsages = isPublic ? [] : ["deriveBits"];
       break;
     }
     case "Ed25519":
     case "EdDSA": {
-      algorithm = { name: requireOKPCurve(keyData, ["Ed25519", "Ed448"]) };
+      algorithm = { name: requireOKPCurve(keyData, "Ed25519") };
       keyUsages = isPublic ? ["verify"] : ["sign"];
       break;
     }
@@ -230,28 +230,24 @@ const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: readonly number[]): bool
   return false;
 };
 
-/** Object identifiers of the Edwards / Montgomery curves, RFC 8410 §3. */
-const OKP_CURVE_OIDS: Readonly<Record<string, readonly number[]>> = {
+/** Object identifiers of the supported Edwards / Montgomery curves, RFC 8410 §3. */
+const OKP_CURVE_OIDS = {
   X25519: [0x2b, 0x65, 0x6e],
-  X448: [0x2b, 0x65, 0x6f],
   Ed25519: [0x2b, 0x65, 0x70],
-  Ed448: [0x2b, 0x65, 0x71],
-};
+} as const satisfies Readonly<Record<string, readonly number[]>>;
 
 /**
  * Resolves the WebCrypto algorithm name from the curve OID carried by the key
- * body. The curve is never assumed: an `Ed448` body must not be imported as
- * `Ed25519` just because the caller said `EdDSA`.
+ * body. The curve is never assumed from `alg`: a body on any other curve
+ * (Ed448, X448, …) is refused rather than imported as the one `alg` implies.
  */
-const requireOKPCurve = (keyData: Uint8Array<ArrayBuffer>, allowed: readonly string[]): string => {
-  for (const crv of allowed) {
-    if (findOid(keyData, OKP_CURVE_OIDS[crv]!)) return crv;
-  }
+const requireOKPCurve = (
+  keyData: Uint8Array<ArrayBuffer>,
+  crv: keyof typeof OKP_CURVE_OIDS,
+): string => {
+  if (findOid(keyData, OKP_CURVE_OIDS[crv])) return crv;
 
-  throw new JWTError(
-    `Invalid PEM: no supported curve OID found, expected one of: ${allowed.join(", ")}.`,
-    "ERR_JWK_INVALID",
-  );
+  throw new JWTError(`Invalid PEM: unsupported curve, expected the ${crv} OID.`, "ERR_JWK_INVALID");
 };
 
 const getNamedCurve = (keyData: Uint8Array<ArrayBuffer>): string | undefined => {

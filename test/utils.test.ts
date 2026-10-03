@@ -18,15 +18,19 @@ import {
   assertCryptoKey,
   isCryptoKeyPair,
   computeDurationInSeconds,
-  computeJwtTimeClaims,
+  isJWTContent,
   validateJwtClaims,
-  validateCriticalHeadersJWE,
-  validateCriticalHeadersJWS,
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
-  decodePayloadFromBytes,
-  decodePayloadFromB64UrlSegment,
 } from "../src/core/utils";
+import {
+  computeJwtTimeClaims,
+  parsePayloadBytes,
+  parsePayloadSegment,
+  parsePayloadText,
+  validateCriticalHeadersJWE,
+  validateCriticalHeadersJWS,
+} from "../src/core/internal";
 import { generateKey } from "../src/core/jwk";
 import { isJWTError } from "../src/core/error";
 import type {
@@ -345,6 +349,28 @@ describe("validateCriticalHeadersJWE (direct)", () => {
   });
 });
 
+describe("isJWTContent", () => {
+  it("recognises a JWT typ and a JSON cty", () => {
+    expect(isJWTContent({ typ: "at+jwt" })).toBe(true);
+    expect(isJWTContent({ cty: "application/json" })).toBe(true);
+    expect(isJWTContent({ cty: "application/ld+json" })).toBe(true);
+    expect(isJWTContent({ typ: "text", cty: "text/plain" })).toBe(false);
+    expect(isJWTContent(undefined)).toBe(false);
+  });
+
+  it.each([42, null, {}, ["jwt"]])("returns false for a non-string typ (%j)", (typ) => {
+    expect(isJWTContent({ typ: typ as never })).toBe(false);
+  });
+
+  it("returns false for a non-string cty", () => {
+    expect(isJWTContent({ cty: 42 as never })).toBe(false);
+  });
+
+  it("still reads a JSON cty beside a non-string typ", () => {
+    expect(isJWTContent({ typ: 42 as never, cty: "application/json" })).toBe(true);
+  });
+});
+
 describe("computeDurationInSeconds additional cases", () => {
   it("throws when expiresIn is neither number nor string", () => {
     // @ts-expect-error intentional invalid type
@@ -450,7 +476,11 @@ describe("inferJWSAllowedAlgorithms", () => {
       "EdDSA",
       "Ed25519",
     ]);
-    expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed448", x: "" })).toEqual(["EdDSA"]);
+  });
+
+  it("infers nothing for an OKP JWK on an unsupported curve", () => {
+    expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed448", x: "" })).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms({ kty: "OKP", crv: "X448", x: "" })).toBeUndefined();
   });
 
   it("infers from CryptoKeys across JWS alg families", async () => {
@@ -765,49 +795,64 @@ describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
   });
 });
 
-describe("payload decoding", () => {
+describe("payload parsing", () => {
   const claimsBytes = textEncoder.encode('{"sub":"u1"}');
 
   it('parses a JSON object by default and under "json"', () => {
-    expect(decodePayloadFromBytes(claimsBytes)).toEqual({ sub: "u1" });
-    expect(decodePayloadFromBytes(claimsBytes, { payload: "json" })).toEqual({ sub: "u1" });
+    expect(parsePayloadBytes(claimsBytes)).toEqual({ sub: "u1" });
+    expect(parsePayloadBytes(claimsBytes, { payload: "json" })).toEqual({ sub: "u1" });
   });
 
   it.each(["[1]", "12", '"s"', "null", "nonsense"])('rejects %s under "json"', (raw) => {
-    const error = catchError(() => decodePayloadFromBytes(textEncoder.encode(raw)));
+    const error = catchError(() => parsePayloadBytes(textEncoder.encode(raw)));
     expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
     expect((error as Error).message).toBe("Invalid JWS: Payload is not a JSON object.");
   });
 
   it("reports the JWE family when asked", () => {
     const error = catchError(() =>
-      decodePayloadFromBytes(textEncoder.encode("nonsense"), { family: "JWE" }),
+      parsePayloadBytes(textEncoder.encode("nonsense"), { family: "JWE" }),
     );
     expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
     expect((error as Error).message).toBe("Invalid JWE: Payload is not a JSON object.");
   });
 
   it('returns text under "string" and bytes under "bytes"', () => {
-    expect(decodePayloadFromBytes(claimsBytes, { payload: "string" })).toBe('{"sub":"u1"}');
-    expect(decodePayloadFromBytes(claimsBytes, { payload: "bytes" })).toBe(claimsBytes);
+    expect(parsePayloadBytes(claimsBytes, { payload: "string" })).toBe('{"sub":"u1"}');
+    expect(parsePayloadBytes(claimsBytes, { payload: "bytes" })).toBe(claimsBytes);
   });
 
   it("rejects invalid UTF-8 for the text-bearing modes", () => {
     const invalid = new Uint8Array([0xff, 0xfe]);
     for (const payload of ["json", "string"] as const) {
-      const error = catchError(() => decodePayloadFromBytes(invalid, { payload }));
+      const error = catchError(() => parsePayloadBytes(invalid, { payload }));
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
     }
-    expect(decodePayloadFromBytes(invalid, { payload: "bytes" })).toBe(invalid);
+    expect(parsePayloadBytes(invalid, { payload: "bytes" })).toBe(invalid);
   });
 
-  it("decodes a Base64URL segment under the same modes", () => {
+  it("reads UTF-8 text and reports invalid bytes under the requested family", () => {
+    expect(parsePayloadText(claimsBytes)).toBe('{"sub":"u1"}');
+    const invalid = new Uint8Array([0xff, 0xfe]);
+    expect(
+      isJWTError(
+        catchError(() => parsePayloadText(invalid)),
+        "ERR_JWS_INVALID",
+      ),
+    ).toBe(true);
+    expect(
+      isJWTError(
+        catchError(() => parsePayloadText(invalid, { family: "JWE" })),
+        "ERR_JWE_INVALID",
+      ),
+    ).toBe(true);
+  });
+
+  it("parses a Base64URL segment under the same modes", () => {
     const segment = base64UrlStringify('{"sub":"u1"}');
-    expect(decodePayloadFromB64UrlSegment(segment)).toEqual({ sub: "u1" });
-    expect(decodePayloadFromB64UrlSegment(segment, { payload: "string" })).toBe('{"sub":"u1"}');
-    expect(decodePayloadFromB64UrlSegment(segment, { payload: "bytes" })).toBeInstanceOf(
-      Uint8Array,
-    );
+    expect(parsePayloadSegment(segment)).toEqual({ sub: "u1" });
+    expect(parsePayloadSegment(segment, { payload: "string" })).toBe('{"sub":"u1"}');
+    expect(parsePayloadSegment(segment, { payload: "bytes" })).toBeInstanceOf(Uint8Array);
   });
 });
 

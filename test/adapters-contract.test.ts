@@ -212,6 +212,31 @@ describe("session adapters — shared contract", () => {
       expect(await response.json()).toEqual({ who: "header" });
     });
 
+    it.each(["__Host-", "__Secure-", "__host-"])(
+      "derives the default session header from a %s cookie name without its prefix",
+      async (prefix) => {
+        const config = { name: `${prefix}contract-jws`, key: jwsKey } as const;
+        const app = new H3({ debug: true });
+        app.post("/mint", async (event) => {
+          const session = await useJWSSessionV2(event, config);
+          await session.update({ who: "header" });
+          return { token: session.token };
+        });
+        app.get("/read", async (event) => {
+          const session = await useJWSSessionV2(event, config);
+          return { who: (session.data as Record<string, unknown>).who ?? null };
+        });
+        const minted = await app.request("/mint", { method: "POST" });
+        const { token } = (await minted.json()) as { token: string };
+
+        const response = await app.request("/read", {
+          headers: { "x-contract-jws-session": `Bearer ${token}` },
+        });
+
+        expect(await response.json()).toEqual({ who: "header" });
+      },
+    );
+
     it("rejects a session with neither a cookie nor a header to read from", async () => {
       const app = new H3({ debug: true });
       app.get("/", async (event) => {

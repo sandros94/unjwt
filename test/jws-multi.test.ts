@@ -832,7 +832,7 @@ describe.concurrent("JWS multi-signature hardening", () => {
   describe("algorithm gate", () => {
     it.each([
       ["none", '"none" is not a valid signing algorithm'],
-      ["HS1024", "Algorithm not supported: HS1024"],
+      ["HS1024", 'Algorithm not supported: "HS1024"'],
     ])("verifyMulti rejects alg %s", async (alg, message) => {
       const jws: JWSGeneralSerialization = {
         payload: base64UrlStringify("{}"),

@@ -16,6 +16,8 @@ Import: `import { sign, verify } from "unjwt/jws"` — or `from "unjwt"`
 
 Type: `JWSAlgorithm`
 
+`EdDSA` is Ed25519 only: an `Ed448` key is refused at generation and import.
+
 ## `sign(payload, key, options?)`
 
 Creates a JWS Compact Serialization token.

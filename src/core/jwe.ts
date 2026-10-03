@@ -31,15 +31,14 @@ import {
 } from "./_crypto";
 import { JWTError } from "./error";
 import { isContentEncryptionAlgorithm } from "./utils/algorithms";
+import { isJWK, isJWKSet } from "./utils";
 import {
-  isJWK,
-  isJWKSet,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
-  decodePayloadFromBytes,
+  parsePayloadBytes,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
-} from "./utils";
+} from "./_jwt-internal";
 import {
   DEFAULT_PBES2_ITERATIONS,
   JWE_ALG_CTX,
@@ -458,7 +457,7 @@ export async function decrypt<T extends JOSEPayload>(
     }
   }
 
-  const payload = decodePayloadFromBytes<T>(plaintextBytes, {
+  const payload = parsePayloadBytes<T>(plaintextBytes, {
     payload: payloadMode,
     family: "JWE",
   }) as T;

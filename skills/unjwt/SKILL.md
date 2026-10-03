@@ -37,6 +37,7 @@ The following is a list of reference files:
 | `unjwt/jwe`             | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
 | `unjwt/jwk`             | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                       |
 | `unjwt/utils`           | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`                      |
+| `unjwt/internal`        | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use          |
 | `unjwt/adapters/h3`     | H3 session adapter (aliases h3v1)                                                                    |
 | `unjwt/adapters/h3v1`   | H3 v1 session adapter (Nuxt v4, Nitro v2)                                                            |
 | `unjwt/adapters/h3v2`   | H3 v2 session adapter (Nuxt v5, Nitro v3)                                                            |

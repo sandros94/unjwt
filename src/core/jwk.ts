@@ -393,6 +393,10 @@ export async function deriveJWKFromPassword(
  * Reconstructing a structurally identical JWK (e.g. `{ ...jwk }`) will miss
  * the cache.
  *
+ * A JWK object is treated as immutable once imported: mutating it in place
+ * (`Object.assign(jwk, rotated)`) keeps serving the `CryptoKey` imported
+ * before the change. Rotate by replacing the object, never by editing it.
+ *
  * The inner `Record<string, CryptoKey>` uses a plain object rather than `Map`
  * because typical entries have 1–2 algorithm strings per key. V8 applies
  * hidden-class optimisation to small plain objects, making property access
@@ -424,6 +428,11 @@ let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
  * (LRU, Redis-backed wrapper, test spy, etc.). Pass `false` to disable
  * caching entirely.
  *
+ * Whatever the adapter, a JWK object is treated as immutable once imported:
+ * the default cache keys on object identity, so a JWK mutated in place keeps
+ * resolving to the `CryptoKey` imported before the change. Rotation replaces
+ * the JWK object.
+ *
  * @example Disable caching:
  * ```ts
  * configureJWKCache(false);
@@ -433,8 +442,9 @@ let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
  * JWK carries `d`) and the algorithm it is imported under. The thumbprint covers
  * the public members only (RFC 7638 §3.2), so a private JWK and its public
  * counterpart share one: without the half, a cached public key is served where
- * the private key is needed, and the other way round. A `kid` is not a safe key: it is a label its publisher chooses, and two
- * different keys may carry the same one, so an entry stored under a `kid` can
+ * the private key is needed, and the other way round. A `kid` is not a safe
+ * key: it is a label its publisher chooses, and two different keys may carry
+ * the same one, so an entry stored under a `kid` can
  * serve the wrong key material. `get` and `set` may both return a promise.
  *
  * @example Use a thumbprint-keyed cache:
@@ -1557,19 +1567,13 @@ function getGenerateKeyParams(
     case "EdDSA": {
       keyUsages = pairUsage(SIGNATURE_USAGES, ["sign", "verify"]);
       const namedCurve = options?.namedCurve ?? "Ed25519";
-      switch (namedCurve) {
-        case "Ed25519":
-        case "Ed448": {
-          algorithm = { name: namedCurve };
-          break;
-        }
-        default: {
-          throw new JWTError(
-            "Unsupported namedCurve provided. Supported values are: Ed25519 and Ed448",
-            "ERR_JWK_UNSUPPORTED",
-          );
-        }
+      if (namedCurve !== "Ed25519") {
+        throw new JWTError(
+          "Unsupported namedCurve provided. Supported values are: Ed25519",
+          "ERR_JWK_UNSUPPORTED",
+        );
       }
+      algorithm = { name: namedCurve };
       break;
     }
 

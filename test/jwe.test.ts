@@ -1520,7 +1520,18 @@ describe.concurrent("JWE Utilities", () => {
       const wrongKey = await generateKey("A256KW");
       const error = await decrypt(tampered, wrongKey).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
-      expect(error.message).toBe('Invalid JWE: unsupported "enc" A256CBC');
+      expect(error.message).toBe('Invalid JWE: unsupported "enc" "A256CBC"');
+    });
+
+    it("quotes and bounds an unsupported enc in the error message", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const enc = `A256CBC\n"${"x".repeat(10_000)}`;
+      const tampered = replaceHeader(token, { alg: "A256KW", enc });
+      const error = await decrypt(tampered, kwKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        `Invalid JWE: unsupported "enc" ${JSON.stringify(`${enc.slice(0, 64)}…`)}`,
+      );
     });
 
     it('rejects alg "none" even when allowlisted', async () => {
@@ -1539,7 +1550,18 @@ describe.concurrent("JWE Utilities", () => {
         algorithms: ["A256KW+HACK" as KeyManagementAlgorithm],
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
-      expect(error.message).toBe("Key management algorithm not supported: A256KW+HACK");
+      expect(error.message).toBe('Key management algorithm not supported: "A256KW+HACK"');
+    });
+
+    it("quotes and bounds an unsupported key management alg in the error message", async () => {
+      const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
+      const alg = `A256KW\n"${"x".repeat(10_000)}`;
+      const tampered = replaceHeader(token, { alg, enc: "A256GCM" });
+      const error = await decrypt(tampered, kwKey).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+      expect(error.message).toBe(
+        `Key management algorithm not supported: ${JSON.stringify(`${alg.slice(0, 64)}…`)}`,
+      );
     });
 
     it("compares typ under media-type normalization", async () => {

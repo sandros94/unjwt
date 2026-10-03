@@ -27,16 +27,14 @@ import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
+import { isJWK, isJWKSet, inferJWSAllowedAlgorithms } from "./utils";
 import {
-  isJWK,
-  isJWKSet,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   getPlaintextBytes,
-  inferJWSAllowedAlgorithms,
+  parsePayloadText,
   validateCriticalHeadersJWS,
-} from "./utils";
-import { decodePayloadText } from "./utils/jwt";
+} from "./_jwt-internal";
 import {
   JWS_ALG_CTX,
   applyB64Header,
@@ -118,9 +116,7 @@ export async function signMulti(
 
   // RFC 7797 §5.3 — an unencoded payload is carried as a JSON string, so its
   // bytes must be UTF-8 to have one.
-  const payloadEncoded = b64
-    ? base64UrlStringify(payloadBytes)
-    : decodePayloadText(payloadBytes, "JWS");
+  const payloadEncoded = b64 ? base64UrlStringify(payloadBytes) : parsePayloadText(payloadBytes);
 
   const wireSignatures: JWSGeneralSignature[] = [];
   for (let i = 0; i < signers.length; i++) {

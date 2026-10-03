@@ -36,17 +36,14 @@ import {
 import { JWTError } from "./error";
 import type { PBES2Budget, ResolvedKeyInput } from "./_internal";
 import { isContentEncryptionAlgorithm } from "./utils/algorithms";
+import { isJWK, isJWKSet, isCryptoKey, inferJWEAllowedAlgorithms } from "./utils";
 import {
-  isJWK,
-  isJWKSet,
-  isCryptoKey,
-  inferJWEAllowedAlgorithms,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
-  decodePayloadFromBytes,
+  parsePayloadBytes,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
-} from "./utils";
+} from "./_jwt-internal";
 import {
   DEFAULT_PBES2_ITERATIONS,
   JWE_ALG_CTX,
@@ -480,7 +477,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
 
     // The content cipher authenticated the token: from here a failure is a
     // verdict on the token itself, not on this recipient, and propagates.
-    const payload = decodePayloadFromBytes<T>(plaintextBytes, {
+    const payload = parsePayloadBytes<T>(plaintextBytes, {
       payload: payloadMode,
       family: "JWE",
     }) as T;
@@ -738,7 +735,7 @@ function _keyCurve(key: JWK | CryptoKey): string | undefined {
   if (isCryptoKey(key)) {
     const algorithm = key.algorithm as EcKeyAlgorithm;
     if (typeof algorithm.namedCurve === "string") return algorithm.namedCurve;
-    return algorithm.name === "X25519" || algorithm.name === "X448" ? algorithm.name : undefined;
+    return algorithm.name === "X25519" ? algorithm.name : undefined;
   }
   return (key as { crv?: string }).crv;
 }

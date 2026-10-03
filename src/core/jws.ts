@@ -19,15 +19,14 @@ import type {
 import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import { JWTError } from "./error";
+import { isJWK, isJWKSet } from "./utils";
 import {
-  isJWK,
-  isJWKSet,
   applyTypCtyDefaults,
   computeJwtTimeClaims,
   getPlaintextBytes,
+  parsePayloadText,
   validateCriticalHeadersJWS,
-} from "./utils";
-import { decodePayloadText } from "./utils/jwt";
+} from "./_jwt-internal";
 import {
   JWS_ALG_CTX,
   applyB64Header,
@@ -141,7 +140,7 @@ export async function sign(
   } else {
     // An unencoded payload travels as text inside the token, so its bytes must
     // be UTF-8; RFC 7797 §5.2 — a "." in it would split the compact form.
-    payloadEncoded = decodePayloadText(payloadBytes, "JWS");
+    payloadEncoded = parsePayloadText(payloadBytes);
     if (payloadEncoded.includes(".")) {
       throw new JWTError(
         'Invalid JWS: unencoded compact payload must not contain "." (RFC 7797 §5.2).',

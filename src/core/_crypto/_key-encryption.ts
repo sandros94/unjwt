@@ -259,7 +259,7 @@ function invalidEpk(detail: string): JWTError {
 function cryptoKeyCurve(key: CryptoKey): string | undefined {
   const algorithm = key.algorithm as EcKeyAlgorithm;
   if (typeof algorithm.namedCurve === "string") return algorithm.namedCurve;
-  return algorithm.name === "X25519" || algorithm.name === "X448" ? algorithm.name : undefined;
+  return algorithm.name === "X25519" ? algorithm.name : undefined;
 }
 
 function assertEpkCurve(epkCurve: string | undefined, recipientCurve: string | undefined): void {

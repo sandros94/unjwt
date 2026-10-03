@@ -91,7 +91,8 @@ export interface JWSSessionConfig<
   cookie?: false | (TCookie & { chunkMaxLength?: number });
   /**
    * Request header to read the token from (`false` to disable), as a bare token
-   * or `Bearer <token>`. Must be a header name. Default `x-<name>-session`.
+   * or `Bearer <token>`. Must be a header name. Default `x-<name>-session`, with
+   * `<name>` stripped of a `__Host-` / `__Secure-` cookie prefix.
    */
   sessionHeader?: false | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
