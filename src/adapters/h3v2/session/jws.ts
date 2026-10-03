@@ -10,11 +10,12 @@ import {
   type SessionBinding,
   type SessionState,
   bindSession,
+  openSessionToken,
   sessionToken,
 } from "../../_session-core";
 import { loadSession } from "../../_session-read";
 import { dropSession, encodeSession, issueSession, sessionManager } from "../../_session-write";
-import type { SessionHooks } from "../../_session-types";
+import type { SessionHooks, SessionRecord } from "../../_session-types";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
 import { PREFIX, h3SessionPort } from "./_shared";
 
@@ -25,7 +26,7 @@ const codec = createJWSCodec({ prefix: PREFIX, defaultName: "h3-jws" });
  * the underlying compact JWS token.
  */
 export interface SessionJWS<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
@@ -35,7 +36,7 @@ export interface SessionJWS<
  * was successfully established from it.
  */
 export interface SessionHooksJWS<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 > extends SessionHooks<
@@ -55,7 +56,7 @@ export interface SessionHooksJWS<
  * Configuration for a JWS-backed (signed, not encrypted) session.
  */
 export interface SessionConfigJWS<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 > extends JWSSessionConfig<MaxAge, CookieSerializeOptions> {
@@ -73,7 +74,7 @@ export interface SessionConfigJWS<
  * NOTE: Contents are visible to clients (Base64URL-decoded JSON). Do not store secrets in session data.
  */
 export async function useJWSSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<SessionManager<T, MaxAge>> {
@@ -86,7 +87,7 @@ export async function useJWSSession<
  * Get (and lazily initialize) the session for the current request.
  */
 export async function getJWSSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<SessionJWS<T, MaxAge>> {
@@ -99,7 +100,7 @@ export async function getJWSSession<
  * `Bearer` prefix) only when the cookie carries none.
  */
 export function getJWSSessionToken<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): string | undefined {
@@ -111,7 +112,7 @@ export function getJWSSessionToken<
  * Pass `options.maxAge` to give this one token a lifetime of its own.
  */
 export async function updateJWSSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(
@@ -132,7 +133,7 @@ export async function updateJWSSession<
  * `jti`, `iat`, and `exp` (when the session has a lifetime).
  */
 export async function signJWSSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<string> {
@@ -148,7 +149,7 @@ export async function signJWSSession<
  *  - `exp` required when the session has a `maxAge`
  */
 export async function verifyJWSSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(
@@ -156,9 +157,10 @@ export async function verifyJWSSession<
   config: SessionConfigJWS<T, MaxAge, TEvent>,
   token: string,
 ): Promise<Partial<SessionJWS<T, MaxAge>>> {
-  return codec.open(config as unknown as JWSCodecConfig, token, { event }) as Promise<
-    Partial<SessionJWS<T, MaxAge>>
-  >;
+  return openSessionToken<T, MaxAge, JWSCodecConfig>(codec, config, {
+    token,
+    carrier: { event },
+  });
 }
 
 /**
@@ -166,22 +168,22 @@ export async function verifyJWSSession<
  * later read in the same request sees no session rather than the request cookie.
  */
 export async function clearJWSSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<void> {
-  return dropSession<T, MaxAge, HTTPEvent, JWSCodecConfig>(bind(event, config));
+  return dropSession(bind(event, config));
 }
 
 function bind<
-  T extends Record<string, any>,
+  T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
   TEvent extends HTTPEvent,
 >(
   event: TEvent,
   config: SessionConfigJWS<T, MaxAge, TEvent>,
 ): SessionBinding<HTTPEvent, JWSCodecConfig> {
-  return bindSession(event as HTTPEvent, config as unknown as JWSCodecConfig, {
+  return bindSession<HTTPEvent, JWSCodecConfig>(event, config, {
     port: h3SessionPort,
     codec,
   });

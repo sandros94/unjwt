@@ -1,13 +1,11 @@
-import { Elysia } from "elysia";
-
 import type { ExpiresIn, JWKSet, JWSVerifyJWK, JWKLookupFunctionHeader } from "../../../core/types";
 import { type JWSCodecConfig, type JWSSessionConfig, createJWSCodec } from "../../_codec-jws";
 export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws";
 import { type SessionBinding, type SessionState, bindSession } from "../../_session-core";
 import { loadSession } from "../../_session-read";
 import { sessionManager } from "../../_session-write";
-import type { SessionHooks } from "../../_session-types";
-import { guardName, type SessionPlugin } from "../_plugin";
+import type { SessionHooks, SessionRecord } from "../../_session-types";
+import { type SessionPlugin, sessionPlugin } from "../_plugin";
 import type { CookieAttributes } from "../_cookie";
 import type { SessionClaims, SessionManager, SessionContext } from "./types";
 import { PREFIX, elysiaSessionPort } from "./_shared";
@@ -17,12 +15,12 @@ export type { SessionContext };
 const codec = createJWSCodec({ prefix: PREFIX, defaultName: "elysia-jws" });
 
 export interface SessionJWS<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
 export interface SessionHooksJWS<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TContext extends SessionContext = SessionContext,
 > extends SessionHooks<
@@ -38,7 +36,7 @@ export interface SessionHooksJWS<
 }
 
 export interface SessionConfigJWS<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TContext extends SessionContext = SessionContext,
 > extends JWSSessionConfig<MaxAge, CookieAttributes> {
@@ -48,7 +46,7 @@ export interface SessionConfigJWS<
 }
 
 export async function createJWSSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TContext extends SessionContext = SessionContext,
 >(
@@ -61,50 +59,30 @@ export async function createJWSSession<
 }
 
 export function jwsSession<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   K extends string = "session",
 >(
   config: SessionConfigJWS<T, MaxAge> &
     (K extends "session" ? { contextKey?: K } : { contextKey: K }),
 ): SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`> {
-  const contextKey = (config.contextKey ?? "session") as K;
-  // The seed carries the session name as well as the context key, so two
-  // differently-named sessions register as two plugins rather than one.
-  const seed = `${config.name || codec.defaultName}:${contextKey}`;
-  return new Elysia({ name: "unjwt/elysia-jws", seed })
-    .resolve({ as: "scoped" }, async ({ cookie, request }) => {
-      const session = await createJWSSession<T, MaxAge, SessionContext>(
-        { cookie, request },
-        config,
-      );
-      return { [contextKey]: session } as { [P in K]: SessionManager<T, MaxAge> };
-    })
-    .macro({
-      [guardName(contextKey)]: {
-        resolve(ctx) {
-          const session = (ctx as Record<string, unknown>)[contextKey] as
-            | SessionManager<T, MaxAge>
-            | undefined;
-          if (!session?.id) return ctx.status(401, "Unauthorized");
-          return {};
-        },
-      },
-    }) as unknown as SessionPlugin<
-    { [P in K]: SessionManager<T, MaxAge> },
-    `require${Capitalize<K>}`
-  >;
+  return sessionPlugin<SessionManager<T, MaxAge>, K>({
+    name: "unjwt/elysia-jws",
+    sessionName: config.name || codec.defaultName,
+    contextKey: config.contextKey,
+    create: (context) => createJWSSession<T, MaxAge>(context, config),
+  });
 }
 
 function bind<
-  T extends Record<string, any>,
+  T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
   TContext extends SessionContext,
 >(
   context: TContext,
   config: SessionConfigJWS<T, MaxAge, TContext>,
 ): SessionBinding<SessionContext, JWSCodecConfig> {
-  return bindSession(context as SessionContext, config as unknown as JWSCodecConfig, {
+  return bindSession<SessionContext, JWSCodecConfig>(context, config, {
     port: elysiaSessionPort,
     codec,
   });

@@ -1,8 +1,12 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
 
-  "plugins": ["unicorn", "typescript", "oxc", "vitest"],
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "node", "vitest"],
   "options": { "typeAware": true, "typeCheck": true },
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
 
   "ignorePatterns": [
     "**/CHANGELOG.md",
@@ -19,15 +23,49 @@
     "**/playwright-report/**",
     "**/test-results/**",
     "**/.pgdata/**",
-    "**/drizzle/**"
+    "**/drizzle/**",
+    "**/.agents/**"
   ],
 
   "rules": {
+    "no-use-before-define": ["error", { "functions": false, "variables": false }],
+    "no-underscore-dangle": "off",
+    "import/no-cycle": "error",
+    "import/no-mutable-exports": "error",
+    "import/no-commonjs": "error",
+    "import/no-nodejs-modules": "error",
+    "no-restricted-globals": [
+      "error",
+      { "name": "Buffer", "message": "Use Uint8Array; Buffer is Node-specific." },
+      { "name": "process", "message": "Not available in all runtimes." }
+    ],
+    "eqeqeq": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-import-type-side-effects": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-require-imports": "error",
+
     "oxc/only-used-in-recursion": "off",
     "require-mock-type-parameters": "off",
     "vitest/expect-expect": [
       "warn",
       { "assertFunctionNames": ["expect", "expectThrowsJWTError", "expectCode"] }
     ]
-  }
+  },
+
+  "overrides": [
+    {
+      "files": ["test/**", "playground/**", "*.config.ts"],
+      "rules": {
+        "import/no-nodejs-modules": "off",
+        "no-restricted-globals": "off",
+        "typescript/no-non-null-assertion": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-explicit-any": "warn"
+      }
+    }
+  ]
 }

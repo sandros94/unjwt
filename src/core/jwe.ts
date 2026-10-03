@@ -31,11 +31,10 @@ import {
 } from "./_crypto";
 import { JWTError } from "./error";
 import { isContentEncryptionAlgorithm } from "./utils/algorithms";
-import { isJWK, isJWKSet } from "./utils";
+import { isJWK, isJWKSet } from "./utils/guards";
 import {
   applyTypCtyDefaults,
   computeJwtTimeClaims,
-  parsePayloadBytes,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
 } from "./_jwt-internal";
@@ -57,11 +56,11 @@ import {
   buildJWKSetFilter,
   buildUnwrapKeyOptions,
   checkAlgAllowed,
-  checkJWEAlgSupported,
+  assertJWEAlgSupported,
   checkJWEContentSegments,
   checkJWEDirectEncryptedKey,
   checkJWEEncAllowed,
-  checkJWEEncSupported,
+  assertJWEEncSupported,
   checkJWEZip,
   createPBES2Budget,
   decodeProtectedHeader,
@@ -74,6 +73,7 @@ import {
   serializeProtectedHeader,
   validateClaimsIfJson,
   decodeSegment,
+  decodeJWEPayload,
 } from "./_internal";
 
 export type * from "./types/jwe";
@@ -139,7 +139,8 @@ export async function encrypt(
     p2c,
     ecdh,
   } = options;
-  let { alg, enc } = options;
+  let alg: string | undefined = options.alg;
+  let enc: unknown = options.enc;
 
   assertNoZipOption(userHeader, "protected");
 
@@ -149,7 +150,7 @@ export async function encrypt(
   const cekRole =
     isJWK(key) && key.kty === "oct" && typeof key.alg === "string"
       ? isContentEncryptionAlgorithm(key.alg)
-        ? (key.alg as ContentEncryptionAlgorithm)
+        ? key.alg
         : undefined
       : undefined;
 
@@ -159,7 +160,7 @@ export async function encrypt(
     } else if (cekRole) {
       alg = "dir";
     } else if (isJWK(key)) {
-      alg = key.alg as KeyManagementAlgorithm;
+      alg = key.alg;
     }
   }
   if (!alg) {
@@ -172,21 +173,19 @@ export async function encrypt(
     if (alg === "dir") {
       // Under `dir` the `enc` rides on the JWK: either as its own `alg` — the
       // algorithm the CEK was minted for — or as an explicit `enc` member.
-      enc =
-        cekRole ??
-        (isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : undefined);
+      enc = cekRole ?? (isJWK(key) && "enc" in key ? key.enc : undefined);
       if (!enc) {
         throw new JWTError('JWE "enc" must be provided when alg is "dir"', "ERR_JWE_ENC_MISSING");
       }
     } else {
-      enc = isJWK(key) && "enc" in key ? (key.enc as ContentEncryptionAlgorithm) : "A256GCM";
+      enc = isJWK(key) && "enc" in key ? key.enc : "A256GCM";
     }
   }
 
   // Both algorithms are settled before any key work, so an algorithm the
   // library does not implement fails with the code and message decrypt uses.
-  const algSupportError = checkJWEAlgSupported(alg) ?? checkJWEEncSupported(enc);
-  if (algSupportError) throw algSupportError;
+  assertJWEAlgSupported(alg);
+  assertJWEEncSupported(enc);
 
   assertProducerCEK(providedCek, enc);
   assertProducerIV(providedContentIV, enc);
@@ -331,24 +330,13 @@ export async function decrypt<T extends JOSEPayload>(
 
   const protectedHeader = decodeProtectedHeader<JWEHeaderParameters>(protectedHeaderEncoded, "JWE");
 
-  if (!protectedHeader.alg || !protectedHeader.enc) {
-    throw new JWTError(
-      'Invalid JWE: Protected header must be an object with "alg" and "enc" properties.',
-      "ERR_JWE_INVALID",
-    );
-  }
-
-  const alg = protectedHeader.alg as KeyManagementAlgorithm;
-  const enc = protectedHeader.enc as ContentEncryptionAlgorithm;
-
   // Everything the protected header alone decides — algorithm support, `enc`,
   // compression, `crit`, `typ` — is settled before any key is resolved or
   // imported, so a malformed token never reaches key management.
+  assertHeaderAlgorithms(protectedHeader);
+  const { alg, enc } = protectedHeader;
   const headerError =
-    checkJWEAlgSupported(alg) ??
-    checkJWEEncSupported(enc) ??
-    checkJWEZip(protectedHeader) ??
-    checkJWEEncAllowed(enc, options.encryptionAlgorithms);
+    checkJWEZip(protectedHeader) ?? checkJWEEncAllowed(enc, options.encryptionAlgorithms);
   if (headerError) throw headerError;
 
   validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
@@ -414,7 +402,7 @@ export async function decrypt<T extends JOSEPayload>(
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
         pbes2Budget.spend(unwrapKeyOpts);
-        const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
+        const unwrappingKey = await importKey(candidate, { alg, expect: "private" });
         const candidateCek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
         plaintextBytes = await joseDecrypt(
           enc,
@@ -457,16 +445,13 @@ export async function decrypt<T extends JOSEPayload>(
     }
   }
 
-  const payload = parsePayloadBytes<T>(plaintextBytes, {
-    payload: payloadMode,
-    family: "JWE",
-  }) as T;
+  const payload = decodeJWEPayload<T>(plaintextBytes, payloadMode);
 
   validateClaimsIfJson(payload, payloadMode, options);
 
   const result: JWEDecryptResult<T> = {
     payload,
-    protectedHeader: protectedHeader as JWEProtectedHeader,
+    protectedHeader,
   };
 
   if (options.returnCek) {
@@ -485,9 +470,7 @@ function _buildJWEHeader(
   keyManagementParams: JWEHeaderParameters | undefined,
   payload: unknown,
 ): JWEHeaderParameters {
-  const safeHeader = sanitizeObjectCopy<JWEHeaderParameters | undefined>(
-    userHeader as JWEHeaderParameters | undefined,
-  );
+  const safeHeader = sanitizeObjectCopy<JWEHeaderParameters | undefined>(userHeader);
   // Precedence: top-level `alg`/`enc` > key management params > user header > JWK `kid`.
   // Build imperatively to avoid the intermediate `{ kid }` / spread-output allocations.
   const header = {} as JWEHeaderParameters;
@@ -497,6 +480,18 @@ function _buildJWEHeader(
   header.alg = alg;
   header.enc = enc;
   applyTypCtyDefaults(header, payload);
-  assertProducerCrit(header as Record<string, unknown>, "JWE");
+  assertProducerCrit(header, "JWE");
   return header;
+}
+
+/** A protected header naming an `alg` and an `enc` the library implements. */
+function assertHeaderAlgorithms(header: JWEHeaderParameters): asserts header is JWEProtectedHeader {
+  if (!header.alg || !header.enc) {
+    throw new JWTError(
+      'Invalid JWE: Protected header must be an object with "alg" and "enc" properties.',
+      "ERR_JWE_INVALID",
+    );
+  }
+  assertJWEAlgSupported(header.alg);
+  assertJWEEncSupported(header.enc);
 }

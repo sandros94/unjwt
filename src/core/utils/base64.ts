@@ -36,7 +36,10 @@ export function base64UrlParse(
   input: string | Uint8Array,
   options?: DecodeOptions,
 ): string | Uint8Array<ArrayBuffer> {
-  return _base64Parse(input as string, { ...options, alphabet: "base64url", padding: false });
+  const parseOptions = { ...options, alphabet: "base64url", padding: false } as const;
+  return typeof input === "string"
+    ? _base64Parse(input, parseOptions)
+    : _base64Parse(input, parseOptions);
 }
 
 /** Encode bytes or a UTF-8 string as standard base64 (RFC 4648 §4), with `=` padding. */
@@ -60,7 +63,10 @@ export function base64Parse(
   input: string | Uint8Array,
   options?: DecodeOptions,
 ): string | Uint8Array<ArrayBuffer> {
-  return _base64Parse(input as string, { ...options, alphabet: "base64", padding: true });
+  const parseOptions = { ...options, alphabet: "base64", padding: true } as const;
+  return typeof input === "string"
+    ? _base64Parse(input, parseOptions)
+    : _base64Parse(input, parseOptions);
 }
 
 /** @deprecated Renamed to {@link base64UrlStringify} in v0.8.0; removed in v0.9.0. */

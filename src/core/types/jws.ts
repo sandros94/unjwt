@@ -1,3 +1,4 @@
+import type { JWTError } from "../error";
 import type {
   JoseHeaderParameters,
   JOSELimits,
@@ -363,7 +364,7 @@ export type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
   | {
       signerIndex: number;
       verified: false;
-      error: import("./../error").JWTError;
+      error: JWTError;
       protectedHeader?: JWSHeaderParameters;
       signerHeader?: JWSHeaderParameters;
     };

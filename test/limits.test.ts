@@ -45,14 +45,14 @@ describe("limits", () => {
     // by `kid` as soon as the header carries one.
     const { kid: _signerKid, ...privateKey } = pair.privateKey;
     const { kid: _publicKid, ...pub } = pair.publicKey;
-    signer = privateKey as JWK_EC_Private<"ES256">;
-    publicKey = pub as JWK_EC_Public<"ES256">;
+    signer = privateKey;
+    publicKey = pub;
 
     decoys = await Promise.all(
       Array.from({ length: 12 }, async () => {
         const { publicKey: decoy } = await generateJWK("ES256");
         const { kid: _decoyKid, ...rest } = decoy;
-        return rest as JWK_EC_Public<"ES256">;
+        return rest;
       }),
     );
 
@@ -60,7 +60,7 @@ describe("limits", () => {
       Array.from({ length: 4 }, async () => {
         const key = await generateJWK("A256KW");
         const { kid: _octKid, ...rest } = key;
-        return rest as JWK_oct<"A256KW">;
+        return rest;
       }),
     );
   });
@@ -105,7 +105,7 @@ describe("limits", () => {
 
     it("honours a caller-set limit", async () => {
       const jws = await sign({ sub: "u1" }, signer);
-      const set: JWKSet = { keys: [decoys[0]!, publicKey] };
+      const set: JWKSet = { keys: [decoys[0], publicKey] };
       await expect(verify(jws, set, { limits: { keyCandidates: 1 } })).rejects.toThrow(
         '2 candidate keys exceed the limit of 1; narrow the JWK Set with a "kid".',
       );
@@ -117,7 +117,7 @@ describe("limits", () => {
 
     it("applies to verifyMulti", async () => {
       const jws = await signMulti({ sub: "u1" }, [{ key: signer }]);
-      const set: JWKSet = { keys: [decoys[0]!, publicKey] };
+      const set: JWKSet = { keys: [decoys[0], publicKey] };
       await expect(verifyMulti(jws, set, { limits: { keyCandidates: 1 } })).rejects.toThrow(
         '2 candidate keys exceed the limit of 1; narrow the JWK Set with a "kid".',
       );
@@ -130,8 +130,8 @@ describe("limits", () => {
 
   describe("keyCandidates (JWE decrypt)", () => {
     it("rejects one candidate over the limit before importing a key", async () => {
-      const jwe = await encrypt({ sub: "u1" }, octKeys[2]!, { enc: "A256GCM" });
-      const set: JWKSet = { keys: [octKeys[0]!, octKeys[1]!, octKeys[2]!] };
+      const jwe = await encrypt({ sub: "u1" }, octKeys[2], { enc: "A256GCM" });
+      const set: JWKSet = { keys: [octKeys[0], octKeys[1], octKeys[2]] };
       await expect(
         decrypt(jwe, set, { allowSymmetricJWKSet: true, limits: { keyCandidates: 2 } }),
       ).rejects.toSatisfy((error) => isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"));
@@ -143,8 +143,8 @@ describe("limits", () => {
     });
 
     it("applies to decryptMulti", async () => {
-      const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[2]! }], { enc: "A256GCM" });
-      const set: JWKSet = { keys: [octKeys[0]!, octKeys[1]!, octKeys[2]!] };
+      const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[2] }], { enc: "A256GCM" });
+      const set: JWKSet = { keys: [octKeys[0], octKeys[1], octKeys[2]] };
       await expect(
         decryptMulti(jwe, set, { allowSymmetricJWKSet: true, limits: { keyCandidates: 2 } }),
       ).rejects.toSatisfy((error) => isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"));
@@ -161,7 +161,7 @@ describe("limits", () => {
 
     const repeat = (count: number): JWSGeneralSerialization => ({
       payload: single.payload,
-      signatures: Array.from({ length: count }, () => single.signatures[0]!),
+      signatures: Array.from({ length: count }, () => single.signatures[0]),
     });
 
     beforeAll(async () => {
@@ -212,35 +212,35 @@ describe("limits", () => {
 
     const repeat = (count: number): JWEGeneralSerialization => ({
       ...single,
-      recipients: Array.from({ length: count }, () => single.recipients[0]!),
+      recipients: Array.from({ length: count }, () => single.recipients[0]),
     });
 
     beforeAll(async () => {
-      single = await encryptMulti({ sub: "u1" }, [{ key: octKeys[0]! }], { enc: "A256GCM" });
+      single = await encryptMulti({ sub: "u1" }, [{ key: octKeys[0] }], { enc: "A256GCM" });
     });
 
     it("decrypts a token carrying exactly the limit", async () => {
       const { payload } = await decryptMulti<{ sub: string }>(
         repeat(DEFAULT_JOSE_LIMITS.recipients),
-        octKeys[0]!,
+        octKeys[0],
       );
       expect(payload.sub).toBe("u1");
     });
 
     it("rejects one recipient over the limit", async () => {
       await expect(
-        decryptMulti(repeat(DEFAULT_JOSE_LIMITS.recipients + 1), octKeys[0]!),
+        decryptMulti(repeat(DEFAULT_JOSE_LIMITS.recipients + 1), octKeys[0]),
       ).rejects.toSatisfy((error) => isJWTError(error, "ERR_JWE_INVALID"));
       await expect(
-        decryptMulti(repeat(DEFAULT_JOSE_LIMITS.recipients + 1), octKeys[0]!),
+        decryptMulti(repeat(DEFAULT_JOSE_LIMITS.recipients + 1), octKeys[0]),
       ).rejects.toThrow("Invalid JWE: 17 recipients exceed the limit of 16.");
     });
 
     it("honours a caller-set limit", async () => {
       await expect(
-        decryptMulti(repeat(3), octKeys[0]!, { limits: { recipients: 2 } }),
+        decryptMulti(repeat(3), octKeys[0], { limits: { recipients: 2 } }),
       ).rejects.toThrow("Invalid JWE: 3 recipients exceed the limit of 2.");
-      const { payload } = await decryptMulti<{ sub: string }>(repeat(2), octKeys[0]!, {
+      const { payload } = await decryptMulti<{ sub: string }>(repeat(2), octKeys[0], {
         limits: { recipients: 2 },
       });
       expect(payload.sub).toBe("u1");
@@ -294,7 +294,7 @@ describe("limits", () => {
         { key: holder },
       ]);
 
-      expect((jwe.recipients[1]!.header as { p2c: number }).p2c).toBe(DEFAULT_PBES2_ITERATIONS);
+      expect((jwe.recipients[1].header as { p2c: number }).p2c).toBe(DEFAULT_PBES2_ITERATIONS);
 
       const { payload, recipientIndex } = await decryptMulti<{ sub: string }>(jwe, holder);
       expect(payload.sub).toBe("u1");
@@ -308,7 +308,7 @@ describe("limits", () => {
         p2c: 2000,
       });
       const [protectedEncoded, ...rest] = jwe.split(".");
-      const header = JSON.parse(base64UrlParse(protectedEncoded!)) as Record<string, unknown>;
+      const header = JSON.parse(base64UrlParse(protectedEncoded)) as Record<string, unknown>;
       const forged = [
         base64UrlStringify(JSON.stringify({ ...header, p2c: 3_000_000 })),
         ...rest,
@@ -331,7 +331,7 @@ describe("limits", () => {
         { key: passwordJWK("decoy one"), p2c: 2000 },
         { key: holder },
       ]);
-      (jwe.recipients[0]!.header as { p2c: number }).p2c = 2_000_000;
+      (jwe.recipients[0].header as { p2c: number }).p2c = 2_000_000;
 
       const { payload, recipientIndex } = await decryptMulti<{ sub: string }>(jwe, holder);
       expect(payload.sub).toBe("u1");
@@ -387,13 +387,13 @@ describe("limits", () => {
       ["null", null],
     ])("rejects limits that are %s", async (_label, limits) => {
       const jws = await sign({ sub: "u1" }, signer);
-      const jwe = await encrypt({ sub: "u1" }, octKeys[0]!, { enc: "A256GCM" });
+      const jwe = await encrypt({ sub: "u1" }, octKeys[0], { enc: "A256GCM" });
       const general = await signMulti({ sub: "u1" }, [{ key: signer }]);
       const runs = [
         () => verify(jws, publicKey, { limits } as never),
         () => verifyMulti(general, publicKey, { limits } as never),
         () => verifyMultiAll(general, () => publicKey, { limits } as never),
-        () => decrypt(jwe, octKeys[0]!, { limits } as never),
+        () => decrypt(jwe, octKeys[0], { limits } as never),
       ];
       for (const run of runs) {
         await expect(run()).rejects.toThrow('"options.limits" must be an object.');
@@ -401,12 +401,12 @@ describe("limits", () => {
     });
 
     it("rejects a malformed JWE limit", async () => {
-      const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[0]! }], { enc: "A256GCM" });
-      await expect(decryptMulti(jwe, octKeys[0]!, { limits: { recipients: 0 } })).rejects.toThrow(
+      const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[0] }], { enc: "A256GCM" });
+      await expect(decryptMulti(jwe, octKeys[0], { limits: { recipients: 0 } })).rejects.toThrow(
         '"limits.recipients" must be a positive integer.',
       );
       await expect(
-        decryptMulti(jwe, octKeys[0]!, { limits: { pbes2Iterations: 0 } }),
+        decryptMulti(jwe, octKeys[0], { limits: { pbes2Iterations: 0 } }),
       ).rejects.toThrow('"limits.pbes2Iterations" must be a positive integer.');
     });
   });

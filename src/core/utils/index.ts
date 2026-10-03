@@ -1,18 +1,3 @@
-import type {
-  JWK,
-  JWKSet,
-  JWK_oct,
-  JWK_Public,
-  JWK_Private,
-  JWK_EC_Public,
-  JWK_EC_Private,
-  JWK_OKP_Public,
-  JWK_OKP_Private,
-  JWK_RSA_Public,
-  JWK_RSA_Private,
-} from "../types";
-
-import { JWTError } from "../error";
 import {
   type ParsePayloadOptions,
   type ComputeJwtTimeClaimsOptions as _ComputeJwtTimeClaimsOptions,
@@ -33,6 +18,18 @@ export { safeJsonParse, sanitizeObject, sanitizeObjectCopy } from "unsecure/sani
 export { textEncoder, textDecoder } from "unsecure/utils";
 
 export * from "./base64";
+export { concatUint8Arrays, maybeArray } from "./array";
+export {
+  isJWK,
+  isJWKSet,
+  assertCryptoKey,
+  isCryptoKey,
+  isCryptoKeyPair,
+  isSymmetricJWK,
+  isAsymmetricJWK,
+  isPrivateJWK,
+  isPublicJWK,
+} from "./guards";
 
 export {
   type InferAlgorithmsOptions,
@@ -64,158 +61,3 @@ export const validateCriticalHeadersJWE: typeof _validateCriticalHeadersJWE =
   _validateCriticalHeadersJWE;
 /** @deprecated Use `assertCritShape` from `unjwt/internal`; removed in v0.9.0. */
 export const assertCritShape: typeof _assertCritShape = _assertCritShape;
-
-/** Concatenate multiple `Uint8Array`s into a single contiguous buffer. */
-export function concatUint8Arrays(
-  ...arrays: Readonly<Uint8Array<ArrayBuffer>[]>
-): Uint8Array<ArrayBuffer> {
-  const totalLength = arrays.reduce((length, arr) => length + arr.length, 0);
-  const result = new Uint8Array(totalLength);
-
-  let offset = 0;
-  for (const arr of arrays) {
-    result.set(arr, offset);
-    offset += arr.length;
-  }
-
-  return result;
-}
-
-/** Wrap a value in an array; returns the array unchanged if already an array. */
-export function maybeArray<T>(item: T | T[]): T[] {
-  return Array.isArray(item) ? item : [item];
-}
-
-/**
- * Type guard for {@link JWK} — an object whose `kty` this library models
- * (`"oct"`/`"RSA"`/`"EC"`/`"OKP"`).
- */
-export function isJWK(key: any): key is JWK {
-  return (
-    typeof key === "object" &&
-    key !== null &&
-    (key.kty === "oct" || key.kty === "RSA" || key.kty === "EC" || key.kty === "OKP")
-  );
-}
-
-/** Type guard for {@link JWKSet} — checks for an object with a `keys` array. */
-export function isJWKSet(key: any): key is JWKSet {
-  return key && typeof key === "object" && "keys" in key && Array.isArray((key as JWKSet).keys);
-}
-
-/** Asserts that `key` is a `CryptoKey`; throws `ERR_JWK_INVALID` otherwise. */
-export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
-  if (!isCryptoKey(key)) {
-    throw new JWTError("CryptoKey instance expected", "ERR_JWK_INVALID");
-  }
-}
-
-/**
- * Type guard for `CryptoKey`. Uses `Symbol.toStringTag` instead of `instanceof`
- * so it works across worker / realm boundaries where `CryptoKey` identities differ.
- */
-export function isCryptoKey(key: unknown): key is CryptoKey {
-  // @ts-expect-error indexing CryptoKey via Symbol.toStringTag isn't in the type.
-  return key?.[Symbol.toStringTag] === "CryptoKey";
-}
-
-/** Type guard for `CryptoKeyPair` — both `publicKey` and `privateKey` must be CryptoKeys. */
-export const isCryptoKeyPair = (key: any): key is CryptoKeyPair =>
-  key && typeof key === "object" && isCryptoKey(key.publicKey) && isCryptoKey(key.privateKey);
-
-/**
- * Returns true if the JWK is a symmetric (oct) key.
- *
- * NOTE: a symmetric JWK's `k` is always secret key material. {@link isPrivateJWK}
- * returns `false` for `oct` keys (it only detects asymmetric `d`), so use this
- * guard — not `!isPrivateJWK(key)` — when deciding whether a JWK is safe to
- * publish.
- *
- * The `T` inference preserves the caller's narrowed alg type — passing a
- * `JWK_oct<"HS256">` refines to `JWK_oct<"HS256">`, not `JWK_oct<string>`.
- */
-export function isSymmetricJWK<T>(key: T): key is Extract<T, JWK_oct>;
-export function isSymmetricJWK(key: unknown): key is JWK_oct;
-export function isSymmetricJWK(key: any): boolean {
-  return isJWK(key) && key.kty === "oct" && typeof (key as JWK_oct).k === "string";
-}
-
-/**
- * Returns true if the JWK is an asymmetric (RSA, EC, OKP) key.
- *
- * The `T` inference preserves the caller's narrowed alg type — passing a
- * `JWK_EC<"ES256">` refines to `JWK_EC<"ES256">`, not `JWK_EC<string>`,
- * and so on for RSA and OKP.
- */
-export function isAsymmetricJWK<T>(key: T): key is Exclude<T, JWK_oct>;
-export function isAsymmetricJWK(key: unknown): key is Exclude<JWK, JWK_oct>;
-export function isAsymmetricJWK(key: any): boolean {
-  return !isSymmetricJWK(key);
-}
-
-/**
- * Type guard that checks if the provided JWK contains *asymmetric* private key
- * material. It relies purely on the presence of private components (e.g. "d"),
- * not on the alg value.
- *
- * WARNING: this returns `false` for symmetric (`oct`) keys — their `k` is secret
- * material too, but it is not a `d` component. `!isPrivateJWK(key)` is therefore
- * NOT a "safe to share" check: it passes every `oct` key. To filter keys that
- * are safe to publish, use {@link isPublicJWK} (true only for asymmetric public
- * keys); to detect any secret material, combine with {@link isSymmetricJWK}.
- *
- * Preserves narrow alg types from the caller.
- */
-export function isPrivateJWK<T>(
-  key: T,
-): key is Extract<T, JWK_EC_Private | JWK_OKP_Private | JWK_RSA_Private>;
-export function isPrivateJWK(key: unknown): key is JWK_Private;
-export function isPrivateJWK(key: any): boolean {
-  if (!isJWK(key)) return false;
-  if (key.kty === "EC") {
-    return typeof (key as Partial<JWK_EC_Private>).d === "string";
-  }
-  if (key.kty === "OKP") {
-    return typeof (key as Partial<JWK_OKP_Private>).d === "string";
-  }
-  if (key.kty === "RSA") {
-    return typeof (key as Partial<JWK_RSA_Private>).d === "string";
-  }
-  return false;
-}
-
-/**
- * Type guard that checks if the provided JWK is a public (asymmetric) key:
- * public components present, no private `d`. Returns `false` for `oct` keys
- * (which are always secret), making it the correct "safe to publish" predicate.
- *
- * Preserves narrow alg types from the caller.
- */
-export function isPublicJWK<T>(
-  key: T,
-): key is Exclude<Extract<T, JWK_EC_Public | JWK_OKP_Public | JWK_RSA_Public>, JWK_Private>;
-export function isPublicJWK(key: unknown): key is JWK_Public;
-export function isPublicJWK(key: any): boolean {
-  if (!isJWK(key)) return false;
-  if (key.kty === "EC") {
-    const ec = key as Partial<JWK_EC_Public & JWK_EC_Private>;
-    return (
-      typeof ec.x === "string" &&
-      typeof ec.y === "string" &&
-      typeof (ec as Partial<JWK_EC_Private>).d !== "string"
-    );
-  }
-  if (key.kty === "OKP") {
-    const okp = key as Partial<JWK_OKP_Public & JWK_OKP_Private>;
-    return typeof okp.x === "string" && typeof (okp as Partial<JWK_OKP_Private>).d !== "string";
-  }
-  if (key.kty === "RSA") {
-    const rsa = key as Partial<JWK_RSA_Public & JWK_RSA_Private>;
-    return (
-      typeof rsa.n === "string" &&
-      typeof rsa.e === "string" &&
-      typeof (rsa as Partial<JWK_RSA_Private>).d !== "string"
-    );
-  }
-  return false;
-}

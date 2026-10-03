@@ -1,6 +1,5 @@
-import { type H3Event, isEvent } from "h3v1";
+import { type H3Event, type H3EventContext, isEvent } from "h3v1";
 import { parse as parseCookies } from "cookie-esv1";
-import type { CookieSerializeOptions } from "cookie-esv1";
 import { readChunkedFrom, readChunkedFromSetCookie } from "../../_chunked-cookie";
 import {
   type SessionTokenSource,
@@ -9,7 +8,7 @@ import {
   sessionCookieAttributes,
   sessionHeaderName,
 } from "../../_session";
-import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
+import type { SessionCookieOptions, SessionPort } from "../../_session-core";
 import { setChunkedCookie, deleteChunkedCookie, responseSetCookies } from "../_cookie";
 
 export type { SessionTokenSource };
@@ -19,8 +18,8 @@ export const PREFIX = "[unjwt/h3]";
 
 /** Event shapes the adapter reads from: an h3 v1 event, or any request-like object. */
 export type CompatEvent =
-  | { request: { headers: Headers }; context: any }
-  | { headers: Headers; context: any };
+  | { request: { headers: Headers }; context: H3EventContext }
+  | { headers: Headers; context: H3EventContext };
 
 /**
  * The h3 v1 side of a session: the event context it lives in, the request it
@@ -36,7 +35,7 @@ export const h3SessionPort: SessionPort<CompatEvent | H3Event> = {
    * and a JWE session that share a `name` do not overwrite one another.
    */
   store: (event, slot) => ({
-    get: () => getSessionsContext(event)[slot] as SessionState<any, any> | undefined,
+    get: () => getSessionsContext(event)[slot],
     set: (state) => {
       getSessionsContext(event)[slot] = state;
     },
@@ -49,12 +48,7 @@ export const h3SessionPort: SessionPort<CompatEvent | H3Event> = {
   writable: hasWritableResponse,
 
   setCookie: (event, sessionName, token, options) => {
-    setChunkedCookie(
-      event as H3Event,
-      sessionName,
-      token,
-      sessionCookieAttributes(options) as CookieSerializeOptions & { chunkMaxLength?: number },
-    );
+    setChunkedCookie(cookieEvent(event), sessionName, token, sessionCookieAttributes(options));
   },
 
   deleteCookie: expireSessionCookie,
@@ -68,11 +62,8 @@ export const h3SessionPort: SessionPort<CompatEvent | H3Event> = {
   },
 };
 
-export function getSessionsContext(event: H3Event | CompatEvent): Record<string, any> {
-  if (!event.context.sessions) {
-    event.context.sessions = Object.create(null);
-  }
-  return event.context.sessions as Record<string, any>;
+export function getSessionsContext(event: H3Event | CompatEvent): Record<string, unknown> {
+  return (event.context.sessions ||= Object.create(null));
 }
 
 /**
@@ -117,22 +108,23 @@ function expireSessionCookie(
   sessionName: string,
   options: SessionCookieOptions,
 ): void {
-  deleteChunkedCookie(
-    event as H3Event,
-    sessionName,
-    sessionCookieAttributes(options) as CookieSerializeOptions,
-  );
+  deleteChunkedCookie(cookieEvent(event), sessionName, sessionCookieAttributes(options));
+}
+
+/** The event a cookie write lands on. */
+function cookieEvent(event: H3Event | CompatEvent): H3Event {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a cookie is written only once `writable` (hasWritableResponse) held, and it holds only for an H3Event
+  return event as H3Event;
 }
 
 function getRequestHeader(event: H3Event | CompatEvent, name: string): string | undefined {
-  const nodeEvent = event as H3Event;
-  if (nodeEvent.node) {
-    const value = nodeEvent.node.req.headers[name];
+  if ("node" in event && event.node) {
+    const value = event.node.req.headers[name];
     return Array.isArray(value) ? value[0] : value;
   }
   const headers =
-    (event as { request?: { headers: Headers } }).request?.headers ??
-    (event as { headers?: Headers }).headers;
+    ("request" in event ? event.request?.headers : undefined) ??
+    ("headers" in event ? event.headers : undefined);
   return headers?.get(name) ?? undefined;
 }
 
@@ -142,8 +134,16 @@ function getRequestCookies(event: H3Event | CompatEvent): Record<string, string 
 }
 
 function getResponseSetCookie(event: H3Event | CompatEvent): string[] {
-  const nodeEvent = event as H3Event;
-  if (nodeEvent.node) return responseSetCookies(nodeEvent);
-  const response = (event as { response?: Response }).response;
-  return response?.headers ? response.headers.getSetCookie() : [];
+  if ("node" in event && event.node) return responseSetCookies(event);
+  const response: unknown = "response" in event ? event.response : undefined;
+  return hasHeaders(response) ? response.headers.getSetCookie() : [];
+}
+
+function hasHeaders(response: unknown): response is { headers: Headers } {
+  return (
+    typeof response === "object" &&
+    response !== null &&
+    "headers" in response &&
+    Boolean(response.headers)
+  );
 }

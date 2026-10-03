@@ -1,5 +1,11 @@
-import type { JWK, JWSAlgorithm, KeyManagementAlgorithm } from "../types";
-import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./index";
+import type {
+  ContentEncryptionAlgorithm,
+  JWK,
+  JWSAlgorithm,
+  KeyManagementAlgorithm,
+} from "../types";
+import { hashNameOf, lengthOf, namedCurveOf } from "../_crypto/_key-algorithm";
+import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards";
 
 /**
  * How a JWK Set's entries are read. A set is public-key material: its `oct`
@@ -84,16 +90,16 @@ function unionFromJWKSet<T extends string>(
 }
 
 function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
-  if (jwk.alg) return [jwk.alg as JWSAlgorithm];
+  if (jwk.alg) return declaredAlgorithm<JWSAlgorithm>(jwk.alg);
   // WebCrypto exports omit `alg` for EC/OKP JWKs; the curve alone identifies the signature alg.
   if (jwk.kty === "EC") {
-    const crv = (jwk as JWK & { crv?: string }).crv;
+    const crv = jwk.crv;
     if (crv === "P-256") return ["ES256"];
     if (crv === "P-384") return ["ES384"];
     if (crv === "P-521") return ["ES512"];
   }
   if (jwk.kty === "OKP") {
-    const crv = (jwk as JWK & { crv?: string }).crv;
+    const crv = jwk.crv;
     // `EdDSA` (RFC 8037) leads: it is the interoperable spelling, so any caller
     // taking the first entry as "the" alg produces a widely accepted token.
     if (crv === "Ed25519") return ["EdDSA", "Ed25519"];
@@ -103,15 +109,15 @@ function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
 
 function jweAlgsFromJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   if (jwk.kty === "oct") return jweAlgsFromOctJWK(jwk);
-  if (jwk.alg) return [jwk.alg as KeyManagementAlgorithm];
+  if (jwk.alg) return declaredAlgorithm<KeyManagementAlgorithm>(jwk.alg);
   if (jwk.kty === "EC") {
-    const crv = (jwk as JWK & { crv?: string }).crv;
+    const crv = jwk.crv;
     if (crv === "P-256" || crv === "P-384" || crv === "P-521") {
       return ["ECDH-ES", "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"];
     }
   }
   if (jwk.kty === "OKP") {
-    const crv = (jwk as JWK & { crv?: string }).crv;
+    const crv = jwk.crv;
     if (crv === "X25519") {
       return ["ECDH-ES", "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"];
     }
@@ -127,17 +133,17 @@ function jweAlgsFromJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
  * a key management algorithm and admits nothing else.
  */
 function jweAlgsFromOctJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
-  const alg = (jwk as JWK & { alg?: string }).alg;
+  const alg = jwk.alg;
   if (!alg) return undefined;
   if (isContentEncryptionAlgorithm(alg)) return ["dir"];
-  return [alg as KeyManagementAlgorithm];
+  return declaredAlgorithm<KeyManagementAlgorithm>(alg);
 }
 
 /**
  * The `enc` values RFC 7518 §5 defines, as an `alg` an `oct` JWK may declare.
  * Internal to the library: the `utils` entry point does not re-export it.
  */
-export function isContentEncryptionAlgorithm(alg: string): boolean {
+export function isContentEncryptionAlgorithm(alg: string): alg is ContentEncryptionAlgorithm {
   return CONTENT_ENCRYPTION_ALGORITHMS.has(alg);
 }
 
@@ -152,18 +158,18 @@ const CONTENT_ENCRYPTION_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new S
 
 function jwsAlgsFromCryptoKey(key: CryptoKey): JWSAlgorithm[] | undefined {
   const name = key.algorithm.name;
-  const hashName = (key.algorithm as { hash?: { name?: string } }).hash?.name;
+  const hashName = hashNameOf(key.algorithm);
   const hashBits = hashName?.startsWith("SHA-") ? hashName.slice(4) : undefined;
 
   switch (name) {
     case "HMAC":
-      return hashBits ? [`HS${hashBits}` as JWSAlgorithm] : undefined;
+      return hashBits ? declaredAlgorithm<JWSAlgorithm>(`HS${hashBits}`) : undefined;
     case "RSASSA-PKCS1-v1_5":
-      return hashBits ? [`RS${hashBits}` as JWSAlgorithm] : undefined;
+      return hashBits ? declaredAlgorithm<JWSAlgorithm>(`RS${hashBits}`) : undefined;
     case "RSA-PSS":
-      return hashBits ? [`PS${hashBits}` as JWSAlgorithm] : undefined;
+      return hashBits ? declaredAlgorithm<JWSAlgorithm>(`PS${hashBits}`) : undefined;
     case "ECDSA": {
-      const curve = (key.algorithm as EcKeyAlgorithm).namedCurve;
+      const curve = namedCurveOf(key.algorithm);
       if (curve === "P-256") return ["ES256"];
       if (curve === "P-384") return ["ES384"];
       if (curve === "P-521") return ["ES512"];
@@ -178,8 +184,8 @@ function jwsAlgsFromCryptoKey(key: CryptoKey): JWSAlgorithm[] | undefined {
 
 function jweAlgsFromCryptoKey(key: CryptoKey): KeyManagementAlgorithm[] | undefined {
   const name = key.algorithm.name;
-  const hashName = (key.algorithm as { hash?: { name?: string } }).hash?.name;
-  const length = (key.algorithm as AesKeyAlgorithm).length;
+  const hashName = hashNameOf(key.algorithm);
+  const length = lengthOf(key.algorithm);
 
   switch (name) {
     case "AES-KW": {
@@ -207,4 +213,14 @@ function jweAlgsFromCryptoKey(key: CryptoKey): KeyManagementAlgorithm[] | undefi
     default:
       return undefined;
   }
+}
+
+/**
+ * The algorithm a key names for itself — a JWK's `alg`, or a CryptoKey's hash
+ * spelled as a JWS name — taken as declared. A name outside the union is not
+ * filtered here: the operation that receives it rejects it as unsupported.
+ */
+function declaredAlgorithm<T extends string>(alg: string): T[] {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a key's self-declared algorithm is an open string; unsupported names are rejected by the operation's algorithm check
+  return [alg as T];
 }

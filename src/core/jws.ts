@@ -19,7 +19,7 @@ import type {
 import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import { JWTError } from "./error";
-import { isJWK, isJWKSet } from "./utils";
+import { isJWK, isJWKSet } from "./utils/guards";
 import {
   applyTypCtyDefaults,
   computeJwtTimeClaims,
@@ -98,7 +98,7 @@ export async function sign(
 
   if (!alg) {
     if (isJWK(key) && key.alg) {
-      alg = key.alg as JWSAlgorithm;
+      alg = key.alg;
     } else {
       throw new JWTError(
         'JWS "alg" (Algorithm) must be provided in options',
@@ -311,7 +311,7 @@ export async function verify<T extends JOSEPayload>(
 
   // RFC 7797: when `b64: false`, the payload segment is the raw payload (not base64url-encoded).
   const useB64 = protectedHeader.b64 !== false;
-  const payload = decodeJWSPayload<T>(payloadEncoded as string, useB64, payloadMode);
+  const payload = decodeJWSPayload<T>(payloadEncoded, useB64, payloadMode);
 
   validateClaimsIfJson(payload, payloadMode, options);
 
@@ -330,12 +330,13 @@ function _buildJWSHeader(
   const safeHeader = sanitizeObjectCopy<JWSHeaderParameters | undefined>(userHeader);
   // Precedence: top-level `alg` > user header > JWK `kid`. Build imperatively to
   // avoid the intermediate `{ kid }` / spread-output allocations.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `alg` is assigned below, before the header leaves this function
   const header = {} as JWSProtectedHeader;
   if (isJWK(key) && key.kid) header.kid = key.kid;
   if (safeHeader) Object.assign(header, safeHeader);
   header.alg = alg;
   applyTypCtyDefaults(header, payload);
   applyB64Header(header);
-  assertProducerCrit(header as Record<string, unknown>, "JWS");
+  assertProducerCrit(header, "JWS");
   return header;
 }

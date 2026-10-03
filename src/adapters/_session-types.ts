@@ -2,6 +2,14 @@ import type { JWTClaims, ExpiresIn } from "../core/types";
 import type { StrictOmit } from "../core/utils/types";
 import type { SessionIssueOptions } from "./_session";
 
+/**
+ * What a session's data type must be: an object keyed by strings. Its values
+ * are `any` rather than `unknown` so that a data shape declared as an
+ * `interface`, which carries no index signature, satisfies it.
+ */
+// oxlint-disable-next-line typescript/no-explicit-any -- an interface has no implicit index signature, so only `any` values admit interface-declared session data
+export type SessionRecord = Record<string, any>;
+
 export interface SessionClaims
   extends Required<Pick<JWTClaims, "jti" | "iat">>, StrictOmit<JWTClaims, "jti" | "iat"> {}
 
@@ -9,17 +17,17 @@ export interface SessionClaims
  * Session data — everything but the claims the adapter owns. `jti`, `iat`,
  * `exp` and `nbf` are minted on every issue and never read from session data.
  */
-export type SessionData<T extends Record<string, any> = SessionClaims> = StrictOmit<
+export type SessionData<T extends SessionRecord = SessionClaims> = StrictOmit<
   T,
   "jti" | "iat" | "exp" | "nbf"
 >;
 
-export type SessionUpdate<T extends Record<string, any> = SessionClaims> =
+export type SessionUpdate<T extends SessionRecord = SessionClaims> =
   | Partial<SessionData<T>>
   | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
 
 export interface SessionManager<
-  T extends Record<string, any> = SessionClaims,
+  T extends SessionRecord = SessionClaims,
   ConfigMaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > {
   readonly id: string | undefined;
@@ -106,6 +114,7 @@ export interface SessionHooks<TSession, TCarrier extends Record<string, unknown>
     args: TCarrier & {
       /** The session involved in the error. */
       session: TSession;
+      // oxlint-disable-next-line typescript/no-explicit-any -- a write-path failure is whatever the cookie write or token issue threw, and the published hook signature reads it without narrowing
       error: any;
       config: TConfig;
     },

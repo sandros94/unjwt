@@ -20,16 +20,11 @@ import type {
 } from "./types";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
-import {
-  inferJWEAllowedAlgorithms,
-  inferJWSAllowedAlgorithms,
-  isCryptoKey,
-  isCryptoKeyPair,
-  isJWK,
-  validateJwtClaims,
-} from "./utils";
+import { modulusLengthOf } from "./_crypto/_key-algorithm";
+import { inferJWEAllowedAlgorithms, inferJWSAllowedAlgorithms } from "./utils/algorithms";
+import { isCryptoKey, isCryptoKeyPair, isJWK } from "./utils/guards";
 import { assertCritShape, parsePayloadBytes, parsePayloadSegment } from "./_jwt-internal";
-import { assertClaimValidationOptions, assertStringList } from "./utils/jwt";
+import { assertClaimValidationOptions, assertStringList, validateJwtClaims } from "./utils/jwt";
 import {
   DEFAULT_PBES2_ITERATIONS,
   assertOctKeyLength,
@@ -98,7 +93,7 @@ export function assertEntryLimit(
   if (count <= limit) return;
   throw new JWTError(
     `Invalid ${options.family}: ${count} ${options.what} exceed the limit of ${limit}.`,
-    `ERR_${options.family}_INVALID` as JWTErrorCode,
+    `ERR_${options.family}_INVALID`,
   );
 }
 
@@ -436,8 +431,8 @@ export function parseEphemeralKey(
       );
     }
     return {
-      epk: ephemeralKey as JWK_EC_Public,
-      epkPrivateKey: ephemeralKey as JWK_EC_Private,
+      epk: ephemeralKey,
+      epkPrivateKey: ephemeralKey,
     };
   }
   throw new JWTError("Unsupported ECDH-ES ephemeral key material provided.", "ERR_JWK_INVALID");
@@ -478,7 +473,7 @@ export async function resolveSigningKey(
     );
   }
   if (alg.startsWith("RS") || alg.startsWith("PS")) {
-    const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
+    const modulusLength = modulusLengthOf(key.algorithm);
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
       throw new JWTError(
         `${alg} requires a key modulusLength of at least 2048 bits`,
@@ -508,6 +503,7 @@ export function validateClaimsIfJson(
   options: JWTClaimValidationOptions & { validateClaims?: boolean },
 ): void {
   if (mode !== "json" || options.validateClaims === false) return;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a "json" payload is a parsed JSON object, and validateJwtClaims checks the type of each registered claim it reads
   validateJwtClaims(payload as JWTClaims, options);
 }
 
@@ -580,11 +576,8 @@ export function assertNotStringKey<K>(key: K): asserts key is Exclude<K, string>
  * and is UTF-8 encoded here (RFC 7518 §4.8.1), rejected under every other
  * `alg`. Anything else passes through to `importKey`.
  */
-export function resolvePasswordKey<K>(
-  alg: string,
-  key: K,
-): Exclude<K, string> | Uint8Array<ArrayBuffer> {
-  if (typeof key !== "string") return key as Exclude<K, string>;
+export function resolvePasswordKey<K>(alg: string, key: K | string): K | Uint8Array<ArrayBuffer> {
+  if (typeof key !== "string") return key;
   if (!alg.startsWith("PBES2")) throw stringKeyError();
   return textEncoder.encode(key);
 }
@@ -769,10 +762,7 @@ export function applyB64Header(header: { b64?: boolean; crit?: string[] }): void
  */
 export function assertCompactToken(token: unknown, family: "JWS" | "JWE"): asserts token is string {
   if (typeof token !== "string") {
-    throw new JWTError(
-      `Invalid ${family}: token must be a string.`,
-      `ERR_${family}_INVALID` as JWTErrorCode,
-    );
+    throw new JWTError(`Invalid ${family}: token must be a string.`, `ERR_${family}_INVALID`);
   }
 }
 
@@ -787,7 +777,7 @@ export function assertSerializationObject(
   if (!isJSONObject(value)) {
     throw new JWTError(
       `Invalid ${family} JSON Serialization: expected an object.`,
-      `ERR_${family}_INVALID_SERIALIZATION` as JWTErrorCode,
+      `ERR_${family}_INVALID_SERIALIZATION`,
     );
   }
 }
@@ -851,8 +841,12 @@ export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R
 export async function resolveKeyInput<K>(
   key: K,
   options: { header: JWKLookupFunctionHeader; token: string; what: string },
-): Promise<ResolvedKeyInput<K>> {
-  if (typeof key !== "function") return key as ResolvedKeyInput<K>;
+): Promise<ResolvedKeyInput<K>>;
+export async function resolveKeyInput(
+  key: unknown,
+  options: { header: JWKLookupFunctionHeader; token: string; what: string },
+): Promise<unknown> {
+  if (typeof key !== "function") return key;
   const { header, token, what } = options;
   let resolved: unknown;
   try {
@@ -863,7 +857,7 @@ export async function resolveKeyInput<K>(
   if (resolved === undefined || resolved === null) {
     throw new JWTError(`Key lookup returned no key for ${what}.`, "ERR_JWK_KEY_NOT_FOUND");
   }
-  return resolved as ResolvedKeyInput<K>;
+  return resolved;
 }
 
 /**
@@ -951,7 +945,7 @@ export function checkJWEAlgSupported(alg: string): JWTError | undefined {
       "ERR_JWE_ALG_NOT_ALLOWED",
     );
   }
-  if (!JWE_ALGORITHM_SET.has(alg)) {
+  if (!isJWEAlgSupported(alg)) {
     return new JWTError(
       `Key management algorithm not supported: ${quoteTokenValue(alg)}`,
       "ERR_JWE_ALG_NOT_ALLOWED",
@@ -961,9 +955,26 @@ export function checkJWEAlgSupported(alg: string): JWTError | undefined {
 }
 
 /** Reject an `enc` outside {@link ContentEncryptionAlgorithm}. */
-export function checkJWEEncSupported(enc: string): JWTError | undefined {
-  if (Object.hasOwn(JWE_ENC_CEK_FORMAT, enc)) return undefined;
+export function checkJWEEncSupported(enc: unknown): JWTError | undefined {
+  if (typeof enc === "string" && Object.hasOwn(JWE_ENC_CEK_FORMAT, enc)) return undefined;
   return new JWTError(`Invalid JWE: unsupported "enc" ${quoteTokenValue(enc)}`, "ERR_JWE_INVALID");
+}
+
+/** Whether `alg` is a key management algorithm `unwrapKey` implements. */
+export function isJWEAlgSupported(alg: string): alg is KeyManagementAlgorithm {
+  return JWE_ALGORITHM_SET.has(alg);
+}
+
+/** Throw the {@link checkJWEAlgSupported} error; past it, `alg` is a key management algorithm. */
+export function assertJWEAlgSupported(alg: string): asserts alg is KeyManagementAlgorithm {
+  const error = checkJWEAlgSupported(alg);
+  if (error) throw error;
+}
+
+/** Throw the {@link checkJWEEncSupported} error; past it, `enc` is a content encryption algorithm. */
+export function assertJWEEncSupported(enc: unknown): asserts enc is ContentEncryptionAlgorithm {
+  const error = checkJWEEncSupported(enc);
+  if (error) throw error;
 }
 
 /** Reject an `enc` outside the caller's `encryptionAlgorithms` allowlist, when one is given. */
@@ -1138,7 +1149,7 @@ export function checkProtectedTyp(
     actual === undefined
       ? `Invalid ${family}: the protected header${where} carries no "typ"; expected "${expected}".`
       : `Invalid ${family}: "typ" (Type) Header Parameter mismatch${where}. Expected "${expected}", got ${JSON.stringify(actual)}.`;
-  return new JWTError(message, `ERR_${family}_INVALID` as JWTErrorCode);
+  return new JWTError(message, `ERR_${family}_INVALID`);
 }
 
 function normalizeTyp(typ: string): string {
@@ -1160,25 +1171,27 @@ export function decodeProtectedHeader<T extends object>(
   encoded: string | undefined,
   family: "JWS" | "JWE",
 ): T {
-  if (!encoded) return {} as T;
-  let parsed: unknown;
-  try {
-    parsed = safeJsonParse<T>(base64UrlParse(encoded));
-  } catch (error) {
-    throw new JWTError(
-      `Invalid ${family}: Protected header could not be decoded.`,
-      `ERR_${family}_INVALID` as JWTErrorCode,
-      error,
-    );
+  let parsed: unknown = {};
+  if (encoded) {
+    try {
+      parsed = safeJsonParse(base64UrlParse(encoded));
+    } catch (error) {
+      throw new JWTError(
+        `Invalid ${family}: Protected header could not be decoded.`,
+        `ERR_${family}_INVALID`,
+        error,
+      );
+    }
+    // RFC 7515 §4 / RFC 7516 §4: the header is a JSON object. `null`, arrays and
+    // JSON scalars parse fine but must not reach the header consumers.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new JWTError(
+        `Invalid ${family}: Protected header must be a JSON object.`,
+        `ERR_${family}_INVALID`,
+      );
+    }
   }
-  // RFC 7515 §4 / RFC 7516 §4: the header is a JSON object. `null`, arrays and
-  // JSON scalars parse fine but must not reach the header consumers.
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new JWTError(
-      `Invalid ${family}: Protected header must be a JSON object.`,
-      `ERR_${family}_INVALID` as JWTErrorCode,
-    );
-  }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a JSON object (checked above) read as the header type; each consumer checks the members it reads
   return parsed as T;
 }
 
@@ -1201,7 +1214,7 @@ export function decodeSegment(
   } catch (error) {
     throw new JWTError(
       `Invalid ${options.family}: ${options.what} could not be decoded.`,
-      `ERR_${options.family}_INVALID` as JWTErrorCode,
+      `ERR_${options.family}_INVALID`,
       error,
     );
   }
@@ -1226,21 +1239,37 @@ export function decodeJWSPayload<T>(
   mode: JOSEPayloadMode,
 ): T {
   if (!useB64) {
-    if (mode === "string") return payloadSegment as T;
-    return parsePayloadBytes<T>(textEncoder.encode(payloadSegment), {
-      payload: mode,
-      family: "JWS",
-    }) as T;
+    return declaredPayload<T>(
+      mode === "string"
+        ? payloadSegment
+        : parsePayloadBytes<T>(textEncoder.encode(payloadSegment), {
+            payload: mode,
+            family: "JWS",
+          }),
+    );
   }
   try {
-    return parsePayloadSegment<T>(payloadSegment, {
-      payload: mode,
-      family: "JWS",
-    }) as T;
+    return declaredPayload<T>(
+      parsePayloadSegment<T>(payloadSegment, {
+        payload: mode,
+        family: "JWS",
+      }),
+    );
   } catch (error) {
     if (error instanceof JWTError) throw error;
     throw new JWTError("Invalid JWS: Payload could not be decoded.", "ERR_JWS_INVALID", error);
   }
+}
+
+/** Parse decrypted JWE plaintext under the caller-declared {@link JOSEPayloadMode}. */
+export function decodeJWEPayload<T>(plaintext: Uint8Array<ArrayBuffer>, mode: JOSEPayloadMode): T {
+  return declaredPayload<T>(parsePayloadBytes<T>(plaintext, { payload: mode, family: "JWE" }));
+}
+
+/** A parsed payload as the type the caller declared for its payload mode. */
+function declaredPayload<T>(payload: T | string | Uint8Array<ArrayBuffer>): T {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the payload mode decides whether the value is text, bytes or a JSON object, and the caller declares T for that mode
+  return payload as T;
 }
 
 function isJSONObject(value: unknown): value is Record<string, unknown> {

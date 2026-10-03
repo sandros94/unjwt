@@ -96,26 +96,26 @@ describe.concurrent("_internal helpers", () => {
 
     it('honours "use" against the operation', () => {
       const sigFilter = buildJWKSetFilter({ alg: "RS256" }, { op: "sig" });
-      expect(sigFilter({ ...noKid, use: "sig" } as JWK)).toBe(true);
-      expect(sigFilter({ ...noKid, use: "enc" } as JWK)).toBe(false);
+      expect(sigFilter({ ...noKid, use: "sig" })).toBe(true);
+      expect(sigFilter({ ...noKid, use: "enc" })).toBe(false);
 
       const encFilter = buildJWKSetFilter({ alg: "RSA-OAEP-256" }, { op: "enc" });
       const encKey: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RSA-OAEP-256" };
-      expect(encFilter({ ...encKey, use: "enc" } as JWK)).toBe(true);
-      expect(encFilter({ ...encKey, use: "sig" } as JWK)).toBe(false);
+      expect(encFilter({ ...encKey, use: "enc" })).toBe(true);
+      expect(encFilter({ ...encKey, use: "sig" })).toBe(false);
     });
 
     it('honours "key_ops" against the operation', () => {
       const sigFilter = buildJWKSetFilter({ alg: "RS256" }, { op: "sig" });
-      expect(sigFilter({ ...noKid, key_ops: ["verify"] } as JWK)).toBe(true);
-      expect(sigFilter({ ...noKid, key_ops: ["sign"] } as JWK)).toBe(false);
+      expect(sigFilter({ ...noKid, key_ops: ["verify"] })).toBe(true);
+      expect(sigFilter({ ...noKid, key_ops: ["sign"] })).toBe(false);
 
       const encKey: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RSA-OAEP-256" };
       const encFilter = buildJWKSetFilter({ alg: "RSA-OAEP-256" }, { op: "enc" });
       for (const op of ["unwrapKey", "decrypt", "deriveBits", "deriveKey"]) {
         expect(encFilter({ ...encKey, key_ops: [op] } as JWK)).toBe(true);
       }
-      expect(encFilter({ ...encKey, key_ops: ["verify"] } as JWK)).toBe(false);
+      expect(encFilter({ ...encKey, key_ops: ["verify"] })).toBe(false);
     });
 
     it("undefined header → only keys without alg pass (degenerate / unused in practice)", () => {
@@ -236,18 +236,14 @@ describe.concurrent("_internal helpers", () => {
 
     it("passes through RSA CryptoKey with modulusLength 2048", async () => {
       const rsa = await generateKey("RS256", { modulusLength: 2048 });
-      const key = await resolveSigningKey(
-        "RS256",
-        (rsa as CryptoKeyPair).privateKey as CryptoKey,
-        "sign",
-      );
-      expect(key).toBe((rsa as CryptoKeyPair).privateKey);
+      const key = await resolveSigningKey("RS256", rsa.privateKey, "sign");
+      expect(key).toBe(rsa.privateKey);
     });
 
     it("rejects RSA CryptoKey with modulusLength < 2048 for RS*", async () => {
       // RSA keys below 2048 are allowed during generation for tests only;
       // resolveSigningKey itself enforces the floor.
-      const weak = (await crypto.subtle.generateKey(
+      const weak = await crypto.subtle.generateKey(
         {
           name: "RSASSA-PKCS1-v1_5",
           modulusLength: 1024,
@@ -256,14 +252,14 @@ describe.concurrent("_internal helpers", () => {
         },
         true,
         ["sign", "verify"],
-      )) as CryptoKeyPair;
+      );
       await expect(resolveSigningKey("RS256", weak.privateKey, "sign")).rejects.toSatisfy((err) =>
         isJWTError(err, "ERR_JWK_INVALID"),
       );
     });
 
     it("rejects PSS CryptoKey with modulusLength < 2048", async () => {
-      const weak = (await crypto.subtle.generateKey(
+      const weak = await crypto.subtle.generateKey(
         {
           name: "RSA-PSS",
           modulusLength: 1024,
@@ -272,14 +268,14 @@ describe.concurrent("_internal helpers", () => {
         },
         true,
         ["sign", "verify"],
-      )) as CryptoKeyPair;
+      );
       await expect(resolveSigningKey("PS256", weak.privateKey, "sign")).rejects.toSatisfy((err) =>
         isJWTError(err, "ERR_JWK_INVALID"),
       );
     });
 
     it("passes through ECDSA CryptoKey unchanged (no modulus check)", async () => {
-      const ec = (await generateKey("ES256")) as CryptoKeyPair;
+      const ec = await generateKey("ES256");
       const key = await resolveSigningKey("ES256", ec.privateKey, "sign");
       expect(key).toBe(ec.privateKey);
     });
@@ -473,12 +469,12 @@ describe.concurrent("_internal helpers", () => {
 
     describe("inference fallback", () => {
       it("CryptoKey HMAC infers HS256 and allows it", async () => {
-        const hs = (await generateKey("HS256")) as CryptoKey;
+        const hs = await generateKey("HS256");
         expect(checkAlgAllowed("HS256", hs, { ctx: JWS_ALG_CTX })).toBeUndefined();
       });
 
       it("CryptoKey HMAC rejects a mismatched alg", async () => {
-        const hs = (await generateKey("HS256")) as CryptoKey;
+        const hs = await generateKey("HS256");
         const err = checkAlgAllowed("HS512", hs, { ctx: JWS_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
       });

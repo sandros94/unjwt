@@ -66,7 +66,7 @@ function foreignJWS(claims: Record<string, unknown>, header: Record<string, unkn
  * only for object payloads, so the claims go over the wire as raw bytes.
  */
 function rawBytes(claims: Record<string, unknown>): Uint8Array<ArrayBuffer> {
-  return new TextEncoder().encode(JSON.stringify(claims)) as Uint8Array<ArrayBuffer>;
+  return new TextEncoder().encode(JSON.stringify(claims));
 }
 
 interface MockEntry {
@@ -80,18 +80,21 @@ function elysiaContext(
   const store = new Map<string, MockEntry>();
   for (const [name, value] of Object.entries(options.cookies ?? {})) store.set(name, { value });
 
-  const cookie = new Proxy({} as SessionContext["cookie"], {
-    get(_target, property: string) {
-      return {
-        get value() {
-          return store.get(property)?.value;
-        },
-        set(config: CookieAttributes & { value: string }) {
-          store.set(property, { value: config.value, lastWrite: config });
-        },
-      };
+  const cookie = new Proxy(
+    {},
+    {
+      get(_target, property: string) {
+        return {
+          get value() {
+            return store.get(property)?.value;
+          },
+          set(config: CookieAttributes & { value: string }) {
+            store.set(property, { value: config.value, lastWrite: config });
+          },
+        };
+      },
     },
-  });
+  );
 
   return {
     context: { cookie, request: { headers: new Headers(options.headers ?? {}) } } as SessionContext,
@@ -276,7 +279,7 @@ describe("session adapters — shared contract", () => {
           iat: 1,
           exp: 2,
           nbf: 3,
-        } as never);
+        });
         return { data: session.data, id: session.id };
       });
 
@@ -292,7 +295,7 @@ describe("session adapters — shared contract", () => {
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
         const session = await useJWSSessionV2(event, jwsConfig);
-        await session.update(() => ({ user: "bob", exp: 2 }) as never);
+        await session.update(() => ({ user: "bob", exp: 2 }));
         return { data: session.data };
       });
 
@@ -303,9 +306,7 @@ describe("session adapters — shared contract", () => {
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
         const session = await useJWSSessionV2(event, jwsConfig);
-        const error = await caught(() =>
-          session.update({ ["__proto__"]: { admin: true } } as never),
-        );
+        const error = await caught(() => session.update({ ["__proto__"]: { admin: true } }));
         return {
           option: isJWTError(error, "ERR_INVALID_OPTION"),
           message: (error as Error).message,
@@ -365,7 +366,7 @@ describe("session adapters — shared contract", () => {
 
       expect(await response.json()).toEqual({ id: null });
       expect(onExpire).not.toHaveBeenCalled();
-      const error = onError.mock.calls[0]![0].error;
+      const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
       expect(error.message).toMatch(/cty/);
     });
@@ -384,7 +385,7 @@ describe("session adapters — shared contract", () => {
 
       await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
 
-      const error = onError.mock.calls[0]![0].error;
+      const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
       expect(error.message).toMatch(/cty/);
     });
@@ -408,7 +409,7 @@ describe("session adapters — shared contract", () => {
 
       await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
 
-      expect(isJWTError(onError.mock.calls[0]![0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
     });
 
     it("refuses a token whose content marker is not the session one", async () => {
@@ -423,7 +424,7 @@ describe("session adapters — shared contract", () => {
 
       await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
 
-      const error = onError.mock.calls[0]![0].error;
+      const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
       expect(error.message).toMatch(/cty/);
     });
@@ -443,7 +444,7 @@ describe("session adapters — shared contract", () => {
 
       await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
 
-      const error = onError.mock.calls[0]![0].error;
+      const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
       expect(isJWTError(error.cause, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
     });
@@ -462,7 +463,7 @@ describe("session adapters — shared contract", () => {
 
       await app.request("/", { headers: { cookie: `contract-jwe=${token}` } });
 
-      expect(isJWTError(onError.mock.calls[0]![0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
     });
 
     it("does not restore a cleared session from the request cookie", async () => {
@@ -590,7 +591,7 @@ describe("session adapters — shared contract", () => {
       await app.request("/");
       vi.useRealTimers();
 
-      const { error, session } = onExpire.mock.calls[0]![0];
+      const { error, session } = onExpire.mock.calls[0][0];
       expect(error.message).toContain(new Date(session.expiresAt).toISOString());
       expect(new Date(session.expiresAt).getUTCFullYear()).toBe(new Date().getUTCFullYear());
     });
@@ -671,7 +672,7 @@ describe("session adapters — shared contract", () => {
       });
 
       const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.headers["set-cookie"]![0]).toMatch(/SameSite=Lax/i);
+      expect(response.headers["set-cookie"][0]).toMatch(/SameSite=Lax/i);
     });
 
     it("splits a long session across chunk cookies and reads them back", async () => {
@@ -685,7 +686,7 @@ describe("session adapters — shared contract", () => {
       const request = supertest(toNodeListener(app));
       const minted = await request.get("/");
       const cookies = (minted.headers["set-cookie"] as unknown as string[]).map(
-        (cookie) => cookie.split(";")[0]!,
+        (cookie) => cookie.split(";")[0],
       );
 
       expect(cookies.length).toBeGreaterThan(2);
@@ -706,7 +707,7 @@ describe("session adapters — shared contract", () => {
           }),
         ),
       ).get("/");
-      const cookie = (minted.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
+      const cookie = (minted.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
 
       const app = h3v1App(async (event) => {
         const session = await useJWSSessionV1(event, jwsConfig);
@@ -749,7 +750,7 @@ describe("session adapters — shared contract", () => {
           }),
         ),
       ).get("/");
-      const cookie = (issued.headers["set-cookie"] as unknown as string[])[0]!.split(";")[0]!;
+      const cookie = (issued.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
 
       const onError = vi.fn();
       let settle!: (outcome: Record<string, unknown>) => void;
@@ -866,7 +867,7 @@ describe("session adapters — shared contract", () => {
     it("strips the adapter-owned claims from an update payload", async () => {
       const { context } = elysiaContext();
       const session = await createJWSSession(context, { key: jwsKey });
-      await session.update({ user: "alice", jti: "forged", exp: 2, nbf: 3 } as never);
+      await session.update({ user: "alice", jti: "forged", exp: 2, nbf: 3 });
 
       expect({ ...session.data }).toEqual({ user: "alice" });
       expect(session.id).not.toBe("forged");
@@ -875,7 +876,7 @@ describe("session adapters — shared contract", () => {
     it("rejects prototype-poisoning keys in an update", async () => {
       const { context } = elysiaContext();
       const session = await createJWSSession(context, { key: jwsKey });
-      const error = await caught(() => session.update({ ["constructor"]: 1 } as never));
+      const error = await caught(() => session.update({ ["constructor"]: 1 }));
 
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect((error as Error).message).toMatch(/constructor/);
@@ -912,7 +913,7 @@ describe("session adapters — shared contract", () => {
 
       expect(session.id).toBeUndefined();
       expect(onExpire).not.toHaveBeenCalled();
-      const error = onError.mock.calls[0]![0].error;
+      const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
       expect(error.message).toMatch(/cty/);
     });
@@ -956,7 +957,7 @@ describe("session adapters — shared contract", () => {
       const session = await createJWESession(context, { ...pinned, hooks: { onError } });
 
       expect(session.id).toBeUndefined();
-      expect(isJWTError(onError.mock.calls[0]![0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
     });
 
     it("accepts a token minted at the session's own iteration count", async () => {
@@ -1460,7 +1461,7 @@ describe("session adapters — shared contract", () => {
         return { ok: true };
       });
 
-      const setCookie = (await app.request("/")).headers.getSetCookie()[0]!;
+      const setCookie = (await app.request("/")).headers.getSetCookie()[0];
       expect(setCookieAttributes(setCookie)).toEqual(expected[family]);
     });
 
@@ -1480,7 +1481,7 @@ describe("session adapters — shared contract", () => {
       );
 
       const response = await supertest(toNodeListener(app)).get("/");
-      const setCookie = (response.headers["set-cookie"] as unknown as string[])[0]!;
+      const setCookie = (response.headers["set-cookie"] as unknown as string[])[0];
       expect(setCookieAttributes(setCookie)).toEqual(expected[family]);
     });
 
@@ -1883,7 +1884,7 @@ describe("session adapters — shared contract", () => {
         expect(body).toEqual({ id: null });
         expect(onError).not.toHaveBeenCalled();
         expect(onExpire).toHaveBeenCalledOnce();
-        expect(isJWTError(onExpire.mock.calls[0]![0].error, "ERR_JWT_EXPIRED")).toBe(true);
+        expect(isJWTError(onExpire.mock.calls[0][0].error, "ERR_JWT_EXPIRED")).toBe(true);
       },
     );
   });
@@ -1944,7 +1945,7 @@ describe("session adapters — shared contract", () => {
         expect(await read(own)).toEqual({ user: "alice" });
         expect(onError).not.toHaveBeenCalled();
         expect(await read(costly)).toEqual({ user: null });
-        expect(onError.mock.calls[0]![0].error.cause.message).toMatch(/p2c/);
+        expect(onError.mock.calls[0][0].error.cause.message).toMatch(/p2c/);
       },
     );
   });
@@ -1989,9 +1990,9 @@ describe("session adapters — shared contract", () => {
         });
         expect(await requested.json()).toEqual({ ok: true });
         expect(requested.headers.getSetCookie()).toEqual([]);
-        expect(sent[0]!.email).toBe("alice@example.com");
+        expect(sent[0].email).toBe("alice@example.com");
 
-        const login = await app.request(`/login?token=${sent[0]!.token}`);
+        const login = await app.request(`/login?token=${sent[0].token}`);
         const body = (await login.json()) as { id: string; lifetime: number };
         expect(body.id).toBeTypeOf("string");
         expect(body.lifetime).toBe(15 * 60 * SECOND);
@@ -2036,9 +2037,9 @@ describe("session adapters — shared contract", () => {
           .send({ email: "alice@example.com" });
         expect(requested.body).toEqual({ ok: true });
         expect(requested.headers["set-cookie"]).toBeUndefined();
-        expect(sent[0]!.email).toBe("alice@example.com");
+        expect(sent[0].email).toBe("alice@example.com");
 
-        const login = await request.get("/login").query({ token: sent[0]!.token });
+        const login = await request.get("/login").query({ token: sent[0].token });
         expect(login.body.id).toBeTypeOf("string");
         expect(login.body.lifetime).toBe(15 * 60 * SECOND);
       },
@@ -2163,7 +2164,7 @@ describe("session adapters — shared contract", () => {
         await session.update({ user: "alice" });
         return { ok: true };
       });
-      const v2Cookie = (await v2.request("/")).headers.getSetCookie()[0]!;
+      const v2Cookie = (await v2.request("/")).headers.getSetCookie()[0];
 
       const router = createRouter({ preemptive: true });
       const v1 = createApp({ debug: true }).use(router);
@@ -2177,7 +2178,7 @@ describe("session adapters — shared contract", () => {
       );
       const v1Cookie = (
         (await supertest(toNodeListener(v1)).get("/")).headers["set-cookie"] as unknown as string[]
-      )[0]!;
+      )[0];
 
       const { context, store } = elysiaContext();
       const elysia = await createJWSSession(context, config);
@@ -2222,7 +2223,7 @@ describe("session adapters — shared contract", () => {
         expect(await read(own)).toEqual({ user: "alice" });
         expect(onError).not.toHaveBeenCalled();
         expect(await read(costly)).toEqual({ user: null });
-        expect(onError.mock.calls[0]![0].error.cause.message).toMatch(/p2c/);
+        expect(onError.mock.calls[0][0].error.cause.message).toMatch(/p2c/);
       },
     );
   });
@@ -2347,7 +2348,7 @@ describe("session adapters — shared contract", () => {
           expect(response.body).toEqual({ id: null });
           expect(response.cookies).toEqual([]);
           expect(onExpire).not.toHaveBeenCalled();
-          const error = onError.mock.calls[0]![0].error;
+          const error = onError.mock.calls[0][0].error;
           expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
           expect(error.message).toMatch(/cty/);
         }
@@ -2367,7 +2368,7 @@ describe("session adapters — shared contract", () => {
 
         expect(response.body).toEqual({ id: null });
         expect(onError).not.toHaveBeenCalled();
-        expect(onExpire.mock.calls[0]![0].session.id).toBe(EXPIRED_CLAIMS.jti);
+        expect(onExpire.mock.calls[0][0].session.id).toBe(EXPIRED_CLAIMS.jti);
       },
     );
   });
@@ -2475,7 +2476,7 @@ describe("session adapters — shared contract", () => {
         expect(await read(own)).toEqual({ user: "alice" });
         expect(onError).not.toHaveBeenCalled();
         expect(await read(plain)).toEqual({ user: null });
-        expect(isJWTError(onError.mock.calls[0]![0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+        expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
       },
     );
   });
@@ -2807,7 +2808,7 @@ function setCookieAttributes(setCookie: string): Record<string, unknown> {
 function liveCookies(setCookies: string[]): Record<string, string> {
   const cookies: Record<string, string> = {};
   for (const setCookie of setCookies) {
-    const pair = setCookie.split(";", 1)[0]!;
+    const pair = setCookie.split(";", 1)[0];
     const separator = pair.indexOf("=");
     cookies[pair.slice(0, separator).trim()] = decodeURIComponent(pair.slice(separator + 1).trim());
   }
@@ -2930,8 +2931,8 @@ function portFamilyCase(port: Port, family: Family): PortFamilyCase {
       }
       const plugin =
         family === "jws"
-          ? jwsSession<Record<string, any>, ExpiresIn | undefined, "session">(config as never)
-          : jweSession<Record<string, any>, ExpiresIn | undefined, "session">(config as never);
+          ? jwsSession<Record<string, any>>(config as never)
+          : jweSession<Record<string, any>>(config as never);
       const app = new Elysia()
         .use(plugin)
         .get("/", ({ session }) => ({ id: session.id ?? null }), { requireSession: true });
@@ -3057,7 +3058,7 @@ function foreignRawToken(family: Family, claims: Record<string, unknown>): Promi
 
 /** The protected header of a compact token. */
 function protectedHeaderOf(token: string): Record<string, unknown> {
-  return JSON.parse(base64UrlDecode(token.split(".")[0]!)) as Record<string, unknown>;
+  return JSON.parse(base64UrlDecode(token.split(".")[0])) as Record<string, unknown>;
 }
 
 /** The claims a session token carries, opened with the session key. */
@@ -3066,7 +3067,7 @@ async function claimsOf(family: Family, token: string): Promise<Record<string, u
     family === "jws"
       ? await verify(token, jwsKey, { validateClaims: false })
       : await decrypt(token, jweKey, { validateClaims: false });
-  return opened.payload as Record<string, unknown>;
+  return opened.payload;
 }
 
 /** The `jws.signOptions` / `jwe.encryptOptions` block of a session config. */

@@ -57,29 +57,29 @@ interface Entry {
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
-  // measured 23437
+  // measured 26773
   {
     name: "verify",
     module: "core/jws.ts",
     ceiling: 26900,
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
-  // measured 19739
+  // measured 20179
   {
     name: "sign",
     module: "core/jws.ts",
     ceiling: 22700,
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
-  // measured 36369
+  // measured 41008
   { name: "decrypt", module: "core/jwe.ts", ceiling: 41700, absent: [MARKERS.thumbprint] },
-  // measured 32119
+  // measured 33217
   { name: "encrypt", module: "core/jwe.ts", ceiling: 37000, absent: [MARKERS.thumbprint] },
-  // measured 8868
+  // measured 9281
   { name: "importKey", module: "core/jwk.ts", ceiling: 10200, absent: [MARKERS.pem] },
-  // measured 8656 — every JWK it emits carries its RFC 7638 thumbprint as `kid`
+  // measured 9738 — every JWK it emits carries its RFC 7638 thumbprint as `kid`
   { name: "generateKey", module: "core/jwk.ts", ceiling: 10_000, absent: [MARKERS.pem] },
-  // measured 11451
+  // measured 12009
   { name: "importPEM", module: "core/jwk.ts", ceiling: 13200, absent: [] },
   // measured 3225
   {
@@ -88,7 +88,7 @@ const ENTRIES: ReadonlyArray<Entry> = [
     ceiling: 3800,
     absent: [MARKERS.subtleImport],
   },
-  // measured 121
+  // measured 132
   {
     name: "isJWK",
     module: "core/utils/index.ts",

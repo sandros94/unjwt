@@ -2,6 +2,7 @@
 
 import { Resvg, initWasm } from "https://esm.sh/@resvg/resvg-wasm@2.6.2";
 import pngToIco from "https://esm.sh/png-to-ico@2.1.8";
+// oxlint-disable-next-line import/no-nodejs-modules -- a Deno script: png-to-ico takes Node Buffers, which Deno serves from node:buffer
 import { Buffer } from "node:buffer";
 
 // resvg-wasm rasterizes the SVG. `@img/png` can only encode raw pixel

@@ -1,6 +1,7 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { base64UrlStringify, base64UrlParse } from "../utils/base64";
 import { JWTError } from "../error";
+import { cryptoKeyCurve } from "./_key-algorithm";
 
 import type {
   JWEKeyManagementHeaderParameters,
@@ -10,11 +11,11 @@ import type {
   JWK_EC_Public,
   JWK_OKP_Public,
 } from "../types";
-import { isJWK, isAsymmetricJWK, assertCryptoKey, isCryptoKey } from "../utils";
+import { isJWK, isAsymmetricJWK, assertCryptoKey, isCryptoKey } from "../utils/guards";
 import { bitLengthCEK, generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes";
 import { jwkTokey, keyToJWK } from "./_key-codec";
 import { encryptRSAES } from "./_rsa";
-import { deriveECDHESKey, isECDHKeyAllowed } from "./_ecdh";
+import { deriveECDHESKey, generateEphemeralKeyPair, isECDHKeyAllowed } from "./_ecdh";
 import { pbes2Wrap } from "./_pbes2";
 
 const PUBLIC_EPK_FIELDS = new Set([
@@ -86,9 +87,7 @@ export async function encryptKey(
             "ERR_JWK_INVALID",
           );
         }
-        const generated = await crypto.subtle.generateKey(key.algorithm as EcKeyAlgorithm, true, [
-          "deriveBits",
-        ]);
+        const generated = await generateEphemeralKeyPair(key);
         ephemeralPrivateKey = generated.privateKey;
         epkHeader = await exportPublicJwkFrom(alg, generated.publicKey);
       }
@@ -112,7 +111,7 @@ export async function encryptKey(
 
       cek = providedCek || generateCEK(enc);
       const kwAlg = alg.slice(-6);
-      encryptedKey = await aesKwWrap(kwAlg, sharedSecret, cek as Uint8Array<ArrayBuffer>);
+      encryptedKey = await aesKwWrap(kwAlg, sharedSecret, cek);
       break;
     }
     case "RSA-OAEP":
@@ -121,7 +120,7 @@ export async function encryptKey(
     case "RSA-OAEP-512": {
       cek = providedCek || generateCEK(enc);
       assertCryptoKey(key);
-      encryptedKey = await encryptRSAES(alg, key, cek as Uint8Array<ArrayBuffer>);
+      encryptedKey = await encryptRSAES(alg, key, cek);
       break;
     }
     case "PBES2-HS256+A128KW":
@@ -129,20 +128,17 @@ export async function encryptKey(
     case "PBES2-HS512+A256KW": {
       cek = providedCek || generateCEK(enc);
       const { p2c, p2s } = providedParameters;
-      ({ encryptedKey, ...parameters } = await pbes2Wrap(
-        alg,
-        key,
-        cek as Uint8Array<ArrayBuffer>,
-        p2c!,
-        p2s!,
-      ));
+      if (p2c === undefined || p2s === undefined) {
+        throw new JWTError(`${alg} requires "p2c" and "p2s"`, "ERR_JWE_INVALID");
+      }
+      ({ encryptedKey, ...parameters } = await pbes2Wrap(alg, key, cek, p2c, p2s));
       break;
     }
     case "A128KW":
     case "A192KW":
     case "A256KW": {
       cek = providedCek || generateCEK(enc);
-      encryptedKey = await aesKwWrap(alg, key, cek as Uint8Array<ArrayBuffer>);
+      encryptedKey = await aesKwWrap(alg, key, cek);
       break;
     }
     case "A128GCMKW":
@@ -150,12 +146,7 @@ export async function encryptKey(
     case "A256GCMKW": {
       cek = providedCek || generateCEK(enc);
       const { iv } = providedParameters;
-      ({ encryptedKey, ...parameters } = await gcmkwEncrypt(
-        alg,
-        key,
-        cek as Uint8Array<ArrayBuffer>,
-        iv,
-      ));
+      ({ encryptedKey, ...parameters } = await gcmkwEncrypt(alg, key, cek, iv));
       break;
     }
     default: {
@@ -184,7 +175,7 @@ export async function normalizeKey(
   if (isJWK(key)) {
     if ("k" in key && key.k) {
       try {
-        return base64UrlParse(key.k as string, { returnAs: "uint8array" });
+        return base64UrlParse(key.k, { returnAs: "uint8array" });
       } catch (error) {
         throw new JWTError('Invalid JWK: "k" could not be decoded.', "ERR_JWK_INVALID", error);
       }
@@ -221,18 +212,19 @@ export async function normalizeEpk(
   if (!isJWK(epk) || (epk.kty !== "EC" && epk.kty !== "OKP")) {
     throw invalidEpk("must be an EC or OKP public key.");
   }
-  if ((epk as { d?: unknown }).d !== undefined) {
+  if ("d" in epk && epk.d !== undefined) {
     throw invalidEpk("must not contain private key material.");
   }
 
-  const crv = (epk as { crv?: unknown }).crv;
+  const crv: unknown = epk.crv;
   const allowed = epk.kty === "EC" ? EC_ECDH_CURVES : OKP_ECDH_CURVES;
   if (typeof crv !== "string" || !allowed.has(crv)) {
     throw invalidEpk(`curve ${JSON.stringify(crv ?? null)} is not supported for ${options.alg}.`);
   }
   assertEpkCurve(crv, recipientCurve);
 
-  const { x, y } = epk as { x?: unknown; y?: unknown };
+  const x: unknown = epk.x;
+  const y: unknown = epk.kty === "EC" ? epk.y : undefined;
   if (typeof x !== "string" || (epk.kty === "EC" && typeof y !== "string")) {
     throw invalidEpk("is missing its public coordinates.");
   }
@@ -240,11 +232,11 @@ export async function normalizeEpk(
   // Only the public key material crosses into the import — `alg`, `key_ops`,
   // `ext`, `use` and any extension member are the library's to decide.
   const publicJwk =
-    epk.kty === "EC"
-      ? { kty: "EC" as const, crv, x, y: y as string, alg: options.alg }
+    epk.kty === "EC" && typeof y === "string"
+      ? { kty: "EC" as const, crv, x, y, alg: options.alg }
       : { kty: "OKP" as const, crv, x, alg: options.alg };
 
-  return jwkTokey(publicJwk as unknown as JWK);
+  return jwkTokey(publicJwk);
 }
 
 // --- Internal helpers ---
@@ -254,12 +246,6 @@ const OKP_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["X25519"])
 
 function invalidEpk(detail: string): JWTError {
   return new JWTError(`Invalid JWE: "epk" ${detail}`, "ERR_JWE_INVALID");
-}
-
-function cryptoKeyCurve(key: CryptoKey): string | undefined {
-  const algorithm = key.algorithm as EcKeyAlgorithm;
-  if (typeof algorithm.namedCurve === "string") return algorithm.namedCurve;
-  return algorithm.name === "X25519" ? algorithm.name : undefined;
 }
 
 function assertEpkCurve(epkCurve: string | undefined, recipientCurve: string | undefined): void {
@@ -317,6 +303,7 @@ function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
     delete publicJwk.y;
   }
 
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the members are the allowlisted public JWK fields, with kty, crv, x (and y when present) checked as strings above
   return sanitizeObjectCopy(publicJwk) as unknown as JWK_EC_Public;
 }
 

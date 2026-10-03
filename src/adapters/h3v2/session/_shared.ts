@@ -11,7 +11,6 @@ import {
   getEventContext,
   getCookie,
 } from "h3v2";
-import type { CookieSerializeOptions } from "cookie-esv3";
 import {
   isChunkName,
   readChunkedBy,
@@ -26,7 +25,7 @@ import {
   sessionCookieAttributes,
   sessionHeaderName,
 } from "../../_session";
-import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
+import type { SessionCookieOptions, SessionPort } from "../../_session-core";
 
 export type { SessionTokenSource };
 
@@ -47,14 +46,11 @@ export const h3SessionPort: SessionPort<HTTPEvent> = {
    * and a JWE session that share a `name` do not overwrite one another.
    */
   store: (event, slot) => ({
-    get: () =>
-      getEventContext<H3EventContext>(event).sessions?.[slot] as SessionState<any, any> | undefined,
+    get: () => getEventContext<H3EventContext>(event).sessions?.[slot],
     set: (state) => {
       const context = getEventContext<H3EventContext>(event);
-      if (!context.sessions) {
-        context.sessions = Object.create(null);
-      }
-      (context.sessions as Record<string, unknown>)[slot] = state;
+      const sessions: Record<string, unknown> = (context.sessions ||= Object.create(null));
+      sessions[slot] = state;
     },
   }),
 
@@ -65,13 +61,9 @@ export const h3SessionPort: SessionPort<HTTPEvent> = {
   writable: hasWritableResponse,
 
   setCookie: (event, sessionName, token, options) => {
-    setChunkedCookie(
-      event as H3Event,
-      sessionName,
-      token,
-      sessionCookieAttributes(options) as CookieSerializeOptions & { chunkMaxLength?: number },
-    );
-    stageSessionErrCookies(event as H3Event, sessionName);
+    const target = cookieEvent(event);
+    setChunkedCookie(target, sessionName, token, sessionCookieAttributes(options));
+    stageSessionErrCookies(target, sessionName);
   },
 
   deleteCookie: expireSessionCookie,
@@ -87,7 +79,7 @@ export const h3SessionPort: SessionPort<HTTPEvent> = {
 
 /** Whether the event carries an h3 response the session can stage cookies on. */
 export function hasResponse(event: HTTPEvent): event is H3Event {
-  return Boolean((event as H3Event).res);
+  return "res" in event && Boolean(event.res);
 }
 
 /**
@@ -156,10 +148,13 @@ function expireSessionCookie(
   sessionName: string,
   options: SessionCookieOptions,
 ): void {
-  deleteChunkedCookie(
-    event as H3Event,
-    sessionName,
-    sessionCookieAttributes(options) as CookieSerializeOptions,
-  );
-  stageSessionErrCookies(event as H3Event, sessionName);
+  const target = cookieEvent(event);
+  deleteChunkedCookie(target, sessionName, sessionCookieAttributes(options));
+  stageSessionErrCookies(target, sessionName);
+}
+
+/** The event a cookie write lands on. */
+function cookieEvent(event: HTTPEvent): H3Event {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a cookie is written only once `writable` (hasWritableResponse) held, and it holds only for an H3Event
+  return event as H3Event;
 }

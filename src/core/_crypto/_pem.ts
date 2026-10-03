@@ -1,6 +1,6 @@
 import { base64Stringify, base64Parse } from "../utils/base64";
 
-import { isCryptoKey } from "../utils";
+import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
 
 /** Key Import Function options. */
@@ -220,9 +220,9 @@ const findOid = (keyData: Uint8Array<ArrayBuffer>, oid: readonly number[]): bool
   const last = keyData.length - needle.length;
 
   for (
-    let i = keyData.indexOf(needle[0]!);
+    let i = keyData.indexOf(needle[0]);
     i !== -1 && i <= last;
-    i = keyData.indexOf(needle[0]!, i + 1)
+    i = keyData.indexOf(needle[0], i + 1)
   ) {
     if (needle.every((byte, index) => keyData[i + index] === byte)) return true;
   }
@@ -374,7 +374,12 @@ const spkiFromX509 = (buf: Uint8Array<ArrayBuffer>) => {
   return base64Stringify(spki.raw);
 };
 
-let createPublicKey: any;
+/** The slice of `node:crypto`'s `createPublicKey` used to read a certificate's SPKI. */
+type NodeCreatePublicKey = new (pem: string) => {
+  export(options: { format: "pem"; type: "spki" }): string;
+};
+
+let createPublicKey: NodeCreatePublicKey | 0 | undefined;
 const getSPKI = (x509: string): string => {
   try {
     // @ts-ignore

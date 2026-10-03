@@ -1,8 +1,9 @@
 import { JWTError, isJWTError } from "../core/error";
 import { decodeProtectedHeader } from "../core/_internal";
 import { importKey } from "../core/jwk";
-import { computeDurationInSeconds, isJWK } from "../core/utils";
-import type { ExpiresIn } from "../core/types";
+import { computeDurationInSeconds } from "../core/utils/jwt";
+import { isJWK } from "../core/utils/guards";
+import type { ExpiresIn, JWTClaims } from "../core/types";
 
 /**
  * Claims the adapters own. They are minted fresh on every issue, stripped from
@@ -151,7 +152,7 @@ export function assertSessionContentType(
   cty: unknown,
   options: { prefix: string; cause?: unknown },
 ): void {
-  const type = typeof cty === "string" ? cty.split(";", 1)[0]!.trim().toLowerCase() : undefined;
+  const type = typeof cty === "string" ? cty.split(";", 1)[0].trim().toLowerCase() : undefined;
   if (type !== SESSION_CONTENT_TYPE) {
     throw invalidTokenError(
       `${options.prefix} Session token is not a session: "cty" must be "${SESSION_CONTENT_TYPE}", got ${cty === undefined ? "none" : JSON.stringify(cty)}.`,
@@ -280,10 +281,10 @@ export function sessionRequiredClaims(
  * An `update()` payload with the adapter-owned claims removed, rejecting keys
  * that would poison the prototype of the session data.
  */
-export function sanitizeSessionUpdate<T extends Record<string, any>>(
-  update: T,
+export function sanitizeSessionUpdate(
+  update: object,
   options: { prefix: string },
-): Partial<T> {
+): Record<string, unknown> {
   if (!isPlainObject(update)) {
     throw new JWTError(
       `${options.prefix} Session data must be a plain object, got ${Array.isArray(update) ? "an array" : typeof update}.`,
@@ -301,14 +302,17 @@ export function sanitizeSessionUpdate<T extends Record<string, any>>(
     if (RESERVED_CLAIMS.includes(key)) continue;
     sanitized[key] = update[key];
   }
-  return sanitized as Partial<T>;
+  return sanitized;
 }
 
 /** A decoded token payload with the adapter-owned claims split off. */
-export function splitSessionClaims<T extends Record<string, any>>(
-  payload: T,
-): { jti: string; iat: number; exp: number | undefined; data: Record<string, any> } {
-  const data: Record<string, any> = Object.create(null);
+export function splitSessionClaims(payload: JWTClaims & { jti: string; iat: number }): {
+  jti: string;
+  iat: number;
+  exp: number | undefined;
+  data: Record<string, unknown>;
+} {
+  const data: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(payload)) {
     if (RESERVED_CLAIMS.includes(key)) continue;
     data[key] = payload[key];

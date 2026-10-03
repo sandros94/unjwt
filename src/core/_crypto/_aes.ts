@@ -1,7 +1,9 @@
 import { base64UrlStringify } from "../utils/base64";
 
-import { concatUint8Arrays, isCryptoKey } from "../utils";
+import { concatUint8Arrays } from "../utils/array";
+import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
+import { lengthOf } from "./_key-algorithm";
 
 // --- CEK / IV generation ---
 
@@ -204,8 +206,8 @@ export async function gcmkwEncrypt(
 
   return {
     encryptedKey: wrapped.ciphertext,
-    iv: base64UrlStringify(wrapped.iv!),
-    tag: base64UrlStringify(wrapped.tag!),
+    iv: base64UrlStringify(wrapped.iv),
+    tag: base64UrlStringify(wrapped.tag),
   };
 }
 
@@ -230,8 +232,8 @@ export async function encrypt(
   aad: Uint8Array<ArrayBuffer>,
 ): Promise<{
   ciphertext: Uint8Array<ArrayBuffer>;
-  tag: Uint8Array<ArrayBuffer> | undefined;
-  iv: Uint8Array<ArrayBuffer> | undefined;
+  tag: Uint8Array<ArrayBuffer>;
+  iv: Uint8Array<ArrayBuffer>;
 }> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
     throw new JWTError("Key must be one of type: CryptoKey or Uint8Array", "ERR_JWK_INVALID");
@@ -346,7 +348,7 @@ async function getAESKWCryptoKey(
 }
 
 function checkAESKWKeySize(key: CryptoKey, alg: string): void {
-  if ((key.algorithm as AesKeyAlgorithm).length !== Number.parseInt(alg.slice(1, 4), 10)) {
+  if (lengthOf(key.algorithm) !== Number.parseInt(alg.slice(1, 4), 10)) {
     throw new JWTError(`Invalid key size for alg: ${alg}`, "ERR_JWK_INVALID");
   }
 }
@@ -502,9 +504,7 @@ async function gcmDecrypt(
 let _timingSafeKey: Promise<CryptoKey> | undefined;
 function getTimingSafeKey(): Promise<CryptoKey> {
   if (!_timingSafeKey) {
-    _timingSafeKey = crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, [
-      "sign",
-    ]) as Promise<CryptoKey>;
+    _timingSafeKey = crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   }
   return _timingSafeKey;
 }
@@ -529,7 +529,7 @@ async function timingSafeEqual(
   let out = 0;
   let i = -1;
   while (++i < 32) {
-    out |= aHmac[i]! ^ bHmac[i]!;
+    out |= aHmac[i] ^ bHmac[i];
   }
 
   return out === 0;

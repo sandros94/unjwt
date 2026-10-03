@@ -24,7 +24,6 @@ import type {
   JWEGeneralSerialization,
   JWEFlattenedSerialization,
   JWKLookupFunction,
-  JWTClaims,
   KeyManagementAlgorithm,
 } from "../src/core/types";
 
@@ -95,7 +94,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         enc: "A256GCM",
         expiresIn: "1h",
       });
-      const { payload } = await decryptMulti<JWTClaims>(jwe, keys.a256kw);
+      const { payload } = await decryptMulti(jwe, keys.a256kw);
       expect(payload.iat).toBeTypeOf("number");
       expect(payload.exp).toBeTypeOf("number");
       expect(payload.exp! - payload.iat!).toBe(3600);
@@ -200,7 +199,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         { enc: "A256GCM" },
       );
       const { payload, recipientIndex } = await decryptMulti(jwe, keys.rsa256.privateKey);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(0);
     });
 
@@ -211,7 +210,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         { enc: "A256GCM" },
       );
       const { payload, recipientIndex } = await decryptMulti(jwe, keys.a256kw);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
 
@@ -252,7 +251,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       const { payload, recipientIndex } = await decryptMulti(jwe, set, {
         allowSymmetricJWKSet: true,
       });
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
 
@@ -268,7 +267,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         throw new Error("no key");
       };
       const { payload, recipientIndex } = await decryptMulti(jwe, lookup);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(0);
     });
 
@@ -296,7 +295,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }, { key: keys.a128kw }], {
         enc: "A256GCM",
       });
-      const tampered: JWEGeneralSerialization = { ...jwe, tag: jwe.tag!.slice(0, -2) + "AA" };
+      const tampered: JWEGeneralSerialization = { ...jwe, tag: jwe.tag.slice(0, -2) + "AA" };
       await expect(decryptMulti(tampered, keys.a256kw)).rejects.toBeInstanceOf(JWTError);
     });
 
@@ -366,10 +365,9 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       });
 
       it("reads an object without recipients[] as the Flattened form", async () => {
-        const error = await decryptMulti(
-          { iv: "x", ciphertext: "y", tag: "z" } as unknown as JWEGeneralSerialization,
-          keys.a256kw,
-        ).catch((e) => e);
+        const error = await decryptMulti({ iv: "x", ciphertext: "y", tag: "z" }, keys.a256kw).catch(
+          (e) => e,
+        );
         expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
         expect(error.message).toBe(
           'Invalid JWE: "enc" is missing from the protected and shared unprotected headers.',
@@ -382,7 +380,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
           const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }]);
           const ambiguous = {
             ...jwe,
-            [member]: member === "header" ? { alg: "A256KW" } : jwe.recipients[0]!.encrypted_key,
+            [member]: member === "header" ? { alg: "A256KW" } : jwe.recipients[0].encrypted_key,
           };
           const error = await decryptMulti(ambiguous, keys.a256kw).catch((e) => e);
           expect(isJWTError(error, "ERR_JWE_INVALID_SERIALIZATION")).toBe(true);
@@ -394,10 +392,10 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         const compact = await encrypt({ x: 1 }, cek, { alg: "dir", enc: "A256GCM" });
         const [protectedHeader, , iv, ciphertext, tag] = compact.split(".");
         const flattened: JWEFlattenedSerialization = {
-          protected: protectedHeader!,
-          iv: iv!,
-          ciphertext: ciphertext!,
-          tag: tag!,
+          protected: protectedHeader,
+          iv: iv,
+          ciphertext: ciphertext,
+          tag: tag,
         };
         const { payload, recipientIndex } = await decryptMulti(flattened, cek);
         expect(payload).toEqual({ x: 1 });
@@ -428,12 +426,12 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         const noAlg: JWEGeneralSerialization = {
           ...good,
           recipients: [
-            { header: { ...good.recipients[0]!.header, alg: undefined } },
-            good.recipients[1]!,
+            { header: { ...good.recipients[0].header, alg: undefined } },
+            good.recipients[1],
           ],
         };
         const { payload, recipientIndex } = await decryptMulti(noAlg, keys.a256kw);
-        expect((payload as JWTClaims).sub).toBe("u1");
+        expect(payload.sub).toBe("u1");
         expect(recipientIndex).toBe(1);
       });
     });
@@ -549,7 +547,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         const ecdhPriv = (keys.ecdhP256 as { privateKey: JWK_EC_Private<"ECDH-ES+A256KW"> })
           .privateKey;
         const { payload } = await decryptMulti(jwe, ecdhPriv);
-        expect((payload as JWTClaims).sub).toBe("u1");
+        expect(payload.sub).toBe("u1");
       });
     });
 
@@ -564,12 +562,12 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         const jweNoKid: JWEGeneralSerialization = {
           ...jwe,
           recipients: [
-            { header: { alg: "A256KW" }, encrypted_key: jwe.recipients[0]!.encrypted_key },
+            { header: { alg: "A256KW" }, encrypted_key: jwe.recipients[0].encrypted_key },
           ],
         };
         const set: JWKSet = { keys: [anotherA256, keys.a256kw] };
         const { payload } = await decryptMulti(jweNoKid, set, { allowSymmetricJWKSet: true });
-        expect((payload as JWTClaims).sub).toBe("u1");
+        expect(payload.sub).toBe("u1");
       });
 
       it("throws DECRYPTION_FAILED when every candidate in the set fails", async () => {
@@ -579,7 +577,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         const jweNoKid: JWEGeneralSerialization = {
           ...jwe,
           recipients: [
-            { header: { alg: "A256KW" }, encrypted_key: jwe.recipients[0]!.encrypted_key },
+            { header: { alg: "A256KW" }, encrypted_key: jwe.recipients[0].encrypted_key },
           ],
         };
         const wrong1 = await generateJWK("A256KW");
@@ -600,7 +598,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         );
         const cryptoKey = await crypto.subtle.importKey(
           "raw",
-          base64UrlParse(keys.a256kw.k!, { returnAs: "uint8array" }),
+          base64UrlParse(keys.a256kw.k, { returnAs: "uint8array" }),
           { name: "AES-KW" },
           false,
           ["wrapKey", "unwrapKey"],
@@ -609,7 +607,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
           strictRecipientMatch: true,
           algorithms: ["A256KW"],
         });
-        expect((payload as JWTClaims).sub).toBe("u1");
+        expect(payload.sub).toBe("u1");
         expect(recipientIndex).toBe(1);
       });
 
@@ -619,7 +617,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         });
         const cryptoKey = await crypto.subtle.importKey(
           "raw",
-          base64UrlParse(keys.a256kw.k!, { returnAs: "uint8array" }),
+          base64UrlParse(keys.a256kw.k, { returnAs: "uint8array" }),
           { name: "AES-KW" },
           false,
           ["wrapKey", "unwrapKey"],
@@ -661,7 +659,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       expect(jwe.recipients[0]?.header?.apv).toBeTypeOf("string");
       const priv = (keys.ecdhP256 as { privateKey: JWK_EC_Private<"ECDH-ES+A256KW"> }).privateKey;
       const { payload } = await decryptMulti(jwe, priv);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
     });
   });
 
@@ -691,7 +689,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
           { enc: "A256GCM" },
         );
         const { payload, recipientIndex } = await decryptMulti(jwe, decKey);
-        expect((payload as JWTClaims).sub).toBe("u1");
+        expect(payload.sub).toBe("u1");
         expect(recipientIndex).toBe(0);
       });
     }
@@ -785,7 +783,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       const joseKey = await jose.importJWK(keys.a256kw);
       const { plaintext, additionalAuthenticatedData } = await jose.generalDecrypt(jwe, joseKey);
       expect(JSON.parse(textDecoder.decode(plaintext))).toEqual({ sub: "u1" });
-      expect(textDecoder.decode(additionalAuthenticatedData!)).toBe("bind-me");
+      expect(textDecoder.decode(additionalAuthenticatedData)).toBe("bind-me");
     });
 
     it("jose.GeneralEncrypt → unjwt decryptMulti (RSA + AES recipients)", async () => {
@@ -870,8 +868,8 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         ...jwe,
         recipients: [
           {
-            ...jwe.recipients[0]!,
-            encrypted_key: `${jwe.recipients[0]!.encrypted_key}=`,
+            ...jwe.recipients[0],
+            encrypted_key: `${jwe.recipients[0].encrypted_key}=`,
           },
         ],
       };
@@ -897,7 +895,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       jwe: JWEGeneralSerialization,
       mutate: (header: Record<string, unknown>) => void,
     ): JWEGeneralSerialization {
-      const header = JSON.parse(base64UrlParse(jwe.protected!) as string);
+      const header = JSON.parse(base64UrlParse(jwe.protected!));
       mutate(header);
       return { ...jwe, protected: base64UrlStringify(JSON.stringify(header)) };
     }
@@ -908,10 +906,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
     ): JWEGeneralSerialization {
       return {
         ...jwe,
-        recipients: [
-          { header, encrypted_key: jwe.recipients[0]!.encrypted_key },
-          ...jwe.recipients,
-        ],
+        recipients: [{ header, encrypted_key: jwe.recipients[0].encrypted_key }, ...jwe.recipients],
       };
     }
 
@@ -919,7 +914,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: keys.a256kw }], { enc: "A256GCM" });
       const tampered = prependRecipient(jwe, { alg: "A256KW", enc: "A256GCM" });
       const { payload, recipientIndex } = await decryptMulti(tampered, keys.a256kw);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
 
@@ -934,7 +929,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       });
       const tampered = prependRecipient(jwe, { alg: "PBES2-HS256+A128KW" });
       const { payload, recipientIndex } = await decryptMulti(tampered, password);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
 
@@ -944,7 +939,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       });
       const tampered = prependRecipient(jwe, { alg: "ECDH-ES+A256KW" });
       const { payload, recipientIndex } = await decryptMulti(tampered, keys.ecdhP256.privateKey);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
 
@@ -952,7 +947,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: keys.a256gcmkw }], { enc: "A256GCM" });
       const tampered = prependRecipient(jwe, { alg: "A256GCMKW" });
       const { payload, recipientIndex } = await decryptMulti(tampered, keys.a256gcmkw);
-      expect((payload as JWTClaims).sub).toBe("u1");
+      expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
 
@@ -967,7 +962,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         protected: protectedHeader,
         encrypted_key: base64UrlStringify(secureRandomBytes(40)),
         iv,
-        ciphertext: ciphertext!,
+        ciphertext: ciphertext,
         tag,
       };
       const error = await decryptMulti(flattened, pair.privateKey).catch((e) => e);
@@ -978,7 +973,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
     it("rejects an authentication tag grown out of the ciphertext", async () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: keys.a256kw }], { enc: "A256GCM" });
       const ciphertext = base64UrlParse(jwe.ciphertext, { returnAs: "uint8array" });
-      const tag = base64UrlParse(jwe.tag!, { returnAs: "uint8array" });
+      const tag = base64UrlParse(jwe.tag, { returnAs: "uint8array" });
       const shifted = ciphertext.subarray(ciphertext.length - 4);
       const tampered: JWEGeneralSerialization = {
         ...jwe,
@@ -1139,7 +1134,7 @@ describe.concurrent("encryptMulti producer option gates", () => {
 
   it("refuses a protected header that cannot be serialized", async () => {
     const error = await encryptMulti("payload", [{ key: aesKey }], {
-      protectedHeader: { n: 1n } as never,
+      protectedHeader: { n: 1n },
     }).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain("protected header");
@@ -1149,7 +1144,7 @@ describe.concurrent("encryptMulti producer option gates", () => {
     "refuses a recipient %s that is not bytes",
     async (name) => {
       const error = await encryptMulti("payload", [
-        { key: ecdhKey.publicKey, ecdh: { [name]: "not-bytes" } as never },
+        { key: ecdhKey.publicKey, ecdh: { [name]: "not-bytes" } },
       ]).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     },
@@ -1181,7 +1176,7 @@ describe.concurrent("encryptMulti header tiers", () => {
 
   it("refuses crit in a per-recipient header", async () => {
     const error = await encryptMulti("payload", [
-      { key, header: { crit: ["app"], app: "web" } as never },
+      { key, header: { crit: ["app"], app: "web" } },
     ]).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain('"crit"');
@@ -1206,9 +1201,7 @@ describe.concurrent("encryptMulti header tiers", () => {
   it.each(["protectedHeader", "sharedUnprotectedHeader"])(
     "refuses a %s option that is not an object",
     async (member) => {
-      const error = await encryptMulti("payload", [{ key }], { [member]: "abc" } as never).catch(
-        (e) => e,
-      );
+      const error = await encryptMulti("payload", [{ key }], { [member]: "abc" }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect(error.message).toBe(`"options.${member}" must be an object.`);
     },
@@ -1247,7 +1240,7 @@ describe.concurrent("JWE JSON serialization entries", () => {
     "decryptMulti treats %s in recipients as that entry's failure",
     async (_label, entry) => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: a256kw }], { enc: "A256GCM" });
-      const mixed = { ...jwe, recipients: [entry, jwe.recipients[0]!] } as JWEGeneralSerialization;
+      const mixed = { ...jwe, recipients: [entry, jwe.recipients[0]] } as JWEGeneralSerialization;
       const { recipientIndex } = await decryptMulti(mixed, a256kw);
       expect(recipientIndex).toBe(1);
 
@@ -1265,7 +1258,7 @@ describe.concurrent("JWE JSON serialization entries", () => {
       });
       const mixed = {
         ...jwe,
-        recipients: [{ ...jwe.recipients[1]!, header }, jwe.recipients[1]!],
+        recipients: [{ ...jwe.recipients[1], header }, jwe.recipients[1]],
       } as JWEGeneralSerialization;
       const { recipientIndex } = await decryptMulti(mixed, a256kw);
       expect(recipientIndex).toBe(1);
@@ -1276,7 +1269,7 @@ describe.concurrent("JWE JSON serialization entries", () => {
     const jwe = await encryptMulti({ sub: "u1" }, [{ key: a256kw }], { enc: "A256GCM" });
     const mixed = {
       ...jwe,
-      recipients: [{ ...jwe.recipients[0]!, encrypted_key: 7 }, jwe.recipients[0]!],
+      recipients: [{ ...jwe.recipients[0], encrypted_key: 7 }, jwe.recipients[0]],
     } as unknown as JWEGeneralSerialization;
     const { recipientIndex } = await decryptMulti(mixed, a256kw);
     expect(recipientIndex).toBe(1);
@@ -1383,7 +1376,7 @@ describe.concurrent("JWE enc in the shared unprotected header", () => {
     const { unprotected: _shared, ...rest } = jwe;
     const tampered = {
       ...rest,
-      recipients: [{ ...jwe.recipients[0]!, header: { alg: "A256KW", enc: "A256GCM" } }],
+      recipients: [{ ...jwe.recipients[0], header: { alg: "A256KW", enc: "A256GCM" } }],
     } as JWEGeneralSerialization;
     const error = await decryptMulti(tampered, key, { payload: "bytes" }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);

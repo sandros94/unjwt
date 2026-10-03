@@ -11,7 +11,7 @@ import {
   sessionCookieAttributes,
   sessionHeaderName,
 } from "../../_session";
-import type { SessionCookieOptions, SessionPort, SessionState } from "../../_session-core";
+import type { SessionCookieOptions, SessionPort } from "../../_session-core";
 import type { SessionContext } from "./types";
 
 export type { SessionTokenSource };
@@ -20,7 +20,7 @@ export type { SessionTokenSource };
 export const PREFIX = "[unjwt/elysia]";
 
 /** The session states of each request, keyed by family and name. */
-const SESSIONS = /* @__PURE__ */ new WeakMap<object, Record<string, SessionState<any, any>>>();
+const SESSIONS = /* @__PURE__ */ new WeakMap<object, Record<string, object>>();
 
 /**
  * The Elysia side of a session: the reactive cookie jar it reads its token
@@ -39,8 +39,9 @@ export const elysiaSessionPort: SessionPort<SessionContext> = {
     set: (state) => {
       let sessions = SESSIONS.get(context.request);
       if (!sessions) {
-        sessions = Object.create(null) as Record<string, SessionState<any, any>>;
-        SESSIONS.set(context.request, sessions);
+        const created: Record<string, object> = Object.create(null);
+        sessions = created;
+        SESSIONS.set(context.request, created);
       }
       sessions[slot] = state;
     },
@@ -102,5 +103,5 @@ function expireSessionCookie(
 function cookieAttributes(
   options: SessionCookieOptions & { expiresAt?: number | undefined },
 ): CookieAttributes & { chunkMaxLength?: number } {
-  return sessionCookieAttributes(options) as CookieAttributes & { chunkMaxLength?: number };
+  return sessionCookieAttributes(options);
 }

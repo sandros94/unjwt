@@ -34,13 +34,13 @@ import {
   encryptKey,
 } from "./_crypto";
 import { JWTError } from "./error";
+import { cryptoKeyCurve } from "./_crypto/_key-algorithm";
 import type { PBES2Budget, ResolvedKeyInput } from "./_internal";
-import { isContentEncryptionAlgorithm } from "./utils/algorithms";
-import { isJWK, isJWKSet, isCryptoKey, inferJWEAllowedAlgorithms } from "./utils";
+import { isContentEncryptionAlgorithm, inferJWEAllowedAlgorithms } from "./utils/algorithms";
+import { isJWK, isJWKSet, isCryptoKey } from "./utils/guards";
 import {
   applyTypCtyDefaults,
   computeJwtTimeClaims,
-  parsePayloadBytes,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
 } from "./_jwt-internal";
@@ -70,6 +70,9 @@ import {
   checkJWEDirectEncryptedKey,
   checkJWEEncAllowed,
   checkJWEEncSupported,
+  assertJWEEncSupported,
+  assertJWEAlgSupported,
+  isJWEAlgSupported,
   checkJWEUnprotectedCrit,
   checkJWEZip,
   checkSerializationEntry,
@@ -84,6 +87,7 @@ import {
   serializeProtectedHeader,
   validateClaimsIfJson,
   decodeSegment,
+  decodeJWEPayload,
 } from "./_internal";
 
 /**
@@ -143,23 +147,19 @@ export async function encryptMulti(
   assertProducerIV(options.contentEncryptionIV, enc);
 
   for (const [index, recipient] of recipients.entries()) {
-    if (resolvedAlgs[index]!.startsWith("PBES2")) {
+    if (resolvedAlgs[index].startsWith("PBES2")) {
       assertPBES2Params({ p2s: recipient.p2s, p2c: recipient.p2c });
     }
   }
 
-  const userProtected = sanitizeObjectCopy(options.protectedHeader) as
-    | JWEHeaderParameters
-    | undefined;
-  const sharedUnprotected = sanitizeObjectCopy(options.sharedUnprotectedHeader) as
-    | Record<string, unknown>
-    | undefined;
+  const userProtected = sanitizeObjectCopy(options.protectedHeader);
+  const sharedUnprotected = sanitizeObjectCopy(options.sharedUnprotectedHeader);
 
   const protectedHeader = {} as JWEHeaderParameters;
   if (userProtected) Object.assign(protectedHeader, userProtected);
   protectedHeader.enc = enc;
   applyTypCtyDefaults(protectedHeader, payload);
-  assertProducerCrit(protectedHeader as Record<string, unknown>, "JWE");
+  assertProducerCrit(protectedHeader, "JWE");
 
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);
   const plaintextBytes = getPlaintextBytes(computedPayload || payload);
@@ -168,8 +168,8 @@ export async function encryptMulti(
 
   const wireRecipients: JWEGeneralRecipient[] = [];
   for (let i = 0; i < recipients.length; i++) {
-    const recipient = recipients[i]!;
-    const alg = resolvedAlgs[i]!;
+    const recipient = recipients[i];
+    const alg = resolvedAlgs[i];
 
     const keyMgmtParams = _buildRecipientKeyMgmtParams(recipient, alg);
 
@@ -314,9 +314,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     protectedHeaderEncoded || undefined,
     "JWE",
   );
-  const sharedUnprotected = sanitizeObjectCopy(general.unprotected) as
-    | JWEHeaderParameters
-    | undefined;
+  const sharedUnprotected = sanitizeObjectCopy(general.unprotected);
 
   // Token-wide verdicts: the protected header, the shared unprotected header and
   // the single content ciphertext are the same for every recipient, so they are
@@ -330,17 +328,15 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
 
   // RFC 7516 §7.2.1 — `enc` is shared by every recipient, so it sits in the
   // protected or the shared unprotected header, never in a per-recipient one.
-  const enc = (protectedHeader.enc ?? sharedUnprotected?.enc) as
-    | ContentEncryptionAlgorithm
-    | undefined;
+  const enc = protectedHeader.enc ?? sharedUnprotected?.enc;
   if (!enc) {
     throw new JWTError(
       'Invalid JWE: "enc" is missing from the protected and shared unprotected headers.',
       "ERR_JWE_INVALID",
     );
   }
-  const encError =
-    checkJWEEncSupported(enc) ?? checkJWEEncAllowed(enc, options.encryptionAlgorithms);
+  assertJWEEncSupported(enc);
+  const encError = checkJWEEncAllowed(enc, options.encryptionAlgorithms);
   if (encError) throw encError;
 
   validateCriticalHeadersJWE(protectedHeader, options.recognizedHeaders);
@@ -379,10 +375,8 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       lastError = shapeError;
       continue;
     }
-    const wireRecipient = general.recipients[i]!;
-    const recipientHeader = sanitizeObjectCopy(wireRecipient.header) as
-      | JWEHeaderParameters
-      | undefined;
+    const wireRecipient = general.recipients[i];
+    const recipientHeader = sanitizeObjectCopy(wireRecipient.header);
 
     const recipientError = checkJWEUnprotectedCrit(recipientHeader) ?? checkJWEZip(recipientHeader);
     if (recipientError) {
@@ -398,7 +392,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     }
 
     const effective = _mergeHeaders(protectedHeader, sharedUnprotected, recipientHeader);
-    const alg = effective.alg as KeyManagementAlgorithm | undefined;
+    const alg = effective.alg;
     if (!alg) {
       lastError = new JWTError(
         `Recipient[${i}] has no "alg" in the effective header.`,
@@ -407,10 +401,13 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    const algSupportError =
-      checkJWEAlgSupported(alg) ?? checkJWEDirectEncryptedKey(alg, wireRecipient.encrypted_key);
-    if (algSupportError) {
-      lastError = algSupportError;
+    if (!isJWEAlgSupported(alg)) {
+      lastError = checkJWEAlgSupported(alg);
+      continue;
+    }
+    const directKeyError = checkJWEDirectEncryptedKey(alg, wireRecipient.encrypted_key);
+    if (directKeyError) {
+      lastError = directKeyError;
       continue;
     }
 
@@ -477,10 +474,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
 
     // The content cipher authenticated the token: from here a failure is a
     // verdict on the token itself, not on this recipient, and propagates.
-    const payload = parsePayloadBytes<T>(plaintextBytes, {
-      payload: payloadMode,
-      family: "JWE",
-    }) as T;
+    const payload = decodeJWEPayload<T>(plaintextBytes, payloadMode);
 
     validateClaimsIfJson(payload, payloadMode, options);
 
@@ -539,7 +533,7 @@ export function generalToFlattened(jwe: JWEGeneralSerialization): JWEFlattenedSe
     );
   }
   const { recipients, ...rest } = jwe;
-  const [recipient] = recipients as [JWEGeneralRecipient];
+  const [recipient] = recipients;
   const flattened: JWEFlattenedSerialization = { ...rest };
   if (recipient.header !== undefined) flattened.header = recipient.header;
   if (recipient.encrypted_key !== undefined) flattened.encrypted_key = recipient.encrypted_key;
@@ -552,7 +546,7 @@ function _resolveRecipientAlg(key: JWEEncryptJWK, index: number): KeyManagementA
   if (!isJWK(key)) {
     throw new JWTError(`Recipient[${index}] key is not a JWK.`, "ERR_JWE_RECIPIENT_ALG_INFERENCE");
   }
-  const declared = key.alg as KeyManagementAlgorithm | undefined;
+  const declared = key.alg;
   if (!declared) {
     throw new JWTError(
       `Cannot infer "alg" for recipient[${index}]: the JWK has no "alg" property.`,
@@ -568,8 +562,7 @@ function _resolveRecipientAlg(key: JWEEncryptJWK, index: number): KeyManagementA
       "ERR_JWE_ALG_FORBIDDEN_IN_MULTI",
     );
   }
-  const unsupported = checkJWEAlgSupported(alg);
-  if (unsupported) throw unsupported;
+  assertJWEAlgSupported(alg);
   return alg;
 }
 
@@ -606,7 +599,7 @@ function _buildPerRecipientHeader(
 ): JWEHeaderParameters {
   const header = {} as JWEHeaderParameters;
   if (recipient.key.kid) header.kid = recipient.key.kid;
-  const userHeader = sanitizeObjectCopy(recipient.header as JWEHeaderParameters | undefined);
+  const userHeader = sanitizeObjectCopy(recipient.header);
   if (userHeader) Object.assign(header, userHeader);
   if (keyMgmtOut) Object.assign(header, keyMgmtOut);
   header.alg = alg;
@@ -657,22 +650,20 @@ function _normalizeSerialization(
     );
   }
 
-  const obj = input as unknown as Record<string, unknown>;
-
   // RFC 7516 §7.2 — General and Flattened are alternatives, never both. Only
   // `recipients` tells them apart: the Flattened `header` and `encrypted_key`
   // are both OPTIONAL (§7.2.2), and a `dir` or `ECDH-ES` token carries neither.
-  if ("recipients" in obj) {
-    if ("encrypted_key" in obj || "header" in obj) {
+  if ("recipients" in input) {
+    if ("encrypted_key" in input || "header" in input) {
       throw new JWTError(
         'Invalid JWE JSON Serialization: "recipients" must not be combined with a top-level "header" or "encrypted_key".',
         "ERR_JWE_INVALID_SERIALIZATION",
       );
     }
-    return obj as unknown as JWEGeneralSerialization;
+    return input;
   }
 
-  const flattened = obj as unknown as JWEFlattenedSerialization;
+  const flattened = input;
   const recipient: JWEGeneralRecipient = {};
   if (flattened.header !== undefined) recipient.header = flattened.header;
   if (flattened.encrypted_key !== undefined) recipient.encrypted_key = flattened.encrypted_key;
@@ -722,22 +713,18 @@ function _keyServesRecipientAlg(
   const alg = effectiveHeader.alg;
   if (!alg) return false;
 
-  const inferred = inferJWEAllowedAlgorithms(key);
-  if (inferred && !inferred.includes(alg as KeyManagementAlgorithm)) return false;
+  const inferred: readonly string[] | undefined = inferJWEAllowedAlgorithms(key);
+  if (inferred && !inferred.includes(alg)) return false;
 
   if (!alg.startsWith("ECDH-ES")) return true;
-  const epkCurve = (effectiveHeader.epk as { crv?: string } | undefined)?.crv;
+  const epkCurve = effectiveHeader.epk?.crv;
   const keyCurve = _keyCurve(key);
   return !epkCurve || !keyCurve || epkCurve === keyCurve;
 }
 
 function _keyCurve(key: JWK | CryptoKey): string | undefined {
-  if (isCryptoKey(key)) {
-    const algorithm = key.algorithm as EcKeyAlgorithm;
-    if (typeof algorithm.namedCurve === "string") return algorithm.namedCurve;
-    return algorithm.name === "X25519" ? algorithm.name : undefined;
-  }
-  return (key as { crv?: string }).crv;
+  if (isCryptoKey(key)) return cryptoKeyCurve(key);
+  return "crv" in key ? key.crv : undefined;
 }
 
 /** RFC 7516 §7.2.1 — the JWE AAD is octets, given as bytes or as text to UTF-8 encode. */
@@ -802,7 +789,7 @@ async function _unwrapAndDecrypt(
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
         pbes2Budget.spend(unwrapKeyOptions);
-        const unwrappingKey = await importKey(candidate as any, { alg, expect: "private" });
+        const unwrappingKey = await importKey(candidate, { alg, expect: "private" });
         const cek = await unwrapKey(encryptedKey, unwrappingKey, unwrapKeyOptions);
         const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
         return { cek, plaintextBytes };

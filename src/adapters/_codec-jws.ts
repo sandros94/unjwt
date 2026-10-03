@@ -1,5 +1,11 @@
 import { sign, verify } from "../core/jws";
-import { isCryptoKey, isJWKSet, isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../core/utils";
+import {
+  isCryptoKey,
+  isJWKSet,
+  isSymmetricJWK,
+  isPrivateJWK,
+  isPublicJWK,
+} from "../core/utils/guards";
 import type {
   ExpiresIn,
   JWKSet,
@@ -10,6 +16,7 @@ import type {
   JWSAsymmetricPrivateJWK,
   JWSAsymmetricPublicJWK,
   JWSSignOptions,
+  JWKLookupFunction,
   JWKLookupFunctionHeader,
   JWTClaimValidationOptions,
 } from "../core/types";
@@ -26,7 +33,13 @@ import {
   sessionTyp,
   splitSessionClaims,
 } from "./_session";
-import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_session-core";
+import type {
+  OpenedSession,
+  SessionCodec,
+  SessionCoreConfig,
+  SessionCoreHooks,
+  StoredSession,
+} from "./_session-core";
 
 /**
  * Key used for signing — a symmetric `oct` (HS*) JWK, a `CryptoKey`, or an
@@ -106,13 +119,16 @@ export interface JWSCodecConfig extends SessionCoreConfig {
   key: JWSSessionKey;
   jws?: JWSSessionOptions;
   hooks?: SessionCoreHooks & {
-    onVerifyKeyLookup?: (args: {
+    onVerifyKeyLookup?(args: {
       header: JWKLookupFunctionHeader;
-      config: any;
+      config: unknown;
       [carrier: string]: unknown;
-    }) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
+    }): JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
   };
 }
+
+/** What an incoming JWS session token is verified with: the config's key, or its lookup hook. */
+type JWSOpenKey = JWSVerifyJWK | JWKSet | CryptoKey | JWKLookupFunction<JWKSet | JWSVerifyJWK>;
 
 /** Cookie attributes a JWS session writes unless the config overrides them. */
 export const JWS_DEFAULT_COOKIE = {
@@ -136,11 +152,42 @@ export function createJWSCodec(options: {
 }): SessionCodec<JWSCodecConfig> {
   const { prefix, defaultName } = options;
 
-  const openKey = (config: JWSCodecConfig, carrier: Record<string, unknown>): unknown =>
+  const openKey = (config: JWSCodecConfig, carrier: Record<string, unknown>): JWSOpenKey =>
     config.hooks?.onVerifyKeyLookup
       ? (header: JWKLookupFunctionHeader) =>
-          config.hooks!.onVerifyKeyLookup!({ header, ...carrier, config })
+          config.hooks?.onVerifyKeyLookup?.({ header, ...carrier, config })
       : getVerifyKey(config, prefix);
+
+  const openWith = async (
+    config: JWSCodecConfig,
+    token: string,
+    key: JWSOpenKey,
+  ): Promise<OpenedSession> => {
+    const alg = config.jws?.signOptions?.alg;
+
+    const { payload, protectedHeader } = await verify<{ jti: string; iat: number }>(token, key, {
+      ...config.jws?.verifyOptions,
+      requiredClaims: sessionRequiredClaims(config.jws?.verifyOptions?.requiredClaims, {
+        maxAge: config.maxAge,
+      }),
+      typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
+      maxTokenAge: undefined,
+      algorithms: alg ? [alg] : undefined,
+      payload: "json",
+      validateClaims: true,
+    }).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix, token, family: "JWS" }));
+
+    assertSessionContentType(protectedHeader.cty, { prefix });
+
+    const { jti, iat, exp, data } = splitSessionClaims(payload);
+
+    return {
+      id: jti,
+      createdAt: iat * 1000,
+      expiresAt: exp ? exp * 1000 : undefined,
+      data,
+    };
+  };
 
   const assertVerifyKey = async (config: JWSCodecConfig): Promise<void> => {
     if (config.hooks?.onVerifyKeyLookup) return;
@@ -158,7 +205,10 @@ export function createJWSCodec(options: {
 
     now: (config) => config.jws?.signOptions?.currentDate?.getTime() ?? Date.now(),
 
-    issueKey: (config) => getSignKey(config, prefix),
+    issuer: (config) => {
+      const key = getSignKey(config, prefix);
+      return (state) => issueWith(config, state, key);
+    },
 
     assertKeys: async (config) => {
       const key = getSignKey(config, prefix);
@@ -166,69 +216,14 @@ export function createJWSCodec(options: {
       if (!isSymmetricJWK(key)) await assertVerifyKey(config);
     },
 
-    openKey,
-
-    issue: (config, state, key) => {
-      const iat = Math.floor(state.createdAt / 1000);
-      const exp = state.expiresAt ? Math.floor(state.expiresAt / 1000) : undefined;
-
-      const payload: Record<string, any> = {
-        ...state.data,
-        jti: state.id,
-        iat,
-      };
-      if (exp) {
-        payload.exp = exp;
-      }
-
-      return sign(payload as Record<string, unknown>, key as JWSSignJWK, {
-        ...config.jws?.signOptions,
-        // `exp` is computed from the session lifetime and carried via the claim
-        // above; a session never writes `nbf`.
-        expiresIn: undefined,
-        expiresAt: undefined,
-        notBeforeIn: undefined,
-        notBeforeAt: undefined,
-        protectedHeader: {
-          ...config.jws?.signOptions?.protectedHeader,
-          kid: "kid" in (key as object) ? (key as JWSSignJWK).kid : undefined,
-          typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
-          cty: SESSION_CONTENT_TYPE,
-        },
-      });
+    opener: (config, carrier) => {
+      const key = openKey(config, carrier);
+      return (token) => openWith(config, token, key);
     },
 
-    open: async (config, token, carrier, key) => {
-      const alg = config.jws?.signOptions?.alg;
-      if (key === undefined) await assertVerifyKey(config);
-      const jwk = key ?? openKey(config, carrier);
-
-      const { payload, protectedHeader } = await verify<{ jti: string; iat: number }>(
-        token,
-        jwk as JWSVerifyJWK,
-        {
-          ...config.jws?.verifyOptions,
-          requiredClaims: sessionRequiredClaims(config.jws?.verifyOptions?.requiredClaims, {
-            maxAge: config.maxAge,
-          }),
-          typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
-          maxTokenAge: undefined,
-          algorithms: alg ? [alg] : undefined,
-          payload: "json",
-          validateClaims: true,
-        },
-      ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix, token, family: "JWS" }));
-
-      assertSessionContentType(protectedHeader.cty, { prefix });
-
-      const { jti, iat, exp, data } = splitSessionClaims(payload);
-
-      return {
-        id: jti,
-        createdAt: iat * 1000,
-        expiresAt: exp ? exp * 1000 : undefined,
-        data,
-      };
+    open: async (config, token, carrier) => {
+      await assertVerifyKey(config);
+      return openWith(config, token, openKey(config, carrier));
     },
   };
 }
@@ -278,12 +273,8 @@ function getVerifyKey(config: JWSCodecConfig, prefix: string): JWSVerifyJWK | JW
       if (keys.length > 0) {
         _key = { keys };
       }
-    } else if (
-      publicKey &&
-      typeof publicKey === "object" &&
-      Array.isArray((publicKey as JWKSet).keys)
-    ) {
-      const keys = (publicKey as JWKSet).keys.filter((candidate) => isPublicJWK(candidate));
+    } else if (publicKey && typeof publicKey === "object" && Array.isArray(publicKey.keys)) {
+      const keys = publicKey.keys.filter((candidate) => isPublicJWK(candidate));
       if (keys.length > 0) {
         _key = { keys };
       }
@@ -307,4 +298,40 @@ function assertPinnedAlg(key: unknown, config: JWSCodecConfig, prefix: string): 
       `${prefix} A CryptoKey session key carries no algorithm: set "jws.signOptions.alg".`,
     );
   }
+}
+
+/** Sign the session claims into a compact JWS. */
+function issueWith(
+  config: JWSCodecConfig,
+  state: StoredSession,
+  key: JWSSignJWK | CryptoKey,
+): Promise<string> {
+  const iat = Math.floor(state.createdAt / 1000);
+  const exp = state.expiresAt ? Math.floor(state.expiresAt / 1000) : undefined;
+
+  const payload: Record<string, unknown> = {
+    ...state.data,
+    jti: state.id,
+    iat,
+  };
+  if (exp) {
+    payload.exp = exp;
+  }
+
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a CryptoKey reaches here only with `signOptions.alg` pinned (assertPinnedAlg), as its own overload requires
+  return sign(payload, key as JWSSignJWK, {
+    ...config.jws?.signOptions,
+    // `exp` is computed from the session lifetime and carried via the claim
+    // above; a session never writes `nbf`.
+    expiresIn: undefined,
+    expiresAt: undefined,
+    notBeforeIn: undefined,
+    notBeforeAt: undefined,
+    protectedHeader: {
+      ...config.jws?.signOptions?.protectedHeader,
+      kid: "kid" in key ? key.kid : undefined,
+      typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
+      cty: SESSION_CONTENT_TYPE,
+    },
+  });
 }

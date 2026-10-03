@@ -30,18 +30,21 @@ function makeJar(initial: Record<string, string> = {}) {
   const store = new Map<string, MockEntry>();
   for (const [k, v] of Object.entries(initial)) store.set(k, { value: v });
 
-  const jar = new Proxy({} as ChunkableCookieJar, {
-    get(_t, prop: string) {
-      return {
-        get value() {
-          return store.get(prop)?.value;
-        },
-        set(config: CookieAttributes & { value: string }) {
-          store.set(prop, { value: config.value, lastWrite: config });
-        },
-      };
+  const jar = new Proxy<ChunkableCookieJar>(
+    {},
+    {
+      get(_t, prop: string) {
+        return {
+          get value() {
+            return store.get(prop)?.value;
+          },
+          set(config: CookieAttributes & { value: string }) {
+            store.set(prop, { value: config.value, lastWrite: config });
+          },
+        };
+      },
     },
-  });
+  );
 
   return { jar, store };
 }
@@ -170,9 +173,7 @@ describe("elysia chunked cookies — unit", () => {
   });
 
   it("rejects a cookie jar entry that is not a reactive cookie", () => {
-    const error = catchError(() =>
-      writeChunkedCookie({} as Parameters<typeof writeChunkedCookie>[0], "sess", "value"),
-    );
+    const error = catchError(() => writeChunkedCookie({}, "sess", "value"));
     expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
     expect((error as Error).message).toMatch(/reactive cookie/);
   });

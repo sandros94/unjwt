@@ -1,7 +1,7 @@
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "../utils/base64";
 
-import { concatUint8Arrays } from "../utils";
+import { concatUint8Arrays } from "../utils/array";
 import { JWTError } from "../error";
 import { aesKwWrap, aesKwUnwrap } from "./_aes";
 

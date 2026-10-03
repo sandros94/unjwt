@@ -63,8 +63,8 @@ describe.concurrent("_crypto primitives", () => {
     it("sign/verify roundtrip — Ed25519", async () => {
       const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
       const data = textEncoder.encode("hello");
-      const sig = await sign("Ed25519", kp.privateKey as CryptoKey, data);
-      expect(await verify("Ed25519", (kp as CryptoKeyPair).publicKey, sig, data)).toBe(true);
+      const sig = await sign("Ed25519", kp.privateKey, data);
+      expect(await verify("Ed25519", kp.publicKey, sig, data)).toBe(true);
     });
 
     it("rejects tampered data", async () => {
@@ -131,7 +131,7 @@ describe.concurrent("_crypto primitives", () => {
       const aad = textEncoder.encode("header");
 
       const { ciphertext, tag } = await encrypt("A256GCM", plaintext, cek, iv, aad);
-      const grown = new Uint8Array([...tag!, ...ciphertext.subarray(0, 4)]);
+      const grown = new Uint8Array([...tag, ...ciphertext.subarray(0, 4)]);
       await expect(decrypt("A256GCM", cek, ciphertext, iv, grown, aad)).rejects.toThrow(
         "Invalid Authentication Tag length",
       );
@@ -234,14 +234,14 @@ describe.concurrent("_crypto primitives", () => {
       const ephemeralKP = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);
 
       const senderDerived = await deriveECDHESKey(
-        (recipientKP as CryptoKeyPair).publicKey,
-        (ephemeralKP as CryptoKeyPair).privateKey,
+        recipientKP.publicKey,
+        ephemeralKP.privateKey,
         "A256GCM",
         256,
       );
       const recipientDerived = await deriveECDHESKey(
-        (ephemeralKP as CryptoKeyPair).publicKey,
-        (recipientKP as CryptoKeyPair).privateKey,
+        ephemeralKP.publicKey,
+        recipientKP.privateKey,
         "A256GCM",
         256,
       );

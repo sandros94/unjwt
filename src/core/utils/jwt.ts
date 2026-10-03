@@ -1,5 +1,5 @@
 import type { JWTClaims, JWTClaimValidationOptions, Duration } from "../types";
-import { maybeArray } from "./index";
+import { maybeArray } from "./array";
 import { JWTError } from "../error";
 
 /**
@@ -16,7 +16,7 @@ export function isJWTContent(header: { typ?: string; cty?: string } | undefined)
   return cty === "json" || cty === "application/json" || cty.endsWith("+json");
 }
 
-const TIME_CONSTANTS = Object.freeze({
+const TIME_CONSTANTS: Readonly<Record<string, number>> = Object.freeze({
   s: 1,
   second: 1,
   seconds: 1,
@@ -63,7 +63,7 @@ export function parseDurationSeconds(value: Duration): number {
       );
     }
     const n = Number.parseInt(match[1], 10);
-    const unit = (match[2] || "s") as keyof typeof TIME_CONSTANTS;
+    const unit = match[2] || "s";
     return n * TIME_CONSTANTS[unit];
   }
   throw new JWTError(

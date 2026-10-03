@@ -128,7 +128,7 @@ describe("producer algorithm support gates", () => {
 
 describe("signing key errors", () => {
   it("signMulti reports a CryptoKey that does not serve the signer alg as compact sign does", async () => {
-    const { privateKey } = (await generateKey("ES256")) as CryptoKeyPair;
+    const { privateKey } = await generateKey("ES256");
     const compact = await expectCode(
       () => sign(payload, privateKey, { alg: "ES384" }),
       "ERR_JWK_INVALID",
@@ -175,10 +175,7 @@ describe("encrypt key inference", () => {
   });
 
   it("infers nothing from raw key bytes", async () => {
-    await expectCode(
-      () => encrypt(payload, new Uint8Array(32) as Uint8Array<ArrayBuffer>),
-      "ERR_JWE_ALG_MISSING",
-    );
+    await expectCode(() => encrypt(payload, new Uint8Array(32)), "ERR_JWE_ALG_MISSING");
   });
 
   it("still treats a string key as a PBES2 password", async () => {
@@ -211,7 +208,7 @@ describe("key management errors", () => {
 
   it("importKey rejects a JWK whose crv contradicts its alg", async () => {
     await expectCode(
-      () => importKey({ ...ec.jwk.public, crv: "P-384" } as any, { alg: "ES256" }),
+      () => importKey({ ...ec.jwk.public, crv: "P-384" }, { alg: "ES256" }),
       "ERR_JWK_INVALID",
     );
   });
@@ -237,15 +234,12 @@ describe("key management errors", () => {
 
   it("exportPEM rejects an algorithm the library does not implement", async () => {
     const { alg: _alg, ...bare } = rsa.jwk.public;
-    await expectCode(
-      () => exportPEM(bare as any, { alg: "RS257" as "RS256" }),
-      "ERR_JWK_UNSUPPORTED",
-    );
+    await expectCode(() => exportPEM(bare, { alg: "RS257" as "RS256" }), "ERR_JWK_UNSUPPORTED");
   });
 
   it("wrapKey rejects a CEK AES-KW cannot wrap", async () => {
     await expectCode(
-      () => wrapKey(new Uint8Array(5) as Uint8Array<ArrayBuffer>, a128kw, { alg: "A128KW" }),
+      () => wrapKey(new Uint8Array(5), a128kw, { alg: "A128KW" }),
       "ERR_INVALID_OPTION",
     );
   });
@@ -253,7 +247,7 @@ describe("key management errors", () => {
   it("wrapKey rejects ECDH-ES key material that is not a key", async () => {
     await expectCode(
       () =>
-        wrapKey(new Uint8Array(32) as Uint8Array<ArrayBuffer>, new Uint8Array(32) as any, {
+        wrapKey(new Uint8Array(32), new Uint8Array(32) as any, {
           alg: "ECDH-ES+A256KW",
         }),
       "ERR_JWK_INVALID",
@@ -263,7 +257,7 @@ describe("key management errors", () => {
   it("wrapKey rejects RSA-OAEP key material that is not a key", async () => {
     await expectCode(
       () =>
-        wrapKey(new Uint8Array(32) as Uint8Array<ArrayBuffer>, new Uint8Array(32) as any, {
+        wrapKey(new Uint8Array(32), new Uint8Array(32) as any, {
           alg: "RSA-OAEP-256",
         }),
       "ERR_JWK_INVALID",
@@ -273,7 +267,7 @@ describe("key management errors", () => {
   it("unwrapKey rejects ECDH-ES key material that is not a key", async () => {
     await expectCode(
       () =>
-        unwrapKey(new Uint8Array(40) as Uint8Array<ArrayBuffer>, new Uint8Array(32) as any, {
+        unwrapKey(new Uint8Array(40), new Uint8Array(32) as any, {
           alg: "ECDH-ES+A256KW",
           enc: "A256GCM",
           epk: ecdhPair.publicKey as JWK_EC_Public,
@@ -285,7 +279,7 @@ describe("key management errors", () => {
   it("unwrapKey rejects RSA-OAEP key material that is not a key", async () => {
     await expectCode(
       () =>
-        unwrapKey(new Uint8Array(256) as Uint8Array<ArrayBuffer>, new Uint8Array(32) as any, {
+        unwrapKey(new Uint8Array(256), new Uint8Array(32) as any, {
           alg: "RSA-OAEP-256",
           enc: "A256GCM",
         }),
@@ -294,7 +288,7 @@ describe("key management errors", () => {
   });
 
   it("sign rejects a key that cannot serve the requested algorithm", async () => {
-    const pair = (await generateKey("Ed25519")) as CryptoKeyPair;
+    const pair = await generateKey("Ed25519");
     await expectCode(() => sign(payload, pair.privateKey, { alg: "ES256" }), "ERR_JWK_INVALID");
   });
 
@@ -320,12 +314,12 @@ describe("payload option errors", () => {
   });
 
   it("sign rejects a payload that cannot be serialized as JSON", async () => {
-    const error = await expectCode(() => sign({ n: 1n } as any, hs256), "ERR_INVALID_OPTION");
+    const error = await expectCode(() => sign({ n: 1n }, hs256), "ERR_INVALID_OPTION");
     expect(error.cause).toBeInstanceOf(TypeError);
   });
 
   it("encrypt rejects a payload that cannot be serialized as JSON", async () => {
-    await expectCode(() => encrypt({ n: 1n } as any, a128kw), "ERR_INVALID_OPTION");
+    await expectCode(() => encrypt({ n: 1n }, a128kw), "ERR_INVALID_OPTION");
   });
 });
 
@@ -464,7 +458,7 @@ describe("JWE producer option errors", () => {
         encrypt(payload, a128kw, {
           alg: "A128KW",
           enc: "A256GCM",
-          cek: new Uint8Array(16) as Uint8Array<ArrayBuffer>,
+          cek: new Uint8Array(16),
         }),
       "ERR_INVALID_OPTION",
     );
@@ -476,7 +470,7 @@ describe("JWE producer option errors", () => {
         encrypt(payload, a128kw, {
           alg: "A128KW",
           enc: "A256GCM",
-          contentEncryptionIV: new Uint8Array(8) as Uint8Array<ArrayBuffer>,
+          contentEncryptionIV: new Uint8Array(8),
         }),
       "ERR_INVALID_OPTION",
     );
@@ -484,7 +478,7 @@ describe("JWE producer option errors", () => {
 
   it("encrypt rejects a p2s shorter than 8 octets", async () => {
     await expectCode(
-      () => encrypt(payload, "pw", { p2s: new Uint8Array(4) as Uint8Array<ArrayBuffer> }),
+      () => encrypt(payload, "pw", { p2s: new Uint8Array(4) }),
       "ERR_INVALID_OPTION",
     );
   });
@@ -509,9 +503,9 @@ describe("JWE producer option errors", () => {
   it("wrapKey rejects a p2s shorter than 8 octets", async () => {
     await expectCode(
       () =>
-        wrapKey(new Uint8Array(32) as Uint8Array<ArrayBuffer>, "pw", {
+        wrapKey(new Uint8Array(32), "pw", {
           alg: "PBES2-HS256+A128KW",
-          p2s: new Uint8Array(4) as Uint8Array<ArrayBuffer>,
+          p2s: new Uint8Array(4),
           p2c: 1000,
         }),
       "ERR_INVALID_OPTION",
@@ -521,9 +515,9 @@ describe("JWE producer option errors", () => {
   it("wrapKey rejects a p2c outside the iteration bounds", async () => {
     await expectCode(
       () =>
-        wrapKey(new Uint8Array(32) as Uint8Array<ArrayBuffer>, "pw", {
+        wrapKey(new Uint8Array(32), "pw", {
           alg: "PBES2-HS256+A128KW",
-          p2s: new Uint8Array(16) as Uint8Array<ArrayBuffer>,
+          p2s: new Uint8Array(16),
           p2c: 1,
         }),
       "ERR_INVALID_OPTION",
@@ -584,7 +578,7 @@ describe("key generation", () => {
   });
 
   it("honours a caller-supplied keyUsage for ECDH-ES", async () => {
-    const pair = (await generateKey("ECDH-ES", { keyUsage: ["deriveKey"] })) as CryptoKeyPair;
+    const pair = await generateKey("ECDH-ES", { keyUsage: ["deriveKey"] });
     expect(pair.privateKey.usages).toEqual(["deriveKey"]);
   });
 

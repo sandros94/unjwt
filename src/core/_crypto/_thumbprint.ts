@@ -75,9 +75,8 @@ export async function thumbprint(
     );
   }
 
-  const key = jwk as unknown as Record<string, unknown>;
   const canonical = members.map((name) => {
-    const value = key[name];
+    const value: unknown = Reflect.get(jwk, name);
     if (typeof value !== "string" || value.length === 0) {
       throw new JWTError(
         `JWK thumbprint requires the member "${name}" on an ${jwk.kty} key.`,

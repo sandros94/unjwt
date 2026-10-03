@@ -23,18 +23,21 @@ function makeContext(
   const store = new Map<string, MockEntry>();
   for (const [k, v] of Object.entries(opts.cookies ?? {})) store.set(k, { value: v });
 
-  const cookie = new Proxy({} as SessionContext["cookie"], {
-    get(_t, prop: string) {
-      return {
-        get value() {
-          return store.get(prop)?.value;
-        },
-        set(config: CookieAttributes & { value: string }) {
-          store.set(prop, { value: config.value, lastWrite: config });
-        },
-      };
+  const cookie = new Proxy(
+    {},
+    {
+      get(_t, prop: string) {
+        return {
+          get value() {
+            return store.get(prop)?.value;
+          },
+          set(config: CookieAttributes & { value: string }) {
+            store.set(prop, { value: config.value, lastWrite: config });
+          },
+        };
+      },
     },
-  });
+  );
 
   const context: SessionContext = {
     cookie,
@@ -84,8 +87,8 @@ describe("elysia JWE session core", () => {
     expect((session.data as any).user).toBe("alice");
     expect(liveCookies(store)["elysia-jwe"]).toBe(session.token);
     expect(onUpdate).toHaveBeenCalledOnce();
-    expect(onUpdate.mock.calls[0]![0].oldSession.id).toBeUndefined();
-    expect(onUpdate.mock.calls[0]![0].session.id).toBe(session.id);
+    expect(onUpdate.mock.calls[0][0].oldSession.id).toBeUndefined();
+    expect(onUpdate.mock.calls[0][0].session.id).toBe(session.id);
   });
 
   it("round-trips a session token from the cookie on the next request (fires onRead)", async () => {
@@ -140,7 +143,7 @@ describe("elysia JWE session core", () => {
 
     expect(onExpire).toHaveBeenCalledOnce();
     expect(onRead).not.toHaveBeenCalled();
-    expect(onExpire.mock.calls[0]![0].session.id).toBe(minted.id);
+    expect(onExpire.mock.calls[0][0].session.id).toBe(minted.id);
     expect(session.id).toBeUndefined();
   });
 
@@ -193,8 +196,8 @@ describe("elysia JWE session core", () => {
       return {};
     });
 
-    expect(snapshots[1]!.oldRole).toBe("user");
-    expect(snapshots[1]!.newRole).toBe("admin");
+    expect(snapshots[1].oldRole).toBe("user");
+    expect(snapshots[1].newRole).toBe("admin");
   });
 
   it("clear() resets state, expires the cookie, and fires onClear with the old session", async () => {
@@ -211,7 +214,7 @@ describe("elysia JWE session core", () => {
     expect(Object.keys(session.data)).toHaveLength(0);
     expect(store.get("elysia-jwe")?.lastWrite?.maxAge).toBe(0);
     expect(onClear).toHaveBeenCalledOnce();
-    expect(onClear.mock.calls[0]![0].oldSession.id).toBe(idBefore);
+    expect(onClear.mock.calls[0][0].oldSession.id).toBe(idBefore);
   });
 
   it("works with an asymmetric key pair (public seals, private unseals)", async () => {

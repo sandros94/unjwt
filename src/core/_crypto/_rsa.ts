@@ -1,4 +1,5 @@
 import { JWTError } from "../error";
+import { modulusLengthOf } from "./_key-algorithm";
 
 export async function encryptRSAES(
   alg: string,
@@ -34,7 +35,7 @@ export function checkRSACryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage)
 
 export function checkRSAModulusLength(alg: string, key: CryptoKey): void {
   if (alg.startsWith("RS") || alg.startsWith("PS") || alg.startsWith("RSA")) {
-    const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
+    const modulusLength = modulusLengthOf(key.algorithm);
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
       throw new JWTError(
         `${alg} requires key modulusLength to be 2048 bits or larger`,

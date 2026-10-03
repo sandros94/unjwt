@@ -87,7 +87,7 @@ export function parsePayloadText(
   } catch (error) {
     throw new JWTError(
       `Invalid ${family}: Payload is not valid UTF-8.`,
-      `ERR_${family}_INVALID` as JWTErrorCode,
+      `ERR_${family}_INVALID`,
       error,
     );
   }
@@ -182,13 +182,12 @@ export function computeJwtTimeClaims(
   if (!hasExpHint && !hasNbfHint) return undefined;
   if (!payload || typeof payload !== "object" || payload instanceof Uint8Array) return undefined;
 
-  const typedPayload = payload as JWTClaims;
-  const wantsExp = hasExpHint && typedPayload.exp === undefined;
-  const wantsNbf = hasNbfHint && typedPayload.nbf === undefined;
+  const wantsExp = hasExpHint && (!("exp" in payload) || payload.exp === undefined);
+  const wantsNbf = hasNbfHint && (!("nbf" in payload) || payload.nbf === undefined);
   if (!wantsExp && !wantsNbf) return undefined;
 
   const now = Math.round((currentDate ?? new Date()).getTime() / 1000);
-  const claims: JWTClaims = { ...typedPayload };
+  const claims: JWTClaims = { ...payload };
   claims.iat ||= now;
 
   if (wantsExp) {
@@ -306,7 +305,7 @@ export function assertCritShape(
   options: { family: "JWS" | "JWE"; code?: JWTErrorCode },
 ): asserts crit is string[] {
   const { family } = options;
-  const code = options.code ?? (`ERR_${family}_INVALID` as JWTErrorCode);
+  const code = options.code ?? `ERR_${family}_INVALID`;
   if (
     !Array.isArray(crit) ||
     crit.length === 0 ||
@@ -354,5 +353,6 @@ function _parsePayloadObject<T>(text: string, family: "JWS" | "JWE"): T {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new JWTError(message, code);
   }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a JSON object (checked above) read as the claims type the caller declares
   return parsed as T;
 }

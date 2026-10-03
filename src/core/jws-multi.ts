@@ -3,6 +3,7 @@ import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
 
 import type {
+  JWK,
   JWKSet,
   JWSVerifyJWK,
   JWKLookupFunction,
@@ -27,7 +28,8 @@ import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
-import { isJWK, isJWKSet, inferJWSAllowedAlgorithms } from "./utils";
+import { isJWK, isJWKSet } from "./utils/guards";
+import { inferJWSAllowedAlgorithms } from "./utils/algorithms";
 import {
   applyTypCtyDefaults,
   computeJwtTimeClaims,
@@ -66,6 +68,7 @@ import {
   validateClaimsIfJson,
   decodeSegment,
 } from "./_internal";
+import type { ResolvedKeyInput } from "./_internal";
 
 /**
  * Sign a payload with multiple signers using JWS General JSON Serialization
@@ -120,13 +123,11 @@ export async function signMulti(
 
   const wireSignatures: JWSGeneralSignature[] = [];
   for (let i = 0; i < signers.length; i++) {
-    const signer = signers[i]!;
-    const alg = resolvedAlgs[i]!;
+    const signer = signers[i];
+    const alg = resolvedAlgs[i];
 
     const protectedHeader = _buildSignerProtectedHeader(signer, alg, payload, b64);
-    const unprotectedHeader = sanitizeObjectCopy(signer.unprotectedHeader) as
-      | Record<string, unknown>
-      | undefined;
+    const unprotectedHeader = sanitizeObjectCopy(signer.unprotectedHeader);
 
     _assertDisjointHeaders(protectedHeader, unprotectedHeader);
 
@@ -244,7 +245,7 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
       continue;
     }
 
-    let rawKeyMaterial: unknown;
+    let rawKeyMaterial: ResolvedKeyInput<typeof keyOrLookup>;
     try {
       rawKeyMaterial = await resolveKeyInput(keyOrLookup, {
         header: effective,
@@ -428,7 +429,7 @@ export async function verifyMultiAll<T extends JOSEPayload = JOSEPayload>(
   const outcomes: JWSMultiVerifyOutcome<T>[] = [];
   for (let i = 0; i < general.signatures.length; i++) {
     outcomes.push(
-      await _verifyOneSignature<T>(general.payload, general.signatures[i]!, i, keyResolver, {
+      await _verifyOneSignature<T>(general.payload, general.signatures[i], i, keyResolver, {
         options,
         payloadMode,
         keyCandidates,
@@ -466,7 +467,7 @@ export function generalToFlattenedJWS(jws: JWSGeneralSerialization): JWSFlattene
       "ERR_JWS_INVALID_SERIALIZATION",
     );
   }
-  const [signature] = jws.signatures as [JWSGeneralSignature];
+  const [signature] = jws.signatures;
   const flattened: JWSFlattenedSerialization = {
     payload: jws.payload,
     signature: signature.signature,
@@ -528,7 +529,7 @@ type SignatureHeaders =
  * `alg` the two name together — RFC 7515 §7.2.1 lets `alg` sit in either tier.
  * A failure here condemns this entry alone.
  */
-function _readSignatureHeaders(entry: unknown, index: number): SignatureHeaders {
+function _readSignatureHeaders(entry: JWSGeneralSignature, index: number): SignatureHeaders {
   const shapeError = checkSerializationEntry(entry, {
     family: "JWS",
     label: `Signature[${index}]`,
@@ -536,7 +537,7 @@ function _readSignatureHeaders(entry: unknown, index: number): SignatureHeaders 
     strings: ["protected"],
   });
   if (shapeError) return { error: shapeError };
-  const wireSig = entry as JWSGeneralSignature;
+  const wireSig = entry;
   if (typeof wireSig.signature !== "string") {
     return {
       error: new JWTError(
@@ -553,7 +554,7 @@ function _readSignatureHeaders(entry: unknown, index: number): SignatureHeaders 
     return { error: _asJWTError(err, "ERR_JWS_INVALID") };
   }
 
-  const unprotectedHeader = sanitizeObjectCopy(wireSig.header) as JWSHeaderParameters | undefined;
+  const unprotectedHeader = sanitizeObjectCopy(wireSig.header);
   const failed = (error: JWTError): SignatureHeaders => ({
     error,
     protectedHeader,
@@ -583,7 +584,7 @@ function _readSignatureHeaders(entry: unknown, index: number): SignatureHeaders 
   if (algError) return failed(algError);
 
   return {
-    wireSig: wireSig as JWSGeneralSignature & { signature: string },
+    wireSig,
     protectedHeader,
     unprotectedHeader,
     effective,
@@ -602,7 +603,7 @@ function _resolveSignerAlg(signer: JWSMultiSigner, index: number): JWSAlgorithm 
 
 function _inferSignerAlg(key: JWSMultiSigner["key"], index: number): JWSAlgorithm {
   if (isJWK(key)) {
-    const alg = key.alg as JWSAlgorithm | undefined;
+    const alg = key.alg;
     if (!alg) {
       throw new JWTError(
         `Cannot infer "alg" for signer[${index}]: the JWK has no "alg" property.`,
@@ -619,13 +620,13 @@ function _inferSignerAlg(key: JWSMultiSigner["key"], index: number): JWSAlgorith
       "ERR_JWS_SIGNER_ALG_INFERENCE",
     );
   }
-  return inferred[0]!;
+  return inferred[0];
 }
 
 function _resolveB64(signers: JWSMultiSigner[]): boolean {
   let decided: boolean | undefined;
   for (let i = 0; i < signers.length; i++) {
-    const raw = signers[i]!.protectedHeader?.b64;
+    const raw = signers[i].protectedHeader?.b64;
     if (raw === undefined) continue;
     if (decided === undefined) decided = raw;
     else if (decided !== raw) {
@@ -644,9 +645,8 @@ function _buildSignerProtectedHeader(
   payload: unknown,
   b64: boolean,
 ): JWSProtectedHeader {
-  const userHeader = sanitizeObjectCopy<JWSHeaderParameters | undefined>(
-    signer.protectedHeader as JWSHeaderParameters | undefined,
-  );
+  const userHeader = sanitizeObjectCopy<JWSHeaderParameters | undefined>(signer.protectedHeader);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `alg` is assigned below, before the header leaves this function
   const header = {} as JWSProtectedHeader;
   // A `kid` can only be inferred from a JWK; a CryptoKey signer must set it on its header.
   if (isJWK(signer.key) && signer.key.kid) header.kid = signer.key.kid;
@@ -655,7 +655,7 @@ function _buildSignerProtectedHeader(
   applyTypCtyDefaults(header, payload);
   if (!b64) header.b64 = false;
   applyB64Header(header);
-  assertProducerCrit(header as Record<string, unknown>, "JWS");
+  assertProducerCrit(header, "JWS");
   return header;
 }
 
@@ -692,22 +692,20 @@ function _normalizeSerialization(
     );
   }
 
-  const obj = input as unknown as Record<string, unknown>;
-
-  if (Array.isArray(obj.signatures)) {
+  if ("signatures" in input && Array.isArray(input.signatures)) {
     // RFC 7515 §7.2 — General and Flattened are alternatives, never both: a document
     // carrying `signatures[]` next to a top-level `signature`/`protected` is ambiguous.
-    if ("signature" in obj || "protected" in obj) {
+    if ("signature" in input || "protected" in input) {
       throw new JWTError(
         'Invalid JWS JSON Serialization: "signatures" must not be combined with a top-level "signature" or "protected".',
         "ERR_JWS_INVALID_SERIALIZATION",
       );
     }
-    return obj as unknown as JWSGeneralSerialization;
+    return input;
   }
 
-  if ("signature" in obj) {
-    const flattened = obj as unknown as JWSFlattenedSerialization;
+  if ("signature" in input) {
+    const flattened = input;
     const signature: JWSGeneralSignature = { signature: flattened.signature };
     if (flattened.protected !== undefined) signature.protected = flattened.protected;
     if (flattened.header !== undefined) signature.header = flattened.header;
@@ -732,6 +730,9 @@ function _signerKeyMatches(effectiveHeader: JWSHeaderParameters, keyMaterial: un
   return !headerKid;
 }
 
+/** Key material a signature is checked against, once a lookup has run and a password is refused. */
+type VerificationKeyMaterial = CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer>;
+
 interface VerifyWithKeyOptions {
   signature: Uint8Array<ArrayBuffer>;
   signingInput: Uint8Array<ArrayBuffer>;
@@ -742,7 +743,7 @@ interface VerifyWithKeyOptions {
 
 async function _verifyWithKey(
   alg: JWSAlgorithm,
-  rawKeyMaterial: unknown,
+  rawKeyMaterial: VerificationKeyMaterial,
   options: VerifyWithKeyOptions,
 ): Promise<boolean> {
   try {
@@ -754,7 +755,7 @@ async function _verifyWithKey(
 
 async function _verifyWithKeyMaterial(
   alg: JWSAlgorithm,
-  rawKeyMaterial: unknown,
+  rawKeyMaterial: VerificationKeyMaterial,
   options: VerifyWithKeyOptions,
 ): Promise<boolean> {
   const { signature, signingInput, kid, allowSymmetric, keyCandidates } = options;
@@ -791,7 +792,7 @@ async function _verifyWithKeyMaterial(
 
   const verificationKey = await resolveSigningKey(
     alg,
-    await importKey(rawKeyMaterial as any, { alg, expect: "public" }),
+    await importKey(rawKeyMaterial, { alg, expect: "public" }),
     "verify",
   );
   return joseVerify(alg, verificationKey, signature, signingInput);
@@ -799,7 +800,7 @@ async function _verifyWithKeyMaterial(
 
 async function _verifyOneSignature<T extends JOSEPayload>(
   payload: string,
-  entry: unknown,
+  entry: JWSGeneralSignature,
   index: number,
   keyResolver: JWKLookupFunction,
   context: {
@@ -834,7 +835,7 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   });
   if (typError) return fail(typError, protectedHeader, unprotectedHeader);
 
-  let rawKeyMaterial: unknown;
+  let rawKeyMaterial: ResolvedKeyInput<JWKLookupFunction>;
   try {
     rawKeyMaterial = await resolveKeyInput(keyResolver, {
       header: effective,

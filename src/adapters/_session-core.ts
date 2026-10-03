@@ -13,7 +13,7 @@ import {
   invalidConfigError,
   resolveExpiresAt,
 } from "./_session";
-import type { SessionData } from "./_session-types";
+import type { SessionData, SessionRecord } from "./_session-types";
 
 /**
  * Holds the in-flight read of a session, so a second reader on the same
@@ -22,7 +22,7 @@ import type { SessionData } from "./_session-types";
 export const kSessionPending: unique symbol = Symbol("unjwt_session_pending");
 
 /** In-request session state, mirroring the claims of the underlying token. */
-export interface SessionState<T extends Record<string, any>, MaxAge extends ExpiresIn | undefined> {
+export interface SessionState<T extends SessionRecord, MaxAge extends ExpiresIn | undefined> {
   /** Session ID — mirrors the JWT `jti` claim. `undefined` until the session is persisted. */
   id: string | undefined;
   /** Session creation time in ms — mirrors the JWT `iat` claim (seconds). */
@@ -36,15 +36,27 @@ export interface SessionState<T extends Record<string, any>, MaxAge extends Expi
   [kSessionPending]?: Promise<SessionState<T, MaxAge>>;
 }
 
-type SessionHook = (args: any) => void | Promise<void>;
+/** A session state with its data and lifetime types left open, as the core passes it around. */
+export type StoredSession = SessionState<SessionRecord, ExpiresIn | undefined>;
 
-/** The hooks the core dispatches, whatever argument types a family declares. */
+/** The members of a session a codec reads back from a token. */
+export interface OpenedSession {
+  id: string;
+  createdAt: number;
+  expiresAt: number | undefined;
+  data: Record<string, unknown>;
+}
+
+/**
+ * The hooks the core dispatches, whatever argument types a family declares.
+ * Declared as methods: a family's hook takes its own, narrower argument type.
+ */
 export interface SessionCoreHooks {
-  onRead?: SessionHook;
-  onUpdate?: SessionHook;
-  onClear?: SessionHook;
-  onExpire?: SessionHook;
-  onError?: SessionHook;
+  onRead?(args: Record<string, unknown>): void | Promise<void>;
+  onUpdate?(args: Record<string, unknown>): void | Promise<void>;
+  onClear?(args: Record<string, unknown>): void | Promise<void>;
+  onExpire?(args: Record<string, unknown>): void | Promise<void>;
+  onError?(args: Record<string, unknown>): void | Promise<void>;
 }
 
 /** The parts of a session config the core reads, whatever family declares them. */
@@ -63,8 +75,9 @@ export interface SessionCookieOptions {
 
 /** Where a framework keeps the session state of one request. */
 export interface SessionStore {
-  get: () => SessionState<any, any> | undefined;
-  set: (state: SessionState<any, any>) => void;
+  /** The state held under this session's slot, as the framework keeps it. */
+  get: () => unknown;
+  set: (state: object) => void;
 }
 
 /** How a session is issued and read: signed (JWS) or encrypted (JWE). */
@@ -75,26 +88,27 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   defaultCookie: Record<string, unknown>;
   /** The instant the session treats as now. */
   now: (config: Config) => number;
-  /** The key a new token is issued with, resolved before any session is read. */
-  issueKey: (config: Config) => unknown;
+  /**
+   * Resolve the key a new token is issued with — before any session is read —
+   * and return the issuer bound to it.
+   */
+  issuer: (config: Config) => (state: StoredSession) => Promise<string>;
   /**
    * Resolve and import every key the config supplies, raising
    * `ERR_SESSION_KEY_INVALID` for one the session cannot use.
    */
   assertKeys: (config: Config) => Promise<void>;
   /**
-   * The key an incoming token is opened with — resolved before the token is
+   * Resolve the key an incoming token is opened with — before the token is
    * read, so a key the config cannot supply is a configuration failure rather
-   * than an unreadable token.
+   * than an unreadable token — and return the opener bound to it.
    */
-  openKey: (config: Config, carrier: Record<string, unknown>) => unknown;
-  issue: (config: Config, state: SessionState<any, any>, key: unknown) => Promise<string>;
-  open: (
+  opener: (
     config: Config,
-    token: string,
     carrier: Record<string, unknown>,
-    key?: unknown,
-  ) => Promise<Partial<SessionState<any, any>>>;
+  ) => (token: string) => Promise<OpenedSession>;
+  /** Open a token outside a session read, checking the config's keys first. */
+  open: (config: Config, token: string, carrier: Record<string, unknown>) => Promise<OpenedSession>;
 }
 
 /** What a session needs from the framework it serves. */
@@ -177,7 +191,7 @@ export function mintSessionId(config: SessionCoreConfig): string {
 
 /** A session with no token yet: the state a request that carried none starts from. */
 export function emptySession<
-  T extends Record<string, any>,
+  T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
   TCarrier,
   Config extends SessionCoreConfig,
@@ -185,16 +199,42 @@ export function emptySession<
   const { config, codec } = binding;
   const now = codec.now(config);
   const createdAt = now - (now % 1000);
-  return {
+  return typedSession<T, MaxAge>({
     id: undefined,
     createdAt,
-    expiresAt: resolveExpiresAt(createdAt, { maxAge: config.maxAge }) as SessionState<
-      T,
-      MaxAge
-    >["expiresAt"],
+    expiresAt: resolveExpiresAt(createdAt, { maxAge: config.maxAge }),
     data: Object.create(null),
     token: undefined,
-  };
+  });
+}
+
+/** The session state a binding's store holds, if any. */
+export function storedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
+  store: SessionStore,
+): SessionState<T, MaxAge> | undefined {
+  const state = store.get();
+  return state === undefined ? undefined : typedSession<T, MaxAge>(state);
+}
+
+/** What a session manager reads before any state is stored: no lifetime, no data. */
+export function blankSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(): Pick<
+  SessionState<T, MaxAge>,
+  "expiresAt" | "data"
+> {
+  return typedSession<T, MaxAge>({ expiresAt: undefined, data: {} });
+}
+
+/** Open a token outside a session read, as the session reading it declares its data. */
+export function openSessionToken<
+  T extends SessionRecord,
+  MaxAge extends ExpiresIn | undefined,
+  Config extends SessionCoreConfig,
+>(
+  codec: SessionCodec<Config>,
+  config: Config,
+  options: { token: string; carrier: Record<string, unknown> },
+): Promise<Partial<SessionState<T, MaxAge>>> {
+  return codec.open(config, options.token, options.carrier).then(typedSession<T, MaxAge>);
 }
 
 /** Drop the cookie of a session that expired, unless the config writes none. */
@@ -240,4 +280,17 @@ function claimSessionName(
   throw invalidConfigError(
     `${prefix} Session name "${name}" is already used by a ${holder.toUpperCase()} session on this request; a name is one cookie, so give this session a "name" of its own.`,
   );
+}
+
+/**
+ * A session state as the session reading it declares its data and lifetime.
+ * Framework storage and codecs carry it untyped; the types are the ones the
+ * caller declares for the session, as one slot is only ever read by the
+ * session that wrote it.
+ */
+function typedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
+  state: unknown,
+): SessionState<T, MaxAge> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- storage and codecs carry session state untyped; its data and lifetime types are the ones the caller declares for the session
+  return state as SessionState<T, MaxAge>;
 }

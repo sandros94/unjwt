@@ -487,7 +487,7 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should verify HS256 (Object payload)", async () => {
       const jws = await sign(payloadObj, hs256Key, { alg: "HS256" });
-      const { payload, protectedHeader } = await verify<JWTClaims>(jws, hs256Key);
+      const { payload, protectedHeader } = await verify(jws, hs256Key);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("HS256");
       expect(protectedHeader.typ).toBe("JWT");
@@ -523,7 +523,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, rs256KeyPair.privateKey, {
         alg: "RS256",
       });
-      const { payload, protectedHeader } = await verify<JWTClaims>(jws, rs256KeyPair.publicKey);
+      const { payload, protectedHeader } = await verify(jws, rs256KeyPair.publicKey);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("RS256");
 
@@ -535,7 +535,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, es256KeyPair.privateKey, {
         alg: "ES256",
       });
-      const { payload, protectedHeader } = await verify<JWTClaims>(jws, es256KeyPair.publicKey);
+      const { payload, protectedHeader } = await verify(jws, es256KeyPair.publicKey);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("ES256");
 
@@ -547,7 +547,7 @@ describe.concurrent("JWS Utilities", () => {
       const jws = await sign(payloadObj, ps256KeyPair.privateKey, {
         alg: "PS256",
       });
-      const { payload, protectedHeader } = await verify<JWTClaims>(jws, ps256KeyPair.publicKey);
+      const { payload, protectedHeader } = await verify(jws, ps256KeyPair.publicKey);
       expect(payload).toEqual(payloadObj);
       expect(protectedHeader.alg).toBe("PS256");
 
@@ -686,7 +686,7 @@ describe.concurrent("JWS Utilities", () => {
         await expect(verify(genuine, poisoned)).resolves.toBeDefined();
 
         // The set's owner can opt back in for an HMAC rotation set they control.
-        const { payload } = await verify<JWTClaims>(forgery, poisoned, {
+        const { payload } = await verify(forgery, poisoned, {
           allowSymmetricJWKSet: true,
         });
         expect(payload.sub).toBe("admin");
@@ -730,7 +730,7 @@ describe.concurrent("JWS Utilities", () => {
         const jws = await sign(payloadObj, privateKey);
         const { alg: _alg, ...algLess } = publicKey as JWK & { alg?: string };
 
-        const set: JWKSet = { keys: [algLess as JWK, publicKey] };
+        const set: JWKSet = { keys: [algLess, publicKey] };
         const { payload } = await verify(jws, set);
         expect(payload).toEqual(payloadObj);
       });
@@ -753,8 +753,8 @@ describe.concurrent("JWS Utilities", () => {
         const causes = error.cause as JWTError[];
         expect(Array.isArray(causes)).toBe(true);
         expect(causes).toHaveLength(2);
-        expect(causes[0]!.code).toBe("ERR_JWK_INVALID");
-        expect(causes[1]!.code).toBe("ERR_JWS_SIGNATURE_INVALID");
+        expect(causes[0].code).toBe("ERR_JWK_INVALID");
+        expect(causes[1].code).toBe("ERR_JWS_SIGNATURE_INVALID");
       });
     });
 
@@ -1229,7 +1229,7 @@ describe.concurrent("JWS Utilities", () => {
           currentDate: new Date(0),
         });
 
-        const { payload } = await verify<JWTClaims>(jws, hs256Key, {
+        const { payload } = await verify(jws, hs256Key, {
           currentDate: new Date(61_000),
           validateClaims: false,
         });
@@ -1247,7 +1247,7 @@ describe.concurrent("JWS Utilities", () => {
         const headerEncoded = base64UrlStringify(JSON.stringify(header));
         const payloadEncoded = base64UrlStringify(JSON.stringify(payload));
         const signingInput = textEncoder.encode(`${headerEncoded}.${payloadEncoded}`);
-        const rawKey = await crypto.subtle.exportKey("raw", hs256Key as CryptoKey);
+        const rawKey = await crypto.subtle.exportKey("raw", hs256Key);
         const macKey = await crypto.subtle.importKey(
           "raw",
           rawKey,
@@ -1302,7 +1302,7 @@ describe.concurrent("JWS Utilities", () => {
     // Raw `Uint8Array` keys carry no metadata, so inference cannot pick an alg and
     // verify must demand an explicit `options.algorithms`.
     it("requires explicit options.algorithms when the key shape is ambiguous", async () => {
-      const rawKey = await crypto.subtle.exportKey("raw", hs256Key as CryptoKey);
+      const rawKey = await crypto.subtle.exportKey("raw", hs256Key);
       const jws = await sign(payloadObj, new Uint8Array(rawKey), { alg: "HS256" });
       await expect(verify(jws, new Uint8Array(rawKey))).rejects.toThrow(
         /Cannot infer allowed algorithms/,
@@ -1640,7 +1640,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         alg: "HS256",
         protectedHeader: { b64: false },
       });
-      const header = JSON.parse(base64UrlParse(jws.split(".")[0]!));
+      const header = JSON.parse(base64UrlParse(jws.split(".")[0]));
       expect(header.b64).toBe(false);
       expect(header.crit).toEqual(["b64"]);
 
@@ -1654,14 +1654,14 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         alg: "HS256",
         protectedHeader: { crit: ["app"], app: "web", b64: false },
       });
-      const header = JSON.parse(base64UrlParse(jws.split(".")[0]!));
+      const header = JSON.parse(base64UrlParse(jws.split(".")[0]));
       expect(header.crit).toEqual(["app", "b64"]);
 
       const again = await sign("payload", hs256Key, {
         alg: "HS256",
         protectedHeader: { crit: ["b64"], b64: false },
       });
-      expect(JSON.parse(base64UrlParse(again.split(".")[0]!)).crit).toEqual(["b64"]);
+      expect(JSON.parse(base64UrlParse(again.split(".")[0])).crit).toEqual(["b64"]);
     });
 
     it('rejects b64: false that is not listed in "crit" on verify', async () => {
@@ -1733,7 +1733,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
 
     it("reports a protected header without typ as carrying none", async () => {
       const jws = await sign("payload", hs256Key, { alg: "HS256" });
-      expect(JSON.parse(base64UrlParse(jws.split(".")[0]!)).typ).toBeUndefined();
+      expect(JSON.parse(base64UrlParse(jws.split(".")[0])).typ).toBeUndefined();
       const error = await verify(jws, hs256Key, { typ: "at+jwt", payload: "string" }).catch(
         (e) => e,
       );
@@ -1950,7 +1950,7 @@ describe.concurrent("JWS producer header gates", () => {
     const encoded = await sign("payload", key, {
       protectedHeader: { crit: ["b64"], b64: true },
     });
-    expect(JSON.parse(base64UrlParse(encoded.split(".")[0]!))).toMatchObject({
+    expect(JSON.parse(base64UrlParse(encoded.split(".")[0]))).toMatchObject({
       crit: ["b64"],
       b64: true,
     });

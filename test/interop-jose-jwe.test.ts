@@ -112,7 +112,7 @@ describe.concurrent("interop with jose: JWE JSON serialization", () => {
       { enc: "A256GCM", aad: "external" },
     );
     for (const key of [kw.priv, rs.priv]) {
-      const res = await jose.generalDecrypt(jwe as jose.GeneralJWE, joseKey(key));
+      const res = await jose.generalDecrypt(jwe, joseKey(key));
       expect(JSON.parse(textDecoder.decode(res.plaintext))).toEqual(claims);
       expect(textDecoder.decode(res.additionalAuthenticatedData)).toBe("external");
     }
@@ -137,7 +137,7 @@ describe.concurrent("interop with jose: JWE JSON serialization", () => {
     const flat = generalToFlattened(
       await encryptMulti(claims, [{ key: kw.priv as JWEEncryptJWK }], { enc: "A128CBC-HS256" }),
     );
-    const res = await jose.flattenedDecrypt(flat as jose.FlattenedJWE, joseKey(kw.priv));
+    const res = await jose.flattenedDecrypt(flat, joseKey(kw.priv));
     expect(JSON.parse(textDecoder.decode(res.plaintext))).toEqual(claims);
   });
 
@@ -203,7 +203,7 @@ describe.concurrent("interop with jose: JWK", () => {
       const ours = await exportKey(key);
       const theirs = await jose.exportJWK(key);
       expect(stripMeta(ours)).toEqual(theirs);
-      const viaJose = await jose.importJWK(ours as jose.JWK, alg, { extractable: true });
+      const viaJose = await jose.importJWK(ours, alg, { extractable: true });
       expect(await jose.exportJWK(viaJose)).toEqual(theirs);
       const viaUnjwt = await importKey(theirs as JWK, { alg, extractable: true });
       expect(stripMeta(await exportKey(viaUnjwt as CryptoKey))).toEqual(theirs);
@@ -212,7 +212,7 @@ describe.concurrent("interop with jose: JWK", () => {
 
   it.each(["HS256", "A128KW", "A256GCM"] as const)("oct %s: import/export parity", async (alg) => {
     const key = await generateKey(alg);
-    const ours = (await exportKey(key)) as JWK_oct;
+    const ours = await exportKey<JWK_oct>(key);
     expect(stripMeta(ours)).toEqual(await jose.exportJWK(key));
     expect(await jose.importJWK(ours as jose.JWK)).toEqual(await importKey(ours));
   });
@@ -221,7 +221,7 @@ describe.concurrent("interop with jose: JWK", () => {
     "%s: thumbprint() and generated kid equal jose calculateJwkThumbprint",
     async (alg) => {
       const { priv, pub } = await keysFor(alg);
-      const expected = await jose.calculateJwkThumbprint(pub as jose.JWK, "sha256");
+      const expected = await jose.calculateJwkThumbprint(pub, "sha256");
       expect(await thumbprint(pub)).toBe(expected);
       expect(await thumbprint(priv)).toBe(expected);
       expect(pub.kid).toBe(expected);
@@ -229,16 +229,16 @@ describe.concurrent("interop with jose: JWK", () => {
   );
 
   const PEMS: [string, JWKPEMAlgorithm, () => Promise<Pair>][] = [
-    ["RSA fixture", "RS256", async () => ({ priv: rsa.jwk.private, pub: rsa.jwk.public }) as Pair],
-    ["EC fixture", "ES256", async () => ({ priv: ec.jwk.private, pub: ec.jwk.public }) as Pair],
+    ["RSA fixture", "RS256", async () => ({ priv: rsa.jwk.private, pub: rsa.jwk.public })],
+    ["EC fixture", "ES256", async () => ({ priv: ec.jwk.private, pub: ec.jwk.public })],
     ["Ed25519", "Ed25519", () => keysFor("Ed25519")],
     ["ES384", "ES384", () => keysFor("ES384")],
   ];
 
   it.each(PEMS)("%s: exportPEM/importPEM match jose SPKI/PKCS8", async (_, alg, get) => {
     const { priv, pub } = await get();
-    const pubKey = await jose.importJWK(pub as jose.JWK, alg, { extractable: true });
-    const privKey = await jose.importJWK(priv as jose.JWK, alg, { extractable: true });
+    const pubKey = await jose.importJWK(pub, alg, { extractable: true });
+    const privKey = await jose.importJWK(priv, alg, { extractable: true });
     const spki = await jose.exportSPKI(pubKey as CryptoKey);
     const pkcs8 = await jose.exportPKCS8(privKey as CryptoKey);
     expect(pemBody(await exportPEM(pub))).toBe(pemBody(spki));
@@ -419,7 +419,7 @@ async function jweKeys(alg: KeyManagementAlgorithm, enc: ContentEncryptionAlgori
 }
 
 function joseKey(jwk: JWK): JoseKey {
-  return jwk.kty === "oct" ? octBytes(jwk) : (jwk as jose.JWK);
+  return jwk.kty === "oct" ? octBytes(jwk) : jwk;
 }
 
 function octBytes(jwk: JWK): Uint8Array<ArrayBuffer> {
@@ -427,7 +427,7 @@ function octBytes(jwk: JWK): Uint8Array<ArrayBuffer> {
 }
 
 function headerOf(token: string): Record<string, unknown> {
-  return JSON.parse(base64UrlParse(token.split(".")[0]!));
+  return JSON.parse(base64UrlParse(token.split(".")[0]));
 }
 
 function stripMeta(jwk: object): Record<string, unknown> {
@@ -453,12 +453,12 @@ function withSegment(token: string, index: number, value: Uint8Array): string {
 }
 
 function tamper(token: string, index: number): string {
-  const segment = base64UrlParse(token.split(".")[index]!, { returnAs: "uint8array" });
-  segment[0]! ^= 1;
+  const segment = base64UrlParse(token.split(".")[index], { returnAs: "uint8array" });
+  segment[0] ^= 1;
   return withSegment(token, index, segment);
 }
 
 function truncateTag(token: string): string {
-  const tag = base64UrlParse(token.split(".")[4]!, { returnAs: "uint8array" });
+  const tag = base64UrlParse(token.split(".")[4], { returnAs: "uint8array" });
   return withSegment(token, 4, tag.slice(0, -1));
 }

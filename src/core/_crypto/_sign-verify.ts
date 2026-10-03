@@ -1,4 +1,5 @@
 import { JWTError } from "../error";
+import { namedCurveOf } from "./_key-algorithm";
 
 export async function sign(
   alg: string,
@@ -78,11 +79,11 @@ export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage):
 
 export function subtleAlgorithm(
   alg: string,
-  algorithm: KeyAlgorithm | EcKeyAlgorithm,
+  algorithm: KeyAlgorithm,
 ):
   | { hash: string; name: string; saltLength?: undefined; namedCurve?: undefined }
   | { hash: string; name: string; saltLength: number; namedCurve?: undefined }
-  | { hash: string; name: string; namedCurve: string; saltLength?: undefined }
+  | { hash: string; name: string; namedCurve: string | undefined; saltLength?: undefined }
   | { name: string; hash?: undefined; saltLength?: undefined; namedCurve?: undefined } {
   const hash = `SHA-${alg.slice(-3)}`;
   switch (alg) {
@@ -111,7 +112,7 @@ export function subtleAlgorithm(
       return {
         hash,
         name: "ECDSA",
-        namedCurve: (algorithm as EcKeyAlgorithm).namedCurve,
+        namedCurve: namedCurveOf(algorithm),
       };
     }
     case "Ed25519":

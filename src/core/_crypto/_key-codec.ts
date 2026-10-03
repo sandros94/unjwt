@@ -1,7 +1,7 @@
 import { base64UrlStringify } from "../utils/base64";
 
-import type { JWK, JWK_RSA_Private, JWK_EC_Private, JWK_OKP_Private } from "../types";
-import { isCryptoKey } from "../utils";
+import type { JWK } from "../types";
+import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
 
 /**
@@ -29,7 +29,7 @@ export async function jwkTokey(
 
   const { algorithm, keyUsages } = subtleMapping(jwk);
 
-  const isPrivate = (jwk as JWK_RSA_Private).d !== undefined;
+  const isPrivate = "d" in jwk && jwk.d !== undefined;
   const extractable = jwk.ext === false ? false : (options.extractable ?? !isPrivate);
 
   try {
@@ -51,20 +51,23 @@ export async function jwkTokey(
 export async function keyToJWK<T extends JWK>(
   key: Uint8Array<ArrayBuffer> | CryptoKey,
 ): Promise<T> {
+  let jwk: JsonWebKey;
   if (key instanceof Uint8Array) {
-    return {
-      kty: "oct",
-      k: base64UrlStringify(key),
-    } as T;
+    jwk = { kty: "oct", k: base64UrlStringify(key) };
+  } else {
+    if (!isCryptoKey(key)) {
+      throw new JWTError("Key must be one of type: CryptoKey or Uint8Array", "ERR_JWK_INVALID");
+    }
+    if (!key.extractable) {
+      throw new JWTError(
+        "non-extractable CryptoKey cannot be exported as a JWK",
+        "ERR_JWK_INVALID",
+      );
+    }
+    jwk = await crypto.subtle.exportKey("jwk", key);
   }
-  if (!isCryptoKey(key)) {
-    throw new JWTError("Key must be one of type: CryptoKey or Uint8Array", "ERR_JWK_INVALID");
-  }
-  if (!key.extractable) {
-    throw new JWTError("non-extractable CryptoKey cannot be exported as a JWK", "ERR_JWK_INVALID");
-  }
-  const jwk = await crypto.subtle.exportKey("jwk", key);
 
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- WebCrypto exports a complete JWK of the key's own kty, and the caller names the kty it passed in
   return jwk as T;
 }
 
@@ -76,7 +79,7 @@ export async function keyToJWK<T extends JWK>(
  * declaration as-is.
  */
 function permittedUsages(jwk: JWK, keyUsages: KeyUsage[]): KeyUsage[] {
-  const keyOps = jwk.key_ops as KeyUsage[] | undefined;
+  const keyOps = jwk.key_ops;
   if (!keyOps || keyUsages.length === 0) return keyUsages;
   const permitted = keyUsages.filter((usage) => keyOps.includes(usage));
   if (permitted.length === 0) {
@@ -99,7 +102,7 @@ function subtleMapping(jwk: JWK): {
         case "PS384":
         case "PS512": {
           algorithm = { name: "RSA-PSS", hash: `SHA-${jwk.alg.slice(-3)}` };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["sign"] : ["verify"];
+          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "RS256":
@@ -109,7 +112,7 @@ function subtleMapping(jwk: JWK): {
             name: "RSASSA-PKCS1-v1_5",
             hash: `SHA-${jwk.alg.slice(-3)}`,
           };
-          keyUsages = (jwk as JWK_RSA_Private).d ? ["sign"] : ["verify"];
+          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "RSA-OAEP":
@@ -120,9 +123,7 @@ function subtleMapping(jwk: JWK): {
             name: "RSA-OAEP",
             hash: `SHA-${Number.parseInt(jwk.alg.slice(-3), 10) || 1}`,
           };
-          keyUsages = (jwk as JWK_RSA_Private).d
-            ? ["decrypt", "unwrapKey"]
-            : ["encrypt", "wrapKey"];
+          keyUsages = hasPrivateMember(jwk) ? ["decrypt", "unwrapKey"] : ["encrypt", "wrapKey"];
           break;
         }
         default: {
@@ -138,17 +139,17 @@ function subtleMapping(jwk: JWK): {
       switch (jwk.alg) {
         case "ES256": {
           algorithm = { name: "ECDSA", namedCurve: "P-256" };
-          keyUsages = (jwk as JWK_EC_Private).d ? ["sign"] : ["verify"];
+          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "ES384": {
           algorithm = { name: "ECDSA", namedCurve: "P-384" };
-          keyUsages = (jwk as JWK_EC_Private).d ? ["sign"] : ["verify"];
+          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "ES512": {
           algorithm = { name: "ECDSA", namedCurve: "P-521" };
-          keyUsages = (jwk as JWK_EC_Private).d ? ["sign"] : ["verify"];
+          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "ECDH-ES":
@@ -159,7 +160,7 @@ function subtleMapping(jwk: JWK): {
             name: "ECDH",
             namedCurve: requireCurve(jwk, ["P-256", "P-384", "P-521"]),
           };
-          keyUsages = (jwk as JWK_EC_Private).d ? ["deriveBits"] : [];
+          keyUsages = hasPrivateMember(jwk) ? ["deriveBits"] : [];
           break;
         }
         default: {
@@ -176,7 +177,7 @@ function subtleMapping(jwk: JWK): {
         case "Ed25519":
         case "EdDSA": {
           algorithm = { name: requireCurve(jwk, ["Ed25519"]) };
-          keyUsages = (jwk as JWK_OKP_Private).d ? ["sign"] : ["verify"];
+          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "ECDH-ES":
@@ -184,7 +185,7 @@ function subtleMapping(jwk: JWK): {
         case "ECDH-ES+A192KW":
         case "ECDH-ES+A256KW": {
           algorithm = { name: requireCurve(jwk, ["X25519"]) };
-          keyUsages = (jwk as JWK_OKP_Private).d ? ["deriveBits"] : [];
+          keyUsages = hasPrivateMember(jwk) ? ["deriveBits"] : [];
           break;
         }
         default: {
@@ -215,12 +216,17 @@ function subtleMapping(jwk: JWK): {
  * would import a key on another curve as `Ed25519`.
  */
 function requireCurve(jwk: JWK, allowed: readonly string[]): string {
-  const crv = (jwk as JWK_EC_Private | JWK_OKP_Private).crv as string | undefined;
-  if (crv === undefined || !allowed.includes(crv)) {
+  const crv: unknown = "crv" in jwk ? jwk.crv : undefined;
+  if (typeof crv !== "string" || !allowed.includes(crv)) {
     throw new JWTError(
       `Invalid or unsupported JWK "crv" (Curve) Parameter value: ${String(crv)}. Expected one of: ${allowed.join(", ")}.`,
       "ERR_JWK_INVALID",
     );
   }
   return crv;
+}
+
+/** Whether the JWK carries a non-empty private `d` member. */
+function hasPrivateMember(jwk: JWK): boolean {
+  return "d" in jwk && Boolean(jwk.d);
 }

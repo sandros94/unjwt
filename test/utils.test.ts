@@ -184,7 +184,7 @@ describe.concurrent("Utility Functions", () => {
       ["null", null],
     ])("throws when expiresAt / notBeforeAt is %s", (_label, value) => {
       for (const name of ["expiresAt", "notBeforeAt"] as const) {
-        const error = catchError(() => computeJwtTimeClaims({}, { [name]: value } as never));
+        const error = catchError(() => computeJwtTimeClaims({}, { [name]: value }));
         expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
         expect((error as Error).message).toContain(name);
       }
@@ -484,7 +484,7 @@ describe("inferJWSAllowedAlgorithms", () => {
   });
 
   it("infers from CryptoKeys across JWS alg families", async () => {
-    const hmac = (await generateKey("HS384")) as CryptoKey;
+    const hmac = await generateKey("HS384");
     expect(inferJWSAllowedAlgorithms(hmac)).toEqual(["HS384"]);
 
     const rsa = await generateKey("RS512", { modulusLength: 2048 });
@@ -582,10 +582,10 @@ describe("inferJWEAllowedAlgorithms", () => {
   });
 
   it("infers from CryptoKeys across JWE alg families (delegates to privateKey on pairs)", async () => {
-    const kw = (await generateKey("A128KW")) as CryptoKey;
+    const kw = await generateKey("A128KW");
     expect(inferJWEAllowedAlgorithms(kw)).toEqual(["A128KW", "dir"]);
 
-    const gcm = (await generateKey("A192GCM")) as CryptoKey;
+    const gcm = await generateKey("A192GCM");
     expect(inferJWEAllowedAlgorithms(gcm)).toEqual(["A192GCMKW", "dir"]);
 
     const rsaOaep = await generateKey("RSA-OAEP-384", { modulusLength: 2048 });

@@ -644,13 +644,13 @@ describe("adapter h3 v2", () => {
       const body = await (await localApp.request("/")).json();
 
       expect(updates).toHaveLength(2);
-      expect(updates[0]!.oldToken).toBeUndefined();
-      expect(updates[0]!.token).toBeTypeOf("string");
-      expect(updates[0]!.id).toBe("1");
-      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
-      expect(updates[1]!.token).not.toBe(updates[0]!.token);
-      expect(updates[1]!.id).toBe("2");
-      expect(body.token).toBe(updates[1]!.token);
+      expect(updates[0].oldToken).toBeUndefined();
+      expect(updates[0].token).toBeTypeOf("string");
+      expect(updates[0].id).toBe("1");
+      expect(updates[1].oldToken).toBe(updates[0].token);
+      expect(updates[1].token).not.toBe(updates[0].token);
+      expect(updates[1].id).toBe("2");
+      expect(body.token).toBe(updates[1].token);
     });
 
     it("JWE onUpdate fires even when update() is called with no data (token refresh)", async () => {
@@ -743,13 +743,13 @@ describe("adapter h3 v2", () => {
       const cookie = initRes.headers.getSetCookie()[0];
       expect(cookie).toBeDefined();
 
-      await localApp.request("/", { headers: { Cookie: cookie! } });
+      await localApp.request("/", { headers: { Cookie: cookie } });
       const lastReadToken = readTokens[readTokens.length - 1];
       expect(lastReadToken).toBeTypeOf("string");
       expect(lastReadToken!.length).toBeGreaterThan(0);
 
       vi.setSystemTime(new Date("2025-01-01T00:00:05.000Z"));
-      await localApp.request("/", { headers: { Cookie: cookie! } });
+      await localApp.request("/", { headers: { Cookie: cookie } });
       expect(expireTokens.length).toBeGreaterThan(0);
       expect(expireTokens[0]).toBeTypeOf("string");
 
@@ -786,13 +786,13 @@ describe("adapter h3 v2", () => {
       const body = await (await localApp.request("/")).json();
 
       expect(updates).toHaveLength(2);
-      expect(updates[0]!.oldToken).toBeUndefined();
-      expect(updates[0]!.token).toBeTypeOf("string");
-      expect(updates[0]!.id).toBe("1");
-      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
-      expect(updates[1]!.token).not.toBe(updates[0]!.token);
-      expect(updates[1]!.id).toBe("2");
-      expect(body.token).toBe(updates[1]!.token);
+      expect(updates[0].oldToken).toBeUndefined();
+      expect(updates[0].token).toBeTypeOf("string");
+      expect(updates[0].id).toBe("1");
+      expect(updates[1].oldToken).toBe(updates[0].token);
+      expect(updates[1].token).not.toBe(updates[0].token);
+      expect(updates[1].id).toBe("2");
+      expect(body.token).toBe(updates[1].token);
     });
 
     it("JWS onUpdate: oldSession.data is a deep pre-update snapshot", async () => {
@@ -804,8 +804,8 @@ describe("adapter h3 v2", () => {
         hooks: {
           onUpdate: vi.fn(({ session, oldSession }) => {
             snapshots.push({
-              oldRole: (oldSession.data as any).user?.role,
-              newRole: (session.data as any).user?.role,
+              oldRole: oldSession.data.user?.role,
+              newRole: session.data.user?.role,
             });
           }),
         },
@@ -827,8 +827,8 @@ describe("adapter h3 v2", () => {
       await localApp.request("/");
 
       expect(snapshots).toHaveLength(2);
-      expect(snapshots[1]!.oldRole).toBe("user");
-      expect(snapshots[1]!.newRole).toBe("admin");
+      expect(snapshots[1].oldRole).toBe("user");
+      expect(snapshots[1].newRole).toBe("admin");
     });
 
     it("JWS update failure rolls back session.data (no split state)", async () => {
@@ -858,7 +858,7 @@ describe("adapter h3 v2", () => {
       expect(onError).toHaveBeenCalledOnce();
       expect(body.role).toBe("user");
       expect(body.hasBig).toBe(false);
-      expect("big" in onError.mock.calls[0]![0].session.data).toBe(false);
+      expect("big" in onError.mock.calls[0][0].session.data).toBe(false);
     });
 
     it("JWE update failure rolls back session.data (no split state)", async () => {
@@ -952,7 +952,7 @@ describe("adapter h3 v2", () => {
 
       expect(onError).toHaveBeenCalledOnce();
       expect(onUpdate).not.toHaveBeenCalled();
-      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(onError.mock.calls[0][0].token).toBeUndefined();
       expect(threwInHandler).toBe(true);
       expect(body.id).toBeNull();
       expect(body.token).toBeNull();
@@ -986,7 +986,7 @@ describe("adapter h3 v2", () => {
 
       expect(onError).toHaveBeenCalledOnce();
       expect(onUpdate).not.toHaveBeenCalled();
-      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(onError.mock.calls[0][0].token).toBeUndefined();
       expect(threwInHandler).toBe(true);
       expect(body.id).toBeNull();
       expect(body.token).toBeNull();

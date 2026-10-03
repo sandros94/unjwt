@@ -1,7 +1,8 @@
 import { textEncoder } from "unsecure/utils";
 
-import { concatUint8Arrays } from "../utils";
+import { concatUint8Arrays } from "../utils/array";
 import { JWTError } from "../error";
+import { namedCurveOf } from "./_key-algorithm";
 
 export async function deriveECDHESKey(
   publicKey: CryptoKey,
@@ -24,9 +25,8 @@ export async function deriveECDHESKey(
   const length: number =
     publicKey.algorithm.name === "X25519"
       ? 256
-      : Math.ceil(
-          Number.parseInt((publicKey.algorithm as EcKeyAlgorithm).namedCurve.slice(-3), 10) / 8,
-        ) << 3;
+      : Math.ceil(Number.parseInt((namedCurveOf(publicKey.algorithm) ?? "").slice(-3), 10) / 8) <<
+        3;
 
   const sharedSecret = new Uint8Array(
     await crypto.subtle.deriveBits(
@@ -42,8 +42,14 @@ export async function deriveECDHESKey(
   return concatKdf(sharedSecret, keyLength, value);
 }
 
+/** A fresh extractable key pair on the curve of an ECDH-ES recipient key. */
+export function generateEphemeralKeyPair(recipientKey: CryptoKey): Promise<CryptoKeyPair> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- an ECDH-ES recipient key is ECDH (an EcKeyAlgorithm) or X25519, and both generate a key pair
+  return crypto.subtle.generateKey(recipientKey.algorithm as EcKeyAlgorithm, true, ["deriveBits"]);
+}
+
 export function isECDHKeyAllowed(key: CryptoKey): boolean {
-  switch ((key.algorithm as EcKeyAlgorithm).namedCurve) {
+  switch (namedCurveOf(key.algorithm)) {
     case "P-256":
     case "P-384":
     case "P-521": {

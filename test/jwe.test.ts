@@ -294,7 +294,7 @@ describe.concurrent("JWE Utilities", () => {
       expect(jwk.alg).toBe("A256GCM");
 
       const jwe = await encrypt("payload", jwk);
-      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]!) as string);
+      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]));
       expect(header).toMatchObject({ alg: "dir", enc: "A256GCM" });
 
       await expect(encrypt("payload", jwk, { alg: "A256GCMKW", enc: "A256GCM" })).rejects.toThrow(
@@ -305,7 +305,7 @@ describe.concurrent("JWE Utilities", () => {
     it("should use provided CEK and contentEncryptionIV", async () => {
       const alg: KeyManagementAlgorithm = "A128KW";
       const enc: ContentEncryptionAlgorithm = "A128GCM";
-      const key = keys[alg]!.key as CryptoKey;
+      const key = keys[alg].key as CryptoKey;
 
       const customCek = secureRandomBytes(128 / 8);
       const customIv = secureRandomBytes(96 / 8);
@@ -329,7 +329,7 @@ describe.concurrent("JWE Utilities", () => {
     it("should decrypt with explicit unwrappedKeyAlgorithm option", async () => {
       const alg: KeyManagementAlgorithm = "A128KW";
       const enc: ContentEncryptionAlgorithm = "A128GCM";
-      const key = keys[alg]!.key as CryptoKey;
+      const key = keys[alg].key as CryptoKey;
 
       const jwe = await encrypt(plaintextObj, key, { alg, enc });
       const { payload } = await decrypt(jwe, key, {
@@ -339,14 +339,14 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should throw if alg is missing", async () => {
-      const key = keys["A128KW"]!.key as CryptoKey;
+      const key = keys["A128KW"].key as CryptoKey;
       await expect(encrypt(plaintextString, key, { enc: "A128GCM" } as any)).rejects.toThrow(
         'JWE "alg" (Key Management Algorithm) must be provided in options',
       );
     });
 
     it("should throw for invalid payload type (null)", async () => {
-      const key = keys["A128KW"]!.key as CryptoKey;
+      const key = keys["A128KW"].key as CryptoKey;
       await expect(
         // @ts-expect-error intentionally invalid payload
         encrypt(null, key, { alg: "A128KW", enc: "A128GCM" }),
@@ -453,7 +453,7 @@ describe.concurrent("JWE Utilities", () => {
 
     it("opens a token minted at the default p2c under the default maximum", async () => {
       const jwe = await encrypt(plaintextObj, "a password", { alg, enc: "A128GCM" });
-      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]!) as string);
+      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]));
       expect(header.p2c).toBe(DEFAULT_PBES2_ITERATIONS);
       await expect(decrypt(jwe, "a password")).resolves.toBeDefined();
     });
@@ -700,7 +700,7 @@ describe.concurrent("JWE Utilities", () => {
     let joseKey: jose.CryptoKey | Uint8Array;
 
     beforeAll(async () => {
-      key = keys[alg]!.key as CryptoKey;
+      key = keys[alg].key as CryptoKey;
       joseKey = await jose.importJWK(await exportKey(key));
       jwe = await encrypt(plaintextObj, key, { alg, enc });
     });
@@ -858,7 +858,7 @@ describe.concurrent("JWE Utilities", () => {
         enc,
         protectedHeader: { typ: "JWT" },
       });
-      const resJwt = await decrypt<JWTClaims>(jweJwt, key);
+      const resJwt = await decrypt(jweJwt, key);
       expect(resJwt.payload).toEqual(plaintextObj);
 
       // 2. `cty: "application/json"` does not make a string payload a JSON object.
@@ -872,7 +872,7 @@ describe.concurrent("JWE Utilities", () => {
 
       // 3. A JSON object stays claims even with no typ/cty on the header.
       const jweBare = await encrypt(JSON.stringify(plaintextObj), key, { alg, enc });
-      const resBare = await decrypt<JWTClaims>(jweBare, key);
+      const resBare = await decrypt(jweBare, key);
       expect(resBare.payload).toEqual(plaintextObj);
 
       // 4. `typ: "JWT"` over a non-JSON plaintext is rejected, not silently downgraded.
@@ -891,7 +891,7 @@ describe.concurrent("JWE Utilities", () => {
       const enc: ContentEncryptionAlgorithm = "A128GCM";
 
       it("computes iat/exp during encrypt when expiresIn provided and no exp present", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const baseClaims: JWTClaims = { sub: "abc" };
 
         const jwe = await encrypt(baseClaims, key, {
@@ -901,7 +901,7 @@ describe.concurrent("JWE Utilities", () => {
           currentDate: new Date(0), // epoch
         });
 
-        const { payload, protectedHeader } = await decrypt<JWTClaims>(jwe, key, {
+        const { payload, protectedHeader } = await decrypt(jwe, key, {
           currentDate: new Date(30_000), // 30 seconds in
         });
         expect(protectedHeader.typ).toBe("JWT");
@@ -912,7 +912,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("does not override existing exp claim when provided", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc", exp: 999 };
 
         const jwe = await encrypt(claimsWithExp, key, {
@@ -922,14 +922,14 @@ describe.concurrent("JWE Utilities", () => {
           currentDate: new Date(0), // epoch
         });
 
-        const { payload } = await decrypt<JWTClaims>(jwe, key, {
+        const { payload } = await decrypt(jwe, key, {
           currentDate: new Date(30_000),
         });
         expect(payload.exp).toBe(999);
       });
 
       it("sets exp from expiresAt (absolute expiry)", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const expiresAt = new Date("2030-01-01T00:00:00Z");
         const jwe = await encrypt({ sub: "abc" }, key, {
           alg,
@@ -938,7 +938,7 @@ describe.concurrent("JWE Utilities", () => {
           currentDate: new Date(0),
         });
 
-        const { payload } = await decrypt<JWTClaims>(jwe, key, {
+        const { payload } = await decrypt(jwe, key, {
           currentDate: new Date(0),
         });
         expect(payload.exp).toBe(Math.floor(expiresAt.getTime() / 1000));
@@ -946,7 +946,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("throws when both expiresIn and expiresAt are set", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         await expect(
           encrypt({ sub: "abc" }, key, {
             alg,
@@ -958,11 +958,11 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("defaults typ/cty when encrypting object and leaves typ undefined for string", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const obj = { hello: "world" };
 
         const jweObj = await encrypt(obj, key, { alg, enc });
-        const resObj = await decrypt<JWTClaims>(jweObj, key);
+        const resObj = await decrypt(jweObj, key);
         expect(resObj.protectedHeader.typ).toBe("JWT");
         expect(resObj.protectedHeader.cty).toBe("application/json");
         expect(resObj.payload).toEqual(obj);
@@ -974,7 +974,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("accepts critical headers via requiredHeaders option", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const jweCrit = await encrypt(plaintextString, key, {
           alg,
           enc,
@@ -987,7 +987,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("does have an expired claim but validation is skipped", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc" };
 
         const jwe = await encrypt(claimsWithExp, key, {
@@ -997,7 +997,7 @@ describe.concurrent("JWE Utilities", () => {
           currentDate: new Date(0), // epoch
         });
 
-        const { payload } = await decrypt<JWTClaims>(jwe, key, {
+        const { payload } = await decrypt(jwe, key, {
           currentDate: new Date(61_000), // 61 seconds after epoch
           validateClaims: false,
         });
@@ -1008,7 +1008,7 @@ describe.concurrent("JWE Utilities", () => {
         // Encrypting a plain JSON string as Uint8Array bypasses `applyTypCtyDefaults`
         // so the protected header has no `typ`. Prior to v0.7.0 this silently skipped
         // claim validation because the condition was typ-gated.
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const expiredPayload = {
           sub: "abc",
           exp: Math.floor(Date.now() / 1000) - 60,
@@ -1019,11 +1019,11 @@ describe.concurrent("JWE Utilities", () => {
           protectedHeader: { cty: "application/json" },
         });
 
-        await expect(decrypt<JWTClaims>(jwe, key)).rejects.toThrow("Token has expired");
+        await expect(decrypt(jwe, key)).rejects.toThrow("Token has expired");
       });
 
       it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const jwe = await encrypt({ sub: "abc", exp: "never" }, key, { alg, enc });
 
         const err = await decrypt(jwe, key).catch((e) => e);
@@ -1033,7 +1033,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("should throw if JWT has expired", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc" };
 
         const jwe = await encrypt(claimsWithExp, key, {
@@ -1044,7 +1044,7 @@ describe.concurrent("JWE Utilities", () => {
         });
 
         await expect(
-          decrypt<JWTClaims>(jwe, key, {
+          decrypt(jwe, key, {
             currentDate: new Date(61_000),
           }),
         ).rejects.toThrow(
@@ -1053,7 +1053,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("should throw JWTError with ERR_JWT_EXPIRED code and cause for expired `exp`", async () => {
-        const key = keys[alg]!.key as CryptoKey;
+        const key = keys[alg].key as CryptoKey;
         const jwe = await encrypt({ sub: "test-subject", jti: "test-jti-exp" }, key, {
           alg,
           enc,
@@ -1061,7 +1061,7 @@ describe.concurrent("JWE Utilities", () => {
           currentDate: new Date(0),
         });
 
-        const error = await decrypt<JWTClaims>(jwe, key, {
+        const error = await decrypt(jwe, key, {
           currentDate: new Date(61_000),
         }).catch((e) => e);
 
@@ -1079,8 +1079,8 @@ describe.concurrent("JWE Utilities", () => {
     let recipientPublicKeyJwk: JWK_EC_Public;
 
     beforeAll(async () => {
-      recipientKeyPair = keys[ecdhAlg]!.key as CryptoKeyPair;
-      recipientPublicKeyJwk = (await exportKey(recipientKeyPair.publicKey)) as JWK_EC_Public;
+      recipientKeyPair = keys[ecdhAlg].key as CryptoKeyPair;
+      recipientPublicKeyJwk = await exportKey<JWK_EC_Public>(recipientKeyPair.publicKey);
     });
 
     it("should encrypt and decrypt with ECDH-ES and include epk", async () => {
@@ -1141,11 +1141,11 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should honor provided ECDH ephemeral public key", async () => {
-      const providedEphemeral = (await generateKey("ECDH-ES+A128KW", {
+      const providedEphemeral = await generateKey("ECDH-ES+A128KW", {
         namedCurve: "P-256",
         keyUsage: ["deriveBits"],
-      })) as CryptoKeyPair;
-      const providedEphemeralJwk = (await exportKey(providedEphemeral.publicKey)) as JWK_EC_Public;
+      });
+      const providedEphemeralJwk = await exportKey<JWK_EC_Public>(providedEphemeral.publicKey);
       const apu = secureRandomBytes(16);
       const apv = secureRandomBytes(16);
 
@@ -1266,9 +1266,9 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should accept a private CryptoKey directly as ephemeral key", async () => {
-      const ephemeralPair = (await generateKey("ECDH-ES+A128KW", {
+      const ephemeralPair = await generateKey("ECDH-ES+A128KW", {
         namedCurve: "P-256",
-      })) as CryptoKeyPair;
+      });
 
       // Passing just the private CryptoKey (not a pair) covers the CryptoKey branch
       const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
@@ -1377,7 +1377,7 @@ describe.concurrent("JWE Utilities", () => {
     ])(
       "ERR_JWE_INVALID — malformed segment %i carries the UnsecureError cause",
       async (index, message) => {
-        const error = await decrypt(await tamperedCompact(index as number), aesKey).catch((e) => e);
+        const error = await decrypt(await tamperedCompact(index), aesKey).catch((e) => e);
         expect(error).toBeInstanceOf(JWTError);
         expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
         expect(error.message).toBe(message);
@@ -1410,7 +1410,7 @@ describe.concurrent("JWE Utilities", () => {
       kwKey = kw;
       dirKey = dir;
       cbcKey = cbc;
-      ecdhPair = ecdh as CryptoKeyPair;
+      ecdhPair = ecdh;
     });
 
     function replaceHeader(token: string, header: Record<string, unknown>): string {
@@ -1420,7 +1420,7 @@ describe.concurrent("JWE Utilities", () => {
     }
 
     function readHeader(token: string): Record<string, unknown> {
-      return JSON.parse(base64UrlParse(token.split(".")[0]!) as string);
+      return JSON.parse(base64UrlParse(token.split(".")[0]));
     }
 
     it("rejects a non-empty encrypted key for dir", async () => {
@@ -1449,8 +1449,8 @@ describe.concurrent("JWE Utilities", () => {
     it("rejects an authentication tag grown out of the ciphertext", async () => {
       const token = await encrypt(plaintextObj, kwKey, { alg: "A256KW", enc: "A256GCM" });
       const parts = token.split(".");
-      const ciphertext = base64UrlParse(parts[3]!, { returnAs: "uint8array" });
-      const tag = base64UrlParse(parts[4]!, { returnAs: "uint8array" });
+      const ciphertext = base64UrlParse(parts[3], { returnAs: "uint8array" });
+      const tag = base64UrlParse(parts[4], { returnAs: "uint8array" });
       const shifted = ciphertext.subarray(ciphertext.length - 4);
       parts[3] = base64UrlStringify(ciphertext.subarray(0, ciphertext.length - 4));
       parts[4] = base64UrlStringify(new Uint8Array([...shifted, ...tag]));
@@ -1478,7 +1478,7 @@ describe.concurrent("JWE Utilities", () => {
         enc: "A128CBC-HS256",
       });
       const parts = token.split(".");
-      const tag = base64UrlParse(parts[4]!, { returnAs: "uint8array" });
+      const tag = base64UrlParse(parts[4], { returnAs: "uint8array" });
       parts[4] = base64UrlStringify(tag.subarray(0, 8));
       const error = await decrypt(parts.join("."), cbcKey).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
@@ -1760,7 +1760,7 @@ describe.concurrent("JWE producer option gates", () => {
   it.each(["partyUInfo", "partyVInfo"] as const)("refuses a %s that is not bytes", async (name) => {
     const error = await encrypt("payload", ecdhKey.publicKey, {
       enc: "A128GCM",
-      ecdh: { [name]: "not-bytes" } as never,
+      ecdh: { [name]: "not-bytes" },
     }).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain(name === "partyUInfo" ? "apu" : "apv");
@@ -1868,7 +1868,7 @@ describe.concurrent("JWE decryption option gates", () => {
  */
 function withProtectedHeader(token: string, members: Record<string, unknown>): string {
   const parts = token.split(".");
-  const header = JSON.parse(base64UrlParse(parts[0]!) as string) as Record<string, unknown>;
+  const header = JSON.parse(base64UrlParse(parts[0])) as Record<string, unknown>;
   parts[0] = base64UrlStringify(JSON.stringify({ ...header, ...members }));
   return parts.join(".");
 }

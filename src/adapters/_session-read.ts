@@ -15,11 +15,13 @@ import {
   emptySession,
   kSessionPending,
   sessionToken,
+  storedSession,
 } from "./_session-core";
+import type { SessionRecord } from "./_session-types";
 
 /** Get (and lazily initialize) the session for the current request. */
 export async function loadSession<
-  T extends Record<string, any>,
+  T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
   TCarrier,
   Config extends SessionCoreConfig,
@@ -30,9 +32,9 @@ export async function loadSession<
   // cannot issue or open a token is a misconfiguration the caller must see,
   // never an unreadable token reported through `onError` as "no session".
   await codec.assertKeys(config);
-  const openKey = codec.openKey(config, args);
+  const open = codec.opener(config, args);
 
-  const existing = store.get() as SessionState<T, MaxAge> | undefined;
+  const existing = storedSession<T, MaxAge>(store);
   if (existing) {
     const session = existing[kSessionPending] ? await existing[kSessionPending] : existing;
 
@@ -85,8 +87,7 @@ export async function loadSession<
    * hook that reads the same session sees that state instead of awaiting a
    * promise that is itself waiting on the hook.
    */
-  const pending = codec
-    .open(config, token, args, openKey)
+  const pending = open(token)
     .then(
       (opened) => {
         Object.assign(session, opened);

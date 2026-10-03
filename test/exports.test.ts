@@ -126,7 +126,7 @@ describe("internal plumbing (unjwt/internal)", () => {
     ["validateCriticalHeadersJWE", internal.validateCriticalHeadersJWE],
     ["assertCritShape", internal.assertCritShape],
   ] as const)("still exports %s from unjwt/utils as an alias", (name, binding) => {
-    expect(utils[name]).toBe(binding);
-    expect(root[name]).toBe(binding);
+    expect(Reflect.get(utils, name)).toBe(binding);
+    expect(Reflect.get(root, name)).toBe(binding);
   });
 });

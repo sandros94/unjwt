@@ -119,12 +119,12 @@ describe.concurrent("interop with jose: JWS JSON serialization", () => {
     ]);
     for (const [i, pub] of [es.pub, rs.pub].entries()) {
       const res = await jose.flattenedVerify(
-        { payload: jws.payload, ...jws.signatures[i] } as jose.FlattenedJWSInput,
+        { payload: jws.payload, ...jws.signatures[i] },
         joseKey(pub),
       );
       expect(res.payload).toEqual(bytes);
     }
-    const general = await jose.generalVerify(jws as jose.GeneralJWSInput, joseKey(rs.pub));
+    const general = await jose.generalVerify(jws, joseKey(rs.pub));
     expect(general.unprotectedHeader).toEqual({ x: 1 });
   });
 
@@ -148,7 +148,7 @@ describe.concurrent("interop with jose: JWS JSON serialization", () => {
   it("Flattened: unjwt -> jose", async () => {
     const ed = await keysFor("EdDSA");
     const flat = generalToFlattenedJWS(await signMulti(claims, [{ key: ed.priv as JWSSignJWK }]));
-    const res = await jose.flattenedVerify(flat as jose.FlattenedJWSInput, joseKey(ed.pub));
+    const res = await jose.flattenedVerify(flat, joseKey(ed.pub));
     expect(JSON.parse(textDecoder.decode(res.payload))).toEqual(claims);
   });
 
@@ -222,7 +222,7 @@ describe.concurrent("interop with jose: RFC 7797 unencoded payload", () => {
       await signMulti(dotted, [{ key: es.priv as JWSSignJWK, protectedHeader: { b64: false } }]),
     );
     expect(flat.payload).toBe(dotted);
-    const res = await jose.flattenedVerify(flat as jose.FlattenedJWSInput, joseKey(es.pub));
+    const res = await jose.flattenedVerify(flat, joseKey(es.pub));
     expect(textDecoder.decode(res.payload)).toBe(dotted);
   });
 
@@ -247,7 +247,7 @@ describe.concurrent("interop with jose: JWS rejection parity", () => {
   const urlChars = once(async () => {
     for (let i = 0; ; i++) {
       const t = await sign({ sub: `x${i}` }, (await hs()) as JWSSignJWK);
-      if (/[-_]/.test(t.split(".")[2]!)) return t.replaceAll("-", "+").replaceAll("_", "/");
+      if (/[-_]/.test(t.split(".")[2])) return t.replaceAll("-", "+").replaceAll("_", "/");
     }
   });
   const shortSecret = new Uint8Array(16).fill(7);
@@ -278,10 +278,7 @@ describe.concurrent("interop with jose: JWS rejection parity", () => {
       {
         token: () => forgeHS({ alg: "HS256" }, seg(claims), textEncoder.encode(rsa.pem.spki)),
         ours: { algorithms: ["RS256"] },
-        keys: async () => [
-          rsa.jwk.public as JWSVerifyJWK,
-          await jose.importSPKI(rsa.pem.spki, "RS256"),
-        ],
+        keys: async () => [rsa.jwk.public, await jose.importSPKI(rsa.pem.spki, "RS256")],
       },
     ],
     ["expired exp", { token: () => forged({ alg: "HS256" }, seg({ exp: now - 60 })) }],
@@ -399,7 +396,7 @@ function keysFor(alg: string): Promise<Pair> {
 }
 
 function joseKey(jwk: JWK): JoseKey {
-  return jwk.kty === "oct" ? octBytes(jwk) : (jwk as jose.JWK);
+  return jwk.kty === "oct" ? octBytes(jwk) : jwk;
 }
 
 function octBytes(jwk: JWK): Uint8Array<ArrayBuffer> {
@@ -411,13 +408,13 @@ function seg(value: unknown): string {
 }
 
 function headerOf(token: string): Record<string, unknown> {
-  return JSON.parse(base64UrlParse(token.split(".")[0]!));
+  return JSON.parse(base64UrlParse(token.split(".")[0]));
 }
 
 function tamper(token: string, index: number): string {
   const parts = token.split(".");
-  const segment = base64UrlParse(parts[index]!, { returnAs: "uint8array" });
-  segment[0]! ^= 1;
+  const segment = base64UrlParse(parts[index], { returnAs: "uint8array" });
+  segment[0] ^= 1;
   parts[index] = base64UrlStringify(segment);
   return parts.join(".");
 }
