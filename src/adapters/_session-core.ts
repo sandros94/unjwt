@@ -77,6 +77,11 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   /** The key a new token is issued with, resolved before any session is read. */
   issueKey: (config: Config) => unknown;
   /**
+   * Resolve and import every key the config supplies, raising
+   * `ERR_SESSION_KEY_INVALID` for one the session cannot use.
+   */
+  assertKeys: (config: Config) => Promise<void>;
+  /**
    * The key an incoming token is opened with — resolved before the token is
    * read, so a key the config cannot supply is a configuration failure rather
    * than an unreadable token.

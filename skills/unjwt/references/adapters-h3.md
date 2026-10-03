@@ -8,7 +8,7 @@ Import paths:
 - `unjwt/adapters/h3v1` — H3 v1 (Nuxt v4, Nitro v2)
 - `unjwt/adapters/h3v2` — H3 v2 (Nuxt v5, Nitro v3)
 
-All three export the same API. Each also re-exports: `generateJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`.
+All three export the same API. Each also re-exports: `generateJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`, and the session option types `SessionSignOptions`, `SessionVerifyOptions`, `SessionEncryptOptions`, `SessionDecryptOptions`.
 
 Peer dep: `h3`
 
@@ -31,21 +31,28 @@ Peer dep: `h3`
   `CryptoKey`. A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with
   `deriveJWKFromPassword()`. A `CryptoKey` carries no algorithm, so it also requires
   `jws.signOptions.alg` (or `jwe.encryptOptions.alg` + `enc`), else
-  `ERR_SESSION_CONFIG_INVALID`.
+  `ERR_SESSION_CONFIG_INVALID`. A configured JWK is imported when the session is opened: one the
+  session cannot use (undecodable `k`, wrong AES key length for its `alg`) throws
+  `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`.
 - **Reserved claims.** `jti`, `iat`, `exp` and `nbf` are adapter-owned. They are stripped
   from every `update()` payload (object and updater-function form alike) and never read
   back out of `session.data`. A token's lifetime comes only from `maxAge` — on the config,
-  or on one call via `session.update(data, { maxAge })`. A `__proto__`, `constructor` or
-  `prototype` key in an update throws `ERR_INVALID_OPTION`.
+  or on one call via `session.update(data, { maxAge })`. Update data that is not a plain object
+  (a string, an array), or a `__proto__`, `constructor` or `prototype` key in it, throws
+  `ERR_INVALID_OPTION`.
 - **Foreign tokens.** An incoming token is only a session when it carries
-  `cty: "application/json"`; with `maxAge` set it must also carry `exp`. That `exp` alone bounds
+  `cty: "application/json"` (case-insensitive, parameters ignored) and the session `typ`
+  (`signOptions.protectedHeader.typ` / `encryptOptions.protectedHeader.typ`, default `"JWT"`);
+  with `maxAge` set it must also carry `exp`. That `exp` alone bounds
   its life (no `maxTokenAge`), so a token issued with `update(data, { maxAge })` keeps its own
   lifetime past the config's `maxAge`. Anything else is `ERR_SESSION_TOKEN_INVALID`, whose
-  `cause` is the failure underneath.
+  `cause` is the failure underneath — an expired token that is not a session included, so it
+  reaches `onError`, never `onExpire`.
 - **Token source.** The cookie is read first; the session header is consulted only when the
   cookie carries no token. A present-but-empty or whitespace-only header never hides the
   cookie, and the `Bearer ` prefix is matched case-insensitively. `cookie: false` plus
-  `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use of a session manager;
+  `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use of a session manager
+  and from `clearJWSSession` / `clearJWESession`;
   `signJWSSession` / `sealJWESession` accept it and issue a one-off token (fresh `jti`, no cookie).
 
 ## Cookie chunking
@@ -65,10 +72,10 @@ Every error the adapters throw is a `JWTError`:
 | Code                         | Raised when                                                               |
 | ---------------------------- | ------------------------------------------------------------------------- |
 | `ERR_SESSION_TOKEN_INVALID`  | incoming token failed verification/decryption; `cause` is the original    |
-| `ERR_SESSION_READONLY_EVENT` | `update()` / `clear()` on an event with no writable response              |
-| `ERR_SESSION_KEY_INVALID`    | `key` missing, a password string, or the wrong shape                      |
+| `ERR_SESSION_READONLY_EVENT` | `update()` / `clear()` once the response cannot take a `Set-Cookie`       |
+| `ERR_SESSION_KEY_INVALID`    | `key` missing, a password string, the wrong shape, or not importable      |
 | `ERR_SESSION_CONFIG_INVALID` | config combination that cannot work (no token source, unpinned CryptoKey) |
-| `ERR_INVALID_OPTION`         | `update()` handed a `__proto__` / `constructor` / `prototype` key         |
+| `ERR_INVALID_OPTION`         | `update()` data not a plain object, or a `__proto__`-like key in it       |
 | `ERR_JWT_EXPIRED`            | the token's `exp` has passed — surfaced through `onExpire`                |
 
 ## Drift from h3 core sessions
@@ -89,8 +96,10 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
   (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless
   an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
-- **h3 v1 after the response is sent** (`res.headersSent` / `res.writableEnded`): `update()` and
-  `clear()` throw `ERR_SESSION_READONLY_EVENT` and leave the session as it was.
+- **After the response is sent** (`res.headersSent` / `res.writableEnded`): `update()` and
+  `clear()` throw `ERR_SESSION_READONLY_EVENT` and leave the session as it was — on h3 v1, and
+  on h3 v2 under Node (`event.runtime.node.res`). Other h3 v2 runtimes expose no such signal, so
+  a write made after the response was built is accepted but never sent.
 
 Both h3 adapters and the Elysia one run the same session core (`src/adapters/_session-core.ts`)
 over a JWS/JWE codec and a per-framework port (`session/_shared.ts`), so the lifecycle, hook
@@ -201,14 +210,15 @@ interface SessionConfigJWE<
   jwe?: {
     // Options passed through to `encrypt()`; `exp` comes from `maxAge` and a
     // session writes no `nbf`, so expiresIn / expiresAt / notBeforeIn /
-    // notBeforeAt are not accepted here.
+    // notBeforeAt are not accepted here. `protectedHeader.typ` sets the
+    // session `typ` (default "JWT") that incoming tokens must carry.
     encryptOptions?: SessionEncryptOptions;
     // JWEDecryptOptions minus the fields the adapter owns: algorithms,
     // encryptionAlgorithms, typ, validateClaims, forceUint8Array. So
     // minIterations / maxIterations / clockTolerance / issuer / audience are
-    // settable. When the session is PBES2 — a pinned PBES2 `alg`, or a key
-    // carrying one — `maxIterations` defaults to the `p2c` the session itself
-    // mints.
+    // settable. When the session is PBES2 — a pinned PBES2 `alg`, or a
+    // configured `key` carrying one, whatever an `onUnsealKeyLookup` hook
+    // returns — `maxIterations` defaults to the `p2c` the session itself mints.
     decryptOptions?: SessionDecryptOptions;
   };
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
@@ -238,7 +248,8 @@ interface SessionConfigJWS<
   jws?: {
     // Options passed through to `sign()`; `exp` comes from `maxAge` and a
     // session writes no `nbf`, so expiresIn / expiresAt / notBeforeIn /
-    // notBeforeAt are not accepted here.
+    // notBeforeAt are not accepted here. `protectedHeader.typ` sets the
+    // session `typ` (default "JWT") that incoming tokens must carry.
     signOptions?: SessionSignOptions;
     /** Claim validation the adapter does not own — a token's own `exp` bounds its life, `typ` is the signed `typ`. */
     verifyOptions?: SessionVerifyOptions;

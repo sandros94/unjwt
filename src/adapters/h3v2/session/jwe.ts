@@ -17,7 +17,7 @@ import type { SessionHooks } from "../../_session-types";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
 import { PREFIX, h3SessionPort } from "./_shared";
 
-export type { SessionDecryptOptions } from "../../_codec-jwe";
+export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe";
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "h3-jwe" });
 

@@ -1,5 +1,5 @@
 import { sign, verify } from "../core/jws";
-import { isCryptoKey, isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../core/utils";
+import { isCryptoKey, isJWKSet, isSymmetricJWK, isPrivateJWK, isPublicJWK } from "../core/utils";
 import type {
   ExpiresIn,
   JWKSet,
@@ -16,6 +16,7 @@ import type {
 import type { StrictOmit } from "../core/utils/types";
 import {
   SESSION_CONTENT_TYPE,
+  assertImportableKey,
   assertKeyMaterial,
   assertSessionContentType,
   invalidConfigError,
@@ -131,6 +132,15 @@ export function createJWSCodec(options: {
           config.hooks!.onVerifyKeyLookup!({ header, ...carrier, config })
       : getVerifyKey(config, prefix);
 
+  const assertVerifyKey = async (config: JWSCodecConfig): Promise<void> => {
+    if (config.hooks?.onVerifyKeyLookup) return;
+    const alg = config.jws?.signOptions?.alg;
+    const key = getVerifyKey(config, prefix);
+    for (const candidate of isJWKSet(key) ? key.keys : [key]) {
+      await assertImportableKey(candidate, { alg, prefix });
+    }
+  };
+
   return {
     family: "jws",
     defaultName,
@@ -139,6 +149,12 @@ export function createJWSCodec(options: {
     now: (config) => config.jws?.signOptions?.currentDate?.getTime() ?? Date.now(),
 
     issueKey: (config) => getSignKey(config, prefix),
+
+    assertKeys: async (config) => {
+      const key = getSignKey(config, prefix);
+      await assertImportableKey(key, { alg: config.jws?.signOptions?.alg, prefix });
+      if (!isSymmetricJWK(key)) await assertVerifyKey(config);
+    },
 
     openKey,
 
@@ -174,6 +190,7 @@ export function createJWSCodec(options: {
 
     open: async (config, token, carrier, key) => {
       const alg = config.jws?.signOptions?.alg;
+      if (key === undefined) await assertVerifyKey(config);
       const jwk = key ?? openKey(config, carrier);
 
       const { payload, protectedHeader } = await verify<{ jti: string; iat: number }>(
@@ -190,7 +207,7 @@ export function createJWSCodec(options: {
           payload: "json",
           validateClaims: true,
         },
-      ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix }));
+      ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix, token, family: "JWS" }));
 
       assertSessionContentType(protectedHeader.cty, { prefix });
 

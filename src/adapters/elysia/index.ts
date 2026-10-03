@@ -13,10 +13,11 @@ export {
   createJWSSession,
   jwsSession,
 } from "./session/jws.ts";
-export type { SessionVerifyOptions } from "./session/jws.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "./session/jws.ts";
 export {
   type SessionConfigJWE,
   type SessionDecryptOptions,
+  type SessionEncryptOptions,
   type SessionHooksJWE,
   type SessionJWE,
   createJWESession,

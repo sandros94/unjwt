@@ -2,7 +2,7 @@ import { Elysia } from "elysia";
 
 import type { ExpiresIn, JWKSet, JWSVerifyJWK, JWKLookupFunctionHeader } from "../../../core/types";
 import { type JWSCodecConfig, type JWSSessionConfig, createJWSCodec } from "../../_codec-jws";
-export type { SessionVerifyOptions } from "../../_codec-jws";
+export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws";
 import { type SessionBinding, type SessionState, bindSession } from "../../_session-core";
 import { loadSession } from "../../_session-read";
 import { sessionManager } from "../../_session-write";

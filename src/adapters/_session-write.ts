@@ -8,6 +8,7 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import type { ExpiresIn } from "../core/types";
 import {
   type SessionIssueOptions,
+  assertTokenSource,
   hasTokenSource,
   readOnlyEventError,
   resolveExpiresAt,
@@ -36,6 +37,7 @@ export async function encodeSession<TCarrier, Config extends SessionCoreConfig>(
   binding: SessionBinding<TCarrier, Config>,
 ): Promise<string> {
   const { config, codec, store } = binding;
+  await codec.assertKeys(config);
   const key = codec.issueKey(config);
   const session =
     store.get() || (hasTokenSource(config) ? await loadSession(binding) : emptySession(binding));
@@ -131,6 +133,7 @@ export async function dropSession<
 >(binding: SessionBinding<TCarrier, Config>): Promise<void> {
   const { config, codec, port, store, args } = binding;
 
+  assertTokenSource(config, { prefix: port.prefix });
   if (config.cookie !== false && !port.writable(binding.carrier)) {
     throw readOnlyEventError(`${port.prefix} Cannot clear session on read-only event.`);
   }

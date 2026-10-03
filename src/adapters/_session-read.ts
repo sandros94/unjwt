@@ -29,7 +29,7 @@ export async function loadSession<
   // Key material is configuration, not token content: a session whose key
   // cannot issue or open a token is a misconfiguration the caller must see,
   // never an unreadable token reported through `onError` as "no session".
-  codec.issueKey(config);
+  await codec.assertKeys(config);
   const openKey = codec.openKey(config, args);
 
   const existing = store.get() as SessionState<T, MaxAge> | undefined;
@@ -42,7 +42,7 @@ export async function loadSession<
      * request — including one made by the hook below — sees no session rather
      * than a stale one.
      */
-    if (session.expiresAt !== undefined && session.expiresAt < Date.now()) {
+    if (session.expiresAt !== undefined && session.expiresAt < codec.now(config)) {
       dropSessionCookie(binding);
       const freshSession = emptySession<T, MaxAge, TCarrier, Config>(binding);
       store.set(freshSession);

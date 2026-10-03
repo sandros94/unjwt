@@ -928,12 +928,9 @@ describe("adapter h3 v2", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      // Shaped like a session key, but too short for HS256 — the config
-      // resolves and only the signing itself fails.
-      const badKey = { kty: "oct", alg: "HS256", k: "AA" } as any;
       const config: SessionConfigJWS = {
         name: "h3-jws-hook-sign-error",
-        key: badKey,
+        key: jwsOctKey,
         hooks: { onError, onUpdate },
       };
 
@@ -942,7 +939,9 @@ describe("adapter h3 v2", () => {
       localApp.all("/", async (event) => {
         const session = await useJWSSession(event, config);
         try {
-          await session.update({ foo: "bar" });
+          // A BigInt has no JSON form, so the session reads fine and only
+          // issuing the token fails.
+          await session.update({ foo: 10n });
         } catch {
           threwInHandler = true;
         }
@@ -963,12 +962,9 @@ describe("adapter h3 v2", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      // Shaped like a session key, but too short for A128KW — the config
-      // resolves and only the sealing itself fails.
-      const badKey = { kty: "oct", alg: "A128KW", k: "AA" } as any;
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-seal-error",
-        key: badKey,
+        key: jweOctKey,
         hooks: { onError, onUpdate },
       };
 
@@ -977,7 +973,9 @@ describe("adapter h3 v2", () => {
       localApp.all("/", async (event) => {
         const session = await useJWESession(event, config);
         try {
-          await session.update({ foo: "bar" });
+          // A BigInt has no JSON form, so the session reads fine and only
+          // issuing the token fails.
+          await session.update({ foo: 10n });
         } catch {
           threwInHandler = true;
         }

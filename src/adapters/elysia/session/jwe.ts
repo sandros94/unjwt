@@ -12,7 +12,7 @@ import type { SessionClaims, SessionManager, SessionContext } from "./types";
 import { PREFIX, elysiaSessionPort } from "./_shared";
 
 export type { SessionContext };
-export type { SessionDecryptOptions } from "../../_codec-jwe";
+export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe";
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "elysia-jwe" });
 

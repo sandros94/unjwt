@@ -14,6 +14,7 @@ import type {
 import type { StrictOmit } from "../core/utils/types";
 import {
   SESSION_CONTENT_TYPE,
+  assertImportableKey,
   assertKeyMaterial,
   assertSessionContentType,
   invalidConfigError,
@@ -134,6 +135,12 @@ export function createJWECodec(options: {
           config.hooks!.onUnsealKeyLookup!({ header, ...carrier, config })
       : getDecryptKey(config, prefix);
 
+  const assertDecryptKey = async (config: JWECodecConfig): Promise<void> => {
+    if (config.hooks?.onUnsealKeyLookup) return;
+    const key = getDecryptKey(config, prefix);
+    await assertImportableKey(key, { alg: config.jwe?.encryptOptions?.alg, prefix });
+  };
+
   return {
     family: "jwe",
     defaultName,
@@ -142,6 +149,12 @@ export function createJWECodec(options: {
     now: (config) => config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now(),
 
     issueKey: (config) => getEncryptKey(config, prefix),
+
+    assertKeys: async (config) => {
+      const key = getEncryptKey(config, prefix);
+      await assertImportableKey(key, { alg: config.jwe?.encryptOptions?.alg, prefix });
+      if (!isSymmetricJWK(key)) await assertDecryptKey(config);
+    },
 
     openKey,
 
@@ -175,6 +188,7 @@ export function createJWECodec(options: {
     },
 
     open: async (config, sealed, carrier, resolvedKey) => {
+      if (resolvedKey === undefined) await assertDecryptKey(config);
       const key = resolvedKey ?? openKey(config, carrier);
 
       const alg = config.jwe?.encryptOptions?.alg;
@@ -185,7 +199,7 @@ export function createJWECodec(options: {
         key as JWEDecryptJWK,
         {
           ...config.jwe?.decryptOptions,
-          maxIterations: sessionMaxIterations(config, key),
+          maxIterations: sessionMaxIterations(config),
           requiredClaims: sessionRequiredClaims(config.jwe?.decryptOptions?.requiredClaims, {
             maxAge: config.maxAge,
           }),
@@ -196,7 +210,9 @@ export function createJWECodec(options: {
           payload: "json",
           validateClaims: true,
         },
-      ).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix }));
+      ).catch((error_: unknown) =>
+        rethrowAsInvalidToken(error_, { prefix, token: sealed, family: "JWE" }),
+      );
 
       assertSessionContentType(protectedHeader.cty, { prefix });
 
@@ -215,13 +231,13 @@ export function createJWECodec(options: {
 /**
  * PBES2 unwrap accepts at most the `p2c` the session itself mints, so a token
  * that asks a PBES2 session for a costlier iteration count is refused. The
- * session is PBES2 when its pinned `alg` says so, or when the key it opens
- * tokens with carries a PBES2 `alg`.
+ * session is PBES2 when its pinned `alg` says so, or when the key it mints
+ * tokens with carries a PBES2 `alg` — whatever key a lookup hook opens with.
  */
-function sessionMaxIterations(config: JWECodecConfig, key: unknown): number | undefined {
+function sessionMaxIterations(config: JWECodecConfig): number | undefined {
   const configured = config.jwe?.decryptOptions?.maxIterations;
   if (configured !== undefined) return configured;
-  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(key) ? key.alg : undefined);
+  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(config.key) ? config.key.alg : undefined);
   return typeof alg === "string" && alg.startsWith("PBES2")
     ? (config.jwe?.encryptOptions?.p2c ?? DEFAULT_PBES2_ITERATIONS)
     : undefined;

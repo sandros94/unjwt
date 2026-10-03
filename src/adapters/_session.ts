@@ -1,5 +1,7 @@
 import { JWTError, isJWTError } from "../core/error";
-import { computeDurationInSeconds } from "../core/utils";
+import { decodeProtectedHeader } from "../core/_internal";
+import { importKey } from "../core/jwk";
+import { computeDurationInSeconds, isJWK } from "../core/utils";
 import type { ExpiresIn } from "../core/types";
 
 /**
@@ -71,12 +73,23 @@ export function expiredSessionError(options: {
 }
 
 /**
- * Turn a read-path failure into the session-adapter contract: expiry passes
- * through untouched, everything else becomes `ERR_SESSION_TOKEN_INVALID` with
- * the original error as its `cause`.
+ * Turn a read-path failure into the session-adapter contract: the expiry of a
+ * session token passes through untouched, everything else — including the
+ * expiry of a token that is not a session — becomes `ERR_SESSION_TOKEN_INVALID`
+ * with the original error as its `cause`.
  */
-export function rethrowAsInvalidToken(error: unknown, options: { prefix: string }): never {
-  if (isJWTError(error, "ERR_JWT_EXPIRED")) throw error;
+export function rethrowAsInvalidToken(
+  error: unknown,
+  options: { prefix: string; token: string; family: "JWS" | "JWE" },
+): never {
+  if (isJWTError(error, "ERR_JWT_EXPIRED")) {
+    // Expiry is only raised once the token was verified, so its protected
+    // header is authentic and decides whether this was a session at all.
+    const [encoded] = options.token.split(".", 1);
+    const header = decodeProtectedHeader<{ cty?: unknown }>(encoded, options.family);
+    assertSessionContentType(header.cty, { prefix: options.prefix, cause: error });
+    throw error;
+  }
   const message = error instanceof Error ? error.message : String(error);
   throw invalidTokenError(`${options.prefix} Invalid session token: ${message}`, error);
 }
@@ -110,11 +123,20 @@ export function assertTokenSource(source: SessionTokenSource, options: { prefix:
   }
 }
 
-/** Reject a token whose content type is not the one the adapters write. */
-export function assertSessionContentType(cty: unknown, options: { prefix: string }): void {
-  if (cty !== SESSION_CONTENT_TYPE) {
+/**
+ * Reject a token whose content type is not the one the adapters write. Media
+ * type names compare case-insensitively and parameters are not part of the
+ * type (RFC 2045 §5.1, RFC 7515 §4.1.10).
+ */
+export function assertSessionContentType(
+  cty: unknown,
+  options: { prefix: string; cause?: unknown },
+): void {
+  const type = typeof cty === "string" ? cty.split(";", 1)[0]!.trim().toLowerCase() : undefined;
+  if (type !== SESSION_CONTENT_TYPE) {
     throw invalidTokenError(
       `${options.prefix} Session token is not a session: "cty" must be "${SESSION_CONTENT_TYPE}", got ${cty === undefined ? "none" : JSON.stringify(cty)}.`,
+      options.cause,
     );
   }
 }
@@ -131,11 +153,30 @@ export function assertKeyMaterial(key: unknown, options: { prefix: string }): vo
   }
 }
 
-/** The `typ` a session writes and requires: the configured one when it names a JWT, else `"JWT"`. */
+/**
+ * Import a configured JWK once, so key material the session cannot use is a
+ * key failure raised where the session is opened rather than an unreadable
+ * token. An asymmetric JWK whose algorithm neither it nor the config names is
+ * left to the token it opens.
+ */
+export async function assertImportableKey(
+  key: unknown,
+  options: { alg: string | undefined; prefix: string },
+): Promise<void> {
+  if (!isJWK(key)) return;
+  const alg = key.alg ?? options.alg;
+  if (key.kty !== "oct" && !alg) return;
+  try {
+    await importKey(key, { alg });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw invalidKeyError(`${options.prefix} Invalid session key: ${message}`, error);
+  }
+}
+
+/** The `typ` a session writes and requires: the configured one, else `"JWT"`. */
 export function sessionTyp(configured: unknown): string {
-  return typeof configured === "string" && configured.toLowerCase().includes("jwt")
-    ? configured
-    : "JWT";
+  return typeof configured === "string" && configured ? configured : "JWT";
 }
 
 /** The header name a session reads its token from. */
@@ -200,6 +241,12 @@ export function sanitizeSessionUpdate<T extends Record<string, any>>(
   update: T,
   options: { prefix: string },
 ): Partial<T> {
+  if (!isPlainObject(update)) {
+    throw new JWTError(
+      `${options.prefix} Session data must be a plain object, got ${Array.isArray(update) ? "an array" : typeof update}.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
   const sanitized: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(update)) {
     if (FORBIDDEN_KEYS.includes(key)) {
@@ -224,4 +271,10 @@ export function splitSessionClaims<T extends Record<string, any>>(
     data[key] = payload[key];
   }
   return { jti: payload.jti, iat: payload.iat, exp: payload.exp, data };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }

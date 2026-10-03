@@ -75,8 +75,21 @@ export const h3SessionPort: SessionPort<HTTPEvent> = {
   },
 };
 
-export function hasWritableResponse(event: HTTPEvent): event is H3Event {
+/** Whether the event carries an h3 response the session can stage cookies on. */
+export function hasResponse(event: HTTPEvent): event is H3Event {
   return Boolean((event as H3Event).res);
+}
+
+/**
+ * Whether the response can still take a `Set-Cookie`: an h3 event whose
+ * response has not been sent yet. Only the Node runtime exposes that signal;
+ * on other runtimes a write is accepted, and one made after the response was
+ * built is not sent.
+ */
+export function hasWritableResponse(event: HTTPEvent): event is H3Event {
+  if (!hasResponse(event)) return false;
+  const res = event.runtime?.node?.res;
+  return !res || (!res.headersSent && !res.writableEnded);
 }
 
 /**
@@ -92,7 +105,7 @@ export function readSessionToken(
 ): string | undefined {
   let cookieValue: string | undefined;
   if (source.cookie !== false) {
-    if (hasWritableResponse(event)) {
+    if (hasResponse(event)) {
       cookieValue = readChunkedFromSetCookie(event.res.headers.getSetCookie(), sessionName);
     }
     cookieValue ??= readChunkedBy((name) => getCookie(event, name), sessionName);

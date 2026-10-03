@@ -8,6 +8,7 @@ export type {
 export {
   type SessionConfigJWE,
   type SessionDecryptOptions,
+  type SessionEncryptOptions,
   type SessionHooksJWE,
   type SessionJWE,
   clearJWESession,
@@ -30,7 +31,7 @@ export {
   useJWSSession,
   verifyJWSSession,
 } from "./session/jws.ts";
-export type { SessionVerifyOptions } from "./session/jws.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "./session/jws.ts";
 
 export type * from "../../core/types/index.ts";
 export {
