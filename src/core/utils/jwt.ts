@@ -415,10 +415,8 @@ export function validateCriticalHeadersJWS(
   const recognizedParams = new Set<string>([...recognizedHeaders, ...BASE_PROCESSED_JWS]);
 
   for (const param of protectedHeader.crit) {
-    // `b64` (RFC 7797) is special: its absence defaults to `true` and is still valid.
-    if (recognizedParams.has(param) && (param in protectedHeader || param === "b64")) {
-      continue;
-    }
+    // RFC 7515 §4.1.11 — a listed parameter must be present, `b64` (RFC 7797) included.
+    if (recognizedParams.has(param) && Object.hasOwn(protectedHeader, param)) continue;
     missingHeaderParams.add(param);
   }
 

@@ -38,13 +38,15 @@ import {
 } from "./utils";
 import {
   JWS_ALG_CTX,
-  applyB64Crit,
+  applyB64Header,
+  assertNoUnprotectedCritOption,
   assertProducerCrit,
   asKeyLookupError,
   asKeyUsageError,
   assertJWKSetCandidates,
   assertSerializationObject,
   assertEntryLimit,
+  checkSerializationEntry,
   buildJWKSetFilter,
   checkAlgAllowed,
   checkJWSAlgSupported,
@@ -92,7 +94,10 @@ export async function signMulti(
     throw new JWTError("signMulti requires at least one signer.", "ERR_JWS_INVALID");
   }
 
-  for (const signer of signers) assertNotStringKey(signer?.key);
+  for (const signer of signers) {
+    assertNotStringKey(signer?.key);
+    assertNoUnprotectedCritOption(signer?.unprotectedHeader, "unprotected", "JWS");
+  }
 
   const resolvedAlgs: JWSAlgorithm[] = signers.map((s, i) => _resolveSignerAlg(s, i));
 
@@ -118,12 +123,17 @@ export async function signMulti(
     const protectedHeaderEncoded = base64UrlStringify(serializeProtectedHeader(protectedHeader));
     const signingInputBytes = textEncoder.encode(`${protectedHeaderEncoded}.${payloadEncoded}`);
 
-    const signingKey = await resolveSigningKey(
-      alg,
-      await importKey(signer.key, { alg, expect: "private" }),
-      "sign",
-    );
-    const signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
+    let signatureBytes: Uint8Array<ArrayBuffer>;
+    try {
+      const signingKey = await resolveSigningKey(
+        alg,
+        await importKey(signer.key, { alg, expect: "private" }),
+        "sign",
+      );
+      signatureBytes = await joseSign(alg, signingKey, signingInputBytes);
+    } catch (error) {
+      throw asKeyUsageError(error, alg);
+    }
 
     const wireSig: JWSGeneralSignature = {
       protected: protectedHeaderEncoded,
@@ -207,51 +217,12 @@ export async function verifyMulti<T extends JOSEPayload = JOSEPayload>(
   let lastError: JWTError | undefined;
   let cryptoAttempted = false;
   for (let i = 0; i < general.signatures.length; i++) {
-    const wireSig = general.signatures[i]!;
-    if (typeof wireSig.signature !== "string") {
-      lastError = new JWTError(
-        `Signature[${i}] is missing the "signature" field.`,
-        "ERR_JWS_INVALID",
-      );
+    const read = _readSignatureHeaders(general.signatures[i], i);
+    if (read.error) {
+      lastError = read.error;
       continue;
     }
-
-    let protectedHeader: JWSProtectedHeader;
-    try {
-      protectedHeader = decodeProtectedHeader<JWSProtectedHeader>(wireSig.protected, "JWS");
-    } catch (err) {
-      lastError = err instanceof JWTError ? err : undefined;
-      continue;
-    }
-
-    if (!protectedHeader.alg) {
-      lastError = new JWTError(
-        `Invalid JWS: Signature[${i}] protected header must have an "alg" property.`,
-        "ERR_JWS_INVALID",
-      );
-      continue;
-    }
-
-    const alg = protectedHeader.alg;
-
-    const headerError =
-      checkJWSAlgSupported(alg) ??
-      checkJWSB64Crit(protectedHeader) ??
-      _checkUnprotectedCrit(wireSig.header);
-    if (headerError) {
-      lastError = headerError;
-      continue;
-    }
-
-    const unprotectedHeader = sanitizeObjectCopy(wireSig.header) as JWSHeaderParameters | undefined;
-    try {
-      _assertDisjointHeaders(protectedHeader, unprotectedHeader);
-    } catch (err) {
-      lastError = _asJWTError(err, "ERR_JWS_INVALID");
-      continue;
-    }
-
-    const effective = _mergeHeaders(protectedHeader, unprotectedHeader);
+    const { wireSig, protectedHeader, unprotectedHeader, effective, alg } = read;
 
     if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
       lastError = new JWTError(
@@ -512,6 +483,90 @@ function _checkUnprotectedCrit(header: JWSHeaderParameters | undefined): JWTErro
   );
 }
 
+type SignatureHeaders =
+  | {
+      error?: undefined;
+      wireSig: JWSGeneralSignature & { signature: string };
+      protectedHeader: JWSHeaderParameters;
+      unprotectedHeader: JWSHeaderParameters | undefined;
+      effective: JWSHeaderParameters;
+      alg: JWSAlgorithm;
+    }
+  | {
+      error: JWTError;
+      protectedHeader?: JWSHeaderParameters;
+      unprotectedHeader?: JWSHeaderParameters;
+    };
+
+/**
+ * The header phase one `signatures[]` entry passes before any key is looked up:
+ * its shape, its protected and unprotected headers, their disjointness, and the
+ * `alg` the two name together — RFC 7515 §7.2.1 lets `alg` sit in either tier.
+ * A failure here condemns this entry alone.
+ */
+function _readSignatureHeaders(entry: unknown, index: number): SignatureHeaders {
+  const shapeError = checkSerializationEntry(entry, {
+    family: "JWS",
+    label: `Signature[${index}]`,
+    objects: ["header"],
+    strings: ["protected"],
+  });
+  if (shapeError) return { error: shapeError };
+  const wireSig = entry as JWSGeneralSignature;
+  if (typeof wireSig.signature !== "string") {
+    return {
+      error: new JWTError(
+        `Signature[${index}] is missing the "signature" field.`,
+        "ERR_JWS_INVALID",
+      ),
+    };
+  }
+
+  let protectedHeader: JWSHeaderParameters;
+  try {
+    protectedHeader = decodeProtectedHeader<JWSHeaderParameters>(wireSig.protected, "JWS");
+  } catch (err) {
+    return { error: _asJWTError(err, "ERR_JWS_INVALID") };
+  }
+
+  const unprotectedHeader = sanitizeObjectCopy(wireSig.header) as JWSHeaderParameters | undefined;
+  const failed = (error: JWTError): SignatureHeaders => ({
+    error,
+    protectedHeader,
+    ...(unprotectedHeader ? { unprotectedHeader } : {}),
+  });
+
+  const critError = _checkUnprotectedCrit(unprotectedHeader);
+  if (critError) return failed(critError);
+  try {
+    _assertDisjointHeaders(protectedHeader, unprotectedHeader);
+  } catch (err) {
+    return failed(_asJWTError(err, "ERR_JWS_INVALID"));
+  }
+
+  const effective = _mergeHeaders(protectedHeader, unprotectedHeader);
+  const alg = effective.alg;
+  if (!alg) {
+    return failed(
+      new JWTError(
+        `Invalid JWS: Signature[${index}] has no "alg" in its protected or unprotected header.`,
+        "ERR_JWS_INVALID",
+      ),
+    );
+  }
+
+  const algError = checkJWSAlgSupported(alg) ?? checkJWSB64Crit(protectedHeader);
+  if (algError) return failed(algError);
+
+  return {
+    wireSig: wireSig as JWSGeneralSignature & { signature: string },
+    protectedHeader,
+    unprotectedHeader,
+    effective,
+    alg,
+  };
+}
+
 function _resolveSignerAlg(signer: JWSMultiSigner, index: number): JWSAlgorithm {
   const alg = signer.alg ?? _inferSignerAlg(signer.key, index);
   // Settled before any key work, so a signer names an algorithm the library can
@@ -575,8 +630,7 @@ function _buildSignerProtectedHeader(
   header.alg = alg;
   applyTypCtyDefaults(header, payload);
   if (!b64) header.b64 = false;
-  else delete header.b64;
-  applyB64Crit(header);
+  applyB64Header(header);
   assertProducerCrit(header as Record<string, unknown>, "JWS");
   return header;
 }
@@ -724,7 +778,7 @@ async function _verifyWithKeyMaterial(
 
 async function _verifyOneSignature<T extends JOSEPayload>(
   payload: string,
-  wireSig: JWSGeneralSignature,
+  entry: unknown,
   index: number,
   keyResolver: JWKLookupFunction,
   context: {
@@ -736,12 +790,12 @@ async function _verifyOneSignature<T extends JOSEPayload>(
   const { options, payloadMode, keyCandidates } = context;
   const fail = (
     error: JWTError,
-    protectedHeader?: JWSProtectedHeader,
+    protectedHeader?: JWSHeaderParameters,
     signerHeader?: JWSHeaderParameters,
   ): JWSMultiVerifyOutcome<T> => {
     const outcome = { signerIndex: index, verified: false, error } as JWSMultiVerifyOutcome<T> & {
       verified: false;
-      protectedHeader?: JWSProtectedHeader;
+      protectedHeader?: JWSHeaderParameters;
       signerHeader?: JWSHeaderParameters;
     };
     if (protectedHeader) outcome.protectedHeader = protectedHeader;
@@ -749,46 +803,9 @@ async function _verifyOneSignature<T extends JOSEPayload>(
     return outcome;
   };
 
-  if (typeof wireSig.signature !== "string") {
-    return fail(
-      new JWTError(`Signature[${index}] is missing the "signature" field.`, "ERR_JWS_INVALID"),
-    );
-  }
-
-  let protectedHeader: JWSProtectedHeader;
-  try {
-    protectedHeader = decodeProtectedHeader<JWSProtectedHeader>(wireSig.protected, "JWS");
-  } catch (err) {
-    return fail(_asJWTError(err, "ERR_JWS_INVALID"));
-  }
-
-  if (!protectedHeader.alg) {
-    return fail(
-      new JWTError(
-        `Invalid JWS: Signature[${index}] protected header must have an "alg" property.`,
-        "ERR_JWS_INVALID",
-      ),
-      protectedHeader,
-    );
-  }
-
-  const alg = protectedHeader.alg;
-
-  const unprotectedHeader = sanitizeObjectCopy(wireSig.header) as JWSHeaderParameters | undefined;
-
-  const headerError =
-    checkJWSAlgSupported(alg) ??
-    checkJWSB64Crit(protectedHeader) ??
-    _checkUnprotectedCrit(wireSig.header);
-  if (headerError) return fail(headerError, protectedHeader, unprotectedHeader);
-
-  try {
-    _assertDisjointHeaders(protectedHeader, unprotectedHeader);
-  } catch (err) {
-    return fail(_asJWTError(err, "ERR_JWS_INVALID"), protectedHeader, unprotectedHeader);
-  }
-
-  const effective = _mergeHeaders(protectedHeader, unprotectedHeader);
+  const read = _readSignatureHeaders(entry, index);
+  if (read.error) return fail(read.error, read.protectedHeader, read.unprotectedHeader);
+  const { wireSig, protectedHeader, unprotectedHeader, effective, alg } = read;
 
   if (options.typ && !typMatches(options.typ, protectedHeader.typ)) {
     return fail(

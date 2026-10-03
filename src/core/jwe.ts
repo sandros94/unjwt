@@ -256,7 +256,7 @@ export async function encrypt(
     );
   }
 
-  // `dir` and `ECDH-ES` (direct key agreement) have no encrypted key — RFC 7516 §4.5.
+  // `dir` and `ECDH-ES` (direct key agreement) have no encrypted key — RFC 7516 §5.2 step 6.
   const encryptedKeyEncoded = jweEncryptedKey ? base64UrlStringify(jweEncryptedKey) : "";
 
   const jweParts: string[] = [

@@ -1133,3 +1133,190 @@ describe.concurrent("encryptMulti producer option gates", () => {
     expect(error.message).toContain("1024");
   });
 });
+
+describe.concurrent("encryptMulti header tiers", () => {
+  let key: JWK_oct<"A256KW">;
+
+  beforeAll(async () => {
+    key = await generateJWK("A256KW");
+  });
+
+  it("refuses crit in the shared unprotected header", async () => {
+    const error = await encryptMulti("payload", [{ key }], {
+      sharedUnprotectedHeader: { crit: ["app"], app: "web" },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"crit"');
+  });
+
+  it("refuses crit in a per-recipient header", async () => {
+    const error = await encryptMulti("payload", [
+      { key, header: { crit: ["app"], app: "web" } as never },
+    ]).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain('"crit"');
+  });
+});
+
+describe.concurrent("JWE JSON serialization entries", () => {
+  let a128kw: JWK_oct<"A128KW">;
+  let a256kw: JWK_oct<"A256KW">;
+
+  beforeAll(async () => {
+    [a128kw, a256kw] = await Promise.all([generateJWK("A128KW"), generateJWK("A256KW")]);
+  });
+
+  const notObjects: [string, unknown][] = [
+    ["null", null],
+    ["a number", 42],
+    ["a string", "recipient"],
+    ["an array", []],
+  ];
+
+  it.each(notObjects)(
+    "decryptMulti treats %s in recipients as that entry's failure",
+    async (_label, entry) => {
+      const jwe = await encryptMulti({ sub: "u1" }, [{ key: a256kw }], { enc: "A256GCM" });
+      const mixed = { ...jwe, recipients: [entry, jwe.recipients[0]!] } as JWEGeneralSerialization;
+      const { recipientIndex } = await decryptMulti(mixed, a256kw);
+      expect(recipientIndex).toBe(1);
+
+      const lone = { ...jwe, recipients: [entry] } as JWEGeneralSerialization;
+      const error = await decryptMulti(lone, a256kw).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    },
+  );
+
+  it.each([...notObjects.filter(([label]) => label !== "an array"), ["an array", [1]]])(
+    "a recipient whose header is %s fails without aborting the next one",
+    async (_label, header) => {
+      const jwe = await encryptMulti({ sub: "u1" }, [{ key: a128kw }, { key: a256kw }], {
+        enc: "A256GCM",
+      });
+      const mixed = {
+        ...jwe,
+        recipients: [{ ...jwe.recipients[1]!, header }, jwe.recipients[1]!],
+      } as JWEGeneralSerialization;
+      const { recipientIndex } = await decryptMulti(mixed, a256kw);
+      expect(recipientIndex).toBe(1);
+    },
+  );
+
+  it("a recipient whose encrypted_key is not a string fails without aborting the next one", async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key: a256kw }], { enc: "A256GCM" });
+    const mixed = {
+      ...jwe,
+      recipients: [{ ...jwe.recipients[0]!, encrypted_key: 7 }, jwe.recipients[0]!],
+    } as unknown as JWEGeneralSerialization;
+    const { recipientIndex } = await decryptMulti(mixed, a256kw);
+    expect(recipientIndex).toBe(1);
+  });
+
+  it.each(notObjects)(
+    "rejects a Flattened JWE whose header is %s as ERR_JWE_INVALID",
+    async (_label, header) => {
+      const flat = generalToFlattened(
+        await encryptMulti({ sub: "u1" }, [{ key: a256kw }], { enc: "A256GCM" }),
+      );
+      const tampered = { ...flat, header } as JWEFlattenedSerialization;
+      const error = await decryptMulti(tampered, a256kw).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    },
+  );
+
+  it.each(notObjects)(
+    "rejects a shared unprotected header that is %s as ERR_JWE_INVALID",
+    async (_label, unprotected) => {
+      const jwe = await encryptMulti({ sub: "u1" }, [{ key: a256kw }], { enc: "A256GCM" });
+      const tampered = { ...jwe, unprotected } as JWEGeneralSerialization;
+      const error = await decryptMulti(tampered, a256kw).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    },
+  );
+});
+
+describe.concurrent("JWE enc in the shared unprotected header", () => {
+  const bytes = textEncoder.encode("payload bytes");
+  let key: JWK_oct<"A256KW">;
+
+  beforeAll(async () => {
+    key = await generateJWK("A256KW");
+  });
+
+  async function generalWithSharedEnc(
+    enc: string = "A256GCM",
+    protectedHeader?: Record<string, unknown>,
+  ): Promise<JWEGeneralSerialization> {
+    const builder = new jose.GeneralEncrypt(bytes).setSharedUnprotectedHeader({ enc });
+    if (protectedHeader) builder.setProtectedHeader(protectedHeader);
+    builder.addRecipient(await jose.importJWK(key)).setUnprotectedHeader({ alg: "A256KW" });
+    return (await builder.encrypt()) as unknown as JWEGeneralSerialization;
+  }
+
+  it("decryptMulti accepts enc carried only in the shared unprotected header", async () => {
+    const result = await decryptMulti(await generalWithSharedEnc(), key, { payload: "bytes" });
+    expect(result.payload).toEqual(bytes);
+    expect(result.sharedUnprotectedHeader).toEqual({ enc: "A256GCM" });
+    expect(result.recipientHeader).toEqual({ alg: "A256KW" });
+    expect(result.protectedHeader).toEqual({});
+  });
+
+  it("decryptMulti accepts a Flattened JWE with no protected member", async () => {
+    const flat = (await new jose.FlattenedEncrypt(bytes)
+      .setSharedUnprotectedHeader({ enc: "A128GCM" })
+      .setUnprotectedHeader({ alg: "A256KW" })
+      .encrypt(await jose.importJWK(key))) as unknown as JWEFlattenedSerialization;
+    const result = await decryptMulti(flat, key, { payload: "bytes" });
+    expect(result.payload).toEqual(bytes);
+    expect(result.protectedHeader).toEqual({});
+  });
+
+  it("reports the protected header without members it did not protect", async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key }], {
+      enc: "A256GCM",
+      protectedHeader: { typ: "JWT" },
+    });
+    const result = await decryptMulti(jwe, key);
+    expect(result.protectedHeader.alg).toBeUndefined();
+    expect(result.protectedHeader).toMatchObject({ enc: "A256GCM", typ: "JWT" });
+    expect(result.recipientHeader?.alg).toBe("A256KW");
+  });
+
+  it("applies the encryptionAlgorithms allowlist to a shared enc", async () => {
+    const error = await decryptMulti(await generalWithSharedEnc(), key, {
+      payload: "bytes",
+      encryptionAlgorithms: ["A128GCM"],
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+  });
+
+  it("rejects an unsupported shared enc", async () => {
+    const jwe = await generalWithSharedEnc();
+    const tampered = { ...jwe, unprotected: { enc: "A256CBC" } } as JWEGeneralSerialization;
+    const error = await decryptMulti(tampered, key, { payload: "bytes" }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    expect(error.message).toBe('Invalid JWE: unsupported "enc" A256CBC');
+  });
+
+  it("rejects enc carried in both the protected and the shared unprotected header", async () => {
+    const jwe = await generalWithSharedEnc();
+    const tampered = {
+      ...jwe,
+      protected: base64UrlStringify(JSON.stringify({ enc: "A256GCM" })),
+    } as JWEGeneralSerialization;
+    const error = await decryptMulti(tampered, key, { payload: "bytes" }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_HEADER_PARAMS_NOT_DISJOINT")).toBe(true);
+  });
+
+  it("rejects enc carried only in a per-recipient header", async () => {
+    const jwe = await generalWithSharedEnc();
+    const { unprotected: _shared, ...rest } = jwe;
+    const tampered = {
+      ...rest,
+      recipients: [{ ...jwe.recipients[0]!, header: { alg: "A256KW", enc: "A256GCM" } }],
+    } as JWEGeneralSerialization;
+    const error = await decryptMulti(tampered, key, { payload: "bytes" }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    expect(error.message).toContain('"enc"');
+  });
+});

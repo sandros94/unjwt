@@ -432,18 +432,23 @@ let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
  * configureJWKCache(false);
  * ```
  * A cache shared across JWK objects keys on the key material itself — its
- * {@link thumbprint} — together with the algorithm it is imported under. A
- * `kid` is not a safe key: it is a label its publisher chooses, and two
+ * {@link thumbprint} — together with the half of the pair it is (whether the
+ * JWK carries `d`) and the algorithm it is imported under. The thumbprint covers
+ * the public members only (RFC 7638 §3.2), so a private JWK and its public
+ * counterpart share one: without the half, a cached public key is served where
+ * the private key is needed, and the other way round. A `kid` is not a safe key: it is a label its publisher chooses, and two
  * different keys may carry the same one, so an entry stored under a `kid` can
  * serve the wrong key material. `get` and `set` may both return a promise.
  *
  * @example Use a thumbprint-keyed cache:
  * ```ts
+ * const cacheKey = async (jwk: JWK, alg: string) =>
+ *   `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
  * const map = new Map<string, CryptoKey>();
  * configureJWKCache({
- *   get: async (jwk, alg) => map.get(`${await thumbprint(jwk)}:${alg}`),
+ *   get: async (jwk, alg) => map.get(await cacheKey(jwk, alg)),
  *   set: async (jwk, alg, key) => {
- *     map.set(`${await thumbprint(jwk)}:${alg}`, key);
+ *     map.set(await cacheKey(jwk, alg), key);
  *   },
  * });
  * ```
@@ -765,7 +770,7 @@ export async function wrapKey(
 
   switch (alg) {
     case "dir": {
-      // RFC 7516 §4.5: for direct encryption, the JWE Encrypted Key is empty.
+      // RFC 7518 §4.5 / RFC 7516 §5.2 step 6: for direct encryption, the JWE Encrypted Key is empty.
       return { encryptedKey: new Uint8Array(0) };
     }
 

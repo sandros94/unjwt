@@ -54,7 +54,7 @@ Produces a JWE Compact Serialization token.
   - `currentDate?: Date`
   - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`
   - `contentEncryptionIV?: Uint8Array` — custom IV; must be exactly the length `enc` names, or `ERR_INVALID_OPTION`
-  - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `1_000_000` — the bounds `decrypt` enforces — or the call throws `ERR_INVALID_OPTION`. `p2c: 0` is rejected, never replaced by the default
+  - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `600_000` — the bounds `decrypt` enforces by default — or the call throws `ERR_INVALID_OPTION`. `p2c: 0` is rejected, never replaced by the default
   - `keyManagementIV?: Uint8Array` — IV for AES-GCM key wrapping
   - `ecdh?` — `{ ephemeralKey?, partyUInfo?, partyVInfo? }` for ECDH-ES. The content encryption algorithm is the top-level `enc`; `wrapKey` is the one that takes `ecdh.enc`. `partyUInfo` / `partyVInfo` must be `Uint8Array`s of at most `1024` bytes — the bound `decrypt` applies to the `apu` / `apv` it reads — else `ERR_INVALID_OPTION`.
 
@@ -120,7 +120,7 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
 - `returnCek?: boolean` — include raw `cek` and `aad` in result
 - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
-- `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `1_000_000` to cap PBKDF2 DoS potential. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
+- `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `600_000` — the `p2c` a producer mints by default — to cap PBKDF2 DoS potential; raise it to open a token minted at a higher cost. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
 - `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `2_400_000` — four attempts at the `600_000` `p2c` a producer mints by default, so an envelope written entirely at the defaults is still openable by its fourth PBES2 recipient — and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 2400000 exhausted."`) and spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
 - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
@@ -166,14 +166,14 @@ Produces a `JWEGeneralSerialization` object — one shared CEK encrypts the payl
 **Parameters:**
 
 - `payload` — `string | Uint8Array | Record<string, any>`
-- `recipients: JWEMultiRecipient[]` — non-empty. Each recipient is `{ key: JWEEncryptJWK, header?, ecdh?, p2s?, p2c?, keyManagementIV? }`. `key.alg` is required (inferred per-recipient; throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent). A `zip` in any header tier (protected, shared unprotected, per-recipient) throws `ERR_INVALID_OPTION`.
+- `recipients: JWEMultiRecipient[]` — non-empty. Each recipient is `{ key: JWEEncryptJWK, header?, ecdh?, p2s?, p2c?, keyManagementIV? }`. `key.alg` is required (inferred per-recipient; throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent). A `zip` in any header tier (protected, shared unprotected, per-recipient) throws `ERR_INVALID_OPTION`, and so does a `crit` in the shared unprotected or a per-recipient header — `crit` must be integrity protected, and `decryptMulti` rejects it anywhere else.
 - `options?: JWEMultiEncryptOptions` — extends `JWEEncryptOptions` minus the per-recipient fields (`alg`, `ecdh`, `p2s`, `p2c`, `keyManagementIV`). Adds:
   - `sharedUnprotectedHeader?: Record<string, unknown>` — surfaces as top-level `unprotected`.
   - `aad?: Uint8Array | string` — external AAD (RFC 7516 §5.1); content cipher AAD becomes `BASE64URL(protected) || '.' || BASE64URL(aad)`.
 
 Throws `ERR_JWE_ALG_FORBIDDEN_IN_MULTI` when any recipient resolves to `dir` or bare `ECDH-ES` (these algorithms require exactly one recipient — use `encrypt()`). Throws `ERR_JWE_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in more than one header tier.
 
-The producer-side option gates of `encrypt` apply here too, each as `ERR_INVALID_OPTION`: `cek` and `contentEncryptionIV` must be the lengths `enc` fixes, `options.protectedHeader`'s `crit` must list extensions the header carries, a recipient's `ecdh.partyUInfo` / `partyVInfo` must be `Uint8Array`s of at most `1024` bytes, and the protected header must serialize to JSON.
+The producer-side option gates of `encrypt` apply here too, each as `ERR_INVALID_OPTION`: `cek` and `contentEncryptionIV` must be the lengths `enc` fixes, `options.protectedHeader`'s `crit` must list extensions the header carries (and `crit` is refused in the unprotected tiers), a recipient's `ecdh.partyUInfo` / `partyVInfo` must be `Uint8Array`s of at most `1024` bytes, and the protected header must serialize to JSON.
 
 A PBES2 recipient that names no `p2c` is minted at `600_000` iterations, and the default `limits.pbes2Iterations` budget of `2_400_000` covers four such attempts — so an envelope written entirely at the defaults is openable by its fourth PBES2 recipient without the reader raising anything.
 
@@ -203,10 +203,13 @@ Accepts a General or Flattened serialization object and returns the first recipi
   - `limits?: { recipients?: number; keyCandidates?: number; pbes2Iterations?: number }` — `recipients` defaults to `16`; a serialization carrying more throws `ERR_JWE_INVALID` (`"Invalid JWE: 17 recipients exceed the limit of 16."`) before any recipient is read. The `pbes2Iterations` budget is summed across every recipient, so injected PBES2 recipients cost one budget between them
   - `strictRecipientMatch?: boolean` — when `true`, a recipient is attempted only when the key material could plausibly open it; nothing matching means `ERR_JWE_NO_MATCHING_RECIPIENT` with no trial-decryption fallback. A recipient is skipped only on a _definite_ mismatch: a different `kid` on both sides, key material whose `kty` / curve / length cannot serve the recipient's `alg`, or an `epk` on a different curve than the key. Key material that carries no identity of its own (a `CryptoKey`, raw bytes, a password) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out.
 
-**Recipient isolation.** `recipients[]` is not covered by the AAD, so anyone can append or rewrite an entry. Every failure scoped to a single recipient — a header tier overlap, a `crit` or `zip` in its header, missing PBES2 `p2s`/`p2c`, a missing `epk`, missing AES-GCMKW `iv`/`tag`, an unsupported `alg`, a failed unwrap — only means "try the next recipient" and is kept as the error to report if no recipient works. A verdict on the token as a whole — the protected header, the shared unprotected header, the content segments, and (after a successful decryption) `crit` and JWT claim validation — is thrown immediately.
+**Header tiers (RFC 7516 §7.2.1).** `enc` is read from the protected header or, when absent there, from the shared unprotected header — never from a per-recipient header; absent from both is `ERR_JWE_INVALID`, and `encryptionAlgorithms` applies to it wherever it sits. `alg` may sit in any tier (usually the per-recipient header). `crit` must be protected, and every name it lists must be present in the protected header. A name may sit in only one tier (`ERR_JWE_HEADER_PARAMS_NOT_DISJOINT`; an overlap between the protected and the shared unprotected header is a token verdict).
 
-**Returns:** `JWEMultiDecryptResult<T>` — extends `JWEDecryptResult` with:
+**Recipient isolation.** `recipients[]` is not covered by the AAD, so anyone can append or rewrite an entry. Every failure scoped to a single recipient — an entry that is not a JSON object (or whose `header` is not one, or whose `encrypted_key` is not a string), a header tier overlap, a `crit` or `zip` in its header, missing PBES2 `p2s`/`p2c`, a missing `epk`, missing AES-GCMKW `iv`/`tag`, an unsupported `alg`, a failed unwrap — only means "try the next recipient" and is kept as the error to report if no recipient works. A verdict on the token as a whole — the protected header, the shared unprotected header (including one that is not a JSON object), the content segments, and (after a successful decryption) `crit` and JWT claim validation — is thrown immediately.
 
+**Returns:** `JWEMultiDecryptResult<T>` — like `JWEDecryptResult`, except:
+
+- `protectedHeader: JWEHeaderParameters` — exactly what was integrity protected (`{}` when there is no `protected` member). `alg` and `enc` appear here only when the producer protected them; `encryptMulti` writes `alg` per recipient, so read it from `recipientHeader`.
 - `recipientIndex: number` — index into `jwe.recipients` that decrypted.
 - `recipientHeader?: JWEHeaderParameters` — per-recipient unprotected header.
 - `sharedUnprotectedHeader?: JWEHeaderParameters` — shared unprotected header, when present.
@@ -424,7 +427,7 @@ interface JWEDecryptOptions {
   validateClaims?: boolean;
   returnCek?: boolean;
   minIterations?: number; // default: 1000
-  maxIterations?: number; // default: 1_000_000
+  maxIterations?: number; // default: 600_000 (the default p2c)
   limits?: Pick<JOSELimits, "keyCandidates" | "pbes2Iterations">;
 }
 
@@ -572,7 +575,7 @@ interface JWEMultiDecryptOptions {
 
 interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> {
   payload: T;
-  protectedHeader: JWEProtectedHeader;
+  protectedHeader: JWEHeaderParameters; // only what was protected — alg/enc may be in the other tiers
   cek?: Uint8Array<ArrayBuffer>;
   aad?: Uint8Array<ArrayBuffer>;
   sharedUnprotectedHeader?: JWEHeaderParameters;

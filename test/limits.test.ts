@@ -304,7 +304,7 @@ describe("limits", () => {
     it("leaves a decoy's iterations unspent when it exceeds the whole budget", async () => {
       const holder = passwordJWK("the real one");
       const jwe = await encryptMulti({ sub: "u1" }, [
-        { key: passwordJWK("decoy one"), p2c: 900_000 },
+        { key: passwordJWK("decoy one"), p2c: 3000 },
         { key: holder, p2c: 2000 },
       ]);
 

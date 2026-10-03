@@ -839,6 +839,13 @@ describe.concurrent("JWS Utilities", () => {
         ).rejects.toThrow('Extension Header Parameter "app" is missing');
       });
 
+      it("should throw if 'crit' lists b64 but the header carries no b64 member", async () => {
+        const jws = await signRawHeader({ alg: "HS256", crit: ["b64"] }, payloadString, hs256Key);
+        const error = await verify(jws, hs256Key, { payload: "string" }).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+        expect(error.message).toBe("Missing critical header parameters: b64");
+      });
+
       it("should succeed if 'crit' is present and all params are known, even if options.critical is not set", async () => {
         const jws = await sign(payloadString, hs256Key, {
           alg: "HS256",
@@ -1892,7 +1899,7 @@ describe.concurrent("JWS producer header gates", () => {
     expect(payload).toBe("payload");
   });
 
-  it('accepts "b64" in crit, whose absence from the header means true', async () => {
+  it('accepts "b64" in crit when the header carries b64', async () => {
     const unencoded = await sign("payload", key, {
       protectedHeader: { crit: ["b64"], b64: false },
     });
@@ -1901,7 +1908,19 @@ describe.concurrent("JWS producer header gates", () => {
     const encoded = await sign("payload", key, {
       protectedHeader: { crit: ["b64"], b64: true },
     });
+    expect(JSON.parse(base64UrlParse(encoded.split(".")[0]!))).toMatchObject({
+      crit: ["b64"],
+      b64: true,
+    });
     await expect(verify(encoded, key, { payload: "string" })).resolves.toBeDefined();
+  });
+
+  it('refuses "b64" in crit when the header carries no b64 member', async () => {
+    const error = await sign("payload", key, {
+      protectedHeader: { crit: ["b64"] },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain("b64");
   });
 
   it("refuses a protected header that cannot be serialized", async () => {

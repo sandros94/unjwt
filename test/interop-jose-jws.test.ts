@@ -162,6 +162,34 @@ describe.concurrent("interop with jose: JWS JSON serialization", () => {
     });
     expect(res.payload).toEqual(bytes);
   });
+
+  // RFC 7515 §7.2.1 lets `alg` sit in the per-signature unprotected header.
+  it("General JWS with alg only in unprotected header: both accept", async () => {
+    const es = await keysFor("ES256");
+    const sig = new jose.GeneralSign(bytes);
+    sig
+      .addSignature(joseKey(es.priv))
+      .setProtectedHeader({ kid: "es" })
+      .setUnprotectedHeader({ alg: "ES256" });
+    const jws = (await sig.sign()) as JWSGeneralSerialization;
+    const ours = await verifyMulti(jws, es.pub as JWSVerifyJWK, { payload: "bytes" });
+    expect(ours).toMatchObject({ payload: bytes, signerHeader: { alg: "ES256" } });
+    await expect(
+      jose.generalVerify(jws as jose.GeneralJWSInput, joseKey(es.pub)),
+    ).resolves.toBeDefined();
+  });
+
+  it("Flattened JWS without protected header: both accept", async () => {
+    const es = await keysFor("ES256");
+    const flat = (await new jose.FlattenedSign(bytes)
+      .setUnprotectedHeader({ alg: "ES256" })
+      .sign(joseKey(es.priv))) as JWSFlattenedSerialization;
+    const ours = await verifyMulti(flat, es.pub as JWSVerifyJWK, { payload: "bytes" });
+    expect(ours.payload).toEqual(bytes);
+    await expect(
+      jose.flattenedVerify(flat as jose.FlattenedJWSInput, joseKey(es.pub)),
+    ).resolves.toBeDefined();
+  });
 });
 
 describe.concurrent("interop with jose: RFC 7797 unencoded payload", () => {
@@ -240,6 +268,7 @@ describe.concurrent("interop with jose: JWS rejection parity", () => {
       { token: () => forged({ "alg": "HS256", "crit": ["x-foo"], "x-foo": 1 }) },
     ],
     ['crit names registered "alg"', { token: () => forged({ alg: "HS256", crit: ["alg"] }) }],
+    ['crit:["b64"] with b64 absent', { token: () => forged({ alg: "HS256", crit: ["b64"] }) }],
     [
       "alg outside allowlist",
       { token: good, ours: { algorithms: ["HS512"] }, theirs: { algorithms: ["HS512"] } },
@@ -296,12 +325,6 @@ describe.concurrent("interop with jose: JWS rejection parity", () => {
         keys: async () => [shortSecret, shortSecret],
       },
     ],
-    // unjwt accepts crit:["b64"] with no b64 member (absence reads as true); jose rejects it (RFC 7515 §4.1.11: crit names must occur in the header).
-    [
-      'crit:["b64"] with b64 absent',
-      "accepts",
-      { token: () => forged({ alg: "HS256", crit: ["b64"] }) },
-    ],
   ];
 
   it.each(controls)("control, %s: both accept", async (_, probe) => {
@@ -321,42 +344,6 @@ describe.concurrent("interop with jose: JWS rejection parity", () => {
       const [ours, theirs] = await consumers(probe);
       expect(await outcome(ours)).toBe(expected);
       expect(await outcome(theirs)).toBe(expected === "accepts" ? "rejects" : "accepts");
-    });
-
-    const es = () => keysFor("ES256");
-    const unprotectedAlg = once(async () => {
-      const sig = new jose.GeneralSign(bytes);
-      sig
-        .addSignature(joseKey((await es()).priv))
-        .setProtectedHeader({ kid: "es" })
-        .setUnprotectedHeader({ alg: "ES256" });
-      return (await sig.sign()) as JWSGeneralSerialization;
-    });
-    const noProtected = once(async () => {
-      const sig = new jose.FlattenedSign(bytes).setUnprotectedHeader({ alg: "ES256" });
-      return (await sig.sign(joseKey((await es()).priv))) as JWSFlattenedSerialization;
-    });
-
-    // unjwt rejects alg carried only in the per-signature unprotected header (RFC 7515 §7.2.1 allows it); jose accepts.
-    it("General JWS with alg only in unprotected header: unjwt rejects, jose accepts", async () => {
-      const { pub } = await es();
-      await expect(verifyMulti(await unprotectedAlg(), pub as JWSVerifyJWK)).rejects.toThrow(
-        JWTError,
-      );
-      const jws = (await unprotectedAlg()) as jose.GeneralJWSInput;
-      await expect(jose.generalVerify(jws, joseKey(pub))).resolves.toBeDefined();
-    });
-
-    // unjwt rejects a Flattened JWS with no protected header (same root cause as above); jose accepts.
-    it("Flattened JWS without protected header: unjwt rejects, jose accepts", async () => {
-      const { pub } = await es();
-      const flat = await noProtected();
-      await expect(verifyMulti(flat, pub as JWSVerifyJWK, { payload: "bytes" })).rejects.toThrow(
-        JWTError,
-      );
-      await expect(
-        jose.flattenedVerify(flat as jose.FlattenedJWSInput, joseKey(pub)),
-      ).resolves.toBeDefined();
     });
   });
 });

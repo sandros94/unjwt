@@ -34,6 +34,7 @@ import { sign, verify } from "../src/core/jws";
 import { encrypt, decrypt } from "../src/core/jwe";
 import { isCryptoKey, isCryptoKeyPair } from "../src/core/utils";
 import type {
+  JWK,
   JWKSet,
   JWK_oct,
   JWK_EC_Private,
@@ -1591,6 +1592,29 @@ describe.concurrent("JWK Utilities", () => {
         // thumbprint of the material, not the object reference.
         const second = await importKey({ ...jwk.privateKey }, "RS256");
         expect(second).toBe(first);
+      });
+
+      it("the documented shared-cache recipe keeps both halves of one pair apart", async () => {
+        const [pair, other] = await Promise.all([generateJWK("ES256"), generateJWK("ES256")]);
+        // The recipe from configureJWKCache's JSDoc and the cache guide, verbatim.
+        const cacheKey = async (jwk: JWK, alg: string) =>
+          `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
+        const map = new Map<string, CryptoKey>();
+        configureJWKCache({
+          get: async (jwk, alg) => map.get(await cacheKey(jwk, alg)),
+          set: async (jwk, alg, key) => {
+            map.set(await cacheKey(jwk, alg), key);
+          },
+        });
+
+        const token = await sign({ sub: "u1" }, pair.privateKey);
+        const { payload } = await verify(token, pair.publicKey);
+        expect(payload.sub).toBe("u1");
+        expect(map.size).toBe(2);
+
+        await expect(verify(token, other.publicKey)).rejects.toSatisfy((error) =>
+          isJWTError(error, "ERR_JWS_SIGNATURE_INVALID"),
+        );
       });
     });
   });

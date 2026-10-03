@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { JWTError, isJWTError } from "../src/core/error";
 import { sign, verify, signMulti, verifyMulti, generalToFlattenedJWS } from "../src/core/jws";
@@ -116,6 +116,38 @@ describe("producer algorithm support gates", () => {
       () => encryptMulti(payload, [{ key: a128kw }], { enc: "A128CBC" as "A128GCM" }),
       "ERR_JWE_INVALID",
     );
+  });
+});
+
+describe("signing key errors", () => {
+  it("signMulti reports a CryptoKey that does not serve the signer alg as compact sign does", async () => {
+    const { privateKey } = (await generateKey("ES256")) as CryptoKeyPair;
+    const compact = await expectCode(
+      () => sign(payload, privateKey, { alg: "ES384" }),
+      "ERR_JWK_INVALID",
+    );
+    const multi = await expectCode(
+      () => signMulti(payload, [{ key: privateKey, alg: "ES384" }]),
+      "ERR_JWK_INVALID",
+    );
+    expect(multi.message).toBe(compact.message);
+  });
+
+  it("signMulti reports a WebCrypto signing failure as compact sign does", async () => {
+    const key = await generateKey("HS256");
+    const failure = new DOMException("signing failed", "OperationError");
+    const spy = vi.spyOn(crypto.subtle, "sign").mockRejectedValue(failure);
+    try {
+      const compact = await expectCode(
+        () => sign(payload, key, { alg: "HS256" }),
+        "ERR_JWK_INVALID",
+      );
+      const multi = await expectCode(() => signMulti(payload, [{ key }]), "ERR_JWK_INVALID");
+      expect(multi.message).toBe(compact.message);
+      expect(multi.cause).toBe(failure);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

@@ -306,9 +306,17 @@ export interface JWSMultiVerifyOptions extends JWSVerifyOptions {
  * Result of a {@link verifyMulti} operation. Extends {@link JWSVerifyResult}
  * with the per-signer header and matched signature index.
  */
-export interface JWSMultiVerifyResult<
-  T extends JOSEPayload = JOSEPayload,
-> extends JWSVerifyResult<T> {
+export interface JWSMultiVerifyResult<T extends JOSEPayload = JOSEPayload> extends Omit<
+  JWSVerifyResult<T>,
+  "protectedHeader"
+> {
+  /**
+   * The integrity-protected header of the signature that verified, exactly as
+   * signed. `alg` may instead sit in {@link signerHeader} (RFC 7515 §7.2.1), so
+   * it is present here only when the signer protected it; a Flattened JWS with
+   * no `protected` member yields `{}`.
+   */
+  protectedHeader: JWSHeaderParameters;
   /** Parsed per-signer unprotected header of the signature that verified. */
   signerHeader?: JWSHeaderParameters;
   /** Index into `jws.signatures` of the signature that successfully verified. */
@@ -338,6 +346,9 @@ export interface JWSMultiVerifyAllOptions extends StrictOmit<
  *     protected header, expired claim, etc.). `protectedHeader` / `signerHeader`
  *     are populated when they were successfully parsed before failure.
  *
+ * `protectedHeader` holds only what was integrity protected; an `alg` carried
+ * in the unprotected header (RFC 7515 §7.2.1) appears in `signerHeader`.
+ *
  * Callers apply their own policy over the returned array — e.g. "all must
  * verify", "quorum of N", "signed by these specific kids".
  */
@@ -346,13 +357,13 @@ export type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
       signerIndex: number;
       verified: true;
       payload: T;
-      protectedHeader: JWSProtectedHeader;
+      protectedHeader: JWSHeaderParameters;
       signerHeader?: JWSHeaderParameters;
     }
   | {
       signerIndex: number;
       verified: false;
       error: import("./../error").JWTError;
-      protectedHeader?: JWSProtectedHeader;
+      protectedHeader?: JWSHeaderParameters;
       signerHeader?: JWSHeaderParameters;
     };

@@ -151,6 +151,19 @@ describe.concurrent("interop with jose: JWE JSON serialization", () => {
     });
     expect(res.payload).toEqual(bytes);
   });
+
+  // RFC 7516 §7.2.1 lets `enc` sit in the shared unprotected header.
+  it("General JWE with enc in shared unprotected header: both accept", async () => {
+    const key = (await keysFor("A256KW")).priv;
+    const builder = new jose.GeneralEncrypt(bytes).setSharedUnprotectedHeader({ enc: "A256GCM" });
+    builder.addRecipient(joseKey(key)).setUnprotectedHeader({ alg: "A256KW" });
+    const jwe = await builder.encrypt();
+    const ours = await decryptMulti(jwe as JWEGeneralSerialization, key as JWEDecryptJWK, {
+      payload: "bytes",
+    });
+    expect(ours).toMatchObject({ payload: bytes, sharedUnprotectedHeader: { enc: "A256GCM" } });
+    await expect(jose.generalDecrypt(jwe, joseKey(key))).resolves.toBeDefined();
+  });
 });
 
 describe.concurrent("interop with jose: JWK", () => {
@@ -311,7 +324,7 @@ describe.concurrent("interop with jose: JWE rejection parity", () => {
       "rejects",
       { token: pbes2(500), keys: pwKeys, theirs: { keyManagementAlgorithms: pbes2Only } },
     ],
-    // unjwt's default p2c ceiling is 1_000_000; jose's default maxPBES2Count is 10_000.
+    // unjwt's default p2c ceiling is the 600_000 it mints by default; jose's default maxPBES2Count is 10_000.
     [
       "PBES2 p2c=20000 under defaults",
       "accepts",
@@ -336,19 +349,6 @@ describe.concurrent("interop with jose: JWE rejection parity", () => {
       const [ours, theirs] = await consumers(probe);
       expect(await outcome(ours)).toBe(expected);
       expect(await outcome(theirs)).toBe(expected === "accepts" ? "rejects" : "accepts");
-    });
-
-    // unjwt rejects enc carried in the shared unprotected header (RFC 7516 §7.2.1 allows it); jose accepts.
-    it("General JWE with enc in shared unprotected header: unjwt rejects, jose accepts", async () => {
-      const key = await kw();
-      const builder = new jose.GeneralEncrypt(bytes).setSharedUnprotectedHeader({ enc: "A256GCM" });
-      builder.addRecipient(joseKey(key)).setUnprotectedHeader({ alg: "A256KW" });
-      const jwe = await builder.encrypt();
-      const ours = decryptMulti(jwe as JWEGeneralSerialization, key as JWEDecryptJWK, {
-        payload: "bytes",
-      });
-      await expect(ours).rejects.toThrow(JWTError);
-      await expect(jose.generalDecrypt(jwe, joseKey(key))).resolves.toBeDefined();
     });
   });
 });

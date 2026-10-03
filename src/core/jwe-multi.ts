@@ -14,7 +14,6 @@ import type { JOSEPayload, JWTClaims } from "./types/jwt";
 import type {
   JWEEncryptJWK,
   JWEHeaderParameters,
-  JWEProtectedHeader,
   JWEKeyManagementHeaderParameters,
   JWEGeneralSerialization,
   JWEGeneralRecipient,
@@ -63,6 +62,7 @@ import {
   assertProducerIV,
   assertProducerPartyInfo,
   asKeyLookupError,
+  assertNoUnprotectedCritOption,
   assertSerializationObject,
   buildJWKSetFilter,
   buildUnwrapKeyOptions,
@@ -73,6 +73,7 @@ import {
   checkJWEEncSupported,
   checkJWEUnprotectedCrit,
   checkJWEZip,
+  checkSerializationEntry,
   createPBES2Budget,
   decodeProtectedHeader,
   parseEphemeralKey,
@@ -114,7 +115,11 @@ export async function encryptMulti(
 
   assertNoZipOption(options.protectedHeader, "protected");
   assertNoZipOption(options.sharedUnprotectedHeader, "shared unprotected");
-  for (const recipient of recipients) assertNoZipOption(recipient?.header, "per-recipient");
+  assertNoUnprotectedCritOption(options.sharedUnprotectedHeader, "shared unprotected", "JWE");
+  for (const recipient of recipients) {
+    assertNoZipOption(recipient?.header, "per-recipient");
+    assertNoUnprotectedCritOption(recipient?.header, "per-recipient", "JWE");
+  }
 
   const resolvedAlgs: KeyManagementAlgorithm[] = recipients.map((r, i) =>
     _resolveRecipientAlg(r.key, i),
@@ -285,17 +290,19 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     what: "recipients",
   });
 
+  const envelopeError = checkSerializationEntry(general, {
+    family: "JWE",
+    label: "JSON Serialization",
+    objects: ["unprotected"],
+    strings: ["protected", "aad"],
+  });
+  if (envelopeError) throw envelopeError;
+
   const protectedHeaderEncoded = general.protected ?? "";
   const protectedHeader = decodeProtectedHeader<JWEHeaderParameters>(
     protectedHeaderEncoded || undefined,
     "JWE",
   );
-
-  const enc = protectedHeader.enc as ContentEncryptionAlgorithm | undefined;
-  if (!enc) {
-    throw new JWTError('Invalid JWE: Protected header is missing "enc".', "ERR_JWE_INVALID");
-  }
-
   const sharedUnprotected = sanitizeObjectCopy(general.unprotected) as
     | JWEHeaderParameters
     | undefined;
@@ -303,12 +310,26 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   // Token-wide verdicts: the protected header, the shared unprotected header and
   // the single content ciphertext are the same for every recipient, so they are
   // settled once, before any recipient is tried.
-  const tokenError =
-    checkJWEEncSupported(enc) ??
+  const sharedError =
     checkJWEZip(protectedHeader) ??
     checkJWEUnprotectedCrit(sharedUnprotected) ??
     checkJWEZip(sharedUnprotected);
-  if (tokenError) throw tokenError;
+  if (sharedError) throw sharedError;
+  _assertDisjointHeaders(protectedHeader, sharedUnprotected, undefined);
+
+  // RFC 7516 §7.2.1 — `enc` is shared by every recipient, so it sits in the
+  // protected or the shared unprotected header, never in a per-recipient one.
+  const enc = (protectedHeader.enc ?? sharedUnprotected?.enc) as
+    | ContentEncryptionAlgorithm
+    | undefined;
+  if (!enc) {
+    throw new JWTError(
+      'Invalid JWE: "enc" is missing from the protected and shared unprotected headers.',
+      "ERR_JWE_INVALID",
+    );
+  }
+  const encError = checkJWEEncSupported(enc);
+  if (encError) throw encError;
 
   if (options.encryptionAlgorithms && !options.encryptionAlgorithms.includes(enc)) {
     throw new JWTError(
@@ -341,6 +362,16 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
     // `recipients[]` is outside the AAD: anyone can append or rewrite an entry.
     // Every failure scoped to one recipient therefore only means "try the next
     // one" — it is collected as `lastError` and never aborts the loop.
+    const shapeError = checkSerializationEntry(general.recipients[i], {
+      family: "JWE",
+      label: `Recipient[${i}]`,
+      objects: ["header"],
+      strings: ["encrypted_key"],
+    });
+    if (shapeError) {
+      lastError = shapeError;
+      continue;
+    }
     const wireRecipient = general.recipients[i]!;
     const recipientHeader = sanitizeObjectCopy(wireRecipient.header) as
       | JWEHeaderParameters
@@ -450,7 +481,7 @@ export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
 
     const result: JWEMultiDecryptResult<T> = {
       payload,
-      protectedHeader: { ...protectedHeader, alg, enc } as JWEProtectedHeader,
+      protectedHeader,
       recipientIndex: i,
     };
     if (sharedUnprotected) result.sharedUnprotectedHeader = sharedUnprotected;

@@ -205,7 +205,7 @@ Wraps a Content Encryption Key using the specified key management algorithm.
   - `iv?` — AES-GCMKW initialization vector; auto-generated when omitted (always omit in
     production — reusing an IV under the same key breaks AES-GCM; intended only for tests
     and known-vector reproduction, never derive it from external input)
-  - `p2s?`, `p2c?` — PBES2 salt and iteration count; both **required** under a PBES2 `alg` (there is no default here — the defaults belong to `encrypt`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `1_000_000`, the bounds `unwrapKey` enforces, or `ERR_INVALID_OPTION`
+  - `p2s?`, `p2c?` — PBES2 salt and iteration count; both **required** under a PBES2 `alg` (there is no default here — the defaults belong to `encrypt`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `600_000`, the bounds `unwrapKey` enforces by default, or `ERR_INVALID_OPTION`
   - `ecdh?` — ECDH-ES options:
     - `ephemeralKey?` — custom ephemeral key (CryptoKeyPair, JWK_EC_Private, etc.); generated automatically if omitted
     - `partyUInfo?`, `partyVInfo?` — agreement party info
@@ -246,7 +246,7 @@ Unwraps a CEK.
   - `unwrappedKeyAlgorithm?`, `keyUsage?`, `extractable?` — for CryptoKey import
   - `iv?`, `tag?` — AES-GCMKW
   - `p2s?`, `p2c?` — PBES2
-  - `minIterations?`, `maxIterations?` — PBES2 `p2c` bounds. Default floor `1000` (RFC 7518 §4.8.1.2), default ceiling `1_000_000`
+  - `minIterations?`, `maxIterations?` — PBES2 `p2c` bounds. Default floor `1000` (RFC 7518 §4.8.1.2), default ceiling `600_000` (the `p2c` `encrypt` mints by default)
   - `epk?`, `apu?`, `apv?`, `enc?` — ECDH-ES
 
 An unwrap that does not succeed is one verdict under every algorithm:
@@ -420,7 +420,7 @@ const recentKeys = getJWKsFromSet(jwkSet, (k) => k.kid?.endsWith("-2025") ?? fal
 
 By default, `importKey()` caches imported `CryptoKey` results in a module-level `WeakMap` keyed by the JWK object reference. A cache hit requires passing the **exact same object variable** — a spread copy (`{ ...jwk }`) will miss.
 
-A replacement adapter keys on the key material itself — `thumbprint(jwk)` plus the algorithm. A `kid` is not a safe cache key: it is a label its publisher chooses and two different keys may carry the same one (during a rotation, or across merged sets), so an entry stored under a `kid` can serve the wrong key material. `get` and `set` may both return a promise; `importKey` awaits them.
+A replacement adapter keys on the key material itself — `thumbprint(jwk)` plus the half of the pair (whether the JWK carries `d`) plus the algorithm. The half is required: a thumbprint covers the public members only (RFC 7638 §3.2), so a private JWK and its public counterpart share one, and keyed on `thumbprint:alg` alone a `sign` then `verify` with one pair is served the wrong half. A `kid` is not a safe cache key: it is a label its publisher chooses and two different keys may carry the same one (during a rotation, or across merged sets), so an entry stored under a `kid` can serve the wrong key material. `get` and `set` may both return a promise; `importKey` awaits them.
 
 ### `configureJWKCache(cache)`
 
@@ -431,13 +431,16 @@ Replace or disable the active cache.
 
 ```ts
 import { configureJWKCache, thumbprint } from "unjwt/jwk";
+import type { JWK } from "unjwt/jwk";
 
-// A shared cache keyed on the key material itself
+// A shared cache keyed on the key material itself, the half of the pair, and the alg
+const cacheKey = async (jwk: JWK, alg: string) =>
+  `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
 const map = new Map<string, CryptoKey>();
 configureJWKCache({
-  get: async (jwk, alg) => map.get(`${await thumbprint(jwk)}:${alg}`),
+  get: async (jwk, alg) => map.get(await cacheKey(jwk, alg)),
   set: async (jwk, alg, key) => {
-    map.set(`${await thumbprint(jwk)}:${alg}`, key);
+    map.set(await cacheKey(jwk, alg), key);
   },
 });
 

@@ -11,6 +11,7 @@ import {
 } from "../src/core/jwk";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal";
 import type {
   JWK,
   JWK_oct,
@@ -427,12 +428,47 @@ describe.concurrent("JWE Utilities", () => {
       ).rejects.toThrow(optionError);
     });
 
-    it("rejects p2c above the default maximum of 1_000_000 iterations", async () => {
+    it("rejects p2c above the default maximum, the iteration count encrypt mints by default", async () => {
       // The bounds check fires before PBKDF2, so no need to actually wrap at that iteration count.
       const p2s = secureRandomBytes(16);
       await expect(
-        unwrapKey(secureRandomBytes(40), password, { alg, p2c: 1_000_001, p2s, format: "raw" }),
-      ).rejects.toThrow(/"p2c" above the maximum of 1000000/);
+        unwrapKey(secureRandomBytes(40), password, {
+          alg,
+          p2c: DEFAULT_PBES2_ITERATIONS + 1,
+          p2s,
+          format: "raw",
+        }),
+      ).rejects.toThrow(`"p2c" above the maximum of ${DEFAULT_PBES2_ITERATIONS}`);
+    });
+
+    it("refuses to mint a p2c above the default maximum", async () => {
+      const error = await encrypt(plaintextObj, "a password", {
+        alg,
+        enc: "A128GCM",
+        p2c: DEFAULT_PBES2_ITERATIONS + 1,
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    });
+
+    it("opens a token minted at the default p2c under the default maximum", async () => {
+      const jwe = await encrypt(plaintextObj, "a password", { alg, enc: "A128GCM" });
+      const header = JSON.parse(base64UrlParse(jwe.split(".")[0]!) as string);
+      expect(header.p2c).toBe(DEFAULT_PBES2_ITERATIONS);
+      await expect(decrypt(jwe, "a password")).resolves.toBeDefined();
+    });
+
+    it("opens a token one iteration above the default maximum only when maxIterations is raised", async () => {
+      const p2c = DEFAULT_PBES2_ITERATIONS + 1;
+      const jwe = await new jose.CompactEncrypt(textEncoder.encode(JSON.stringify(plaintextObj)))
+        .setProtectedHeader({ alg, enc: "A128GCM" })
+        .setKeyManagementParameters({ p2c })
+        .encrypt(textEncoder.encode("a password"));
+
+      const error = await decrypt(jwe, "a password").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect(error.message).toContain(`above the maximum of ${DEFAULT_PBES2_ITERATIONS}`);
+
+      await expect(decrypt(jwe, "a password", { maxIterations: p2c })).resolves.toBeDefined();
     });
 
     it("accepts p2c at the default floor of 1000 iterations", async () => {

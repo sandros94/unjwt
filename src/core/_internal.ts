@@ -30,7 +30,13 @@ import {
   assertCritShape,
   validateJwtClaims,
 } from "./utils";
-import { assertOctKeyLength, bitLengthCEK, bitLengthIV, bitLengthTag } from "./_crypto";
+import {
+  DEFAULT_PBES2_ITERATIONS,
+  assertOctKeyLength,
+  bitLengthCEK,
+  bitLengthIV,
+  bitLengthTag,
+} from "./_crypto";
 
 /**
  * RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` feed the Concat KDF input
@@ -42,8 +48,7 @@ export const MAX_PARTY_INFO_BYTES = 1024;
 // Bounded work per call (JWS verify + JWE decrypt, compact & multi).
 // -----------------------------------------------------------------------------
 
-/** The PBKDF2 work a PBES2 token is minted with when the caller names none. */
-export const DEFAULT_PBES2_ITERATIONS = 600_000;
+export { DEFAULT_PBES2_ITERATIONS };
 
 /**
  * The work one JOSE call does when the caller names no {@link JOSELimits}:
@@ -183,22 +188,37 @@ export function serializeProtectedHeader(header: object): string {
 /**
  * RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` names the extension parameters a
  * recipient must understand. The producer holds itself to what every consumer
- * checks: the same shape, and an entry for every parameter the header being
- * built actually carries. `"b64"` is the one exception a JWS makes, since its
- * absence from the header means `true` (RFC 7797 §3).
+ * checks: the same shape, and an entry only for a parameter the header being
+ * built actually carries — `"b64"` included.
  */
 export function assertProducerCrit(header: Record<string, unknown>, family: "JWS" | "JWE"): void {
   const crit = header.crit;
   if (crit === undefined) return;
   assertCritShape(crit, { family, code: "ERR_INVALID_OPTION" });
   for (const param of crit) {
-    if (family === "JWS" && param === "b64") continue;
     if (Object.hasOwn(header, param)) continue;
     throw new JWTError(
       `"crit" lists "${param}", which the protected header does not carry.`,
       "ERR_INVALID_OPTION",
     );
   }
+}
+
+/**
+ * RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` must be integrity protected, so a
+ * consumer refuses it in any unprotected header. The producer refuses to write
+ * it there.
+ */
+export function assertNoUnprotectedCritOption(
+  header: object | undefined,
+  tier: string,
+  family: "JWS" | "JWE",
+): void {
+  if (!header || !Object.hasOwn(header, "crit")) return;
+  throw new JWTError(
+    `${family} "crit" must be integrity protected; move it from the ${tier} header to the protected header.`,
+    "ERR_INVALID_OPTION",
+  );
 }
 
 /**
@@ -613,7 +633,7 @@ const JWS_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
 
 /**
  * Reject a header-declared `alg` the library cannot verify — `"none"`
- * (RFC 7515 §3.6 Unsecured JWS) and anything outside {@link JWSAlgorithm} —
+ * (RFC 7518 §3.6 Unsecured JWS) and anything outside {@link JWSAlgorithm} —
  * before any key import or WebCrypto call. Returns `undefined` when the alg is
  * supported, or the {@link JWTError} the caller throws (compact) or collects
  * per signature (multi).
@@ -643,11 +663,17 @@ export function checkJWSB64Crit(header: { b64?: boolean; crit?: unknown }): JWTE
 }
 
 /**
- * RFC 7797 §6 — when a signer sets `b64: false`, `"b64"` must also be listed in
- * `crit` so the flag is integrity protected. Adds it to the protected header
- * being built, creating `crit` when absent and never duplicating the entry.
+ * Settle `b64` on a protected header being built. `b64: true` is the default
+ * (RFC 7797 §3) and is dropped — unless `crit` lists it, since a listed
+ * parameter must be present (RFC 7515 §4.1.11). `b64: false` must be listed in
+ * `crit` (RFC 7797 §6), so `"b64"` is added there, creating `crit` when absent
+ * and never duplicating the entry.
  */
-export function applyB64Crit(header: { b64?: boolean; crit?: string[] }): void {
+export function applyB64Header(header: { b64?: boolean; crit?: string[] }): void {
+  if (header.b64 === true) {
+    if (!(Array.isArray(header.crit) && header.crit.includes("b64"))) delete header.b64;
+    return;
+  }
   if (header.b64 !== false) return;
   const crit = header.crit;
   if (crit === undefined) header.crit = ["b64"];
@@ -676,12 +702,46 @@ export function assertSerializationObject(
   value: unknown,
   family: "JWS" | "JWE",
 ): asserts value is object {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isJSONObject(value)) {
     throw new JWTError(
       `Invalid ${family} JSON Serialization: expected an object.`,
       `ERR_${family}_INVALID_SERIALIZATION` as JWTErrorCode,
     );
   }
+}
+
+/**
+ * RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — a `signatures[]` / `recipients[]` entry
+ * (or the JWE envelope itself) is a JSON object, each header member listed in
+ * `objects` is a JSON object when present, and each base64url member listed in
+ * `strings` is a string when present. For an entry, a failure condemns that
+ * entry alone: the caller records the returned error and moves on to the next.
+ */
+export function checkSerializationEntry(
+  entry: unknown,
+  options: {
+    family: "JWS" | "JWE";
+    label: string;
+    objects: readonly string[];
+    strings: readonly string[];
+  },
+): JWTError | undefined {
+  const { family, label, objects, strings } = options;
+  const code = `ERR_${family}_INVALID` as JWTErrorCode;
+  if (!isJSONObject(entry)) {
+    return new JWTError(`Invalid ${family}: ${label} must be a JSON object.`, code);
+  }
+  for (const member of objects) {
+    if (entry[member] !== undefined && !isJSONObject(entry[member])) {
+      return new JWTError(`Invalid ${family}: ${label} "${member}" must be a JSON object.`, code);
+    }
+  }
+  for (const member of strings) {
+    if (entry[member] !== undefined && typeof entry[member] !== "string") {
+      return new JWTError(`Invalid ${family}: ${label} "${member}" must be a string.`, code);
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -750,7 +810,7 @@ const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
 } satisfies Record<ContentEncryptionAlgorithm, "cryptokey" | "raw">);
 
 /**
- * RFC 7516 §4.5 — under `dir` the key *is* the content encryption key, so a JWK
+ * RFC 7518 §4.5 — under `dir` the key *is* the content encryption key, so a JWK
  * that declares an `alg` must declare either `dir` or exactly the `enc` it is a
  * CEK for: a key minted for `A256GCM` is not a CEK for `A128CBC-HS256`.
  * Wrapping keys (`A*KW`, `A*GCMKW`, PBES2) never reach this check — importing
@@ -765,7 +825,7 @@ export function assertDirectKeyRole(key: unknown, enc: string | undefined): void
   );
 }
 
-/** `dir` and bare `ECDH-ES` agree on the CEK directly — RFC 7516 §4.5 / §5.2. */
+/** `dir` and bare `ECDH-ES` agree on the CEK directly — RFC 7518 §4.5 / §4.6, RFC 7516 §5.2 step 6. */
 export const JWE_DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);
 
 /**
@@ -1027,4 +1087,8 @@ export function decodeJWSPayload<T>(
     if (error instanceof JWTError) throw error;
     throw new JWTError("Invalid JWS: Payload could not be decoded.", "ERR_JWS_INVALID", error);
   }
+}
+
+function isJSONObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

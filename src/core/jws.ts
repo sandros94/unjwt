@@ -29,7 +29,7 @@ import {
 } from "./utils";
 import {
   JWS_ALG_CTX,
-  applyB64Crit,
+  applyB64Header,
   assertProducerCrit,
   asKeyLookupError,
   asKeyUsageError,
@@ -339,8 +339,7 @@ function _buildJWSHeader(
   if (safeHeader) Object.assign(header, safeHeader);
   header.alg = alg;
   applyTypCtyDefaults(header, payload);
-  if (header.b64 === true) delete header.b64;
-  applyB64Crit(header);
+  applyB64Header(header);
   assertProducerCrit(header as Record<string, unknown>, "JWS");
   return header;
 }

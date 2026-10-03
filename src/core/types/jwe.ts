@@ -198,7 +198,10 @@ export interface JWEEncryptOptions {
   keyManagementIV?: Uint8Array<ArrayBuffer>;
   /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
   p2s?: Uint8Array<ArrayBuffer>;
-  /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
+  /**
+   * PBES2 Iteration count (p2c). Defaults to `600_000`; must be between `1000`
+   * and `600_000`, the bounds decrypt enforces by default.
+   */
   p2c?: number;
   /** ECDH-ES specific options. */
   ecdh?: {
@@ -264,7 +267,7 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
    * `ERR_JWK_KEY_NOT_FOUND` before the first key is imported; a `p2c` that no
    * longer fits in the budget is `ERR_JWE_INVALID` before the derivation runs.
    *
-   * @default { keyCandidates: 8, pbes2Iterations: 2_400_000 }
+   * @default { keyCandidates: 8, pbes2Iterations: 2_400_000 } (four times the default `p2c`)
    */
   limits?: Pick<JOSELimits, "keyCandidates" | "pbes2Iterations">;
   /** A list of allowed JWE "enc" (Encryption Algorithm) Header Parameter values for content encryption. */
@@ -311,7 +314,11 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
   returnCek?: boolean;
   /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
   minIterations?: number;
-  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  /**
+   * Maximum accepted PBES2 `p2c` on unwrap. Defaults to `600_000`, the `p2c` a
+   * producer mints by default, to cap PBKDF2 DoS potential; raise it to open a
+   * token minted at a higher cost.
+   */
   maxIterations?: number;
 }
 
@@ -407,7 +414,10 @@ export interface JWEMultiRecipient {
   ecdh?: JWEEncryptOptions["ecdh"];
   /** PBES2 salt for this recipient. Randomized (16 bytes) when omitted. */
   p2s?: Uint8Array<ArrayBuffer>;
-  /** PBES2 iteration count for this recipient. Defaults to 600_000. */
+  /**
+   * PBES2 iteration count for this recipient. Defaults to `600_000`; must be
+   * between `1000` and `600_000`, the bounds decrypt enforces by default.
+   */
   p2c?: number;
   /** Initialization vector for AES-GCMKW key wrapping for this recipient. */
   keyManagementIV?: Uint8Array<ArrayBuffer>;
@@ -457,7 +467,7 @@ export interface JWEMultiDecryptOptions extends JWEDecryptOptions {
    * `ERR_JWE_INVALID` before any of them is read, and the PBES2 budget is
    * summed across every recipient rather than weighed per recipient.
    *
-   * @default { recipients: 16, keyCandidates: 8, pbes2Iterations: 2_400_000 }
+   * @default { recipients: 16, keyCandidates: 8, pbes2Iterations: 2_400_000 } (four times the default `p2c`)
    */
   limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
   /**
@@ -474,9 +484,18 @@ export interface JWEMultiDecryptOptions extends JWEDecryptOptions {
  * Result of a {@link decryptMulti} operation. Extends {@link JWEDecryptResult}
  * with the per-recipient header tier surfaced on the matching recipient.
  */
-export interface JWEMultiDecryptResult<
-  T extends JOSEPayload = JOSEPayload,
-> extends JWEDecryptResult<T> {
+export interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> extends Omit<
+  JWEDecryptResult<T>,
+  "protectedHeader"
+> {
+  /**
+   * The JWE Protected Header exactly as it was integrity protected. `alg` and
+   * `enc` appear here only when the producer protected them: a recipient's
+   * `alg` is usually in {@link recipientHeader}, and `enc` may sit in
+   * {@link sharedUnprotectedHeader} (RFC 7516 §7.2.1). A serialization with no
+   * `protected` member yields `{}`.
+   */
+  protectedHeader: JWEHeaderParameters;
   /** Parsed shared unprotected header, when present on the serialization. */
   sharedUnprotectedHeader?: JWEHeaderParameters;
   /** Parsed per-recipient unprotected header of the recipient that decrypted. */

@@ -5,8 +5,18 @@ import { concatUint8Arrays } from "../utils";
 import { JWTError } from "../error";
 import { aesKwWrap, aesKwUnwrap } from "./_aes";
 
+/** RFC 7518 §4.8.1.2 — the floor every PBES2 `p2c` is held to. */
 export const DEFAULT_PBES2_MIN_ITERATIONS = 1000;
-export const DEFAULT_PBES2_MAX_ITERATIONS = 1_000_000;
+
+/** The PBKDF2 work a PBES2 token is minted with when the caller names none. */
+export const DEFAULT_PBES2_ITERATIONS = 600_000;
+
+/**
+ * The ceiling one unwrap accepts unless the caller raises `maxIterations`: the
+ * cost a producer mints by default, and no more, so a token cannot claim more
+ * work than the library itself would spend writing one.
+ */
+export const DEFAULT_PBES2_MAX_ITERATIONS: number = DEFAULT_PBES2_ITERATIONS;
 
 /**
  * RFC 7518 §4.8.1 — the PBES2 parameters a token is minted with. `p2s` is at

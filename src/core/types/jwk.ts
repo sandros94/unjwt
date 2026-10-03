@@ -44,7 +44,9 @@ export type JWKLookupFunction<
  * its own keying strategy:
  * - {@link WeakMapJWKCache} uses the object reference (GC-friendly, no string hashing needed)
  * - A shared cache keys on the key material itself — its {@link thumbprint} —
- *   plus the algorithm it is imported under
+ *   plus the half of the pair it is (whether the JWK carries `d`) and the
+ *   algorithm it is imported under. The thumbprint covers the public members
+ *   only (RFC 7638 §3.2), so both halves of one pair share it.
  *
  * A `kid` is not a safe cache key: it is a label its publisher chooses, and two
  * different keys may carry the same one — during a rotation, or across two sets
@@ -57,11 +59,14 @@ export type JWKLookupFunction<
  * @example Use a thumbprint-keyed cache:
  * ```ts
  * import { configureJWKCache, thumbprint } from 'unjwt/jwk';
+ * import type { JWK } from 'unjwt/jwk';
  * const map = new Map<string, CryptoKey>();
+ * const cacheKey = async (jwk: JWK, alg: string) =>
+ *   `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
  * configureJWKCache({
- *   get: async (jwk, alg) => map.get(`${await thumbprint(jwk)}:${alg}`),
+ *   get: async (jwk, alg) => map.get(await cacheKey(jwk, alg)),
  *   set: async (jwk, alg, key) => {
- *     map.set(`${await thumbprint(jwk)}:${alg}`, key);
+ *     map.set(await cacheKey(jwk, alg), key);
  *   },
  * });
  * ```
@@ -325,7 +330,11 @@ export interface UnwrapKeyOptions<TAlg extends KeyManagementAlgorithm = KeyManag
   p2c?: number;
   /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
   minIterations?: number;
-  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  /**
+   * Maximum accepted PBES2 `p2c` on unwrap. Defaults to `600_000`, the `p2c` a
+   * producer mints by default, to cap PBKDF2 DoS potential; raise it to open a
+   * token minted at a higher cost.
+   */
   maxIterations?: number;
   /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
   epk?: JWK_EC_Public | JWK_OKP_Public | CryptoKey;

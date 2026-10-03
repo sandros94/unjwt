@@ -42,7 +42,7 @@ Creates a JWS Compact Serialization token.
 
 - The `alg` is settled before any key work: `"none"` and anything outside `JWSAlgorithm` are refused with `ERR_JWS_ALG_NOT_ALLOWED`, carrying the same message `verify` reports for the same string
 - A payload that is neither text, bytes nor an object, and one `JSON.stringify` refuses (a `BigInt`, a circular reference), throw `ERR_INVALID_OPTION` — as does a `protectedHeader` that will not serialize
-- A caller `crit` is held to the rules `verify` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no parameter registered by RFC 7515/7516/7518, and every entry present in the protected header being built (`"b64"` excepted — its absence means `true`). The same gate runs per signer in `signMulti`
+- A caller `crit` is held to the rules `verify` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no parameter registered by RFC 7515/7516/7518, and every entry present in the protected header being built — `"b64"` included, so `crit: ["b64"]` needs a `b64` member (`b64: true` is kept in the header when `crit` lists it, dropped otherwise). The same gate runs per signer in `signMulti`, which also refuses `crit` in a signer's `unprotectedHeader` (`ERR_INVALID_OPTION`)
 - A key that cannot serve the declared `alg` throws `ERR_JWK_INVALID` with the WebCrypto failure as its `cause`
 - If payload is an object and `typ` is not set, defaults to `"JWT"`
 - If `expiresIn` is set and `iat` is missing, `iat` is set to current time
@@ -105,7 +105,7 @@ Verifies a JWS token and returns its payload.
 - The protected header must decode to a JSON **object** — `null`, an array or a JSON scalar throws `ERR_JWS_INVALID` (`"Invalid JWS: Protected header must be a JSON object."`)
 - `alg: "none"` is rejected with `ERR_JWS_ALG_NOT_ALLOWED` (`'"none" is not a valid signing algorithm'`), as is any `alg` outside `JWSAlgorithm` (`"Algorithm not supported: <alg>"`) — neither ever reaches WebCrypto. The `options.algorithms` allowlist is checked after that and still reports `"Algorithm not allowed: <alg>"`
 - `b64: false` is only honoured when `"b64"` is listed in `crit`; otherwise `ERR_JWS_INVALID` (RFC 7797 §6)
-- `crit` must be a non-empty array of strings and must not list a parameter registered by RFC 7515/7516/7518 (`alg`, `enc`, `zip`, `jku`, `jwk`, `kid`, `x5u`, `x5c`, `x5t`, `x5t#S256`, `typ`, `cty`, `crit`, `epk`, `apu`, `apv`, `iv`, `tag`, `p2s`, `p2c`); `b64` is an extension and is allowed. `recognizedHeaders` cannot opt back into a registered name. Extension entries still follow the existing recognized/missing rules
+- `crit` must be a non-empty array of strings and must not list a parameter registered by RFC 7515/7516/7518 (`alg`, `enc`, `zip`, `jku`, `jwk`, `kid`, `x5u`, `x5c`, `x5t`, `x5t#S256`, `typ`, `cty`, `crit`, `epk`, `apu`, `apv`, `iv`, `tag`, `p2s`, `p2c`); `b64` is an extension and is allowed. `recognizedHeaders` cannot opt back into a registered name. Every entry must name a member the protected header carries — `"b64"` included — else `ERR_JWS_INVALID` (`"Missing critical header parameters: b64"`, RFC 7515 §4.1.11)
 - `options.typ` is compared under RFC 7515 §4.1.9 media-type semantics — case-insensitive, with an optional `application/` prefix on either side, so `typ: "at+jwt"` matches a header carrying `"application/AT+JWT"`
 - Any non-`JWTError` raised while importing or using the key (WebCrypto `TypeError`/`DOMException`, codec `SyntaxError`, …) surfaces as `JWTError("Key is not usable for <alg>.", "ERR_JWK_INVALID")` with the original as `cause`
 
@@ -170,12 +170,15 @@ Accepts an already-parsed General or Flattened JWS and returns the first signatu
   - `limits?: { signatures?: number; keyCandidates?: number }` — `signatures` defaults to `16`; a serialization carrying more throws `ERR_JWS_INVALID` (`"Invalid JWS: 17 signatures exceed the limit of 16."`) before any signature is read
   - `strictSignerMatch?: boolean` — when `true`, skip any signature whose header does not unambiguously match the provided key (by `kid`, then by `kty`/`crv`/length). Throws `ERR_JWS_NO_MATCHING_SIGNER` if nothing matches; no trial verification fallback.
 
-**Returns:** `JWSMultiVerifyResult<T>` — extends `JWSVerifyResult` with:
+**Returns:** `JWSMultiVerifyResult<T>` — `{ payload, protectedHeader, signerIndex, signerHeader? }`:
 
+- `protectedHeader: JWSHeaderParameters` — exactly what was signed. `alg` appears here only when protected; a Flattened JWS with no `protected` member yields `{}`.
 - `signerIndex: number` — index into `jws.signatures` that verified.
-- `signerHeader?: JWSHeaderParameters` — per-signer unprotected header.
+- `signerHeader?: JWSHeaderParameters` — per-signer unprotected header (holds `alg` when the signer did not protect it).
 
-**Per-signature isolation:** every signature-scoped failure — malformed protected header, `alg: "none"` / unsupported `alg`, `b64` without `crit`, protected/unprotected overlap, a signature segment that is not canonical base64url, an unusable key — is recorded and the next signature is still tried; the collected error is thrown only when no signature verifies. A malformed signer prepended to a token therefore cannot suppress a valid one. `crit` in an **unprotected** header is rejected with `ERR_JWS_INVALID` (RFC 7515 §4.1.11 — `crit` must be integrity protected). A document carrying `signatures[]` together with a top-level `signature`/`protected` is ambiguous and throws `ERR_JWS_INVALID_SERIALIZATION`.
+**Header tiers (RFC 7515 §7.2.1):** `alg` may sit in the protected header or in the signature's unprotected `header` — and a Flattened JWS may omit `protected` entirely. The `algorithms` allowlist, key-based inference and every key/`alg` check apply to an unprotected `alg` exactly as to a protected one. `crit` and `b64` must be protected, and a name may sit in only one tier (`ERR_JWS_HEADER_PARAMS_NOT_DISJOINT`).
+
+**Per-signature isolation:** every signature-scoped failure — a `signatures[]` entry that is not a JSON object (or whose `header` is not one, or whose `protected` is not a string), malformed protected header, `alg: "none"` / unsupported `alg`, `b64` without `crit`, protected/unprotected overlap, a signature segment that is not canonical base64url, an unusable key — is recorded and the next signature is still tried; the collected error is thrown only when no signature verifies. A malformed signer prepended to a token therefore cannot suppress a valid one. `crit` in an **unprotected** header is rejected with `ERR_JWS_INVALID` (RFC 7515 §4.1.11 — `crit` must be integrity protected). A document carrying `signatures[]` together with a top-level `signature`/`protected` is ambiguous and throws `ERR_JWS_INVALID_SERIALIZATION`.
 
 ```ts
 import { verifyMulti } from "unjwt/jws";
@@ -194,7 +197,7 @@ const { payload: r } = await verifyMulti(jws, key, { strictSignerMatch: true });
 
 Verify every signature in a JWS **independently** and return a per-signature outcome array — the caller applies their own policy (all-must-verify, M-of-N quorum, specific-signer checks, audit logs).
 
-Unlike `verifyMulti`, this function **never throws** on an individual signature's failure. Malformed protected headers (including non-object headers), `alg: "none"` / unsupported or disallowed `alg`s, `b64` without `crit`, `crit` in an unprotected header, protected/unprotected overlap, malformed signature segments, `typ` mismatches, key-resolver errors, unusable keys, bad signatures, critical-header violations, and JWT-claim failures are all collected into `JWSMultiVerifyOutcome` entries with `verified: false`.
+Unlike `verifyMulti`, this function **never throws** on an individual signature's failure. A `signatures[]` entry that is not a JSON object, malformed protected headers (including non-object headers), `alg: "none"` / unsupported or disallowed `alg`s, `b64` without `crit`, `crit` in an unprotected header, protected/unprotected overlap, malformed signature segments, `typ` mismatches, key-resolver errors, unusable keys, bad signatures, critical-header violations, and JWT-claim failures are all collected into `JWSMultiVerifyOutcome` entries with `verified: false`.
 
 Structural errors in the envelope itself (non-object input, missing `payload` / `signatures[]`) still throw `ERR_JWS_INVALID_SERIALIZATION` — there's no per-signature outcome to return in that case.
 
@@ -477,7 +480,7 @@ interface JWSMultiVerifyAllOptions {
 
 interface JWSMultiVerifyResult<T extends JOSEPayload = JOSEPayload> {
   payload: T;
-  protectedHeader: JWSProtectedHeader;
+  protectedHeader: JWSHeaderParameters; // only what was signed — alg may be in signerHeader
   signerIndex: number;
   signerHeader?: JWSHeaderParameters;
 }
@@ -487,14 +490,14 @@ type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
       signerIndex: number;
       verified: true;
       payload: T;
-      protectedHeader: JWSProtectedHeader;
+      protectedHeader: JWSHeaderParameters;
       signerHeader?: JWSHeaderParameters;
     }
   | {
       signerIndex: number;
       verified: false;
       error: JWTError;
-      protectedHeader?: JWSProtectedHeader;
+      protectedHeader?: JWSHeaderParameters;
       signerHeader?: JWSHeaderParameters;
     };
 
