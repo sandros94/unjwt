@@ -49,7 +49,7 @@ Produces a JWE Compact Serialization token.
 - `options?: JWEEncryptOptions`
   - `alg?: KeyManagementAlgorithm`
   - `enc?: ContentEncryptionAlgorithm` — defaults to `A256GCM`; under `alg: "dir"` it comes from the CEK's own `alg` (or its `enc` hint) and is required when the key carries neither
-  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`). A `crit` is held to the rules `decrypt` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no registered parameter, and every entry present in the header being built. A header that is not an object (a string, an array, `null`) or that `JSON.stringify` refuses (a `BigInt`, a circular reference) is `ERR_INVALID_OPTION` too
+  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`). A `crit` is held to the rules `decrypt` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no registered parameter, and every entry present in the header being built. A header that is not an object (a string, an array, `null`) or that `JSON.stringify` refuses (a `BigInt`, a circular reference) is `ERR_INVALID_OPTION` too. An object payload without `typ` gets `typ: "JWT"`; no `cty` is added (RFC 7519 §5.2 keeps it for nested JWTs, as `"JWT"`), and one set here is kept as given
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `currentDate?: Date`
   - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`

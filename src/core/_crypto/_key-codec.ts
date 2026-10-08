@@ -3,6 +3,7 @@ import { base64UrlStringify } from "../utils/base64";
 import type { JWK } from "../types";
 import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
+import { quoteTokenValue } from "../utils/_text";
 
 /**
  * Import a JWK as a `CryptoKey` for the algorithm its `alg` names.
@@ -44,7 +45,11 @@ export async function jwkTokey(
     // WebCrypto reports a JWK it cannot import — a curve that contradicts the
     // `alg`, a truncated coordinate, an `e` it refuses — as a `DOMException`.
     if (error instanceof JWTError) throw error;
-    throw new JWTError(`Key is not usable for ${jwk.alg}.`, "ERR_JWK_INVALID", error);
+    throw new JWTError(
+      `Key is not usable for ${quoteTokenValue(jwk.alg)}.`,
+      "ERR_JWK_INVALID",
+      error,
+    );
   }
 }
 
@@ -128,7 +133,7 @@ function subtleMapping(jwk: JWK): {
         }
         default: {
           throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${String(jwk.alg)}.`,
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(jwk.alg)}.`,
             "ERR_JWK_INVALID",
           );
         }
@@ -165,7 +170,7 @@ function subtleMapping(jwk: JWK): {
         }
         default: {
           throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${String(jwk.alg)}.`,
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(jwk.alg)}.`,
             "ERR_JWK_INVALID",
           );
         }
@@ -190,7 +195,7 @@ function subtleMapping(jwk: JWK): {
         }
         default: {
           throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${String(jwk.alg)}.`,
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(jwk.alg)}.`,
             "ERR_JWK_INVALID",
           );
         }
@@ -199,7 +204,7 @@ function subtleMapping(jwk: JWK): {
     }
     default: {
       throw new JWTError(
-        `Invalid or unsupported JWK "kty" (Key Type) Parameter value: ${String((jwk as { kty?: unknown }).kty)}.`,
+        `Invalid or unsupported JWK "kty" (Key Type) Parameter value: ${quoteTokenValue((jwk as { kty?: unknown }).kty)}.`,
         "ERR_JWK_INVALID",
       );
     }
@@ -219,7 +224,7 @@ function requireCurve(jwk: JWK, allowed: readonly string[]): string {
   const crv: unknown = "crv" in jwk ? jwk.crv : undefined;
   if (typeof crv !== "string" || !allowed.includes(crv)) {
     throw new JWTError(
-      `Invalid or unsupported JWK "crv" (Curve) Parameter value: ${String(crv)}. Expected one of: ${allowed.join(", ")}.`,
+      `Invalid or unsupported JWK "crv" (Curve) Parameter value: ${quoteTokenValue(crv)}. Expected one of: ${allowed.join(", ")}.`,
       "ERR_JWK_INVALID",
     );
   }

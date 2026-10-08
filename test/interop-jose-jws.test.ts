@@ -346,14 +346,14 @@ describe.concurrent("interop with jose: JWS rejection parity", () => {
 });
 
 describe("interop with jose: JWS wire format", () => {
-  it("unjwt adds typ, cty, kid for an object payload where jose adds nothing", async () => {
+  it("unjwt adds typ and kid for an object payload where jose adds nothing", async () => {
     const { priv } = await keysFor("HS256");
     const ours = headerOf(await sign(claims, priv as JWSSignJWK));
     const theirs = headerOf(
       await new jose.SignJWT(claims).setProtectedHeader({ alg: "HS256" }).sign(joseKey(priv)),
     );
     expect(theirs).toEqual({ alg: "HS256" });
-    expect(ours).toEqual({ alg: "HS256", kid: priv.kid, typ: "JWT", cty: "application/json" });
+    expect(ours).toEqual({ alg: "HS256", kid: priv.kid, typ: "JWT" });
   });
 });
 

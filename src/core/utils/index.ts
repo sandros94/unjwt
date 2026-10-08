@@ -1,7 +1,7 @@
 import {
   type ParsePayloadOptions,
   type ComputeJwtTimeClaimsOptions as _ComputeJwtTimeClaimsOptions,
-  applyTypCtyDefaults as _applyTypCtyDefaults,
+  applyTypDefault as _applyTypDefault,
   parsePayloadBytes,
   parsePayloadSegment,
   getPlaintextBytes as _getPlaintextBytes,
@@ -43,8 +43,8 @@ export type * from "./types";
 export type DecodePayloadOptions = ParsePayloadOptions;
 /** @deprecated Use `ComputeJwtTimeClaimsOptions` from `unjwt/internal`; removed in v0.9.0. */
 export type ComputeJwtTimeClaimsOptions = _ComputeJwtTimeClaimsOptions;
-/** @deprecated Use `applyTypCtyDefaults` from `unjwt/internal`; removed in v0.9.0. */
-export const applyTypCtyDefaults: typeof _applyTypCtyDefaults = _applyTypCtyDefaults;
+/** @deprecated Use `applyTypDefault` from `unjwt/internal`; removed in v0.9.0. */
+export const applyTypCtyDefaults: typeof _applyTypDefault = _applyTypDefault;
 /** @deprecated Use `parsePayloadBytes` from `unjwt/internal`; removed in v0.9.0. */
 export const decodePayloadFromBytes: typeof parsePayloadBytes = parsePayloadBytes;
 /** @deprecated Use `parsePayloadSegment` from `unjwt/internal`; removed in v0.9.0. */

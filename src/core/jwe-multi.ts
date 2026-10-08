@@ -39,7 +39,7 @@ import type { PBES2Budget, ResolvedKeyInput } from "./_internal";
 import { isContentEncryptionAlgorithm, inferJWEAllowedAlgorithms } from "./utils/algorithms";
 import { isJWK, isJWKSet, isCryptoKey } from "./utils/guards";
 import {
-  applyTypCtyDefaults,
+  applyTypDefault,
   computeJwtTimeClaims,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
@@ -158,7 +158,7 @@ export async function encryptMulti(
   const protectedHeader = {} as JWEHeaderParameters;
   if (userProtected) Object.assign(protectedHeader, userProtected);
   protectedHeader.enc = enc;
-  applyTypCtyDefaults(protectedHeader, payload);
+  applyTypDefault(protectedHeader, payload);
   assertProducerCrit(protectedHeader, "JWE");
 
   const computedPayload: JWTClaims | undefined = computeJwtTimeClaims(payload, options);

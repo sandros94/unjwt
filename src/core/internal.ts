@@ -13,7 +13,7 @@
 export {
   type ParsePayloadOptions,
   type ComputeJwtTimeClaimsOptions,
-  applyTypCtyDefaults,
+  applyTypDefault,
   parsePayloadBytes,
   parsePayloadSegment,
   parsePayloadText,

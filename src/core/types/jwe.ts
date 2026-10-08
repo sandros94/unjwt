@@ -188,7 +188,11 @@ export interface JWEEncryptOptions {
    */
   notBeforeAt?: Date;
 
-  /** Additional JWE Protected Header parameters. */
+  /**
+   * Additional JWE Protected Header parameters. `typ` defaults to `"JWT"` when
+   * the payload is a JSON object. No `cty` is added; one set here is kept as
+   * given (`"JWT"` for a nested JWT, RFC 7519 §5.2).
+   */
   protectedHeader?: StrictOmit<
     JWEHeaderParameters,
     "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"

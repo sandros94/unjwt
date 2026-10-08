@@ -550,6 +550,7 @@ describe("adapter h3 v1", () => {
         const token = await encrypt(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key,
+          { protectedHeader: { cty: "application/json" } },
         );
 
         const app = createApp({ debug: true });
@@ -816,6 +817,7 @@ describe("adapter h3 v1", () => {
         const token = await sign(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key.privateKey,
+          { protectedHeader: { cty: "application/json" } },
         );
 
         const app = createApp({ debug: true });

@@ -33,7 +33,7 @@ import { JWTError } from "./error";
 import { isContentEncryptionAlgorithm } from "./utils/algorithms";
 import { isJWK, isJWKSet } from "./utils/guards";
 import {
-  applyTypCtyDefaults,
+  applyTypDefault,
   computeJwtTimeClaims,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
@@ -173,12 +173,12 @@ export async function encrypt(
     if (alg === "dir") {
       // Under `dir` the `enc` rides on the JWK: either as its own `alg` — the
       // algorithm the CEK was minted for — or as an explicit `enc` member.
-      enc = cekRole ?? (isJWK(key) && "enc" in key ? key.enc : undefined);
+      enc = cekRole ?? (isJWK(key) ? key.enc : undefined);
       if (!enc) {
         throw new JWTError('JWE "enc" must be provided when alg is "dir"', "ERR_JWE_ENC_MISSING");
       }
     } else {
-      enc = isJWK(key) && "enc" in key ? key.enc : "A256GCM";
+      enc = isJWK(key) && key.enc !== undefined ? key.enc : "A256GCM";
     }
   }
 
@@ -479,7 +479,7 @@ function _buildJWEHeader(
   if (keyManagementParams) Object.assign(header, keyManagementParams);
   header.alg = alg;
   header.enc = enc;
-  applyTypCtyDefaults(header, payload);
+  applyTypDefault(header, payload);
   assertProducerCrit(header, "JWE");
   return header;
 }

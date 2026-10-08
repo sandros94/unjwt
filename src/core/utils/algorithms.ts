@@ -158,16 +158,15 @@ const CONTENT_ENCRYPTION_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new S
 
 function jwsAlgsFromCryptoKey(key: CryptoKey): JWSAlgorithm[] | undefined {
   const name = key.algorithm.name;
-  const hashName = hashNameOf(key.algorithm);
-  const hashBits = hashName?.startsWith("SHA-") ? hashName.slice(4) : undefined;
+  const hashBits = jwsHashBits(hashNameOf(key.algorithm));
 
   switch (name) {
     case "HMAC":
-      return hashBits ? declaredAlgorithm<JWSAlgorithm>(`HS${hashBits}`) : undefined;
+      return hashBits ? [`HS${hashBits}`] : undefined;
     case "RSASSA-PKCS1-v1_5":
-      return hashBits ? declaredAlgorithm<JWSAlgorithm>(`RS${hashBits}`) : undefined;
+      return hashBits ? [`RS${hashBits}`] : undefined;
     case "RSA-PSS":
-      return hashBits ? declaredAlgorithm<JWSAlgorithm>(`PS${hashBits}`) : undefined;
+      return hashBits ? [`PS${hashBits}`] : undefined;
     case "ECDSA": {
       const curve = namedCurveOf(key.algorithm);
       if (curve === "P-256") return ["ES256"];
@@ -215,10 +214,18 @@ function jweAlgsFromCryptoKey(key: CryptoKey): KeyManagementAlgorithm[] | undefi
   }
 }
 
+/** The digest sizes a JWS algorithm name can carry (RFC 7518 §3.1). */
+function jwsHashBits(hashName: string | undefined): "256" | "384" | "512" | undefined {
+  if (hashName === "SHA-256") return "256";
+  if (hashName === "SHA-384") return "384";
+  if (hashName === "SHA-512") return "512";
+  return undefined;
+}
+
 /**
- * The algorithm a key names for itself — a JWK's `alg`, or a CryptoKey's hash
- * spelled as a JWS name — taken as declared. A name outside the union is not
- * filtered here: the operation that receives it rejects it as unsupported.
+ * The algorithm a JWK names for itself in its `alg`, taken as declared. A name
+ * outside the union is not filtered here: the operation that receives it
+ * rejects it as unsupported.
  */
 function declaredAlgorithm<T extends string>(alg: string): T[] {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a key's self-declared algorithm is an open string; unsupported names are rejected by the operation's algorithm check

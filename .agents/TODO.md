@@ -9,7 +9,7 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 | `base64Encode` (`unjwt/utils`)                   | `base64Stringify`                                | v0.8.0        | v0.9.0    |
 | `base64Decode` (`unjwt/utils`)                   | `base64Parse`                                    | v0.8.0        | v0.9.0    |
 | `forceUint8Array` (`unjwt/jws`, `unjwt/jwe`)     | `payload: "bytes"`                               | v0.8.0        | v0.9.0    |
-| `applyTypCtyDefaults` (`unjwt/utils`)            | `applyTypCtyDefaults` (`unjwt/internal`)         | v0.8.0        | v0.9.0    |
+| `applyTypCtyDefaults` (`unjwt/utils`)            | `applyTypDefault` (`unjwt/internal`)             | v0.8.0        | v0.9.0    |
 | `decodePayloadFromBytes` (`unjwt/utils`)         | `parsePayloadBytes` (`unjwt/internal`)           | v0.8.0        | v0.9.0    |
 | `decodePayloadFromB64UrlSegment` (`unjwt/utils`) | `parsePayloadSegment` (`unjwt/internal`)         | v0.8.0        | v0.9.0    |
 | `getPlaintextBytes` (`unjwt/utils`)              | `getPlaintextBytes` (`unjwt/internal`)           | v0.8.0        | v0.9.0    |

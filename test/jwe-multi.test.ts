@@ -1166,6 +1166,23 @@ describe.concurrent("encryptMulti header tiers", () => {
     key = await generateJWK("A256KW");
   });
 
+  it('types an object payload as "JWT" without a "cty"', async () => {
+    const { protectedHeader } = await decryptMulti(
+      await encryptMulti({ sub: "u1" }, [{ key }]),
+      key,
+    );
+    expect(protectedHeader.typ).toBe("JWT");
+    expect(protectedHeader).not.toHaveProperty("cty");
+  });
+
+  it('keeps a "cty" set in protectedHeader', async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key }], {
+      protectedHeader: { cty: "application/json" },
+    });
+    const { protectedHeader } = await decryptMulti(jwe, key);
+    expect(protectedHeader).toMatchObject({ typ: "JWT", cty: "application/json" });
+  });
+
   it("refuses crit in the shared unprotected header", async () => {
     const error = await encryptMulti("payload", [{ key }], {
       sharedUnprotectedHeader: { crit: ["app"], app: "web" },

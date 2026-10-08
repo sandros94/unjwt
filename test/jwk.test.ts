@@ -1981,6 +1981,22 @@ describe.concurrent("JWK Utilities", () => {
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toContain("secp256k1");
     });
+
+    it("quotes and bounds an oversized crv in the error message", async () => {
+      const crv = `P-256\n"${"x".repeat(10_000)}`;
+      const error = await importKey({
+        kty: "EC",
+        alg: "ECDH-ES",
+        crv,
+        x: base64UrlStringify(new Uint8Array(32)),
+        y: base64UrlStringify(new Uint8Array(32)),
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        `Invalid or unsupported JWK "crv" (Curve) Parameter value: ${JSON.stringify(`${crv.slice(0, 64)}…`)}. Expected one of: P-256, P-384, P-521.`,
+      );
+      expect(error.message.length).toBeLessThan(200);
+    });
   });
 
   describe("unwrapKey — attacker-controlled ECDH parameters", () => {

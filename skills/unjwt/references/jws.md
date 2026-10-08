@@ -47,7 +47,7 @@ Creates a JWS Compact Serialization token.
 - A caller `crit` is held to the rules `verify` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no parameter registered by RFC 7515/7516/7518, and every entry present in the protected header being built — `"b64"` included, so `crit: ["b64"]` needs a `b64` member (`b64: true` is kept in the header when `crit` lists it, dropped otherwise). The same gate runs per signer in `signMulti`, which also refuses `crit` and `b64` in a signer's `unprotectedHeader` (`ERR_INVALID_OPTION`)
 - `b64` must be a boolean (RFC 7797 §3) — any other value is `ERR_INVALID_OPTION`. A `protectedHeader` that is not an object (a string, an array, `null`) is `ERR_INVALID_OPTION` too, as is a `signMulti` signer entry, or its `protectedHeader`/`unprotectedHeader`, that is not one
 - A key that cannot serve the declared `alg` throws `ERR_JWK_INVALID` with the WebCrypto failure as its `cause`
-- If payload is an object and `typ` is not set, defaults to `"JWT"`
+- If payload is an object and `typ` is not set, defaults to `"JWT"`. No `cty` is added (RFC 7519 §5.2 keeps it for nested JWTs, as `"JWT"`); a `cty` set in `protectedHeader` is kept as given
 - If `expiresIn` is set and `iat` is missing, `iat` is set to current time
 - `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt)). `"b64"` is added to `crit` automatically (created when absent, never duplicated) — RFC 7797 §6 requires the flag to be integrity protected, and jose/other verifiers reject the token otherwise
 - With `b64: false`, a compact payload containing `"."` throws `ERR_JWS_INVALID` (RFC 7797 §5.2 — it would split the compact serialization). Use the JSON serialization (`signMulti`) for such payloads
@@ -114,7 +114,7 @@ Verifies a JWS token and returns its payload.
 - `b64` must be a boolean (`"false"`, `0`, `null` → `ERR_JWS_INVALID`, RFC 7797 §3); `b64: false` is only honoured when `"b64"` is listed in `crit`; otherwise `ERR_JWS_INVALID` (RFC 7797 §6)
 - `crit` must be a non-empty array of strings and must not list a parameter registered by RFC 7515/7516/7518 (`alg`, `enc`, `zip`, `jku`, `jwk`, `kid`, `x5u`, `x5c`, `x5t`, `x5t#S256`, `typ`, `cty`, `crit`, `epk`, `apu`, `apv`, `iv`, `tag`, `p2s`, `p2c`); `b64` is an extension and is allowed. `recognizedHeaders` cannot opt back into a registered name. Every entry must name a member the protected header carries — `"b64"` included — else `ERR_JWS_INVALID` (`"Missing critical header parameters: b64"`, RFC 7515 §4.1.11)
 - `options.typ` is compared under RFC 7515 §4.1.9 media-type semantics — case-insensitive, with an optional `application/` prefix on either side, so `typ: "at+jwt"` matches a header carrying `"application/AT+JWT"`. A protected header without `typ` fails it with `ERR_JWS_INVALID` (`'Invalid JWS: the protected header carries no "typ"; expected "at+jwt".'`)
-- Any non-`JWTError` raised while importing or using the key (WebCrypto `TypeError`/`DOMException`, codec `SyntaxError`, …) surfaces as `JWTError("Key is not usable for <alg>.", "ERR_JWK_INVALID")` with the original as `cause`
+- Any non-`JWTError` raised while importing or using the key (WebCrypto `TypeError`/`DOMException`, codec `SyntaxError`, …) surfaces as `JWTError('Key is not usable for "<alg>".', "ERR_JWK_INVALID")` with the original as `cause`
 
 ```ts
 import { verify } from "unjwt/jws";

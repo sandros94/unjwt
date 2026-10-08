@@ -1,6 +1,6 @@
-import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { base64UrlStringify, base64UrlParse } from "../utils/base64";
 import { JWTError } from "../error";
+import { quoteTokenValue } from "../utils/_text";
 import { cryptoKeyCurve } from "./_key-algorithm";
 
 import type {
@@ -17,21 +17,6 @@ import { jwkTokey, keyToJWK } from "./_key-codec";
 import { encryptRSAES } from "./_rsa";
 import { deriveECDHESKey, generateEphemeralKeyPair, isECDHKeyAllowed } from "./_ecdh";
 import { pbes2Wrap } from "./_pbes2";
-
-const PUBLIC_EPK_FIELDS = new Set([
-  "kty",
-  "crv",
-  "x",
-  "y",
-  "kid",
-  "use",
-  "key_ops",
-  "alg",
-  "x5c",
-  "x5t",
-  "x5t#S256",
-  "x5u",
-]);
 
 export async function encryptKey(
   alg: string,
@@ -74,7 +59,7 @@ export async function encryptKey(
       }
 
       let ephemeralPrivateKey: CryptoKey;
-      let epkHeader: JWK_EC_Public;
+      let epkHeader: JWK_EC_Public | JWK_OKP_Public;
 
       if (epkPrivateKey) {
         ephemeralPrivateKey = await ensurePrivateKey(alg, epkPrivateKey);
@@ -219,7 +204,7 @@ export async function normalizeEpk(
   const crv: unknown = epk.crv;
   const allowed = epk.kty === "EC" ? EC_ECDH_CURVES : OKP_ECDH_CURVES;
   if (typeof crv !== "string" || !allowed.has(crv)) {
-    throw invalidEpk(`curve ${JSON.stringify(crv ?? null)} is not supported for ${options.alg}.`);
+    throw invalidEpk(`curve ${quoteTokenValue(crv)} is not supported for ${options.alg}.`);
   }
   assertEpkCurve(crv, recipientCurve);
 
@@ -255,26 +240,17 @@ function assertEpkCurve(epkCurve: string | undefined, recipientCurve: string | u
   );
 }
 
-function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
-  const filtered: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(jwk)) {
-    if (value !== undefined && PUBLIC_EPK_FIELDS.has(key)) {
-      filtered[key] = value;
-    }
-  }
-
-  const { kty, crv, x, y } = filtered as {
-    kty?: unknown;
-    crv?: unknown;
-    x?: unknown;
-    y?: unknown;
-  };
-
-  if (typeof kty !== "string") {
-    throw new JWTError(
-      'ECDH-ES ephemeral key JWK must include the "kty" parameter.',
-      "ERR_JWK_INVALID",
-    );
+/**
+ * The `epk` header member for an ephemeral public key: its public key
+ * parameters alone, as RFC 7518 §4.6.1.1 asks for the minimum members needed
+ * to represent the key.
+ */
+function toPublicEpkJwk(jwk: JWK): JWK_EC_Public | JWK_OKP_Public {
+  const { kty } = jwk;
+  const crv: unknown = "crv" in jwk ? jwk.crv : undefined;
+  const x: unknown = "x" in jwk ? jwk.x : undefined;
+  if (kty !== "EC" && kty !== "OKP") {
+    throw new JWTError('ECDH-ES ephemeral key JWK "kty" must be "EC" or "OKP".', "ERR_JWK_INVALID");
   }
   if (typeof crv !== "string") {
     throw new JWTError(
@@ -288,23 +264,16 @@ function toPublicEpkJwk(jwk: JWK_EC): JWK_EC_Public {
       "ERR_JWK_INVALID",
     );
   }
-  if (kty === "EC" && typeof y !== "string") {
+  if (kty === "OKP") return { kty, crv, x };
+
+  const y: unknown = "y" in jwk ? jwk.y : undefined;
+  if (typeof y !== "string") {
     throw new JWTError(
       'ECDH-ES EC ephemeral key JWK must include both "x" and "y" coordinates.',
       "ERR_JWK_INVALID",
     );
   }
-
-  const publicJwk: Record<string, unknown> = { ...filtered, kty, crv, x };
-
-  if (typeof y === "string") {
-    publicJwk.y = y;
-  } else {
-    delete publicJwk.y;
-  }
-
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the members are the allowlisted public JWK fields, with kty, crv, x (and y when present) checked as strings above
-  return sanitizeObjectCopy(publicJwk) as unknown as JWK_EC_Public;
+  return { kty, crv, x, y };
 }
 
 async function ensurePrivateKey(alg: string, value: CryptoKey | JWK_EC): Promise<CryptoKey> {
@@ -324,7 +293,10 @@ async function ensurePrivateKey(alg: string, value: CryptoKey | JWK_EC): Promise
   return normalized;
 }
 
-async function exportPublicJwkFrom(alg: string, value: CryptoKey | JWK_EC): Promise<JWK_EC_Public> {
+async function exportPublicJwkFrom(
+  alg: string,
+  value: CryptoKey | JWK_EC,
+): Promise<JWK_EC_Public | JWK_OKP_Public> {
   if (isCryptoKey(value)) {
     try {
       return toPublicEpkJwk(await keyToJWK(value));

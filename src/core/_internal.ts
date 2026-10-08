@@ -22,6 +22,7 @@ import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
 import { modulusLengthOf } from "./_crypto/_key-algorithm";
 import { inferJWEAllowedAlgorithms, inferJWSAllowedAlgorithms } from "./utils/algorithms";
+import { quoteTokenValue } from "./utils/_text";
 import { isCryptoKey, isCryptoKeyPair, isJWK } from "./utils/guards";
 import { assertCritShape, parsePayloadBytes, parsePayloadSegment } from "./_jwt-internal";
 import { assertClaimValidationOptions, assertStringList, validateJwtClaims } from "./utils/jwt";
@@ -1274,14 +1275,4 @@ function declaredPayload<T>(payload: T | string | Uint8Array<ArrayBuffer>): T {
 
 function isJSONObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-const MAX_QUOTED_TOKEN_VALUE = 64;
-
-/** A token-supplied value as an error message may name it: JSON-quoted and bounded. */
-function quoteTokenValue(value: unknown): string {
-  const text = String(value);
-  return JSON.stringify(
-    text.length > MAX_QUOTED_TOKEN_VALUE ? `${text.slice(0, MAX_QUOTED_TOKEN_VALUE)}…` : text,
-  );
 }

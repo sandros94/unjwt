@@ -1604,6 +1604,28 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         "Algorithm not allowed: HS256",
       );
     });
+
+    it("refuses an HMAC SHA-1 CryptoKey on sign and verify", async () => {
+      const sha1 = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-1" }, false, [
+        "sign",
+        "verify",
+      ]);
+
+      const signError = await sign("payload", sha1, { alg: "HS256" }).catch((e) => e);
+      expect(isJWTError(signError, "ERR_JWK_INVALID")).toBe(true);
+
+      const hs256 = await craft(base64UrlStringify(JSON.stringify({ alg: "HS256" })));
+      const hs256Error = await verify(hs256, sha1).catch((e) => e);
+      expect(isJWTError(hs256Error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+      expect(hs256Error.message).toBe(
+        'Cannot infer allowed algorithms from this key; pass "options.algorithms" explicitly.',
+      );
+
+      const hs1 = await craft(base64UrlStringify(JSON.stringify({ alg: "HS1" })));
+      const hs1Error = await verify(hs1, sha1).catch((e) => e);
+      expect(isJWTError(hs1Error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+      expect(hs1Error.message).toBe('Algorithm not supported: "HS1"');
+    });
   });
 
   describe("key handling errors are JWTErrors", () => {
@@ -1629,7 +1651,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         algorithms: ["ES256"],
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
-      expect(error.message).toBe("Key is not usable for ES256.");
+      expect(error.message).toBe('Key is not usable for "ES256".');
       expect(error.cause).toBeDefined();
     });
   });
@@ -1900,6 +1922,18 @@ describe.concurrent("JWS producer header gates", () => {
 
   beforeAll(async () => {
     key = await generateJWK("HS256");
+  });
+
+  it('types an object payload as "JWT" without a "cty"', async () => {
+    const { protectedHeader } = await verify(await sign({ sub: "u1" }, key), key);
+    expect(protectedHeader.typ).toBe("JWT");
+    expect(protectedHeader).not.toHaveProperty("cty");
+  });
+
+  it('keeps a "cty" set in protectedHeader', async () => {
+    const jws = await sign({ sub: "u1" }, key, { protectedHeader: { cty: "application/json" } });
+    const { protectedHeader } = await verify(jws, key);
+    expect(protectedHeader).toMatchObject({ typ: "JWT", cty: "application/json" });
   });
 
   it.each([

@@ -10,6 +10,7 @@ import type {
   JWK_oct,
   JWK_Pair,
   JWK_EC_Public,
+  JWK_EC_Private,
   JWEEncryptJWK,
   JWEDecryptJWK,
   JWTClaims,
@@ -905,7 +906,7 @@ describe.concurrent("JWE Utilities", () => {
           currentDate: new Date(30_000), // 30 seconds in
         });
         expect(protectedHeader.typ).toBe("JWT");
-        expect(protectedHeader.cty).toBe("application/json");
+        expect(protectedHeader.cty).toBeUndefined();
         expect(payload.sub).toBe("abc");
         expect(payload.iat).toBe(0);
         expect(payload.exp).toBe(60);
@@ -957,14 +958,14 @@ describe.concurrent("JWE Utilities", () => {
         ).rejects.toThrow(/mutually exclusive/i);
       });
 
-      it("defaults typ/cty when encrypting object and leaves typ undefined for string", async () => {
+      it("defaults typ, not cty, for an object and leaves typ undefined for a string", async () => {
         const key = keys[alg].key as CryptoKey;
         const obj = { hello: "world" };
 
         const jweObj = await encrypt(obj, key, { alg, enc });
         const resObj = await decrypt(jweObj, key);
         expect(resObj.protectedHeader.typ).toBe("JWT");
-        expect(resObj.protectedHeader.cty).toBe("application/json");
+        expect(resObj.protectedHeader.cty).toBeUndefined();
         expect(resObj.payload).toEqual(obj);
 
         const jweStr = await encrypt("hello", key, { alg, enc });
@@ -1005,7 +1006,7 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("rejects expired token even when typ header is absent", async () => {
-        // Encrypting a plain JSON string as Uint8Array bypasses `applyTypCtyDefaults`
+        // Encrypting a plain JSON string as Uint8Array bypasses `applyTypDefault`
         // so the protected header has no `typ`. Prior to v0.7.0 this silently skipped
         // claim validation because the condition was typ-gated.
         const key = keys[alg].key as CryptoKey;
@@ -1305,6 +1306,36 @@ describe.concurrent("JWE Utilities", () => {
           ecdh: { ephemeralKey: 42 },
         }),
       ).rejects.toThrow(/Unsupported ECDH-ES ephemeral key material/i);
+    });
+
+    it("writes an OKP epk with no y coordinate for an X25519 recipient", async () => {
+      const recipient = await generateJWK("ECDH-ES+A128KW", { namedCurve: "X25519" });
+      const jwe = await encrypt(plaintextObj, recipient.publicKey, { enc });
+      const epk = JSON.parse(base64UrlParse(jwe.split(".")[0])).epk;
+      expect(epk).toEqual({ kty: "OKP", crv: "X25519", x: expect.any(String) });
+      const { payload } = await decrypt(jwe, recipient.privateKey);
+      expect(payload).toEqual(plaintextObj);
+    });
+
+    it("refuses an ephemeral public JWK whose coordinates are not strings", async () => {
+      const ephemeral = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-256" });
+      for (const publicKey of [
+        { ...ephemeral.publicKey, x: 42 },
+        { ...ephemeral.publicKey, y: undefined },
+        { ...ephemeral.publicKey, crv: ["P-256"] },
+      ]) {
+        const error = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
+          alg: ecdhAlg,
+          enc,
+          ecdh: {
+            ephemeralKey: {
+              publicKey: publicKey as unknown as JWK_EC_Public,
+              privateKey: ephemeral.privateKey as JWK_EC_Private,
+            },
+          },
+        }).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      }
     });
   });
 
@@ -1694,6 +1725,26 @@ describe.concurrent("JWE producer option gates", () => {
 
   beforeAll(async () => {
     [aesKey, ecdhKey] = await Promise.all([generateJWK("A256KW"), generateJWK("ECDH-ES+A256KW")]);
+  });
+
+  it('types an object payload as "JWT" without a "cty"', async () => {
+    const { protectedHeader } = await decrypt(await encrypt({ sub: "u1" }, aesKey), aesKey);
+    expect(protectedHeader.typ).toBe("JWT");
+    expect(protectedHeader).not.toHaveProperty("cty");
+  });
+
+  it('defaults "enc" to A256GCM for a JWK whose "enc" member is undefined', async () => {
+    const jwe = await encrypt({ sub: "u1" }, { ...aesKey, enc: undefined });
+    const { protectedHeader } = await decrypt(jwe, aesKey);
+    expect(protectedHeader).toMatchObject({ alg: "A256KW", enc: "A256GCM" });
+  });
+
+  it('keeps a "cty" set in protectedHeader', async () => {
+    const jwe = await encrypt({ sub: "u1" }, aesKey, {
+      protectedHeader: { cty: "application/json" },
+    });
+    const { protectedHeader } = await decrypt(jwe, aesKey);
+    expect(protectedHeader).toMatchObject({ typ: "JWT", cty: "application/json" });
   });
 
   it.each([

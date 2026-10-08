@@ -91,7 +91,8 @@ export interface JWSSignOptions {
   /**
    * Additional protected header parameters. `alg` is always derived from the top-level `alg`
    * option (or inferred from the key) and cannot be overridden. `typ` defaults to `"JWT"`
-   * when the payload is a JSON object.
+   * when the payload is a JSON object. No `cty` is added; one set here is kept as given
+   * (`"JWT"` for a nested JWT, RFC 7519 §5.2).
    */
   protectedHeader?: StrictOmit<JWSHeaderParameters, "alg"> & { alg?: never };
 
@@ -266,7 +267,8 @@ export interface JWSMultiSigner {
    * Extra per-signer JWS Protected Header parameters (RFC 7515 §7.2.1).
    * `alg` is always derived from the JWK and cannot be set here. `b64`
    * MUST be consistent across every signer (RFC 7797 §3) — if set on one
-   * signer it must match on all.
+   * signer it must match on all. `typ` defaults to `"JWT"` when the payload is
+   * a JSON object; no `cty` is added, and one set here is kept as given.
    */
   protectedHeader?: StrictOmit<JWSHeaderParameters, "alg"> & { alg?: never };
   /** Per-signer JWS Unprotected Header (not part of signing input). */

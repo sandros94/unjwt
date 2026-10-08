@@ -91,7 +91,7 @@ describe("root barrel (unjwt)", () => {
 
 describe("internal plumbing (unjwt/internal)", () => {
   const INTERNAL = [
-    "applyTypCtyDefaults",
+    "applyTypDefault",
     "assertCritShape",
     "computeJwtTimeClaims",
     "getPlaintextBytes",
@@ -117,7 +117,7 @@ describe("internal plumbing (unjwt/internal)", () => {
   // Deprecated in 0.8, removed in 0.9: each old `unjwt/utils` name is the
   // `unjwt/internal` binding under its previous spelling.
   it.each([
-    ["applyTypCtyDefaults", internal.applyTypCtyDefaults],
+    ["applyTypCtyDefaults", internal.applyTypDefault],
     ["decodePayloadFromBytes", internal.parsePayloadBytes],
     ["decodePayloadFromB64UrlSegment", internal.parsePayloadSegment],
     ["getPlaintextBytes", internal.getPlaintextBytes],

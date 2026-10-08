@@ -121,7 +121,7 @@ interface JWTClaimValidationOptions {
 
 ### `inferJWSAllowedAlgorithms(key)`
 
-Returns the set of JWS signing algorithms a given key can unambiguously produce, or `undefined` when inference is not possible. Used by `verify()` as the default allowlist when `options.algorithms` is omitted. Returns `undefined` for raw `Uint8Array` keys, JWKs without `alg`, or lookup functions — callers with those shapes must pass `algorithms` explicitly.
+Returns the set of JWS signing algorithms a given key can unambiguously produce, or `undefined` when inference is not possible. Used by `verify()` as the default allowlist when `options.algorithms` is omitted. Returns `undefined` for raw `Uint8Array` keys, JWKs without `alg`, lookup functions, or an HMAC/RSA `CryptoKey` whose hash is not SHA-256/384/512 — callers with those shapes must pass `algorithms` explicitly.
 
 ### `inferJWEAllowedAlgorithms(key)`
 
@@ -153,8 +153,8 @@ Not re-exported from the root `unjwt`.
 
 Import: `import { ... } from "unjwt/internal"`
 
-- `applyTypCtyDefaults(header, payload)` — sets `typ: "JWT"` (and `cty: "application/json"` for a
-  JWT `typ`) on an object payload's header; mutates the header in place.
+- `applyTypDefault(header, payload)` — sets `typ: "JWT"` on an object payload's header when it
+  has none; never adds a `cty`; mutates the header in place.
 - `parsePayloadBytes(bytes, options?)` / `parsePayloadSegment(segment, options?)` — a
   verified/decrypted payload under a declared mode. `options.payload?: "json" | "string" | "bytes"`
   — `"json"` (default) requires UTF-8 JSON naming a non-null, non-array object; `"string"` requires
@@ -172,7 +172,7 @@ Import: `import { ... } from "unjwt/internal"`
 
 ### Deprecated aliases in `unjwt/utils` (removed in v0.9)
 
-`applyTypCtyDefaults`, `decodePayloadFromBytes` → `parsePayloadBytes`,
+`applyTypDefault`, `decodePayloadFromBytes` → `parsePayloadBytes`,
 `decodePayloadFromB64UrlSegment` → `parsePayloadSegment`, `getPlaintextBytes`,
 `computeJwtTimeClaims`, `validateCriticalHeadersJWS`, `validateCriticalHeadersJWE`,
 `assertCritShape`, and the types `DecodePayloadOptions` → `ParsePayloadOptions`,

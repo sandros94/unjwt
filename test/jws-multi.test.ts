@@ -950,6 +950,16 @@ describe.concurrent("JWS multi-signature hardening", () => {
         isJWTError(e, "ERR_JWS_SIGNER_ALG_INFERENCE"),
       );
     });
+
+    it("infers no alg from an HMAC SHA-1 CryptoKey signer", async () => {
+      const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-1" }, false, [
+        "sign",
+        "verify",
+      ]);
+      await expect(signMulti({ sub: "u1" }, [{ key }])).rejects.toSatisfy((e) =>
+        isJWTError(e, "ERR_JWS_SIGNER_ALG_INFERENCE"),
+      );
+    });
   });
 
   describe("RFC 7797 b64", () => {
@@ -1064,6 +1074,20 @@ describe.concurrent("signMulti producer header gates", () => {
 
   beforeAll(async () => {
     key = await generateJWK("HS256");
+  });
+
+  it('types an object payload as "JWT" without a "cty"', async () => {
+    const { protectedHeader } = await verifyMulti(await signMulti({ sub: "u1" }, [{ key }]), key);
+    expect(protectedHeader.typ).toBe("JWT");
+    expect(protectedHeader).not.toHaveProperty("cty");
+  });
+
+  it('keeps a "cty" set in protectedHeader', async () => {
+    const jws = await signMulti({ sub: "u1" }, [
+      { key, protectedHeader: { cty: "application/json" } },
+    ]);
+    const { protectedHeader } = await verifyMulti(jws, key);
+    expect(protectedHeader).toMatchObject({ typ: "JWT", cty: "application/json" });
   });
 
   it("refuses a crit that is not a non-empty array of strings", async () => {

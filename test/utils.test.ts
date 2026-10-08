@@ -501,6 +501,19 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["EdDSA", "Ed25519"]);
   });
 
+  it("infers nothing from a CryptoKey whose hash is not SHA-256/384/512", async () => {
+    const usages: KeyUsage[] = ["sign", "verify"];
+    const rsa = { modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-1" };
+    const [hmac, pkcs1, pss] = await Promise.all([
+      crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-1" }, false, usages),
+      crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", ...rsa }, false, usages),
+      crypto.subtle.generateKey({ name: "RSA-PSS", ...rsa }, false, usages),
+    ]);
+    expect(inferJWSAllowedAlgorithms(hmac)).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms(pkcs1.publicKey)).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms(pss)).toBeUndefined();
+  });
+
   it("returns undefined for a JWKSet where no key contributes", () => {
     const incomplete = { keys: [{ kty: "oct", k: "abc" }] };
     expect(inferJWSAllowedAlgorithms(incomplete)).toBeUndefined();

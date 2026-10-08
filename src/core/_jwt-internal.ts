@@ -8,29 +8,22 @@ import { base64UrlParse } from "./utils/base64";
 import { computeDurationInSeconds, parseDurationSeconds } from "./utils/jwt";
 
 /**
- * Apply default typ/cty semantics shared by JWS & JWE.
- * - If typ is undefined and payload is a non-Uint8Array object, set typ="JWT".
- * - If typ is "JWT" and payload is a non-Uint8Array object, ensure cty defaults to "application/json".
+ * Apply the header defaults shared by JWS & JWE: an object payload (anything
+ * but a `Uint8Array`) without a `typ` gets `typ: "JWT"`. A `cty` is never
+ * added; one already on the header is kept as is.
  */
-export function applyTypCtyDefaults<T extends { typ?: string; cty?: string }>(
-  header: T,
-  payload: unknown,
-): T {
+export function applyTypDefault<T extends { typ?: string }>(header: T, payload: unknown): T {
   const declared: unknown = header.typ;
   if (declared !== undefined && typeof declared !== "string") {
     throw new JWTError('"typ" must be a string.', "ERR_INVALID_OPTION");
   }
-  const isObjectPayload =
-    typeof payload === "object" && payload !== null && !(payload instanceof Uint8Array);
-  if (!isObjectPayload) return header;
-
-  let typ = header.typ;
-  if (typ === undefined) {
-    header.typ = typ = "JWT";
-  }
-  // Skip the `toLowerCase` allocation for the literal `"JWT"` / `"jwt"` fast path.
-  if (typ === "JWT" || typ === "jwt" || typ.toLowerCase().includes("jwt")) {
-    header.cty ||= "application/json";
+  if (
+    declared === undefined &&
+    typeof payload === "object" &&
+    payload !== null &&
+    !(payload instanceof Uint8Array)
+  ) {
+    header.typ = "JWT";
   }
   return header;
 }

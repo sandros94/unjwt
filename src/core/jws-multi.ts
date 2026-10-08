@@ -31,7 +31,7 @@ import { JWTError } from "./error";
 import { isJWK, isJWKSet } from "./utils/guards";
 import { inferJWSAllowedAlgorithms } from "./utils/algorithms";
 import {
-  applyTypCtyDefaults,
+  applyTypDefault,
   computeJwtTimeClaims,
   getPlaintextBytes,
   parsePayloadText,
@@ -652,7 +652,7 @@ function _buildSignerProtectedHeader(
   if (isJWK(signer.key) && signer.key.kid) header.kid = signer.key.kid;
   if (userHeader) Object.assign(header, userHeader);
   header.alg = alg;
-  applyTypCtyDefaults(header, payload);
+  applyTypDefault(header, payload);
   if (!b64) header.b64 = false;
   applyB64Header(header);
   assertProducerCrit(header, "JWS");

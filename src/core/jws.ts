@@ -21,7 +21,7 @@ import { sign as joseSign, verify as joseVerify } from "./_crypto";
 import { JWTError } from "./error";
 import { isJWK, isJWKSet } from "./utils/guards";
 import {
-  applyTypCtyDefaults,
+  applyTypDefault,
   computeJwtTimeClaims,
   getPlaintextBytes,
   parsePayloadText,
@@ -335,7 +335,7 @@ function _buildJWSHeader(
   if (isJWK(key) && key.kid) header.kid = key.kid;
   if (safeHeader) Object.assign(header, safeHeader);
   header.alg = alg;
-  applyTypCtyDefaults(header, payload);
+  applyTypDefault(header, payload);
   applyB64Header(header);
   assertProducerCrit(header, "JWS");
   return header;

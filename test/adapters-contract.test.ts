@@ -56,17 +56,14 @@ const pbes2Key = { ...jweKey, alg: "PBES2-HS256+A128KW" } as const;
 const SECOND = 1000;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-/** A token signed with the session key but minted by something other than the adapter. */
-function foreignJWS(claims: Record<string, unknown>, header: Record<string, unknown> = {}) {
-  return sign(claims, jwsKey, { protectedHeader: { typ: "JWT", ...header } });
-}
-
 /**
- * A JWT whose protected header carries no `cty`: the core writes that default
- * only for object payloads, so the claims go over the wire as raw bytes.
+ * A token signed with the session key and carrying the session `typ` and `cty`,
+ * but minted by something other than the adapter.
  */
-function rawBytes(claims: Record<string, unknown>): Uint8Array<ArrayBuffer> {
-  return new TextEncoder().encode(JSON.stringify(claims));
+function foreignJWS(claims: Record<string, unknown>, header: Record<string, unknown> = {}) {
+  return sign(claims, jwsKey, {
+    protectedHeader: { typ: "JWT", cty: "application/json", ...header },
+  });
 }
 
 interface MockEntry {
@@ -340,12 +337,12 @@ describe("session adapters — shared contract", () => {
       const onError = vi.fn();
       const onExpire = vi.fn();
       const token = await sign(
-        rawBytes({
+        {
           jti: "foreign",
           iat: nowSeconds() - 365 * 24 * 60 * 60,
           exp: nowSeconds() + 3600,
           sub: "attacker",
-        }),
+        },
         jwsKey,
         { protectedHeader: { typ: "JWT" } },
       );
@@ -373,7 +370,7 @@ describe("session adapters — shared contract", () => {
 
     it("refuses a token that carries no session content marker", async () => {
       const onError = vi.fn();
-      const token = await sign(rawBytes({ jti: "foreign", iat: nowSeconds() }), jwsKey, {
+      const token = await sign({ jti: "foreign", iat: nowSeconds() }, jwsKey, {
         protectedHeader: { typ: "JWT" },
       });
 
@@ -392,10 +389,7 @@ describe("session adapters — shared contract", () => {
 
     it("refuses a token without exp when the session has a maxAge", async () => {
       const onError = vi.fn();
-      const token = await foreignJWS(
-        { jti: "foreign", iat: nowSeconds() },
-        { cty: "application/json" },
-      );
+      const token = await foreignJWS({ jti: "foreign", iat: nowSeconds() });
 
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
@@ -451,7 +445,7 @@ describe("session adapters — shared contract", () => {
 
     it("refuses a JWE session token that carries no session content marker", async () => {
       const onError = vi.fn();
-      const token = await encrypt(rawBytes({ jti: "foreign", iat: nowSeconds() }), jweKey, {
+      const token = await encrypt({ jti: "foreign", iat: nowSeconds() }, jweKey, {
         protectedHeader: { typ: "JWT" },
       });
 
@@ -548,10 +542,11 @@ describe("session adapters — shared contract", () => {
 
     it("drops the cookie when the incoming token has expired", async () => {
       const onExpire = vi.fn();
-      const expired = await foreignJWS(
-        { jti: "expired", iat: nowSeconds() - 120, exp: nowSeconds() - 60 },
-        { cty: "application/json" },
-      );
+      const expired = await foreignJWS({
+        jti: "expired",
+        iat: nowSeconds() - 120,
+        exp: nowSeconds() - 60,
+      });
 
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
@@ -894,12 +889,12 @@ describe("session adapters — shared contract", () => {
       const onError = vi.fn();
       const onExpire = vi.fn();
       const token = await sign(
-        rawBytes({
+        {
           jti: "foreign",
           iat: nowSeconds() - 365 * 24 * 60 * 60,
           exp: nowSeconds() + 3600,
           sub: "attacker",
-        }),
+        },
         jwsKey,
         { protectedHeader: { typ: "JWT" } },
       );
@@ -920,10 +915,11 @@ describe("session adapters — shared contract", () => {
 
     it("drops the cookie when the incoming token has expired", async () => {
       const onExpire = vi.fn();
-      const expired = await foreignJWS(
-        { jti: "expired", iat: nowSeconds() - 120, exp: nowSeconds() - 60 },
-        { cty: "application/json" },
-      );
+      const expired = await foreignJWS({
+        jti: "expired",
+        iat: nowSeconds() - 120,
+        exp: nowSeconds() - 60,
+      });
       const { context, store } = elysiaContext({ cookies: { "elysia-jws": expired } });
 
       const session = await createJWSSession(context, {
@@ -2332,7 +2328,7 @@ describe("session adapters — shared contract", () => {
       "$label: an expired token that is not a session goes to onError, never onExpire",
       async (port) => {
         const tokens = [
-          await foreignRawToken(port.family, EXPIRED_CLAIMS),
+          await foreignPlainToken(port.family, EXPIRED_CLAIMS),
           await foreignToken(port.family, EXPIRED_CLAIMS, { cty: "text/plain" }),
         ];
 
@@ -3037,7 +3033,7 @@ async function mintToken(
   return body.token as string;
 }
 
-/** A token of `family` sealed with the session key, but minted outside the adapter. */
+/** A session-shaped token of `family` sealed with the session key, but minted outside the adapter. */
 function foreignToken(
   family: Family,
   claims: Record<string, unknown>,
@@ -3045,15 +3041,15 @@ function foreignToken(
 ): Promise<string> {
   return family === "jws"
     ? foreignJWS(claims, header)
-    : encrypt(claims, jweKey, { protectedHeader: { typ: "JWT", ...header } });
+    : encrypt(claims, jweKey, {
+        protectedHeader: { typ: "JWT", cty: "application/json", ...header },
+      });
 }
 
-/** Like {@link foreignToken}, with the claims sent as raw bytes so the header carries no `cty`. */
-function foreignRawToken(family: Family, claims: Record<string, unknown>): Promise<string> {
+/** A plain JWT of `family` sealed with the session key: `typ` only, no `cty`. */
+function foreignPlainToken(family: Family, claims: Record<string, unknown>): Promise<string> {
   const options = { protectedHeader: { typ: "JWT" } };
-  return family === "jws"
-    ? sign(rawBytes(claims), jwsKey, options)
-    : encrypt(rawBytes(claims), jweKey, options);
+  return family === "jws" ? sign(claims, jwsKey, options) : encrypt(claims, jweKey, options);
 }
 
 /** The protected header of a compact token. */
@@ -3101,12 +3097,9 @@ function hookMatrix(): MatrixEntry[] {
 /** The cookie a request must carry for `hook` to be dispatched at all. */
 async function matrixCookie(hook: MatrixEntry["hook"]): Promise<string | undefined> {
   if (hook === "onRead") {
-    return foreignJWS(
-      { jti: "matrix", iat: nowSeconds(), exp: nowSeconds() + 3600 },
-      { cty: "application/json" },
-    );
+    return foreignJWS({ jti: "matrix", iat: nowSeconds(), exp: nowSeconds() + 3600 });
   }
-  if (hook === "onExpire") return foreignJWS(EXPIRED_CLAIMS, { cty: "application/json" });
+  if (hook === "onExpire") return foreignJWS(EXPIRED_CLAIMS);
   if (hook === "onError") return "not.a.token";
   return undefined;
 }
