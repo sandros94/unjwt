@@ -157,7 +157,7 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
   generateId?: () => string;
   jws?: {
     // JWSSignOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
-    // `protectedHeader.typ` sets the session `typ` (default "JWT") incoming tokens must carry
+    // `protectedHeader.typ` sets the session `typ` (default "session+jwt") incoming tokens must carry
     signOptions?: SessionSignOptions;
     /** Claim validation the adapter does not own — a token's own `exp` bounds its life, `typ` is the signed `typ`. */
     verifyOptions?: SessionVerifyOptions;
@@ -185,7 +185,7 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
   generateId?: () => string;
   jwe?: {
     // JWEEncryptOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
-    // `protectedHeader.typ` sets the session `typ` (default "JWT") incoming tokens must carry
+    // `protectedHeader.typ` sets the session `typ` (default "session+jwt") incoming tokens must carry
     encryptOptions?: SessionEncryptOptions;
     // JWEDecryptOptions minus the adapter-owned algorithms, encryptionAlgorithms,
     // typ, validateClaims and forceUint8Array — so minIterations/maxIterations,
@@ -226,8 +226,9 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
   satisfy the prefix. The default session header drops a `__Host-` / `__Secure-` prefix:
   `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another
   session and throws `ERR_SESSION_CONFIG_INVALID`.
-- **Foreign tokens.** A token is only a session when it carries `cty: "application/json"`
-  (case-insensitive, parameters ignored) and the session `typ`; with
+- **Foreign tokens.** A token is only a session when it carries the session `typ` (default
+  `"session+jwt"`, set through `protectedHeader.typ`, compared as a media type; RFC 8725 §3.11).
+  No `cty` is written or required. Tokens issued before 0.8 carry `typ: "JWT"` and are refused, so every existing session signs out once after the upgrade. With
   `maxAge` set it must also carry `exp`. That `exp` alone bounds its life, so a token issued with
   `update(data, { maxAge })` keeps its own lifetime past the config's `maxAge`. A foreign token is
   `ERR_SESSION_TOKEN_INVALID` → `onError` even when expired; only a session token's expiry reaches

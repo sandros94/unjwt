@@ -1,5 +1,4 @@
 import { JWTError, isJWTError } from "../core/error";
-import { decodeProtectedHeader } from "../core/_internal";
 import { importKey } from "../core/jwk";
 import { computeDurationInSeconds } from "../core/utils/jwt";
 import { isJWK } from "../core/utils/guards";
@@ -12,8 +11,8 @@ import type { ExpiresIn, JWTClaims } from "../core/types";
  */
 export const RESERVED_CLAIMS: readonly string[] = ["jti", "iat", "exp", "nbf"];
 
-/** `cty` every adapter writes, and requires on every token it accepts. */
-export const SESSION_CONTENT_TYPE = "application/json";
+/** `typ` a session writes and requires unless its config names another. */
+const SESSION_TYP = "session+jwt";
 
 const FORBIDDEN_KEYS: readonly string[] = ["__proto__", "constructor", "prototype"];
 
@@ -75,22 +74,13 @@ export function expiredSessionError(options: {
 
 /**
  * Turn a read-path failure into the session-adapter contract: the expiry of a
- * session token passes through untouched, everything else — including the
- * expiry of a token that is not a session — becomes `ERR_SESSION_TOKEN_INVALID`
- * with the original error as its `cause`.
+ * session token passes through untouched, everything else becomes
+ * `ERR_SESSION_TOKEN_INVALID` with the original error as its `cause`.
  */
-export function rethrowAsInvalidToken(
-  error: unknown,
-  options: { prefix: string; token: string; family: "JWS" | "JWE" },
-): never {
-  if (isJWTError(error, "ERR_JWT_EXPIRED")) {
-    // Expiry is only raised once the token was verified, so its protected
-    // header is authentic and decides whether this was a session at all.
-    const [encoded] = options.token.split(".", 1);
-    const header = decodeProtectedHeader<{ cty?: unknown }>(encoded, options.family);
-    assertSessionContentType(header.cty, { prefix: options.prefix, cause: error });
-    throw error;
-  }
+export function rethrowAsInvalidToken(error: unknown, options: { prefix: string }): never {
+  // The core checks `typ` before it validates claims, so a token that is not a
+  // session fails as a type mismatch and never reaches this expiry branch.
+  if (isJWTError(error, "ERR_JWT_EXPIRED")) throw error;
   const message = error instanceof Error ? error.message : String(error);
   throw invalidTokenError(`${options.prefix} Invalid session token: ${message}`, error);
 }
@@ -143,24 +133,6 @@ export function assertTokenSource(source: SessionTokenSource, options: { prefix:
   }
 }
 
-/**
- * Reject a token whose content type is not the one the adapters write. Media
- * type names compare case-insensitively and parameters are not part of the
- * type (RFC 2045 §5.1, RFC 7515 §4.1.10).
- */
-export function assertSessionContentType(
-  cty: unknown,
-  options: { prefix: string; cause?: unknown },
-): void {
-  const type = typeof cty === "string" ? cty.split(";", 1)[0].trim().toLowerCase() : undefined;
-  if (type !== SESSION_CONTENT_TYPE) {
-    throw invalidTokenError(
-      `${options.prefix} Session token is not a session: "cty" must be "${SESSION_CONTENT_TYPE}", got ${cty === undefined ? "none" : JSON.stringify(cty)}.`,
-      options.cause,
-    );
-  }
-}
-
 /** Reject a password string where key material is required. */
 export function assertKeyMaterial(key: unknown, options: { prefix: string }): void {
   if (typeof key === "string") {
@@ -194,9 +166,13 @@ export async function assertImportableKey(
   }
 }
 
-/** The `typ` a session writes and requires: the configured one, else `"JWT"`. */
+/**
+ * The `typ` a session writes and requires: the configured one, else
+ * `"session+jwt"`. RFC 8725 §3.11 — explicit typing keeps any other JWT signed
+ * or sealed with the same key from being accepted as a session.
+ */
 export function sessionTyp(configured: unknown): string {
-  return typeof configured === "string" && configured ? configured : "JWT";
+  return typeof configured === "string" && configured ? configured : SESSION_TYP;
 }
 
 /**

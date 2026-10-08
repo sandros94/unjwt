@@ -20,10 +20,8 @@ import type {
 } from "../core/types";
 import type { StrictOmit } from "../core/utils/types";
 import {
-  SESSION_CONTENT_TYPE,
   assertImportableKey,
   assertKeyMaterial,
-  assertSessionContentType,
   invalidConfigError,
   invalidKeyError,
   rethrowAsInvalidToken,
@@ -113,7 +111,11 @@ export interface JWESessionConfig<
   sessionHeader?: false | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
-  /** JWE encrypt/decrypt overrides. Set `encryptOptions.alg` and `enc` to pin the session algorithms — unsealing then accepts only them. */
+  /**
+   * JWE encrypt/decrypt overrides. Set `encryptOptions.alg` and `enc` to pin the session algorithms — unsealing then accepts only them.
+   * `encryptOptions.protectedHeader.typ` names the session type (default `"session+jwt"`): every token is sealed with it and
+   * every incoming token must carry it, so no other JWT sealed with the same key reads as a session (RFC 8725 §3.11).
+   */
   jwe?: JWESessionOptions;
 }
 
@@ -146,8 +148,8 @@ export const JWE_DEFAULT_COOKIE = {
  * unseal one back.
  *
  * Unsealing always runs claim validation (`jti` & `iat` required, `exp`
- * honoured and required alongside a `maxAge`), checks the `typ` and `cty`
- * headers, and pins the algorithms when the config does.
+ * honoured and required alongside a `maxAge`), checks the `typ`
+ * header, and pins the algorithms when the config does.
  */
 export function createJWECodec(options: {
   prefix: string;
@@ -169,7 +171,7 @@ export function createJWECodec(options: {
     const alg = config.jwe?.encryptOptions?.alg;
     const enc = config.jwe?.encryptOptions?.enc;
 
-    const { payload, protectedHeader } = await decrypt<{ jti: string; iat: number }>(sealed, key, {
+    const { payload } = await decrypt<{ jti: string; iat: number }>(sealed, key, {
       ...config.jwe?.decryptOptions,
       maxIterations: sessionMaxIterations(config),
       requiredClaims: sessionRequiredClaims(config.jwe?.decryptOptions?.requiredClaims, {
@@ -181,11 +183,7 @@ export function createJWECodec(options: {
       encryptionAlgorithms: enc ? [enc] : undefined,
       payload: "json",
       validateClaims: true,
-    }).catch((error_: unknown) =>
-      rethrowAsInvalidToken(error_, { prefix, token: sealed, family: "JWE" }),
-    );
-
-    assertSessionContentType(protectedHeader.cty, { prefix });
+    }).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix }));
 
     const { jti, iat, exp, data } = splitSessionClaims(payload);
 
@@ -370,7 +368,6 @@ function issueWith(
     protectedHeader: {
       ...config.jwe?.encryptOptions?.protectedHeader,
       typ: sessionTyp(config.jwe?.encryptOptions?.protectedHeader?.typ),
-      cty: SESSION_CONTENT_TYPE,
     },
   });
 }

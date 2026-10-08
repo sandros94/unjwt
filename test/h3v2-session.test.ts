@@ -203,7 +203,7 @@ describe("adapter h3 v2", () => {
           hello: "world",
         },
         sessionConfig.key,
-        { protectedHeader: { cty: "application/json" } },
+        { protectedHeader: { typ: "session+jwt" } },
       );
 
       const result = await app.request("/", {
@@ -443,7 +443,7 @@ describe("adapter h3 v2", () => {
           hello: "world",
         },
         sessionConfig.key.privateKey,
-        { protectedHeader: { cty: "application/json" } },
+        { protectedHeader: { typ: "session+jwt" } },
       );
 
       const result = await app.request("/", {
@@ -549,7 +549,7 @@ describe("adapter h3 v2", () => {
         const token = await encrypt(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key,
-          { protectedHeader: { cty: "application/json" } },
+          { protectedHeader: { typ: "session+jwt" } },
         );
 
         const app = new H3({ debug: true });
@@ -594,7 +594,7 @@ describe("adapter h3 v2", () => {
         const token = await sign(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key.privateKey,
-          { protectedHeader: { cty: "application/json" } },
+          { protectedHeader: { typ: "session+jwt" } },
         );
 
         const app = new H3({ debug: true });

@@ -57,12 +57,12 @@ const SECOND = 1000;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 /**
- * A token signed with the session key and carrying the session `typ` and `cty`,
- * but minted by something other than the adapter.
+ * A token signed with the session key and carrying the session `typ`, but
+ * minted by something other than the adapter.
  */
 function foreignJWS(claims: Record<string, unknown>, header: Record<string, unknown> = {}) {
   return sign(claims, jwsKey, {
-    protectedHeader: { typ: "JWT", cty: "application/json", ...header },
+    protectedHeader: { typ: "session+jwt", ...header },
   });
 }
 
@@ -333,7 +333,7 @@ describe("session adapters — shared contract", () => {
       expect(body.before).toBeLessThan(body.after);
     });
 
-    it("refuses a foreign JWT with a live exp but no session content marker", async () => {
+    it("refuses a JWT-typed token signed with the session key, even with a live exp", async () => {
       const onError = vi.fn();
       const onExpire = vi.fn();
       const token = await sign(
@@ -365,14 +365,15 @@ describe("session adapters — shared contract", () => {
       expect(onExpire).not.toHaveBeenCalled();
       const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/cty/);
+      expect(error.message).toMatch(/typ/);
     });
 
-    it("refuses a token that carries no session content marker", async () => {
+    it("refuses a token that carries no typ", async () => {
       const onError = vi.fn();
-      const token = await sign({ jti: "foreign", iat: nowSeconds() }, jwsKey, {
-        protectedHeader: { typ: "JWT" },
-      });
+      const token = await sign(
+        new TextEncoder().encode(JSON.stringify({ jti: "foreign", iat: nowSeconds() })),
+        jwsKey,
+      );
 
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
@@ -384,7 +385,7 @@ describe("session adapters — shared contract", () => {
 
       const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/cty/);
+      expect(error.message).toMatch(/typ/);
     });
 
     it("refuses a token without exp when the session has a maxAge", async () => {
@@ -406,9 +407,9 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
     });
 
-    it("refuses a token whose content marker is not the session one", async () => {
+    it("refuses a token typed for another JWT profile", async () => {
       const onError = vi.fn();
-      const token = await foreignJWS({ jti: "foreign", iat: nowSeconds() }, { cty: "text/plain" });
+      const token = await foreignJWS({ jti: "foreign", iat: nowSeconds() }, { typ: "at+jwt" });
 
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
@@ -420,14 +421,14 @@ describe("session adapters — shared contract", () => {
 
       const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/cty/);
+      expect(error.message).toMatch(/typ/);
     });
 
     it("keeps the underlying failure as the cause of an invalid token", async () => {
       const onError = vi.fn();
       const otherKey = await generateJWK("HS256");
       const token = await sign({ jti: "foreign", iat: nowSeconds() }, otherKey, {
-        protectedHeader: { typ: "JWT", cty: "application/json" },
+        protectedHeader: { typ: "session+jwt" },
       });
 
       const app = new H3({ debug: true });
@@ -443,7 +444,7 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(error.cause, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
     });
 
-    it("refuses a JWE session token that carries no session content marker", async () => {
+    it("refuses a JWE token typed as a plain JWT", async () => {
       const onError = vi.fn();
       const token = await encrypt({ jti: "foreign", iat: nowSeconds() }, jweKey, {
         protectedHeader: { typ: "JWT" },
@@ -885,7 +886,7 @@ describe("session adapters — shared contract", () => {
       expect(session.expiresAt - session.createdAt).toBe(3600 * SECOND);
     });
 
-    it("refuses a foreign JWT with a live exp but no session content marker", async () => {
+    it("refuses a JWT-typed token signed with the session key, even with a live exp", async () => {
       const onError = vi.fn();
       const onExpire = vi.fn();
       const token = await sign(
@@ -910,7 +911,7 @@ describe("session adapters — shared contract", () => {
       expect(onExpire).not.toHaveBeenCalled();
       const error = onError.mock.calls[0][0].error;
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/cty/);
+      expect(error.message).toMatch(/typ/);
     });
 
     it("drops the cookie when the incoming token has expired", async () => {
@@ -946,7 +947,7 @@ describe("session adapters — shared contract", () => {
         alg: "PBES2-HS256+A128KW",
         enc: "A128GCM",
         p2c: 200_000,
-        protectedHeader: { typ: "JWT" },
+        protectedHeader: { typ: "session+jwt" },
       });
       const { context } = elysiaContext({ cookies: { "elysia-jwe": costly } });
 
@@ -1713,7 +1714,12 @@ describe("session adapters — shared contract", () => {
         const forged = await encrypt(
           { jti: "forged", iat: nowSeconds(), exp: nowSeconds() + 3600, sub: "attacker" },
           "hunter2",
-          { alg: "PBES2-HS256+A128KW", enc: "A128GCM", p2c: 2048, protectedHeader: { typ: "JWT" } },
+          {
+            alg: "PBES2-HS256+A128KW",
+            enc: "A128GCM",
+            p2c: 2048,
+            protectedHeader: { typ: "session+jwt" },
+          },
         );
 
         const body = await port.run(
@@ -1930,7 +1936,7 @@ describe("session adapters — shared contract", () => {
         const costly = await encrypt(
           { jti: "costly", iat: nowSeconds(), user: "mallory" },
           pbes2Key,
-          { p2c: 4096, protectedHeader: { typ: "JWT" } },
+          { p2c: 4096, protectedHeader: { typ: "session+jwt" } },
         );
 
         const read = (token: string) =>
@@ -2208,7 +2214,7 @@ describe("session adapters — shared contract", () => {
         const costly = await encrypt(
           { jti: "costly", iat: nowSeconds(), user: "mallory" },
           pbes2Key,
-          { p2c: 4096, protectedHeader: { typ: "JWT" } },
+          { p2c: 4096, protectedHeader: { typ: "session+jwt" } },
         );
 
         const read = (token: string) =>
@@ -2289,47 +2295,70 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
-  // #region session content type
-  describe("session content type", () => {
+  // #region session typ
+  describe("session typ", () => {
     const base = (port: PortFamilyCase) => ({
       name: port.name,
       key: port.key,
       maxAge: 3600,
       cookie: { secure: false },
     });
+    const live = () => ({ jti: "live", iat: nowSeconds(), exp: nowSeconds() + 3600 });
+
+    it.each(portFamilyCases())("$label: writes typ session+jwt and no cty", async (port) => {
+      const token = await mintToken(port, base(port), { user: "alice" });
+      const header = protectedHeaderOf(token);
+
+      expect(header.typ).toBe("session+jwt");
+      expect(header).not.toHaveProperty("cty");
+    });
 
     it.each(portFamilyCases())(
-      "$label: matches the content type case-insensitively, ignoring parameters",
+      "$label: passes a configured cty through untouched",
       async (port) => {
-        const live = { jti: "live", iat: nowSeconds(), exp: nowSeconds() + 3600 };
-        const read = async (cty: string) => {
-          const onError = vi.fn();
-          const body = await port.run(
-            { ...base(port), hooks: { onError } },
-            async (open) => ({ id: (await open()).id ?? null }),
-            { cookies: { [port.name]: await foreignToken(port.family, live, { cty }) } },
-          );
-          return { id: body.id, error: onError.mock.calls[0]?.[0].error };
+        const config = {
+          ...base(port),
+          ...issueOptions(port.family, { protectedHeader: { cty: "application/json" } }),
         };
+        const token = await mintToken(port, config, { user: "alice" });
+        const read = await port.run(
+          config,
+          async (open) => ({ user: (await open()).data.user ?? null }),
+          { cookies: { [port.name]: token } },
+        );
 
-        expect(await read("application/JSON")).toEqual({ id: "live", error: undefined });
-        expect(await read("Application/Json; charset=utf-8")).toEqual({
-          id: "live",
-          error: undefined,
+        expect(protectedHeaderOf(token)).toMatchObject({
+          typ: "session+jwt",
+          cty: "application/json",
         });
-        const refused = await read("text/plain");
-        expect(refused.id).toBeNull();
-        expect(isJWTError(refused.error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-        expect(refused.error.message).toMatch(/cty/);
+        expect(read).toEqual({ user: "alice" });
       },
     );
 
     it.each(portFamilyCases())(
-      "$label: an expired token that is not a session goes to onError, never onExpire",
+      "$label: accepts the session typ written as a full media type",
+      async (port) => {
+        for (const typ of ["application/session+jwt", "Application/Session+JWT"]) {
+          const onError = vi.fn();
+          const body = await port.run(
+            { ...base(port), hooks: { onError } },
+            async (open) => ({ id: (await open()).id ?? null }),
+            { cookies: { [port.name]: await foreignToken(port.family, live(), { typ }) } },
+          );
+
+          expect(body).toEqual({ id: "live" });
+          expect(onError).not.toHaveBeenCalled();
+        }
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: refuses a JWT-typed token through onError, never onExpire, expired or not",
       async (port) => {
         const tokens = [
+          await foreignPlainToken(port.family, live()),
           await foreignPlainToken(port.family, EXPIRED_CLAIMS),
-          await foreignToken(port.family, EXPIRED_CLAIMS, { cty: "text/plain" }),
+          await foreignToken(port.family, EXPIRED_CLAIMS, { typ: "at+jwt" }),
         ];
 
         for (const token of tokens) {
@@ -2346,7 +2375,7 @@ describe("session adapters — shared contract", () => {
           expect(onExpire).not.toHaveBeenCalled();
           const error = onError.mock.calls[0][0].error;
           expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-          expect(error.message).toMatch(/cty/);
+          expect(error.message).toMatch(/typ/);
         }
       },
     );
@@ -3042,11 +3071,11 @@ function foreignToken(
   return family === "jws"
     ? foreignJWS(claims, header)
     : encrypt(claims, jweKey, {
-        protectedHeader: { typ: "JWT", cty: "application/json", ...header },
+        protectedHeader: { typ: "session+jwt", ...header },
       });
 }
 
-/** A plain JWT of `family` sealed with the session key: `typ` only, no `cty`. */
+/** A plain JWT of `family` sealed with the session key, typed `JWT` as `sign()` / `encrypt()` mint it. */
 function foreignPlainToken(family: Family, claims: Record<string, unknown>): Promise<string> {
   const options = { protectedHeader: { typ: "JWT" } };
   return family === "jws" ? sign(claims, jwsKey, options) : encrypt(claims, jweKey, options);

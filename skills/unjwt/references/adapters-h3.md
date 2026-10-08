@@ -42,10 +42,11 @@ Peer dep: `h3`
   `ERR_INVALID_OPTION`. Data travels as JSON: the writing request keeps the values as given,
   later reads get their JSON round trip (`Date` → ISO string, `NaN`/`±Infinity` → `null`,
   `undefined` members dropped).
-- **Foreign tokens.** An incoming token is only a session when it carries
-  `cty: "application/json"` (case-insensitive, parameters ignored) and the session `typ`
-  (`signOptions.protectedHeader.typ` / `encryptOptions.protectedHeader.typ`, default `"JWT"`);
-  with `maxAge` set it must also carry `exp`. That `exp` alone bounds
+- **Foreign tokens.** An incoming token is only a session when it carries the session `typ`
+  (`signOptions.protectedHeader.typ` / `encryptOptions.protectedHeader.typ`, default
+  `"session+jwt"`, compared as a media type; RFC 8725 §3.11). No `cty` is written or required.
+  Tokens issued before 0.8 carry `typ: "JWT"` and are refused, so every existing session signs out once after the upgrade.
+  With `maxAge` set it must also carry `exp`. That `exp` alone bounds
   its life (no `maxTokenAge`), so a token issued with `update(data, { maxAge })` keeps its own
   lifetime past the config's `maxAge`. Anything else is `ERR_SESSION_TOKEN_INVALID`, whose
   `cause` is the failure underneath — an expired token that is not a session included, so it
@@ -230,7 +231,7 @@ interface SessionConfigJWE<
     // Options passed through to `encrypt()`; `exp` comes from `maxAge` and a
     // session writes no `nbf`, so expiresIn / expiresAt / notBeforeIn /
     // notBeforeAt are not accepted here. `protectedHeader.typ` sets the
-    // session `typ` (default "JWT") that incoming tokens must carry.
+    // session `typ` (default "session+jwt") that incoming tokens must carry.
     encryptOptions?: SessionEncryptOptions;
     // JWEDecryptOptions minus the fields the adapter owns: algorithms,
     // encryptionAlgorithms, typ, validateClaims, forceUint8Array. So
@@ -268,7 +269,7 @@ interface SessionConfigJWS<
     // Options passed through to `sign()`; `exp` comes from `maxAge` and a
     // session writes no `nbf`, so expiresIn / expiresAt / notBeforeIn /
     // notBeforeAt are not accepted here. `protectedHeader.typ` sets the
-    // session `typ` (default "JWT") that incoming tokens must carry.
+    // session `typ` (default "session+jwt") that incoming tokens must carry.
     signOptions?: SessionSignOptions;
     /** Claim validation the adapter does not own — a token's own `exp` bounds its life, `typ` is the signed `typ`. */
     verifyOptions?: SessionVerifyOptions;

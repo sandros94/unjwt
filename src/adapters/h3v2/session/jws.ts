@@ -145,7 +145,7 @@ export async function signJWSSession<
  * Performs:
  *  - cryptographic signature verification
  *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
- *  - `typ` and `cty` header checks, and algorithm pinning when configured
+ *  - `typ` header check, and algorithm pinning when configured
  *  - `exp` required when the session has a `maxAge`
  */
 export async function verifyJWSSession<

@@ -149,7 +149,7 @@ export async function sealJWESession<
  * Performs:
  *  - authenticated decryption
  *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
- *  - `typ` and `cty` header checks, and alg/enc pinning when configured
+ *  - `typ` header check, and alg/enc pinning when configured
  *  - `exp` required when the session has a `maxAge`
  */
 export async function unsealJWESession<

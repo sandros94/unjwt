@@ -22,10 +22,8 @@ import type {
 } from "../core/types";
 import type { StrictOmit } from "../core/utils/types";
 import {
-  SESSION_CONTENT_TYPE,
   assertImportableKey,
   assertKeyMaterial,
-  assertSessionContentType,
   invalidConfigError,
   invalidKeyError,
   rethrowAsInvalidToken,
@@ -110,7 +108,11 @@ export interface JWSSessionConfig<
   sessionHeader?: false | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
-  /** JWS sign/verify overrides. Set `signOptions.alg` to pin the session algorithm — verification then accepts only it. */
+  /**
+   * JWS sign/verify overrides. Set `signOptions.alg` to pin the session algorithm — verification then accepts only it.
+   * `signOptions.protectedHeader.typ` names the session type (default `"session+jwt"`): every token is signed with it and
+   * every incoming token must carry it, so no other JWT signed with the same key reads as a session (RFC 8725 §3.11).
+   */
   jws?: JWSSessionOptions;
 }
 
@@ -143,8 +145,8 @@ export const JWS_DEFAULT_COOKIE = {
  * verify one back.
  *
  * Verification always runs claim validation (`jti` & `iat` required, `exp`
- * honoured and required alongside a `maxAge`), checks the `typ` and `cty`
- * headers, and pins the algorithm when the config does.
+ * honoured and required alongside a `maxAge`), checks the `typ`
+ * header, and pins the algorithm when the config does.
  */
 export function createJWSCodec(options: {
   prefix: string;
@@ -165,7 +167,7 @@ export function createJWSCodec(options: {
   ): Promise<OpenedSession> => {
     const alg = config.jws?.signOptions?.alg;
 
-    const { payload, protectedHeader } = await verify<{ jti: string; iat: number }>(token, key, {
+    const { payload } = await verify<{ jti: string; iat: number }>(token, key, {
       ...config.jws?.verifyOptions,
       requiredClaims: sessionRequiredClaims(config.jws?.verifyOptions?.requiredClaims, {
         maxAge: config.maxAge,
@@ -175,9 +177,7 @@ export function createJWSCodec(options: {
       algorithms: alg ? [alg] : undefined,
       payload: "json",
       validateClaims: true,
-    }).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix, token, family: "JWS" }));
-
-    assertSessionContentType(protectedHeader.cty, { prefix });
+    }).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix }));
 
     const { jti, iat, exp, data } = splitSessionClaims(payload);
 
@@ -331,7 +331,6 @@ function issueWith(
       ...config.jws?.signOptions?.protectedHeader,
       kid: "kid" in key ? key.kid : undefined,
       typ: sessionTyp(config.jws?.signOptions?.protectedHeader?.typ),
-      cty: SESSION_CONTENT_TYPE,
     },
   });
 }
