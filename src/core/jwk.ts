@@ -147,7 +147,7 @@ export async function generateKey(
 ): Promise<
   CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | { privateKey: JWK; publicKey: JWK }
 > {
-  const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
+  const exportToJWK = options.toJWK !== undefined && options.toJWK;
   // The JWK output requires exporting the intermediate key, so `toJWK` forces extractable.
   const defaultExtractable = exportToJWK || options.extractable !== false;
 
@@ -312,7 +312,7 @@ export async function deriveKeyFromPassword(
   }
   const { alg, salt, iterations, extractable, keyUsage } = options;
   assertPBES2Algorithm(alg);
-  const exportToJWK = options.toJWK !== undefined && options.toJWK !== false;
+  const exportToJWK = options.toJWK !== undefined && options.toJWK;
 
   const saltBytes = typeof salt === "string" ? textEncoder.encode(salt) : salt;
   assertPBES2Salt(saltBytes, '"salt"');
