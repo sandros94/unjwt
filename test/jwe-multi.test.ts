@@ -1,5 +1,5 @@
 import * as jose from "jose";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure/utils";
 
 import {
@@ -25,6 +25,9 @@ import type {
   JWEFlattenedSerialization,
   JWKLookupFunction,
   KeyManagementAlgorithm,
+  JWEMultiDecryptOptions,
+  JWEMultiDecryptResult,
+  JWTClaims,
 } from "../src/core/types";
 
 describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
@@ -1473,5 +1476,44 @@ describe.concurrent("JWE JSON additional authenticated data and option gates", (
   ])("decryptMulti refuses %s", async (_label, options) => {
     const error = await decryptMulti(jwe, key, options as never).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+  });
+});
+
+describe("types", () => {
+  type MyClaims = { sub: string; role: "admin" | "user" };
+  type Bytes = Uint8Array<ArrayBuffer>;
+  const key = new Uint8Array(32);
+
+  it("types the decryptMulti payload after its mode", () => {
+    expectTypeOf((jwe: JWEGeneralSerialization) =>
+      decryptMulti(jwe, key),
+    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<JWTClaims>>();
+    expectTypeOf((jwe: JWEGeneralSerialization) =>
+      decryptMulti<MyClaims>(jwe, key),
+    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<MyClaims>>();
+    expectTypeOf((jwe: JWEFlattenedSerialization) =>
+      decryptMulti(jwe, key, { payload: "json" }),
+    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<JWTClaims>>();
+    expectTypeOf((jwe: JWEGeneralSerialization) =>
+      decryptMulti(jwe, key, { payload: "string" }),
+    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<string>>();
+    expectTypeOf((jwe: JWEGeneralSerialization) =>
+      decryptMulti(jwe, key, { payload: "bytes" }),
+    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<Bytes>>();
+    expectTypeOf((jwe: JWEGeneralSerialization, options: JWEMultiDecryptOptions) =>
+      decryptMulti(jwe, key, options),
+    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<JWTClaims | string | Bytes>>();
+    expectTypeOf((jwe: JWEGeneralSerialization) =>
+      decryptMulti(jwe, key, { forceUint8Array: true }),
+    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<Bytes>>();
+  });
+
+  it("rejects an unknown payload mode and a claims type outside the json mode", () => {
+    // @ts-expect-error not a payload mode
+    expectTypeOf((jwe: JWEGeneralSerialization) => decryptMulti(jwe, key, { payload: "nonsense" }));
+    expectTypeOf((jwe: JWEGeneralSerialization) =>
+      // @ts-expect-error a claims type implies payload: "json"
+      decryptMulti<MyClaims>(jwe, key, { payload: "string" }),
+    );
   });
 });

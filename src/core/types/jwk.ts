@@ -97,8 +97,12 @@ export type CompositeKey = {
 
 export type GenerateKeyAlgorithm = Exclude<JWKAlgorithm, "none" | "dir" | JWK_PBES2>;
 
-/** Options for the generateKey function. */
-export interface GenerateKeyOptions {
+/**
+ * Options for the generateKey function. `ToJWK` is the `toJWK` option's
+ * literal, from which {@link generateKey} reads whether it returns key objects
+ * or JWKs.
+ */
+export interface GenerateKeyOptions<ToJWK extends boolean = boolean> {
   /** Key usages for the generated key(s). Note: For composite keys (CBC), default usages are applied separately. */
   keyUsage?: KeyUsage[];
   /**
@@ -119,30 +123,81 @@ export interface GenerateKeyOptions {
    * format with a generated `kid`. To include additional JWK parameters
    * (e.g. a custom `kid`), use {@link generateJWK} instead.
    */
-  toJWK?: boolean;
+  toJWK?: ToJWK;
 }
 
-type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_Asymmetric_Algorithm
-  ? JWK_Pair<TAlg>
-  : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-    ? JWK_oct<TAlg>
-    : never;
+/**
+ * What {@link generateKey} returns for each algorithm when `toJWK` is not set:
+ *
+ * - symmetric algorithms (`HS*`, `A*KW`, `A*GCM`, `A*GCMKW`) → `CryptoKey`;
+ * - AES-CBC+HMAC composites (`A*CBC-HS*`) → the raw key bytes;
+ * - asymmetric algorithms → `CryptoKeyPair`.
+ *
+ * Indexing with a union of algorithms yields the union of their keys.
+ */
+export type GeneratedKeyMap = {
+  [A in GenerateKeyAlgorithm]: A extends JWK_AES_CBC_HMAC
+    ? Uint8Array<ArrayBuffer>
+    : A extends JWK_Asymmetric_Algorithm
+      ? CryptoKeyPair
+      : CryptoKey;
+};
 
-// AES-CBC+HMAC returns raw bytes — the composite layout isn't directly importable via Web Crypto.
-type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_AES_CBC_HMAC
-  ? Uint8Array<ArrayBuffer>
-  : TAlg extends JWK_Asymmetric_Algorithm
-    ? CryptoKeyPair
-    : CryptoKey;
+/**
+ * What {@link generateJWK} (and {@link generateKey} with `toJWK: true`)
+ * returns for each algorithm: an `oct` JWK for a symmetric algorithm, a
+ * `{ privateKey, publicKey }` JWK pair of the algorithm's key type for an
+ * asymmetric one. Every JWK carries the `alg` it was generated for and a `kid`.
+ *
+ * Indexing with a union of algorithms yields the union of their JWKs.
+ */
+export type GeneratedJWKMap = {
+  [A in GenerateKeyAlgorithm]: A extends JWK_Asymmetric_Algorithm
+    ? GeneratedJWKPair<JWK_Pair<A>, A>
+    : JWK_oct<A> & GeneratedJWKMembers<A>;
+};
 
+/**
+ * The return type of {@link generateKey} for `TAlg` under `TOptions`: the
+ * {@link GeneratedJWKMap} entry when `toJWK` is `true`, the
+ * {@link GeneratedKeyMap} entry when it is `false` or unset, both otherwise.
+ */
 export type GenerateKeyReturn<
   TAlg extends GenerateKeyAlgorithm,
   TOptions extends GenerateKeyOptions,
-> = TOptions["toJWK"] extends true ? GenerateKeyReturnJWK<TAlg> : GenerateKeyReturnCrypto<TAlg>;
+> = GeneratedKeyShape<TAlg, Exclude<TOptions["toJWK"], undefined>>;
 
 export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK" | "extractable">;
 
-export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GenerateKeyReturnJWK<TAlg>;
+/** The return type of {@link generateJWK} for `TAlg`. */
+export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GeneratedJWKMap[TAlg];
+
+/**
+ * What {@link importKey} resolves to for each kind of key input:
+ *
+ * - `bytes` — a `Uint8Array`, returned as is;
+ * - `oct` — an `oct` JWK, resolved to its raw secret;
+ * - `cryptoKey` — a `CryptoKey`, returned as is;
+ * - `asymmetric` — an RSA, EC or OKP JWK, imported as a `CryptoKey`.
+ */
+export interface ImportedKeyMap {
+  bytes: Uint8Array<ArrayBuffer>;
+  oct: Uint8Array<ArrayBuffer>;
+  cryptoKey: CryptoKey;
+  asymmetric: CryptoKey;
+}
+
+/**
+ * The {@link ImportedKeyMap} entry for the key input `K`. A union input
+ * (e.g. `CryptoKey | JWK`) yields the union of what each member imports to.
+ */
+export type ImportedKey<K> = ImportedKeyMap[K extends Uint8Array
+  ? "bytes"
+  : K extends CryptoKey
+    ? "cryptoKey"
+    : K extends JWK_oct
+      ? "oct"
+      : "asymmetric"];
 
 /** Options for the deriveKeyFromPassword function. */
 export interface DeriveKeyOptions {
@@ -265,8 +320,12 @@ export interface WrapKeyOptions<TAlg extends KeyManagementAlgorithm = KeyManagem
     ephemeralKey?:
       | CryptoKey
       | JWK_EC_Private
+      | JWK_OKP_Private
       | CryptoKeyPair
-      | { publicKey: CryptoKey | JWK_EC_Public; privateKey: CryptoKey | JWK_EC_Private };
+      | {
+          publicKey: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
+          privateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
+        };
     /** Agreement PartyUInfo (apu). */
     partyUInfo?: Uint8Array<ArrayBuffer>;
     /** Agreement PartyVInfo (apv). */
@@ -310,7 +369,7 @@ export type WrapKeyResult<TAlg extends KeyManagementAlgorithm = KeyManagementAlg
         ? {
             encryptedKey: Uint8Array<ArrayBuffer>;
             /** Ephemeral Public Key. */
-            epk: JWK_EC_Public;
+            epk: JWK_EC_Public | JWK_OKP_Public;
             /** Agreement PartyUInfo. Base64URL encoded. Present only when supplied. */
             apu?: string;
             /** Agreement PartyVInfo. Base64URL encoded. Present only when supplied. */
@@ -656,3 +715,15 @@ export type JWKPEMAlgorithm =
   | JWK_ECDSA
   | JWK_ECDH_ES
   | JWK_OKP_SIGN;
+
+type GeneratedJWKMembers<A> = { alg: A; kid: string };
+
+type GeneratedJWKPair<P, A> = P extends { privateKey: infer Private; publicKey: infer Public }
+  ? { privateKey: Private & GeneratedJWKMembers<A>; publicKey: Public & GeneratedJWKMembers<A> }
+  : never;
+
+type GeneratedKeyShape<TAlg extends GenerateKeyAlgorithm, ToJWK> = [ToJWK] extends [never]
+  ? GeneratedKeyMap[TAlg]
+  : ToJWK extends true
+    ? GeneratedJWKMap[TAlg]
+    : GeneratedKeyMap[TAlg];

@@ -1,5 +1,5 @@
 import * as jose from "jose";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
 import {
   signMulti,
@@ -20,7 +20,11 @@ import type {
   JWSFlattenedSerialization,
   JWKLookupFunction,
   JWSMultiVerifyOutcome,
+  JWSMultiVerifyResult,
+  JWSMultiVerifyAllOptions,
+  JWTClaims,
 } from "../src/core/types";
+import type { JOSEPayloadMode, PayloadOf } from "../src/core/jws";
 
 /**
  * Asserts a multi-verify outcome is `verified: false` and returns it narrowed to
@@ -1437,6 +1441,73 @@ describe.concurrent("JWS JSON verification option gates", () => {
     );
     await expect(verifyMultiAll(jws, () => key, { subject: "" })).rejects.toSatisfy((error) =>
       isJWTError(error, "ERR_INVALID_OPTION"),
+    );
+  });
+});
+
+describe("types", () => {
+  type MyClaims = { sub: string; role: "admin" | "user" };
+  type Bytes = Uint8Array<ArrayBuffer>;
+  const key = new Uint8Array(32);
+
+  it("types the verifyMulti payload after its mode", () => {
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMulti(jws, key),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<JWTClaims>>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMulti<MyClaims>(jws, key),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<MyClaims>>();
+    expectTypeOf((jws: JWSFlattenedSerialization) =>
+      verifyMulti(jws, key, { payload: "json" }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<JWTClaims>>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMulti(jws, key, { payload: "string" }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<string>>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMulti(jws, key, { payload: "bytes" }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<Bytes>>();
+    expectTypeOf((jws: JWSGeneralSerialization, payload: JOSEPayloadMode) =>
+      verifyMulti(jws, key, { payload }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<JWTClaims | string | Bytes>>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMulti(jws, key, { forceUint8Array: true }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<Bytes>>();
+  });
+
+  it("types every verifyMultiAll outcome payload after its mode", () => {
+    const resolver: JWKLookupFunction = () => key;
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMultiAll(jws, resolver),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<JWTClaims>[]>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMultiAll<MyClaims>(jws, resolver),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<MyClaims>[]>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMultiAll(jws, resolver, { payload: "string" }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<string>[]>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMultiAll(jws, resolver, { payload: "bytes" }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<Bytes>[]>();
+    expectTypeOf((jws: JWSGeneralSerialization, options: JWSMultiVerifyAllOptions) =>
+      verifyMultiAll(jws, resolver, options),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<JWTClaims | string | Bytes>[]>();
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      verifyMultiAll(jws, resolver, { forceUint8Array: true }),
+    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<Bytes>[]>();
+    expectTypeOf<
+      Extract<JWSMultiVerifyOutcome<PayloadOf<"string">>, { verified: true }>["payload"]
+    >().toEqualTypeOf<string>();
+  });
+
+  it("rejects an unknown payload mode and a claims type outside the json mode", () => {
+    const resolver: JWKLookupFunction = () => key;
+    // @ts-expect-error not a payload mode
+    expectTypeOf((jws: JWSGeneralSerialization) => verifyMulti(jws, key, { payload: "nonsense" }));
+    // @ts-expect-error not a payload mode
+    expectTypeOf((jws: JWSGeneralSerialization) => verifyMultiAll(jws, resolver, { payload: "x" }));
+    expectTypeOf((jws: JWSGeneralSerialization) =>
+      // @ts-expect-error a claims type implies payload: "json"
+      verifyMultiAll<MyClaims>(jws, resolver, { payload: "bytes" }),
     );
   });
 });

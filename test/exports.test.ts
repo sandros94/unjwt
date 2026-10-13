@@ -1,7 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import * as root from "../src/index";
 import * as utils from "../src/core/utils";
 import * as internal from "../src/core/internal";
+import type * as jws from "../src/core/jws";
+import type * as jwe from "../src/core/jwe";
+import type * as jwk from "../src/core/jwk";
 import { base64UrlParse, validateJwtClaims, isJWK } from "../src/core/utils";
 import { generateKey } from "../src/core/jwk";
 
@@ -128,5 +131,40 @@ describe("internal plumbing (unjwt/internal)", () => {
   ] as const)("still exports %s from unjwt/utils as an alias", (name, binding) => {
     expect(Reflect.get(utils, name)).toBe(binding);
     expect(Reflect.get(root, name)).toBe(binding);
+  });
+});
+
+describe("types", () => {
+  it("gives each deprecated unjwt/utils alias the type of its unjwt/internal original", () => {
+    expectTypeOf(utils.applyTypCtyDefaults).toEqualTypeOf(internal.applyTypDefault);
+    expectTypeOf(utils.decodePayloadFromBytes).toEqualTypeOf(internal.parsePayloadBytes);
+    expectTypeOf(utils.decodePayloadFromB64UrlSegment).toEqualTypeOf(internal.parsePayloadSegment);
+    expectTypeOf(utils.getPlaintextBytes).toEqualTypeOf(internal.getPlaintextBytes);
+    expectTypeOf(utils.computeJwtTimeClaims).toEqualTypeOf(internal.computeJwtTimeClaims);
+    expectTypeOf(utils.validateCriticalHeadersJWS).toEqualTypeOf(
+      internal.validateCriticalHeadersJWS,
+    );
+    expectTypeOf(utils.validateCriticalHeadersJWE).toEqualTypeOf(
+      internal.validateCriticalHeadersJWE,
+    );
+    expectTypeOf(utils.assertCritShape).toEqualTypeOf(internal.assertCritShape);
+    expectTypeOf<utils.DecodePayloadOptions>().toEqualTypeOf<internal.ParsePayloadOptions>();
+    expectTypeOf<utils.ComputeJwtTimeClaimsOptions>().toEqualTypeOf<internal.ComputeJwtTimeClaimsOptions>();
+  });
+
+  it("exports the payload-mode types from the root, unjwt/jws and unjwt/jwe alike", () => {
+    expectTypeOf<root.PayloadOf<"bytes">>().toEqualTypeOf<jws.PayloadOf<"bytes">>();
+    expectTypeOf<root.PayloadOf<"bytes">>().toEqualTypeOf<jwe.PayloadOf<"bytes">>();
+    expectTypeOf<root.JOSEPayloadTypeMap>().toEqualTypeOf<jws.JOSEPayloadTypeMap>();
+    expectTypeOf<root.JOSEPayloadTypeMap>().toEqualTypeOf<jwe.JOSEPayloadTypeMap>();
+    expectTypeOf<root.JOSEPayloadMode>().toEqualTypeOf<jws.JOSEPayloadMode>();
+    expectTypeOf<root.JOSEPayloadMode>().toEqualTypeOf<jwe.JOSEPayloadMode>();
+  });
+
+  it("exports the key-shape maps from the root and unjwt/jwk alike", () => {
+    expectTypeOf<root.GeneratedKeyMap>().toEqualTypeOf<jwk.GeneratedKeyMap>();
+    expectTypeOf<root.GeneratedJWKMap>().toEqualTypeOf<jwk.GeneratedJWKMap>();
+    expectTypeOf<root.ImportedKeyMap>().toEqualTypeOf<jwk.ImportedKeyMap>();
+    expectTypeOf<root.ImportedKey<CryptoKey>>().toEqualTypeOf<jwk.ImportedKey<CryptoKey>>();
   });
 });

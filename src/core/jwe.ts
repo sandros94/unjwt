@@ -9,7 +9,7 @@ import type {
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
 } from "./types/jwk";
-import type { JOSEPayload, JWTClaims } from "./types/jwt";
+import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt";
 import type {
   JWEEncryptJWK,
   JWEDecryptJWK,
@@ -77,6 +77,7 @@ import {
 } from "./_internal";
 
 export type * from "./types/jwe";
+export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt";
 export {
   type JWTErrorCode,
   type KnownJWTErrorCode,
@@ -275,32 +276,36 @@ export async function encrypt(
 /**
  * Decrypts a JWE Compact Serialization string.
  *
+ * The payload type follows `options.payload` (see {@link JOSEPayloadTypeMap}):
+ *
+ * - no `payload`, or `payload: "json"` → `T`, the claims (`JWTClaims` unless
+ *   given, as in `decrypt<MyClaims>(jwe, key)`);
+ * - `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array`;
+ * - a `payload` that is not a literal → the union of what its modes return.
+ *
  * @param jwe The JWE Compact Serialization string.
  * @param key The key decryption key (KEK) or a function to look up the key.
  * @param options JWE decryption options.
  * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
  * @throws If JWE is invalid, decryption fails, or options are not met.
  */
-export async function decrypt(
+export async function decrypt<T extends Record<string, unknown> = JWTClaims>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options: JWEDecryptOptions & { payload: "bytes" },
-): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decrypt(
-  jwe: string,
-  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options: JWEDecryptOptions & { payload: "string" },
-): Promise<JWEDecryptResult<string>>;
+  options?: JWEDecryptOptions<"json"> & { forceUint8Array?: false },
+): Promise<JWEDecryptResult<T>>;
+/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function decrypt(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWEDecryptOptions & { forceUint8Array: true },
 ): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decrypt<T extends Record<string, unknown> = JWTClaims>(
+/** Decrypts a compact JWE whose plaintext decodes under `options.payload`; see {@link PayloadOf}. */
+export async function decrypt<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options?: JWEDecryptOptions,
-): Promise<JWEDecryptResult<T>>;
+  options?: JWEDecryptOptions<Mode>,
+): Promise<JWEDecryptResult<PayloadOf<Mode>>>;
 export async function decrypt<T extends JOSEPayload>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,

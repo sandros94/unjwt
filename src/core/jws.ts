@@ -14,7 +14,9 @@ import type {
   JWSVerifyOptions,
   JWSVerifyResult,
   JOSEPayload,
+  JOSEPayloadMode,
   JWTClaims,
+  PayloadOf,
 } from "./types";
 import { importKey, getJWKsFromSet } from "./jwk";
 import { sign as joseSign, verify as joseVerify } from "./_crypto";
@@ -54,6 +56,7 @@ import {
 } from "./_internal";
 
 export type * from "./types/jws";
+export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt";
 export {
   type JWTErrorCode,
   type KnownJWTErrorCode,
@@ -166,32 +169,36 @@ export async function sign(
 /**
  * Verifies a JWS (JSON Web Signature) in Compact Serialization format.
  *
+ * The payload type follows `options.payload` (see {@link JOSEPayloadTypeMap}):
+ *
+ * - no `payload`, or `payload: "json"` → `T`, the claims (`JWTClaims` unless
+ *   given, as in `verify<MyClaims>(jws, key)`);
+ * - `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array`;
+ * - a `payload` that is not a literal → the union of what its modes return.
+ *
  * @param jws The JWS Compact Serialization string.
  * @param key The verification key (CryptoKey, JWK, JWKSet, raw symmetric key as Uint8Array, or a function resolving the key or set).
  * @param options Verification options, such as allowed algorithms.
  * @returns A Promise resolving to an object containing the verified payload and protected header.
  * @throws If the JWS is invalid, signature verification fails, or options are not met.
  */
-export async function verify(
+export async function verify<T extends Record<string, unknown> = JWTClaims>(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options: JWSVerifyOptions & { payload: "bytes" },
-): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
-export async function verify(
-  jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options: JWSVerifyOptions & { payload: "string" },
-): Promise<JWSVerifyResult<string>>;
+  options?: JWSVerifyOptions<"json"> & { forceUint8Array?: false },
+): Promise<JWSVerifyResult<T>>;
+/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function verify(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
-export async function verify<T extends Record<string, unknown> = JWTClaims>(
+/** Verifies a compact JWS whose payload decodes under `options.payload`; see {@link PayloadOf}. */
+export async function verify<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
-  options?: JWSVerifyOptions,
-): Promise<JWSVerifyResult<T>>;
+  options?: JWSVerifyOptions<Mode>,
+): Promise<JWSVerifyResult<PayloadOf<Mode>>>;
 export async function verify<T extends JOSEPayload>(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,

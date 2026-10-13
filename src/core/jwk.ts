@@ -17,6 +17,8 @@ import type {
   JWK_EC_Public,
   JWK_EC_Private,
   JWK_ECDH_ES,
+  JWK_OKP,
+  JWK_OKP_Public,
   JWKPEMAlgorithm,
   JWKParameters,
   JWKCacheAdapter,
@@ -25,6 +27,7 @@ import type {
   GenerateKeyReturn,
   GenerateJWKOptions,
   GenerateJWKReturn,
+  ImportedKey,
   DeriveKeyOptions,
   DeriveKeyReturn,
   KeyManagementAlgorithm,
@@ -103,6 +106,10 @@ export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error"
  * `use`, etc.). Composite AES-CBC+HMAC keys are serialised to a single `JWK_oct` and
  * re-split internally on use.
  *
+ * The return type is read off {@link GeneratedKeyMap} (no `toJWK`, or `toJWK: false`) or
+ * {@link GeneratedJWKMap} (`toJWK: true`) by `alg`. An `alg` that is not a literal returns
+ * the union of its entries, and a `toJWK` that is not a literal returns both maps' entries.
+ *
  * PBES2 is not a key-generation algorithm — use {@link deriveKeyFromPassword} or
  * {@link deriveJWKFromPassword} instead.
  *
@@ -137,10 +144,10 @@ export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error"
  * const { privateKey, publicKey } = await generateKey("ES256", { toJWK: true });
  * ```
  */
-export async function generateKey<
-  TAlg extends GenerateKeyAlgorithm,
-  TOptions extends GenerateKeyOptions,
->(alg: TAlg, options?: TOptions): Promise<GenerateKeyReturn<TAlg, TOptions>>;
+export async function generateKey<TAlg extends GenerateKeyAlgorithm, ToJWK extends boolean = false>(
+  alg: TAlg,
+  options?: GenerateKeyOptions<ToJWK>,
+): Promise<GenerateKeyReturn<TAlg, GenerateKeyOptions<ToJWK>>>;
 export async function generateKey(
   alg: string,
   options: GenerateKeyOptions = {},
@@ -208,6 +215,9 @@ export async function generateKey(
  *
  * Composite AES-CBC+HMAC keys (`A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512`)
  * are serialised to a single `JWK_oct` and re-split internally on use.
+ *
+ * The return type is {@link GeneratedJWKMap}`[alg]`; an `alg` that is not a literal
+ * returns the union of its entries.
  *
  * @param alg The JWA algorithm identifier (e.g. `"HS256"`, `"RS256"`, `"ES256"`,
  *            `"A128GCM"`, `"A256CBC-HS512"`). PBES2, `"dir"`, and `"none"` are
@@ -477,6 +487,20 @@ export function configureJWKCache(cache: JWKCacheAdapter | false): void {
 export function clearJWKCache(): void {
   _activeCache = new WeakMapJWKCache();
 }
+
+/** Imports the secret of an `oct` JWK as a `CryptoKey` under `algorithm` and `usage`. */
+export async function importKey(
+  key: JWK_oct,
+  options: {
+    asCryptoKey: true;
+    /** Algorithm to import the key as (e.g. `{ name: "AES-GCM", length: 256 }`). */
+    algorithm: Parameters<typeof crypto.subtle.importKey>[2];
+    /** Key usages for the resulting CryptoKey. */
+    usage: KeyUsage[];
+    /** Mark the key as extractable. Defaults to `false`. */
+    extractable?: boolean;
+  },
+): Promise<CryptoKey>;
 /**
  * Imports a key from various formats (CryptoKey, JWK, Uint8Array).
  *
@@ -485,6 +509,11 @@ export function clearJWKCache(): void {
  * - If `key` is a `JWK_oct` (symmetric key with `k`), the raw key bytes are returned as `Uint8Array`.
  * - If `key` is any other JWK type (asymmetric), an algorithm hint is required (positional or via options)
  *   and a `CryptoKey` is returned.
+ * - With `asCryptoKey: true`, a `JWK_oct` is imported as a `CryptoKey` instead.
+ *
+ * The return type follows the input kind (see {@link ImportedKeyMap}): `Uint8Array` and
+ * `oct` JWK → `Uint8Array`, `CryptoKey` and asymmetric JWK → `CryptoKey`, a union of
+ * inputs → the union of their results.
  *
  * A `string` is not key material and throws `ERR_JWK_INVALID`: PEM text belongs in
  * {@link importPEM}, a shared secret in an `oct` JWK or a `Uint8Array`, and a password in
@@ -492,7 +521,7 @@ export function clearJWKCache(): void {
  *
  * ### Which option applies to which key
  *
- * The overloads cannot express it, so the split is stated here:
+ * The signatures cannot express it, so the split is stated here:
  *
  * - `asCryptoKey` (with its `algorithm` and `usage`) applies only to an `oct` JWK — it is what
  *   turns the raw secret into a `CryptoKey` instead of the default `Uint8Array`.
@@ -520,39 +549,22 @@ export function clearJWKCache(): void {
  * `A*CBC-HS*`) is the CEK `alg: "dir"` consumes, and decryption additionally
  * requires the token's `enc` to be that same algorithm.
  */
-export async function importKey(key: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>>;
-export async function importKey(key: CryptoKey): Promise<CryptoKey>;
-export async function importKey(key: JWK_oct): Promise<Uint8Array<ArrayBuffer>>;
-export async function importKey(
-  key: JWK_oct,
-  options: {
-    asCryptoKey: true;
-    /** Algorithm to import the key as (e.g. `{ name: "AES-GCM", length: 256 }`). */
-    algorithm: Parameters<typeof crypto.subtle.importKey>[2];
-    /** Key usages for the resulting CryptoKey. */
-    usage: KeyUsage[];
-    /** Mark the key as extractable. Defaults to `false`. */
-    extractable?: boolean;
-  },
-): Promise<CryptoKey>;
-export async function importKey(
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
-  options: {
-    /** Algorithm hint. Required when `key.alg` is absent on an asymmetric JWK. */
-    alg?: string;
-    /** Reject on shape mismatch instead of silently importing. */
-    expect?: "public" | "private";
-    /**
-     * Import the key as extractable. Defaults to `false` for private key
-     * material and `true` for public. A JWK's `ext: false` still lowers it.
-     */
-    extractable?: boolean;
-  },
-): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
-export async function importKey(
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
-  alg?: string,
-): Promise<CryptoKey | Uint8Array<ArrayBuffer>>;
+export async function importKey<K extends CryptoKey | JWK | Uint8Array<ArrayBuffer>>(
+  key: K,
+  options?:
+    | string
+    | {
+        /** Algorithm hint. Required when `key.alg` is absent on an asymmetric JWK. */
+        alg?: string;
+        /** Reject on shape mismatch instead of silently importing. */
+        expect?: "public" | "private";
+        /**
+         * Import the key as extractable. Defaults to `false` for private key
+         * material and `true` for public. A JWK's `ext: false` still lowers it.
+         */
+        extractable?: boolean;
+      },
+): Promise<ImportedKey<K>>;
 export async function importKey(
   key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   algOrOptions?:
@@ -703,13 +715,14 @@ function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | 
  * @param key The CryptoKey to export.
  * @param jwkParams Optional JWK metadata (`kid`, `use`, `x5c`, …) merged onto the exported key.
  *        `alg`, `kty`, `key_ops`, `ext` and the key material members are reserved.
- * @returns A Promise resolving to the exported JWK.
+ * @returns A Promise resolving to the exported JWK, typed `JWK` unless the caller narrows it
+ *          with the type parameter (`exportKey<JWK_EC_Public>(publicKey)`).
  * @throws `JWTError("ERR_INVALID_OPTION")` if `key` is not a `CryptoKey`, or if
  *         `jwkParams` carries a reserved member.
  * @throws `JWTError("ERR_JWK_INVALID")` if the key was imported as
  *         non-extractable — its material cannot leave the runtime.
  */
-export async function exportKey<T extends JWK>(
+export async function exportKey<T extends JWK = JWK>(
   key: CryptoKey,
   jwkParams?: Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">,
 ): Promise<T> {
@@ -1641,15 +1654,15 @@ function getGenerateKeyParams(
 async function resolveECDHEphemeralPair(
   recipientPublicKey: CryptoKey,
   ephemeralKeyInput: NonNullable<WrapKeyOptions["ecdh"]>["ephemeralKey"],
-): Promise<{ ephemeralPrivateKey: CryptoKey; epkJwk: JWK_EC_Public }> {
+): Promise<{ ephemeralPrivateKey: CryptoKey; epkJwk: JWK_EC_Public | JWK_OKP_Public }> {
   if (!ephemeralKeyInput) {
     const generated = await generateEphemeralKeyPair(recipientPublicKey);
-    const rawJwk = await keyToJWK<JWK_EC>(generated.publicKey);
+    const rawJwk = await keyToJWK<JWK_EC | JWK_OKP>(generated.publicKey);
     return { ephemeralPrivateKey: generated.privateKey, epkJwk: stripPrivateJwkFields(rawJwk) };
   }
 
   if (isCryptoKeyPair(ephemeralKeyInput)) {
-    const rawJwk = await keyToJWK<JWK_EC>(ephemeralKeyInput.publicKey);
+    const rawJwk = await keyToJWK<JWK_EC | JWK_OKP>(ephemeralKeyInput.publicKey);
     return {
       ephemeralPrivateKey: ephemeralKeyInput.privateKey,
       epkJwk: stripPrivateJwkFields(rawJwk),
@@ -1666,7 +1679,7 @@ async function resolveECDHEphemeralPair(
       ? privateKey
       : await importECDHKey(privateKey, { alg: "ECDH-ES", expect: "private" });
     const epkJwk = isCryptoKey(publicKey)
-      ? stripPrivateJwkFields(await keyToJWK<JWK_EC>(publicKey))
+      ? stripPrivateJwkFields(await keyToJWK<JWK_EC | JWK_OKP>(publicKey))
       : stripPrivateJwkFields(publicKey);
     return { ephemeralPrivateKey: privCryptoKey, epkJwk };
   }
@@ -1677,7 +1690,7 @@ async function resolveECDHEphemeralPair(
     }
     return {
       ephemeralPrivateKey: ephemeralKeyInput,
-      epkJwk: stripPrivateJwkFields(await keyToJWK<JWK_EC>(ephemeralKeyInput)),
+      epkJwk: stripPrivateJwkFields(await keyToJWK<JWK_EC | JWK_OKP>(ephemeralKeyInput)),
     };
   }
 
@@ -1695,19 +1708,18 @@ async function resolveECDHEphemeralPair(
   throw new JWTError("Unsupported ECDH-ES ephemeral key material", "ERR_JWK_INVALID");
 }
 
-function stripPrivateJwkFields(jwk: JWK_EC): JWK_EC_Public {
+function stripPrivateJwkFields(jwk: JWK_EC | JWK_OKP): JWK_EC_Public | JWK_OKP_Public {
   if (!("d" in jwk)) return { ...jwk };
   const { d: _d, ...pub } = jwk;
   return pub;
 }
 
-/** Import an EC JWK for ECDH-ES key agreement. */
+/** Import an EC or OKP JWK for ECDH-ES key agreement. */
 async function importECDHKey(
-  jwk: JWK_EC,
+  jwk: JWK_EC | JWK_OKP,
   options: { alg: string; expect: "public" | "private" },
 ): Promise<CryptoKey> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- only a JWK carrying `k` imports as raw bytes, and an EC JWK has no `k`
-  return (await importKey(jwk, options)) as CryptoKey;
+  return importKey(jwk, options);
 }
 
 function inferAesImportAlgorithm(

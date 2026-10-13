@@ -1,9 +1,16 @@
 import * as jose from "jose";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 
 import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws";
+import type {
+  JOSEPayloadMode,
+  JOSEPayloadTypeMap,
+  JWSVerifyOptions,
+  JWSVerifyResult,
+  PayloadOf,
+} from "../src/core/jws";
 import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
 import type {
   JWTClaims,
@@ -2113,6 +2120,72 @@ describe.concurrent("JWS verification option gates", () => {
     expect(error.message).not.toContain("\n");
     expect(error.message).toContain(String.raw`with kid "evil\nInjected: yes x`);
     expect(error.message.length).toBeLessThan(120);
+  });
+});
+
+describe("types", () => {
+  type MyClaims = { sub: string; role: "admin" | "user" };
+  const key = new Uint8Array(32);
+
+  it("returns the claims for the default and json payload modes", () => {
+    expectTypeOf(() => verify("", key)).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<JWTClaims>
+    >();
+    expectTypeOf(() => verify("", key, { payload: "json" })).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<JWTClaims>
+    >();
+    expectTypeOf(() => verify<MyClaims>("", key)).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<MyClaims>
+    >();
+    expectTypeOf(() =>
+      verify<MyClaims>("", key, { payload: "json", algorithms: ["HS256"] }),
+    ).returns.resolves.toEqualTypeOf<JWSVerifyResult<MyClaims>>();
+  });
+
+  it("returns a string or bytes payload for the string and bytes modes", () => {
+    expectTypeOf(() => verify("", key, { payload: "string" })).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<string>
+    >();
+    expectTypeOf(() => verify("", key, { payload: "bytes" })).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<Uint8Array<ArrayBuffer>>
+    >();
+  });
+
+  it("returns the union of payloads for a mode that is not a literal", () => {
+    expectTypeOf((payload: JOSEPayloadMode) =>
+      verify("", key, { payload }),
+    ).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<JWTClaims | string | Uint8Array<ArrayBuffer>>
+    >();
+    expectTypeOf((options: JWSVerifyOptions) =>
+      verify("", key, options),
+    ).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<JWTClaims | string | Uint8Array<ArrayBuffer>>
+    >();
+    expectTypeOf((payload: "string" | "bytes") =>
+      verify("", key, { payload }),
+    ).returns.resolves.toEqualTypeOf<JWSVerifyResult<string | Uint8Array<ArrayBuffer>>>();
+  });
+
+  it("keeps the deprecated forceUint8Array overload returning bytes", () => {
+    expectTypeOf(() => verify("", key, { forceUint8Array: true })).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<Uint8Array<ArrayBuffer>>
+    >();
+  });
+
+  it("rejects an unknown payload mode and a claims type outside the json mode", () => {
+    // @ts-expect-error not a payload mode
+    expectTypeOf(() => verify("", key, { payload: "nonsense" }));
+    // @ts-expect-error a claims type implies payload: "json"
+    expectTypeOf(() => verify<MyClaims>("", key, { payload: "string" }));
+  });
+
+  it("reads each payload mode off the exported map", () => {
+    expectTypeOf<PayloadOf<"json">>().toEqualTypeOf<JWTClaims>();
+    expectTypeOf<PayloadOf<"json", MyClaims>>().toEqualTypeOf<MyClaims>();
+    expectTypeOf<PayloadOf<"string">>().toEqualTypeOf<string>();
+    expectTypeOf<PayloadOf<"bytes">>().toEqualTypeOf<Uint8Array<ArrayBuffer>>();
+    expectTypeOf<keyof JOSEPayloadTypeMap>().toEqualTypeOf<JOSEPayloadMode>();
   });
 });
 

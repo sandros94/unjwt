@@ -23,6 +23,8 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
 | `Ed25519`, `EdDSA`                                | `CryptoKeyPair`                                        | `{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }` |
 | `ECDH-ES*`                                        | `CryptoKeyPair`                                        | `JWK_EC` **or** `JWK_OKP` pair, depending on `namedCurve`    |
 
+**Return types follow the option.** The table is two exported maps keyed by algorithm: `GeneratedKeyMap[alg]` without `toJWK` (or with `toJWK: false`), `GeneratedJWKMap[alg]` with `toJWK: true` — each JWK there also carries `alg` (the literal) and `kid: string`. A non-literal `alg` (e.g. a `GenerateKeyAlgorithm` variable) returns the union of its entries, and a `toJWK` that is not a literal (a `boolean`, a `GenerateKeyOptions` object) returns both maps' entries, so no cast is needed at the call site. `GenerateKeyReturn<TAlg, TOptions>` names the same type.
+
 - `alg: GenerateKeyAlgorithm` — any JWS or JWE algorithm except `"dir"` and PBES2
 - `options?: GenerateKeyOptions`
   - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`, with the key's RFC 7638 thumbprint as its `kid` (one `kid` for both halves of a pair). Composite `A*CBC-HS*` keys carry `alg`, `ext` and `key_ops` like every other symmetric JWK, so the result infers `alg: "dir"` on its own
@@ -46,6 +48,8 @@ To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` i
 ### `generateJWK(alg, options?)`
 
 Always returns JWK format with a `kid` — the key's `thumbprint()` (RFC 7638) when the caller supplies none. A key pair carries one `kid`: the thumbprint covers the public members only, so both halves agree.
+
+Returns `GeneratedJWKMap[alg]` (also named `GenerateJWKReturn<alg>`); a non-literal `alg` returns the union of its entries.
 
 - `alg: GenerateKeyAlgorithm`
 - `options?` — combined `GenerateKeyOptions` (minus `toJWK`) and JWK metadata (`kid`, `use`,
@@ -100,6 +104,11 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
 - Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`; `{ extractable?: boolean }` overrides
   the default of non-extractable for private key material, extractable for public)
+
+**Return types follow the input.** `importKey(key)` returns `ImportedKey<typeof key>`, an entry of
+`ImportedKeyMap` keyed by input kind: `bytes` and `oct` → `Uint8Array<ArrayBuffer>`, `cryptoKey` and
+`asymmetric` → `CryptoKey`. A union input (`JWK`, `CryptoKey | JWK_oct`) returns the union of its
+entries; `asCryptoKey: true` always returns `CryptoKey`.
 
 For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it is never assumed
 from `alg`. `EC` + `ECDH-ES*` accepts `P-256` / `P-384` / `P-521`; `OKP` + `Ed25519` / `EdDSA`
@@ -189,7 +198,8 @@ generated for `A128GCMKW` exports as `alg: "A128GCM"` — the CEK role — and
 Mint key-wrapping keys with `generateJWK(alg)` or `generateKey(alg, { toJWK: true })`, which
 stamp the `alg` that was asked for.
 
-Returns `Promise<JWK>`.
+Returns `Promise<JWK>`. A `CryptoKey` carries no key type the compiler can read, so a caller who
+knows it narrows with the type parameter: `exportKey<JWK_EC_Public>(publicKey)`.
 
 ## Key Wrapping
 
@@ -207,7 +217,7 @@ Wraps a Content Encryption Key using the specified key management algorithm.
     and known-vector reproduction, never derive it from external input)
   - `p2s?`, `p2c?` — PBES2 salt and iteration count; both **required** under a PBES2 `alg` (there is no default here — the defaults belong to `encrypt`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `600_000`, the bounds `unwrapKey` enforces by default, or `ERR_INVALID_OPTION`
   - `ecdh?` — ECDH-ES options:
-    - `ephemeralKey?` — custom ephemeral key (CryptoKeyPair, JWK_EC_Private, etc.); generated automatically if omitted
+    - `ephemeralKey?` — custom ephemeral key (`CryptoKey`, `CryptoKeyPair`, `JWK_EC_Private` / `JWK_OKP_Private`, or a `{ publicKey, privateKey }` pair of either); generated automatically on the recipient's curve if omitted
     - `partyUInfo?`, `partyVInfo?` — agreement party info
     - `enc?` — content encryption algorithm, **required** for bare `"ECDH-ES"` (direct key agreement)
 
@@ -219,6 +229,8 @@ Returns `Promise<WrapKeyResult<TAlg>>`, narrowed by `alg`:
 | `"PBES2-*"`                      | `{ encryptedKey, p2s, p2c }`        |
 | `"A*GCMKW"`                      | `{ encryptedKey, iv, tag }`         |
 | `"ECDH-ES"`, `"ECDH-ES+A*KW"`    | `{ encryptedKey, epk, apu?, apv? }` |
+
+`epk` is `JWK_EC_Public | JWK_OKP_Public` — an X25519 recipient gets an `OKP` ephemeral key.
 
 For `"ECDH-ES"` (direct), `encryptedKey` is an empty `Uint8Array` per RFC 7516 §4.6.
 

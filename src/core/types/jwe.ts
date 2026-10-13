@@ -242,9 +242,13 @@ export interface JWEEncryptOptions {
 }
 
 /**
- * JWE (JSON Web Encryption) decryption options
+ * JWE (JSON Web Encryption) decryption options. `Mode` is the `payload`
+ * option's literal, from which {@link decrypt} reads the payload type it
+ * returns.
  */
-export interface JWEDecryptOptions extends JWTClaimValidationOptions {
+export interface JWEDecryptOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends JWTClaimValidationOptions {
   /**
    * A list of allowed JWE "alg" (Algorithm) Header Parameter values for key management.
    * When omitted, the allowlist is inferred from the key's shape — a password
@@ -297,7 +301,7 @@ export interface JWEDecryptOptions extends JWTClaimValidationOptions {
    *
    * @default "json"
    */
-  payload?: JOSEPayloadMode;
+  payload?: Mode;
   /**
    * If true, forces the payload to be returned as a `Uint8Array`.
    *
@@ -466,7 +470,9 @@ export type JWEMultiDecryptKey =
 /**
  * Options for {@link decryptMulti}. Extends {@link JWEDecryptOptions}.
  */
-export interface JWEMultiDecryptOptions extends JWEDecryptOptions {
+export interface JWEMultiDecryptOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends JWEDecryptOptions<Mode> {
   /**
    * How many `recipients[]` entries the serialization may carry, how many JWK
    * Set candidates each is tried against, and the PBKDF2 iterations the whole

@@ -129,6 +129,14 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 
 **Returns:** `Promise<JWEDecryptResult<T>>`
 
+**Return types follow the option.** The payload type is read off `JOSEPayloadTypeMap` by the `payload` literal (`PayloadOf<Mode, T>`, exported from `unjwt/jwe`):
+
+- no `payload` or `payload: "json"` → `T`, the claims — `JWTClaims` unless given: `decrypt<MyClaims>(token, key)`
+- `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array<ArrayBuffer>`
+- a `payload` that is not a literal (a `JOSEPayloadMode` variable, a `JWEDecryptOptions` object) → the union of what its modes return
+- the deprecated `forceUint8Array: true` → `Uint8Array<ArrayBuffer>`
+- a claims type together with `payload: "string"` / `"bytes"` is a type error
+
 **Header and segment validation.** Everything the protected header alone decides is settled before a key is resolved or imported, so a malformed token never reaches key management:
 
 - `alg` — `"none"` and any algorithm outside the key-management table are rejected with `ERR_JWE_ALG_NOT_ALLOWED` before the `algorithms` allowlist is consulted.
@@ -209,7 +217,7 @@ Accepts a General or Flattened serialization object and returns the first recipi
 
 **Recipient isolation.** `recipients[]` is not covered by the AAD, so anyone can append or rewrite an entry. Every failure scoped to a single recipient — an entry that is not a JSON object (or whose `header` is not one, or whose `encrypted_key` is not a string), a header tier overlap, a `crit` or `zip` in its header, missing PBES2 `p2s`/`p2c`, a missing `epk`, missing AES-GCMKW `iv`/`tag`, an unsupported `alg`, a failed unwrap — only means "try the next recipient" and is kept as the error to report if no recipient works. A verdict on the token as a whole — the protected header (`crit` included, validated before any key management), the shared unprotected header (including one that is not a JSON object), the content segments, and (after a successful decryption) JWT claim validation — is thrown immediately.
 
-**Returns:** `JWEMultiDecryptResult<T>` — like `JWEDecryptResult`, except:
+**Returns:** `JWEMultiDecryptResult<T>` — the payload type follows `options.payload` exactly as for `decrypt` (`PayloadOf<Mode>`; `decryptMulti<MyClaims>(jwe, key)` for the claims). Like `JWEDecryptResult`, except:
 
 - `protectedHeader: JWEHeaderParameters` — exactly what was integrity protected (`{}` when there is no `protected` member). `alg` and `enc` appear here only when the producer protected them; `encryptMulti` writes `alg` per recipient, so read it from `recipientHeader`.
 - `recipientIndex: number` — index into `jwe.recipients` that decrypted.
@@ -406,7 +414,9 @@ interface JWEEncryptOptions {
   contentEncryptionIV?: Uint8Array<ArrayBuffer>;
 }
 
-interface JWEDecryptOptions {
+// `Mode` is the `payload` literal decrypt reads its return type from — see
+// `JOSEPayloadTypeMap` / `PayloadOf` in the JWS reference.
+interface JWEDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   // JWT claim validation options (inlined from JWTClaimValidationOptions)
   audience?: string | string[];
   issuer?: string | string[];
@@ -424,7 +434,7 @@ interface JWEDecryptOptions {
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
   extractable?: boolean;
-  payload?: "json" | "string" | "bytes";
+  payload?: Mode;
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
@@ -547,7 +557,7 @@ interface JWEMultiEncryptOptions {
   aad?: Uint8Array<ArrayBuffer> | string;
 }
 
-interface JWEMultiDecryptOptions {
+interface JWEMultiDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   // JWT claim validation options (inlined from JWTClaimValidationOptions)
   audience?: string | string[];
   issuer?: string | string[];
@@ -565,7 +575,7 @@ interface JWEMultiDecryptOptions {
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
   extractable?: boolean;
-  payload?: "json" | "string" | "bytes";
+  payload?: Mode;
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;

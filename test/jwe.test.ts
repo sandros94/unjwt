@@ -1,6 +1,12 @@
 import * as jose from "jose";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
 import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe";
+import type {
+  JOSEPayloadTypeMap,
+  JWEDecryptOptions,
+  JWEDecryptResult,
+  PayloadOf,
+} from "../src/core/jwe";
 import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
@@ -1927,6 +1933,66 @@ describe.concurrent("JWE decryption option gates", () => {
     const error = await decrypt(encrypted, cekKey, { returnCek: true }).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain('"returnCek"');
+  });
+});
+
+describe("types", () => {
+  type MyClaims = { sub: string; role: "admin" | "user" };
+  const key = new Uint8Array(32);
+
+  it("returns the claims for the default and json payload modes", () => {
+    expectTypeOf(() => decrypt("", key)).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<JWTClaims>
+    >();
+    expectTypeOf(() => decrypt("", key, { payload: "json" })).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<JWTClaims>
+    >();
+    expectTypeOf(() => decrypt<MyClaims>("", key)).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<MyClaims>
+    >();
+    expectTypeOf(() =>
+      decrypt<MyClaims>("", "password", { payload: "json" }),
+    ).returns.resolves.toEqualTypeOf<JWEDecryptResult<MyClaims>>();
+  });
+
+  it("returns a string or bytes payload for the string and bytes modes", () => {
+    expectTypeOf(() => decrypt("", key, { payload: "string" })).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<string>
+    >();
+    expectTypeOf(() => decrypt("", key, { payload: "bytes" })).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<Uint8Array<ArrayBuffer>>
+    >();
+  });
+
+  it("returns the union of payloads for a mode that is not a literal", () => {
+    expectTypeOf((payload: JOSEPayloadMode) =>
+      decrypt("", key, { payload }),
+    ).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<JWTClaims | string | Uint8Array<ArrayBuffer>>
+    >();
+    expectTypeOf((options: JWEDecryptOptions) =>
+      decrypt("", key, options),
+    ).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<JWTClaims | string | Uint8Array<ArrayBuffer>>
+    >();
+  });
+
+  it("keeps the deprecated forceUint8Array overload returning bytes", () => {
+    expectTypeOf(() => decrypt("", key, { forceUint8Array: true })).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<Uint8Array<ArrayBuffer>>
+    >();
+  });
+
+  it("rejects an unknown payload mode and a claims type outside the json mode", () => {
+    // @ts-expect-error not a payload mode
+    expectTypeOf(() => decrypt("", key, { payload: "nonsense" }));
+    // @ts-expect-error a claims type implies payload: "json"
+    expectTypeOf(() => decrypt<MyClaims>("", key, { payload: "bytes" }));
+  });
+
+  it("exports the payload map from unjwt/jwe", () => {
+    expectTypeOf<PayloadOf<"string">>().toEqualTypeOf<string>();
+    expectTypeOf<JOSEPayloadTypeMap<MyClaims>["json"]>().toEqualTypeOf<MyClaims>();
   });
 });
 

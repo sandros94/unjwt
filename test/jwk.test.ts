@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, expectTypeOf, beforeAll, afterEach } from "vitest";
 import { secureRandomBytes } from "unsecure";
 import { textEncoder } from "unsecure/utils";
 import {
@@ -44,6 +44,14 @@ import type {
   JWK_OKP_Private,
   JWK_OKP_Public,
   JWKPEMAlgorithm,
+  GenerateKeyAlgorithm,
+  GenerateKeyOptions,
+  GenerateKeyReturn,
+  GenerateJWKReturn,
+  GeneratedKeyMap,
+  GeneratedJWKMap,
+  ImportedKey,
+  ImportedKeyMap,
 } from "../src/core/types";
 import { rsa, ec } from "./keys";
 
@@ -530,10 +538,7 @@ describe.concurrent("JWK Utilities", () => {
     describe('"key_ops" and "ext" on the JWK', () => {
       it("intersects key_ops with the usages the operation needs", async () => {
         const { privateKey } = await generateJWK("ES256");
-        const key = (await importKey(
-          { ...privateKey, key_ops: ["sign", "verify"] },
-          "ES256",
-        )) as CryptoKey;
+        const key = await importKey({ ...privateKey, key_ops: ["sign", "verify"] }, "ES256");
         expect(key.usages).toEqual(["sign"]);
       });
 
@@ -548,25 +553,25 @@ describe.concurrent("JWK Utilities", () => {
 
       it("keeps private key material non-extractable however the JWK marks ext", async () => {
         const { privateKey, publicKey } = await generateJWK("ES256");
-        const priv = (await importKey({ ...privateKey, ext: true }, "ES256")) as CryptoKey;
+        const priv = await importKey({ ...privateKey, ext: true }, "ES256");
         expect(priv.extractable).toBe(false);
 
-        const pub = (await importKey(publicKey, "ES256")) as CryptoKey;
+        const pub = await importKey(publicKey, "ES256");
         expect(pub.extractable).toBe(true);
       });
 
       it('honours a JWK "ext": false on a public key', async () => {
         const { publicKey } = await generateJWK("ES256");
-        const key = (await importKey({ ...publicKey, ext: false }, "ES256")) as CryptoKey;
+        const key = await importKey({ ...publicKey, ext: false }, "ES256");
         expect(key.extractable).toBe(false);
       });
 
       it("imports an extractable key when the caller asks for one", async () => {
         const { privateKey } = await generateJWK("ES256");
-        const key = (await importKey(privateKey, {
+        const key = await importKey(privateKey, {
           alg: "ES256",
           extractable: true,
-        })) as CryptoKey;
+        });
         expect(key.extractable).toBe(true);
       });
     });
@@ -1237,7 +1242,7 @@ describe.concurrent("JWK Utilities", () => {
         alg: "ECDH-ES",
         ecdh: { enc: "A128GCM" },
       });
-      const _epk: JWK_EC_Public = ecdhRes.epk;
+      const _epk: JWK_EC_Public | JWK_OKP_Public = ecdhRes.epk;
       void _epk;
     });
   });
@@ -1927,8 +1932,8 @@ describe.concurrent("JWK Utilities", () => {
     ] as const)("imports an %s JWK on its own curve", async (crv, alg) => {
       const { privateKey, publicKey } = await okpJWKPair(crv, alg);
       expect(privateKey.crv).toBe(crv);
-      const priv = (await importKey(privateKey)) as CryptoKey;
-      const pub = (await importKey(publicKey)) as CryptoKey;
+      const priv = await importKey(privateKey);
+      const pub = await importKey(publicKey);
       expect(priv.algorithm.name).toBe(crv);
       expect(pub.algorithm.name).toBe(crv);
     });
@@ -2392,7 +2397,7 @@ describe.concurrent("key generation and the direct JWK API", () => {
       ["ES384", "P-521"],
       ["ES512", "P-256"],
     ] as const)("%s refuses the contradicting curve %s", async (alg, namedCurve) => {
-      const error = await generateKey(alg, { namedCurve } as never).catch((e) => e);
+      const error = await generateKey(alg, { namedCurve }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect(error.message).toContain(namedCurve);
     });
@@ -2556,6 +2561,155 @@ describe.concurrent("key generation and the direct JWK API", () => {
       const error = await thumbprint(jwk, null as never).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     });
+  });
+});
+
+describe("types", () => {
+  type Bytes = Uint8Array<ArrayBuffer>;
+  type Named<A> = { alg: A; kid: string };
+
+  it("types generateKey after a literal alg", () => {
+    expectTypeOf(() => generateKey("HS256")).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf(() => generateKey("A128KW")).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf(() => generateKey("A256GCM")).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf(() => generateKey("A128GCMKW")).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf(() => generateKey("A256CBC-HS512")).returns.resolves.toEqualTypeOf<Bytes>();
+    expectTypeOf(() => generateKey("RS256")).returns.resolves.toEqualTypeOf<CryptoKeyPair>();
+    expectTypeOf(() => generateKey("PS384")).returns.resolves.toEqualTypeOf<CryptoKeyPair>();
+    expectTypeOf(() => generateKey("RSA-OAEP-256")).returns.resolves.toEqualTypeOf<CryptoKeyPair>();
+    expectTypeOf(() => generateKey("ES256")).returns.resolves.toEqualTypeOf<CryptoKeyPair>();
+    expectTypeOf(() => generateKey("Ed25519")).returns.resolves.toEqualTypeOf<CryptoKeyPair>();
+    expectTypeOf(() =>
+      generateKey("ECDH-ES+A128KW"),
+    ).returns.resolves.toEqualTypeOf<CryptoKeyPair>();
+    expectTypeOf(() =>
+      generateKey("RS256", { toJWK: false, modulusLength: 2048 }),
+    ).returns.resolves.toEqualTypeOf<CryptoKeyPair>();
+  });
+
+  it("types generateKey with toJWK: true after the JWK map", () => {
+    expectTypeOf(() => generateKey("HS256", { toJWK: true })).returns.resolves.toEqualTypeOf<
+      JWK_oct<"HS256"> & Named<"HS256">
+    >();
+    expectTypeOf(() =>
+      generateKey("A256CBC-HS512", { toJWK: true }),
+    ).returns.resolves.toEqualTypeOf<JWK_oct<"A256CBC-HS512"> & Named<"A256CBC-HS512">>();
+    expectTypeOf(() => generateKey("RS256", { toJWK: true })).returns.resolves.toEqualTypeOf<{
+      privateKey: JWK_RSA_Private<"RS256"> & Named<"RS256">;
+      publicKey: JWK_RSA_Public<"RS256"> & Named<"RS256">;
+    }>();
+    expectTypeOf(() => generateKey("ES256", { toJWK: true })).returns.resolves.toEqualTypeOf<{
+      privateKey: JWK_EC_Private<"ES256"> & Named<"ES256">;
+      publicKey: JWK_EC_Public<"ES256"> & Named<"ES256">;
+    }>();
+    expectTypeOf(() => generateKey("Ed25519", { toJWK: true })).returns.resolves.toEqualTypeOf<{
+      privateKey: JWK_OKP_Private<"Ed25519"> & Named<"Ed25519">;
+      publicKey: JWK_OKP_Public<"Ed25519"> & Named<"Ed25519">;
+    }>();
+    expectTypeOf(() => generateKey("ECDH-ES", { toJWK: true })).returns.resolves.toEqualTypeOf<
+      | {
+          privateKey: JWK_EC_Private<"ECDH-ES"> & Named<"ECDH-ES">;
+          publicKey: JWK_EC_Public<"ECDH-ES"> & Named<"ECDH-ES">;
+        }
+      | {
+          privateKey: JWK_OKP_Private<"ECDH-ES"> & Named<"ECDH-ES">;
+          publicKey: JWK_OKP_Public<"ECDH-ES"> & Named<"ECDH-ES">;
+        }
+    >();
+  });
+
+  it("types generateKey with a non-literal alg or toJWK as the union of its shapes", () => {
+    expectTypeOf((alg: GenerateKeyAlgorithm) => generateKey(alg)).returns.resolves.toEqualTypeOf<
+      CryptoKey | CryptoKeyPair | Bytes
+    >();
+    expectTypeOf((alg: "HS256" | "ES256") => generateKey(alg)).returns.resolves.toEqualTypeOf<
+      CryptoKey | CryptoKeyPair
+    >();
+    expectTypeOf((alg: GenerateKeyAlgorithm) =>
+      generateKey(alg, { toJWK: true }),
+    ).returns.resolves.toEqualTypeOf<GeneratedJWKMap[GenerateKeyAlgorithm]>();
+    expectTypeOf((toJWK: boolean) =>
+      generateKey("HS256", { toJWK }),
+    ).returns.resolves.toEqualTypeOf<CryptoKey | (JWK_oct<"HS256"> & Named<"HS256">)>();
+    expectTypeOf((options: GenerateKeyOptions) =>
+      generateKey("ES256", options),
+    ).returns.resolves.toEqualTypeOf<GeneratedKeyMap["ES256"] | GeneratedJWKMap["ES256"]>();
+  });
+
+  it("types generateJWK after the JWK map", () => {
+    expectTypeOf(() => generateJWK("A128GCM")).returns.resolves.toEqualTypeOf<
+      JWK_oct<"A128GCM"> & Named<"A128GCM">
+    >();
+    expectTypeOf(() => generateJWK("PS256", { kid: "k1" })).returns.resolves.toEqualTypeOf<{
+      privateKey: JWK_RSA_Private<"PS256"> & Named<"PS256">;
+      publicKey: JWK_RSA_Public<"PS256"> & Named<"PS256">;
+    }>();
+    expectTypeOf((alg: "HS256" | "ES384") => generateJWK(alg)).returns.resolves.toEqualTypeOf<
+      GeneratedJWKMap["HS256"] | GeneratedJWKMap["ES384"]
+    >();
+    expectTypeOf<GenerateJWKReturn<"EdDSA">>().toEqualTypeOf<GeneratedJWKMap["EdDSA"]>();
+    expectTypeOf<GenerateKeyReturn<"RS512", { toJWK: true }>>().toEqualTypeOf<
+      GeneratedJWKMap["RS512"]
+    >();
+    expectTypeOf<GenerateKeyReturn<"RS512", {}>>().toEqualTypeOf<CryptoKeyPair>();
+  });
+
+  it("types importKey after the kind of key it is given", () => {
+    expectTypeOf((key: Bytes) => importKey(key)).returns.resolves.toEqualTypeOf<Bytes>();
+    expectTypeOf((key: CryptoKey) => importKey(key)).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf((key: JWK_oct<"HS256">) => importKey(key)).returns.resolves.toEqualTypeOf<Bytes>();
+    expectTypeOf((key: JWK_EC_Public) =>
+      importKey(key, "ES256"),
+    ).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf((key: JWK_RSA_Private) =>
+      importKey(key, { alg: "RS256", expect: "private" }),
+    ).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf((key: JWK_OKP_Public) =>
+      importKey(key),
+    ).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf((key: JWK) => importKey(key)).returns.resolves.toEqualTypeOf<CryptoKey | Bytes>();
+    expectTypeOf((key: CryptoKey | JWK_oct) => importKey(key)).returns.resolves.toEqualTypeOf<
+      CryptoKey | Bytes
+    >();
+    expectTypeOf((key: JWK_oct) =>
+      importKey(key, {
+        asCryptoKey: true,
+        algorithm: { name: "HMAC", hash: "SHA-256" },
+        usage: ["sign"],
+      }),
+    ).returns.resolves.toEqualTypeOf<CryptoKey>();
+    expectTypeOf<ImportedKey<JWK_EC_Private>>().toEqualTypeOf<ImportedKeyMap["asymmetric"]>();
+  });
+
+  it("types exportKey as a JWK unless the caller narrows it", () => {
+    expectTypeOf((key: CryptoKey) => exportKey(key)).returns.resolves.toEqualTypeOf<JWK>();
+    expectTypeOf((key: CryptoKey) =>
+      exportKey<JWK_oct>(key, { kid: "k1" }),
+    ).returns.resolves.toEqualTypeOf<JWK_oct>();
+  });
+
+  it("types the wrapKey ECDH-ES epk and ephemeral key as EC or OKP", () => {
+    expectTypeOf((cek: Bytes, recipient: CryptoKey) =>
+      wrapKey(cek, recipient, { alg: "ECDH-ES+A128KW" }),
+    )
+      .returns.resolves.toHaveProperty("epk")
+      .toEqualTypeOf<JWK_EC_Public | JWK_OKP_Public>();
+    expectTypeOf((cek: Bytes, recipient: JWK_OKP_Public<"ECDH-ES">, ephemeral: JWK_OKP_Private) =>
+      wrapKey(cek, recipient, {
+        alg: "ECDH-ES",
+        ecdh: { ephemeralKey: ephemeral, enc: "A128GCM" },
+      }),
+    )
+      .returns.resolves.toHaveProperty("epk")
+      .toEqualTypeOf<JWK_EC_Public | JWK_OKP_Public>();
+    expectTypeOf((cek: Bytes, recipient: CryptoKey, pub: JWK_OKP_Public, priv: JWK_OKP_Private) =>
+      wrapKey(cek, recipient, {
+        alg: "ECDH-ES+A256KW",
+        ecdh: { ephemeralKey: { publicKey: pub, privateKey: priv } },
+      }),
+    )
+      .returns.resolves.toHaveProperty("encryptedKey")
+      .toEqualTypeOf<Bytes>();
   });
 });
 

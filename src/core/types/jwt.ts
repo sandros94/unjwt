@@ -55,7 +55,29 @@ export type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unkn
  * The mode is the caller's declaration of what the payload is: the decoded
  * content never decides its own shape.
  */
-export type JOSEPayloadMode = "json" | "string" | "bytes";
+export type JOSEPayloadMode = keyof JOSEPayloadTypeMap;
+
+/**
+ * The payload each {@link JOSEPayloadMode} resolves to: `T` (the claims) under
+ * `"json"`, a `string` under `"string"`, the raw bytes under `"bytes"`.
+ */
+export interface JOSEPayloadTypeMap<T = JWTClaims> {
+  json: T;
+  string: string;
+  bytes: Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * The payload a verification or decryption returns under `Mode`. A union of
+ * modes yields the union of their payloads.
+ *
+ * @example
+ * ```ts
+ * type A = PayloadOf<"string">; // string
+ * type B = PayloadOf<"json", { sub: string }>; // { sub: string }
+ * ```
+ */
+export type PayloadOf<Mode extends JOSEPayloadMode, T = JWTClaims> = JOSEPayloadTypeMap<T>[Mode];
 
 export interface JWTClaims {
   /** "iss" (Issuer) Claim */

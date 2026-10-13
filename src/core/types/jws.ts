@@ -142,8 +142,13 @@ export interface JWSVerifyResult<T extends JOSEPayload = JOSEPayload> {
   protectedHeader: JWSProtectedHeader;
 }
 
-/** Options for JWS verification */
-export interface JWSVerifyOptions extends JWTClaimValidationOptions {
+/**
+ * Options for JWS verification. `Mode` is the `payload` option's literal, from
+ * which {@link verify} reads the payload type it returns.
+ */
+export interface JWSVerifyOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends JWTClaimValidationOptions {
   /**
    * List of allowed algorithms. If provided, the JWS `alg` must be in this list.
    * When omitted, the allowlist is inferred from the key's shape — keys without
@@ -187,7 +192,7 @@ export interface JWSVerifyOptions extends JWTClaimValidationOptions {
    *
    * @default "json"
    */
-  payload?: JOSEPayloadMode;
+  payload?: Mode;
   /**
    * If true, forces the payload to be returned as a `Uint8Array`.
    *
@@ -286,7 +291,9 @@ export interface JWSMultiSignOptions extends StrictOmit<
 > {}
 
 /** Options for {@link verifyMulti}. Extends {@link JWSVerifyOptions}. */
-export interface JWSMultiVerifyOptions extends JWSVerifyOptions {
+export interface JWSMultiVerifyOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends JWSVerifyOptions<Mode> {
   /**
    * How many `signatures[]` entries the serialization may carry, and how many
    * JWK Set candidates each of them may be tried against. A token carrying
@@ -331,10 +338,9 @@ export interface JWSMultiVerifyResult<T extends JOSEPayload = JOSEPayload> exten
  * {@link JWSMultiVerifyOptions} minus `strictSignerMatch` (not meaningful when
  * every signature is independently reported).
  */
-export interface JWSMultiVerifyAllOptions extends StrictOmit<
-  JWSMultiVerifyOptions,
-  "strictSignerMatch"
-> {}
+export interface JWSMultiVerifyAllOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends StrictOmit<JWSMultiVerifyOptions<Mode>, "strictSignerMatch"> {}
 
 /**
  * Per-signature outcome collected by {@link verifyMultiAll}. Discriminated by

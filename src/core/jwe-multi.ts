@@ -9,7 +9,7 @@ import type {
   ContentEncryptionAlgorithm,
   UnwrapKeyOptions,
 } from "./types/jwk";
-import type { JOSEPayload, JWTClaims } from "./types/jwt";
+import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt";
 import type {
   JWEEncryptJWK,
   JWEHeaderParameters,
@@ -248,28 +248,30 @@ export async function encryptMulti(
  * for the recipient's `alg`, or a mismatched `epk` curve skips it — and throws
  * `ERR_JWE_NO_MATCHING_RECIPIENT` when none qualifies.
  *
+ * The payload type follows `options.payload` (see {@link JOSEPayloadTypeMap}):
+ * no `payload` or `"json"` → `T`, the claims (`decryptMulti<MyClaims>(jwe, key)`);
+ * `"string"` → `string`; `"bytes"` → `Uint8Array`; a non-literal mode → the
+ * union of what its modes return.
+ *
  * For compact (string) tokens, use {@link decrypt}.
  */
-export async function decryptMulti(
+export async function decryptMulti<T extends Record<string, unknown> = JWTClaims>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,
-  options: JWEMultiDecryptOptions & { payload: "bytes" },
-): Promise<JWEMultiDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decryptMulti(
-  jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
-  keyOrLookup: JWEMultiDecryptKey,
-  options: JWEMultiDecryptOptions & { payload: "string" },
-): Promise<JWEMultiDecryptResult<string>>;
+  options?: JWEMultiDecryptOptions<"json"> & { forceUint8Array?: false },
+): Promise<JWEMultiDecryptResult<T>>;
+/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function decryptMulti(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,
   options: JWEMultiDecryptOptions & { forceUint8Array: true },
 ): Promise<JWEMultiDecryptResult<Uint8Array<ArrayBuffer>>>;
-export async function decryptMulti<T extends Record<string, unknown> = JWTClaims>(
+/** Decrypts a JWE JSON Serialization whose plaintext decodes under `options.payload`; see {@link PayloadOf}. */
+export async function decryptMulti<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,
-  options?: JWEMultiDecryptOptions,
-): Promise<JWEMultiDecryptResult<T>>;
+  options?: JWEMultiDecryptOptions<Mode>,
+): Promise<JWEMultiDecryptResult<PayloadOf<Mode>>>;
 export async function decryptMulti<T extends JOSEPayload = JOSEPayload>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,

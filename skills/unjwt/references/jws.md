@@ -107,6 +107,14 @@ Verifies a JWS token and returns its payload.
 
 **Returns:** `Promise<JWSVerifyResult<T>>` — `{ payload: T, protectedHeader: JWSProtectedHeader }`
 
+**Return types follow the option.** The payload type is read off `JOSEPayloadTypeMap` by the `payload` literal (`PayloadOf<Mode, T>`):
+
+- no `payload` or `payload: "json"` → `T`, the claims — `JWTClaims` unless given: `verify<MyClaims>(token, key)`
+- `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array<ArrayBuffer>`
+- a `payload` that is not a literal (a `JOSEPayloadMode` variable, a `JWSVerifyOptions` object) → the union of what its modes return
+- the deprecated `forceUint8Array: true` → `Uint8Array<ArrayBuffer>`
+- a claims type together with `payload: "string"` / `"bytes"` is a type error
+
 **Header validation (before any key work):**
 
 - The protected header must decode to a JSON **object** — `null`, an array or a JSON scalar throws `ERR_JWS_INVALID` (`"Invalid JWS: Protected header must be a JSON object."`)
@@ -177,7 +185,7 @@ Accepts an already-parsed General or Flattened JWS and returns the first signatu
   - `limits?: { signatures?: number; keyCandidates?: number }` — `signatures` defaults to `16`; a serialization carrying more throws `ERR_JWS_INVALID` (`"Invalid JWS: 17 signatures exceed the limit of 16."`) before any signature is read
   - `strictSignerMatch?: boolean` — when `true`, skip any signature whose header does not unambiguously match the provided key (by `kid`, then by `kty`/`crv`/length). Throws `ERR_JWS_NO_MATCHING_SIGNER` if nothing matches; no trial verification fallback.
 
-**Returns:** `JWSMultiVerifyResult<T>` — `{ payload, protectedHeader, signerIndex, signerHeader? }`:
+**Returns:** `JWSMultiVerifyResult<T>` — `{ payload, protectedHeader, signerIndex, signerHeader? }`. The payload type follows `options.payload` exactly as for `verify` (`PayloadOf<Mode>`; `verifyMulti<MyClaims>(jws, key)` for the claims):
 
 - `protectedHeader: JWSHeaderParameters` — exactly what was signed. `alg` appears here only when protected; a Flattened JWS with no `protected` member yields `{}`.
 - `signerIndex: number` — index into `jws.signatures` that verified.
@@ -214,7 +222,7 @@ Structural errors in the envelope itself (non-object input, missing `payload` / 
 - `keyResolver` — **required** `JWKLookupFunction`. Per-signature keys are typically different, so the function form is mandatory. Wrap a static `JWKSet` as `(header) => mySet` if that's all you have.
 - `options?: JWSMultiVerifyAllOptions` — inherits `JWSMultiVerifyOptions` minus `strictSignerMatch` (not meaningful when every signature is independently reported). Keeps `algorithms`, `limits`, `typ`, `payload`, `validateClaims`, `recognizedHeaders`, and all `JWTClaimValidationOptions`. A `string` key from the resolver is reported as that signature's `ERR_JWK_INVALID` outcome rather than thrown. The `signatures` limit is the exception to the never-throws rule: a token carrying more signatures than the cap throws `ERR_JWS_INVALID`, since there is no per-signature outcome to report for signatures that are never looked at.
 
-**Returns:** `Promise<JWSMultiVerifyOutcome<T>[]>` — one entry per signature. Each is a discriminated union:
+**Returns:** `Promise<JWSMultiVerifyOutcome<T>[]>` — one entry per signature; a verified outcome's `payload` follows `options.payload` exactly as for `verify` (`PayloadOf<Mode>`). Each is a discriminated union:
 
 - `{ signerIndex, verified: true, payload, protectedHeader, signerHeader? }` — verified cryptographically, `typ` matched (if required), JWT claims passed (if enabled).
 - `{ signerIndex, verified: false, error, protectedHeader?, signerHeader? }` — failure at some step. `protectedHeader` / `signerHeader` are populated when they were successfully parsed before failure; they're missing when the signature was structurally malformed.
@@ -374,11 +382,22 @@ interface JWSSignOptions {
   notBeforeAt?: Date;
 }
 
-interface JWSVerifyOptions {
+// The payload each mode returns; `PayloadOf<Mode, T>` reads one entry (a union of
+// modes yields the union of payloads). Also exported from unjwt/jwe and the root.
+interface JOSEPayloadTypeMap<T = JWTClaims> {
+  json: T;
+  string: string;
+  bytes: Uint8Array<ArrayBuffer>;
+}
+type JOSEPayloadMode = keyof JOSEPayloadTypeMap; // "json" | "string" | "bytes"
+type PayloadOf<Mode extends JOSEPayloadMode, T = JWTClaims> = JOSEPayloadTypeMap<T>[Mode];
+
+// `Mode` is the `payload` literal verify reads its return type from.
+interface JWSVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "keyCandidates">;
-  payload?: "json" | "string" | "bytes";
+  payload?: Mode;
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
@@ -446,11 +465,11 @@ interface JWSMultiSignOptions {
   notBeforeAt?: Date;
 }
 
-interface JWSMultiVerifyOptions {
+interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
-  payload?: "json" | "string" | "bytes";
+  payload?: Mode;
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
@@ -466,11 +485,11 @@ interface JWSMultiVerifyOptions {
   strictSignerMatch?: boolean;
 }
 
-interface JWSMultiVerifyAllOptions {
+interface JWSMultiVerifyAllOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
-  payload?: "json" | "string" | "bytes";
+  payload?: Mode;
   /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
   forceUint8Array?: boolean;
   validateClaims?: boolean;
