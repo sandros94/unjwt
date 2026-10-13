@@ -8,6 +8,8 @@ import type {
   JWEEncryptOptions,
   JWK_EC_Public,
   JWK_EC_Private,
+  JWK_OKP_Public,
+  JWK_OKP_Private,
   JOSELimits,
   JWTClaimValidationOptions,
   JWTClaims,
@@ -397,7 +399,10 @@ export function buildJWKSetFilter(
  */
 export function parseEphemeralKey(
   ephemeralKey: NonNullable<JWEEncryptOptions["ecdh"]>["ephemeralKey"],
-): { epk: CryptoKey | JWK_EC_Public; epkPrivateKey: CryptoKey | JWK_EC_Private } {
+): {
+  epk: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
+  epkPrivateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
+} {
   if (isCryptoKeyPair(ephemeralKey)) {
     return { epk: ephemeralKey.publicKey, epkPrivateKey: ephemeralKey.privateKey };
   }

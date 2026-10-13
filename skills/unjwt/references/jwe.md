@@ -393,10 +393,11 @@ interface JWEEncryptOptions {
     ephemeralKey?:
       | CryptoKey
       | JWK_EC_Private
+      | JWK_OKP_Private
       | CryptoKeyPair
       | {
-          publicKey: CryptoKey | JWK_EC_Public;
-          privateKey: CryptoKey | JWK_EC_Private;
+          publicKey: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
+          privateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
         };
     partyUInfo?: Uint8Array<ArrayBuffer>;
     partyVInfo?: Uint8Array<ArrayBuffer>;
@@ -496,10 +497,11 @@ interface JWEMultiRecipient {
     ephemeralKey?:
       | CryptoKey
       | JWK_EC_Private
+      | JWK_OKP_Private
       | CryptoKeyPair
       | {
-          publicKey: CryptoKey | JWK_EC_Public;
-          privateKey: CryptoKey | JWK_EC_Private;
+          publicKey: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
+          privateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
         };
     partyUInfo?: Uint8Array<ArrayBuffer>;
     partyVInfo?: Uint8Array<ArrayBuffer>;

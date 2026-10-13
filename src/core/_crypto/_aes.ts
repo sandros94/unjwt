@@ -3,6 +3,7 @@ import { base64UrlStringify } from "../utils/base64";
 import { concatUint8Arrays } from "../utils/array";
 import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
+import { quoteTokenValue } from "../utils/_text";
 import { lengthOf } from "./_key-algorithm";
 
 // --- CEK / IV generation ---
@@ -31,7 +32,7 @@ const CEK_BIT_LENGTHS: Record<string, number> = {
 export function bitLengthIV(alg: string): number {
   const length = IV_BIT_LENGTHS[alg];
   if (length === undefined) {
-    throw new JWTError(`Unsupported JWE Algorithm: ${alg}`, "ERR_JWE_INVALID");
+    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
   }
   return length;
 }
@@ -63,7 +64,7 @@ const TAG_BIT_LENGTHS: Record<string, number> = {
 export function bitLengthTag(alg: string): number {
   const length = TAG_BIT_LENGTHS[alg];
   if (length === undefined) {
-    throw new JWTError(`Unsupported JWE Algorithm: ${alg}`, "ERR_JWE_INVALID");
+    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
   }
   return length;
 }
@@ -77,7 +78,7 @@ export function checkTagLength(enc: string, tag: Uint8Array<ArrayBuffer>): void 
 export function bitLengthCEK(alg: string): number {
   const length = CEK_BIT_LENGTHS[alg];
   if (length === undefined) {
-    throw new JWTError(`Unsupported JWE Algorithm: ${alg}`, "ERR_JWE_INVALID");
+    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
   }
   return length;
 }

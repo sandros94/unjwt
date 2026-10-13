@@ -8,10 +8,11 @@ import type {
   JWEHeaderParameters,
   JWK,
   JWK_EC,
+  JWK_OKP,
   JWK_EC_Public,
   JWK_OKP_Public,
 } from "../types";
-import { isJWK, isAsymmetricJWK, assertCryptoKey, isCryptoKey } from "../utils/guards";
+import { isJWK, assertCryptoKey, isCryptoKey } from "../utils/guards";
 import { bitLengthCEK, generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes";
 import { jwkTokey, keyToJWK } from "./_key-codec";
 import { encryptRSAES } from "./_rsa";
@@ -64,7 +65,7 @@ export async function encryptKey(
       if (epkPrivateKey) {
         ephemeralPrivateKey = await ensurePrivateKey(alg, epkPrivateKey);
         const publicSource = providedEpk ?? epkPrivateKey;
-        epkHeader = await exportPublicJwkFrom(alg, publicSource);
+        epkHeader = await exportPublicJwkFrom(publicSource);
       } else {
         if (providedEpk) {
           throw new JWTError(
@@ -74,7 +75,7 @@ export async function encryptKey(
         }
         const generated = await generateEphemeralKeyPair(key);
         ephemeralPrivateKey = generated.privateKey;
-        epkHeader = await exportPublicJwkFrom(alg, generated.publicKey);
+        epkHeader = await exportPublicJwkFrom(generated.publicKey);
       }
 
       const sharedSecret = await deriveECDHESKey(
@@ -136,7 +137,7 @@ export async function encryptKey(
     }
     default: {
       throw new JWTError(
-        `Invalid or unsupported "alg" (JWE Algorithm) header value: ${alg}`,
+        `Invalid or unsupported "alg" (JWE Algorithm) header value: ${quoteTokenValue(alg)}`,
         "ERR_JWE_ALG_NOT_ALLOWED",
       );
     }
@@ -276,7 +277,10 @@ function toPublicEpkJwk(jwk: JWK): JWK_EC_Public | JWK_OKP_Public {
   return { kty, crv, x, y };
 }
 
-async function ensurePrivateKey(alg: string, value: CryptoKey | JWK_EC): Promise<CryptoKey> {
+async function ensurePrivateKey(
+  alg: string,
+  value: CryptoKey | JWK_EC | JWK_OKP,
+): Promise<CryptoKey> {
   const normalized = await normalizeKey(value, alg);
   if (!(normalized instanceof CryptoKey)) {
     throw new JWTError(
@@ -294,29 +298,16 @@ async function ensurePrivateKey(alg: string, value: CryptoKey | JWK_EC): Promise
 }
 
 async function exportPublicJwkFrom(
-  alg: string,
-  value: CryptoKey | JWK_EC,
+  value: CryptoKey | JWK_EC | JWK_OKP,
 ): Promise<JWK_EC_Public | JWK_OKP_Public> {
-  if (isCryptoKey(value)) {
-    try {
-      return toPublicEpkJwk(await keyToJWK(value));
-    } catch (error_) {
-      throw new JWTError(
-        "ECDH-ES ephemeral CryptoKey must be extractable to export as JWK.",
-        "ERR_JWK_INVALID",
-        error_,
-      );
-    }
-  }
-  if (isJWK(value) && isAsymmetricJWK(value) && value.kty === "EC") {
-    return toPublicEpkJwk(value);
-  }
-  const normalized = await normalizeKey(value, alg);
-  if (!(normalized instanceof CryptoKey)) {
+  if (!isCryptoKey(value)) return toPublicEpkJwk(value);
+  try {
+    return toPublicEpkJwk(await keyToJWK(value));
+  } catch (error_) {
     throw new JWTError(
-      "ECDH-ES ephemeral public key must be a CryptoKey or convertible JWK.",
+      "ECDH-ES ephemeral CryptoKey must be extractable to export as JWK.",
       "ERR_JWK_INVALID",
+      error_,
     );
   }
-  return exportPublicJwkFrom(alg, normalized);
 }

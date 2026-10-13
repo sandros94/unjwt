@@ -137,11 +137,11 @@ export interface JWEKeyManagementHeaderParameters {
   /**
    * For Internal use only
    */
-  epk?: CryptoKey | JWK_EC_Public;
+  epk?: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
   /**
    * For Internal use only
    */
-  epkPrivateKey?: CryptoKey | JWK_EC_Private;
+  epkPrivateKey?: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
 }
 
 /**
@@ -216,10 +216,11 @@ export interface JWEEncryptOptions {
     ephemeralKey?:
       | CryptoKey
       | JWK_EC_Private
+      | JWK_OKP_Private
       | CryptoKeyPair
       | {
-          publicKey: CryptoKey | JWK_EC_Public;
-          privateKey: CryptoKey | JWK_EC_Private;
+          publicKey: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
+          privateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
         };
     /** ECDH-ES Agreement PartyUInfo. */
     partyUInfo?: Uint8Array<ArrayBuffer>;

@@ -1317,6 +1317,23 @@ describe.concurrent("JWE Utilities", () => {
       expect(payload).toEqual(plaintextObj);
     });
 
+    it("encrypts with an explicit X25519 ephemeral key pair and decrypts", async () => {
+      const recipient = await generateJWK("ECDH-ES+A128KW", { namedCurve: "X25519" });
+      const ephemeral = await generateJWK("ECDH-ES+A128KW", { namedCurve: "X25519" });
+
+      for (const ephemeralKey of [ephemeral, ephemeral.privateKey]) {
+        const jwe = await encrypt(plaintextObj, recipient.publicKey, {
+          alg: "ECDH-ES+A128KW",
+          enc,
+          ecdh: { ephemeralKey },
+        });
+        const { epk } = JSON.parse(base64UrlParse(jwe.split(".")[0])) as JWEHeaderParameters;
+        expect(epk).toEqual({ kty: "OKP", crv: "X25519", x: ephemeral.publicKey.x });
+        const { payload } = await decrypt(jwe, recipient.privateKey);
+        expect(payload).toEqual(plaintextObj);
+      }
+    });
+
     it("refuses an ephemeral public JWK whose coordinates are not strings", async () => {
       const ephemeral = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-256" });
       for (const publicKey of [

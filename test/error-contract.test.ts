@@ -24,6 +24,7 @@ import {
 } from "../src/core/jwk";
 import { computeDurationInSeconds } from "../src/core/utils";
 import type {
+  ContentEncryptionAlgorithm,
   JWK_EC_Private,
   JWK_EC_Public,
   JWEGeneralSerialization,
@@ -252,6 +253,17 @@ describe("key management errors", () => {
         }),
       "ERR_JWK_INVALID",
     );
+  });
+
+  it("wrapKey quotes and bounds an unsupported ECDH-ES enc in its error message", async () => {
+    const recipient = await generateJWK("ECDH-ES");
+    const enc = "A".repeat(200) as ContentEncryptionAlgorithm;
+    const error = await expectCode(
+      () => wrapKey(new Uint8Array(32), recipient.publicKey, { alg: "ECDH-ES", ecdh: { enc } }),
+      "ERR_JWE_INVALID",
+    );
+    expect(error.message).toContain(`"${"A".repeat(64)}…"`);
+    expect(error.message).not.toContain("A".repeat(65));
   });
 
   it("wrapKey rejects RSA-OAEP key material that is not a key", async () => {
