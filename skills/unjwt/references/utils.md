@@ -156,7 +156,8 @@ Import: `import { ... } from "unjwt/internal"`
 - `applyTypDefault(header, payload)` — sets `typ: "JWT"` on an object payload's header when it
   has none; never adds a `cty`; mutates the header in place.
 - `parsePayloadBytes(bytes, options?)` / `parsePayloadSegment(segment, options?)` — a
-  verified/decrypted payload under a declared mode. `options.payload?: "json" | "string" | "bytes"`
+  verified/decrypted payload under a declared mode; the return type follows `options.payload`
+  (`parsePayloadBytes<MyClaims>(bytes)` names the JSON shape, as `verify<MyClaims>` does). `options.payload?: "json" | "string" | "bytes"`
   — `"json"` (default) requires UTF-8 JSON naming a non-null, non-array object; `"string"` requires
   valid UTF-8; `"bytes"` returns the input. `options.family?: "JWS" | "JWE"` picks the rejection code
   (`ERR_JWS_INVALID` by default). Options type: `ParsePayloadOptions`.
@@ -164,11 +165,14 @@ Import: `import { ... } from "unjwt/internal"`
 - `getPlaintextBytes(payload)` — `string | Uint8Array | Record<string, unknown>` to bytes; a
   non-serializable object is `ERR_INVALID_OPTION`.
 - `computeJwtTimeClaims(payload, options?)` — `iat` plus `exp`/`nbf` from
-  `expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`).
+  `expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`, an alias of
+  `JWTTimeClaimOptions` — the base `JWSSignOptions` and `JWEEncryptOptions` extend).
 - `validateCriticalHeadersJWS(header, recognized?)` / `validateCriticalHeadersJWE(header, recognized?)`
   — RFC 7515 §4.1.11 / RFC 7516 §4.1.13 `crit` processing.
 - `assertCritShape(crit, { family, code? })` — `crit` is a non-empty string array naming no
   registered header parameter.
+- `expiredClaimMessage(exp)` — the `ERR_JWT_EXPIRED` message for an `exp` (NumericDate, seconds)
+  that has passed; the session adapters raise the same text for an in-memory expiry.
 
 ### Deprecated aliases in `unjwt/utils` (removed in v0.9)
 

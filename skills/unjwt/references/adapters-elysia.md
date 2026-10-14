@@ -159,7 +159,7 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
     // JWSSignOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
     // `protectedHeader.typ` sets the session `typ` (default "session+jwt") incoming tokens must carry
     signOptions?: SessionSignOptions;
-    /** Claim validation the adapter does not own — a token's own `exp` bounds its life, `typ` is the signed `typ`. */
+    /** JWSVerifyOptions the adapter does not own (`limits`, `allowSymmetricJWKSet`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
     verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TContext>;
@@ -213,6 +213,9 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
   `jwe.encryptOptions.alg` + `enc`), else `ERR_SESSION_CONFIG_INVALID`. A configured JWK is
   imported when the session is created: one it cannot use (undecodable `k`, wrong AES key length)
   throws `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`.
+  A pair half that is not the half it is named after — for a JWS `publicKey` list or set, any
+  entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or
+  `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
 - **Token source.** The cookie is read first; the session header is the fallback when the cookie
   carries no token. The header carries the bare token or `Bearer <token>`; any other value —
   blank, another scheme such as `Basic …`, a `Bearer` with no token — carries none, so it never
@@ -221,6 +224,10 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
 - **Cookie lifetime.** A session with a lifetime sets the cookie's `expires` to the token's `exp`
   and drops a configured `cookie.maxAge` (`Max-Age` beats `Expires`, RFC 6265 §5.3); without one,
   `cookie.expires` / `cookie.maxAge` are written as configured.
+  `clear()` and an expired read write `Max-Age=0` plus an epoch `Expires` on the cookie and every
+  chunk.
+  There is no lower-level token getter: `session.token` reads the session state, empty after
+  `clear()`.
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a
   cookie that shadows the session (the adapter reads the first cookie of a name); the defaults
   satisfy the prefix. The default session header drops a `__Host-` / `__Secure-` prefix:

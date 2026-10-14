@@ -217,8 +217,8 @@ Wraps a Content Encryption Key using the specified key management algorithm.
     and known-vector reproduction, never derive it from external input)
   - `p2s?`, `p2c?` — PBES2 salt and iteration count; both **required** under a PBES2 `alg` (there is no default here — the defaults belong to `encrypt`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `600_000`, the bounds `unwrapKey` enforces by default, or `ERR_INVALID_OPTION`
   - `ecdh?` — ECDH-ES options:
-    - `ephemeralKey?` — custom ephemeral key (`CryptoKey`, `CryptoKeyPair`, `JWK_EC_Private` / `JWK_OKP_Private`, or a `{ publicKey, privateKey }` pair of either); generated automatically on the recipient's curve if omitted
-    - `partyUInfo?`, `partyVInfo?` — agreement party info
+    - `ephemeralKey?` — custom ephemeral key (`CryptoKey`, `CryptoKeyPair`, `JWK_EC_Private` / `JWK_OKP_Private`, or a `{ publicKey, privateKey }` pair of either); generated automatically on the recipient's curve if omitted. An ephemeral JWK is accepted whatever ECDH-ES `alg` it declares (`"ECDH-ES+A256KW"` included), as in `encrypt`; a curve other than the recipient key's is `ERR_JWK_INVALID`
+    - `partyUInfo?`, `partyVInfo?` — agreement party info, at most 1024 bytes each (`ERR_INVALID_OPTION`); an empty value is omitted from the result
     - `enc?` — content encryption algorithm, **required** for bare `"ECDH-ES"` (direct key agreement)
 
 Returns `Promise<WrapKeyResult<TAlg>>`, narrowed by `alg`:

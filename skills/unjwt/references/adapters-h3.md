@@ -34,6 +34,9 @@ Peer dep: `h3`
   `ERR_SESSION_CONFIG_INVALID`. A configured JWK is imported when the session is opened: one the
   session cannot use (undecodable `k`, wrong AES key length for its `alg`) throws
   `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`.
+  A pair half that is not the half it is named after — for a JWS `publicKey` list or set, any
+  entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or
+  `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
 - **Reserved claims.** `jti`, `iat`, `exp` and `nbf` are adapter-owned. They are stripped
   from every `update()` payload (object and updater-function form alike) and never read
   back out of `session.data`. A token's lifetime comes only from `maxAge` — on the config,
@@ -66,6 +69,8 @@ Peer dep: `h3`
   sets the cookie's `expires` to the token's `exp` and drops a configured `cookie.maxAge`
   (`Max-Age` beats `Expires`, RFC 6265 §5.3). Without a lifetime, `cookie.expires` /
   `cookie.maxAge` are written as configured.
+  `clear()` and an expired read write `Max-Age=0` plus an epoch `Expires` on the cookie and every
+  chunk.
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`): every adapter reads the first cookie
   of a name, so a sibling subdomain could otherwise plant one that shadows the session; the
   defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix. The default session header
@@ -271,7 +276,7 @@ interface SessionConfigJWS<
     // notBeforeAt are not accepted here. `protectedHeader.typ` sets the
     // session `typ` (default "session+jwt") that incoming tokens must carry.
     signOptions?: SessionSignOptions;
-    /** Claim validation the adapter does not own — a token's own `exp` bounds its life, `typ` is the signed `typ`. */
+    /** JWSVerifyOptions the adapter does not own (`limits`, `allowSymmetricJWKSet`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
     verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;

@@ -67,6 +67,7 @@ src/
                         # (error factories, reserved-claim stripping, token-source rules, typ/exp helpers)
     _session-core.ts    # the one session core: state, store/port/codec contracts, load/issue/drop, hooks, manager
     _session-types.ts   # session types every adapter exposes (SessionClaims/Data/Update/Manager/Hooks)
+    _session-codec.ts   # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
     _codec-jws.ts       # JWS half of a session: sign/verify, key resolution, JWS config + cookie defaults
     _codec-jwe.ts       # JWE half of a session: encrypt/decrypt, key resolution, JWE config + cookie defaults
     _chunked-cookie.ts  # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
@@ -91,7 +92,7 @@ src/
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
 - **Session adapters** store JWT tokens in chunked cookies — every adapter through `src/adapters/_chunked-cookie.ts` over its framework's own cookie primitives (h3 v2 and h3 v1 via their `_cookie.ts`, Elysia via its reactive jar), all writing the same `__chunked__N` + `<name>.1…N` layout. Sessions are lazy — `id` is `undefined` until `session.update()` is called. `jti`/`iat`/`exp`/`nbf` are adapter-owned; the cookie is read before the session header; every adapter error is a `JWTError` (`ERR_SESSION_*`).
-- **One session core, two codecs, three ports:** `src/adapters/_session-core.ts` owns the whole session lifecycle (token read, expiry, hook dispatch, update with rollback, clear, the manager's lazy getters). It works through two contracts: a _codec_ (`_codec-jws.ts` / `_codec-jwe.ts`) that issues and opens the token and carries the family's defaults, and a _port_ (each adapter's `session/_shared.ts`) that reaches the framework — session storage, request token, cookie writes, writable-response check. `src/adapters/<fw>/session/{jws,jwe}.ts` is then the public surface alone: the exported functions, the config/hook types, and the binding of port to codec. New session logic belongs in the core, new token rules in a codec, and anything that touches a framework in its port.
+- **One session core, two codecs, three ports:** `src/adapters/_session-core.ts` owns the whole session lifecycle (token read, expiry, hook dispatch, update with rollback, clear, the manager's lazy getters). It works through two contracts: a _codec_ (`_codec-jws.ts` / `_codec-jwe.ts`, each a spec over `_session-codec.ts`) that issues and opens the token and carries the family's defaults, and a _port_ (each adapter's `session/_shared.ts`) that reaches the framework — session storage, request token, cookie writes, writable-response check. `src/adapters/<fw>/session/{jws,jwe}.ts` is then the public surface alone: the exported functions, the config/hook types, and the binding of port to codec. New session logic belongs in the core, new token rules in a codec, and anything that touches a framework in its port.
 
 ## Testing conventions
 
