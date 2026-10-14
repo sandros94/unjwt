@@ -85,7 +85,7 @@ describe("elysia JWS session core", () => {
 
     expect(session.id).toBeTypeOf("string");
     expect(session.token).toBeTypeOf("string");
-    expect((session.data as any).user).toBe("alice");
+    expect(session.data.user).toBe("alice");
     expect(liveCookies(store)["elysia-jws"]).toBe(session.token);
     expect(onUpdate).toHaveBeenCalledOnce();
     expect(onUpdate.mock.calls[0][0].oldSession.id).toBeUndefined();
@@ -103,8 +103,8 @@ describe("elysia JWS session core", () => {
     const s2 = await createJWSSession(second.context, { ...cfg, hooks: { onRead } });
 
     expect(s2.id).toBe(s1.id);
-    expect((s2.data as any).user).toBe("bob");
-    expect((s2.data as any).role).toBe("admin");
+    expect(s2.data.user).toBe("bob");
+    expect(s2.data.role).toBe("admin");
     expect(onRead).toHaveBeenCalledOnce();
   });
 
@@ -120,7 +120,7 @@ describe("elysia JWS session core", () => {
     const session = await createJWSSession(context, { ...cfg, hooks: { onRead } });
 
     expect(session.id).toBe(minted.id);
-    expect((session.data as any).user).toBe("carol");
+    expect(session.data.user).toBe("carol");
     expect(onRead).toHaveBeenCalledOnce();
   });
 
@@ -172,7 +172,7 @@ describe("elysia JWS session core", () => {
 
     expect(onError).toHaveBeenCalledOnce();
     expect(session.id).toBe(idBefore);
-    expect((session.data as any).user).toBe("erin");
+    expect(session.data.user).toBe("erin");
     expect("bad" in session.data).toBe(false);
   });
 
@@ -196,8 +196,8 @@ describe("elysia JWS session core", () => {
       hooks: {
         onUpdate: ({ session: s, oldSession }) => {
           snapshots.push({
-            oldRole: (oldSession.data as any).user?.role,
-            newRole: (s.data as any).user?.role,
+            oldRole: (oldSession.data.user as { role?: string } | undefined)?.role,
+            newRole: (s.data.user as { role?: string } | undefined)?.role,
           });
         },
       },
@@ -205,7 +205,7 @@ describe("elysia JWS session core", () => {
 
     await session.update({ user: { role: "user" } });
     await session.update((data) => {
-      (data as any).user.role = "admin";
+      (data.user as { role: string }).role = "admin";
       return {};
     });
 
@@ -240,7 +240,7 @@ describe("elysia JWS session core", () => {
     const s2 = await createJWSSession(second.context, cfg);
 
     expect(s2.id).toBe(s1.id);
-    expect((s2.data as any).user).toBe("grace");
+    expect(s2.data.user).toBe("grace");
   });
 
   it("omits exp when maxAge is unset and enforces it when set", async () => {

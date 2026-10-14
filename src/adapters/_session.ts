@@ -1,17 +1,13 @@
 import { JWTError, isJWTError } from "../core/error";
 import { importKey } from "../core/jwk";
-import { computeDurationInSeconds } from "../core/utils/jwt";
-import { isJWK } from "../core/utils/guards";
-import type { ExpiresIn, JWTClaims } from "../core/types";
+import { computeDurationInSeconds, expiredClaimMessage } from "../core/utils/jwt";
+import { isJWK, isPlainObject } from "../core/utils/guards";
+import { quoteTokenValue } from "../core/utils/_text";
+import type { ExpiresIn } from "../core/types";
 
-/**
- * Claims the adapters own. They are minted fresh on every issue, stripped from
- * every `update()` payload, and dropped from a decoded token before it becomes
- * `session.data`.
- */
+/** Adapter-owned claims: minted on every issue, stripped from `update()` payloads and `session.data`. */
 export const RESERVED_CLAIMS: readonly string[] = ["jti", "iat", "exp", "nbf"];
 
-/** `typ` a session writes and requires unless its config names another. */
 const SESSION_TYP = "session+jwt";
 
 const FORBIDDEN_KEYS: readonly string[] = ["__proto__", "constructor", "prototype"];
@@ -22,7 +18,6 @@ export interface SessionIssueOptions {
   maxAge?: ExpiresIn;
 }
 
-/** The parts of a session config that decide where the token is read from. */
 export interface SessionTokenSource {
   /** Request header to read the token from, or `false` for cookies only. */
   sessionHeader?: false | string;
@@ -55,43 +50,23 @@ export function readOnlyEventError(message: string): JWTError<"ERR_SESSION_READO
   return new JWTError(message, "ERR_SESSION_READONLY_EVENT");
 }
 
-/**
- * The error an in-memory session raises once its `expiresAt` instant has
- * passed, shaped like the core claim-validation failure so `onExpire` receives
- * the same class, code and `cause` on both the verify and the in-memory path.
- */
+/** Shaped like the core claim failure so `onExpire` gets the same error on both expiry paths. */
 export function expiredSessionError(options: {
   id: string | undefined;
   expiresAt: number;
 }): JWTError<"ERR_JWT_EXPIRED"> {
   const { id, expiresAt } = options;
-  return new JWTError(
-    `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(expiresAt).toISOString()})`,
-    "ERR_JWT_EXPIRED",
-    { jti: id, exp: Math.floor(expiresAt / 1000) },
-  );
+  const exp = Math.floor(expiresAt / 1000);
+  return new JWTError(expiredClaimMessage(exp), "ERR_JWT_EXPIRED", { jti: id, exp });
 }
 
-/**
- * Turn a read-path failure into the session-adapter contract: the expiry of a
- * session token passes through untouched, everything else becomes
- * `ERR_SESSION_TOKEN_INVALID` with the original error as its `cause`.
- */
+/** Passes `ERR_JWT_EXPIRED` through; anything else becomes `ERR_SESSION_TOKEN_INVALID`. */
 export function rethrowAsInvalidToken(error: unknown, options: { prefix: string }): never {
-  // The core checks `typ` before it validates claims, so a token that is not a
-  // session fails as a type mismatch and never reaches this expiry branch.
   if (isJWTError(error, "ERR_JWT_EXPIRED")) throw error;
-  const message = error instanceof Error ? error.message : String(error);
-  throw invalidTokenError(`${options.prefix} Invalid session token: ${message}`, error);
+  throw invalidTokenError(`${options.prefix} Invalid session token: ${messageOf(error)}`, error);
 }
 
-/**
- * RFC 6265 §4.1.1 — a cookie name is an RFC 7230 token, and so is a header
- * name, whether configured as `sessionHeader` or spelled from the session's
- * `name`. A name outside those characters cannot be written: some frameworks
- * refuse it outright, others emit a header no client will parse back, so it is
- * refused where it is configured.
- */
+/** RFC 7230 token: required of a cookie name (RFC 6265 §4.1.1) and of a header name. */
 const TOKEN = /^[!#$%&'*+\-.^_`|~\w]+$/;
 
 /** `<name>.<n>` is the cookie holding chunk `n` of the session called `<name>`. */
@@ -100,12 +75,12 @@ const CHUNK_SUFFIX = /\.\d+$/;
 export function assertSessionName(name: string, options: { prefix: string }): void {
   if (typeof name !== "string" || !TOKEN.test(name)) {
     throw invalidConfigError(
-      `${options.prefix} Session "name" must be a cookie name (RFC 6265 §4.1.1): letters, digits and !#$%&'*+-.^_\`|~ only. Got ${JSON.stringify(name)}.`,
+      `${options.prefix} Session "name" must be a cookie name (RFC 6265 §4.1.1): letters, digits and !#$%&'*+-.^_\`|~ only. Got ${quoteTokenValue(name)}.`,
     );
   }
   if (CHUNK_SUFFIX.test(name)) {
     throw invalidConfigError(
-      `${options.prefix} Session "name" cannot end in a dot and digits: ${JSON.stringify(name)} is the cookie holding a chunk of the session named ${JSON.stringify(name.replace(CHUNK_SUFFIX, ""))}.`,
+      `${options.prefix} Session "name" cannot end in a dot and digits: ${quoteTokenValue(name)} is the cookie holding a chunk of the session named ${quoteTokenValue(name.replace(CHUNK_SUFFIX, ""))}.`,
     );
   }
 }
@@ -115,16 +90,14 @@ export function assertSessionHeader(header: unknown, options: { prefix: string }
   if (header === undefined || header === false) return;
   if (typeof header === "string" && TOKEN.test(header)) return;
   throw invalidConfigError(
-    `${options.prefix} Session "sessionHeader" must be false or a header name: letters, digits and !#$%&'*+-.^_\`|~ only. Got ${JSON.stringify(header)}.`,
+    `${options.prefix} Session "sessionHeader" must be false or a header name: letters, digits and !#$%&'*+-.^_\`|~ only. Got ${quoteTokenValue(header)}.`,
   );
 }
 
-/** Whether a config leaves the adapter somewhere to read the token from. */
 export function hasTokenSource(source: SessionTokenSource): boolean {
   return source.cookie !== false || source.sessionHeader !== false;
 }
 
-/** Reject a config that leaves the adapter with nowhere to read the token from. */
 export function assertTokenSource(source: SessionTokenSource, options: { prefix: string }): void {
   if (!hasTokenSource(source)) {
     throw invalidConfigError(
@@ -133,7 +106,6 @@ export function assertTokenSource(source: SessionTokenSource, options: { prefix:
   }
 }
 
-/** Reject a password string where key material is required. */
 export function assertKeyMaterial(key: unknown, options: { prefix: string }): void {
   if (typeof key === "string") {
     throw invalidKeyError(
@@ -145,12 +117,7 @@ export function assertKeyMaterial(key: unknown, options: { prefix: string }): vo
   }
 }
 
-/**
- * Import a configured JWK once, so key material the session cannot use is a
- * key failure raised where the session is opened rather than an unreadable
- * token. An asymmetric JWK whose algorithm neither it nor the config names is
- * left to the token it opens.
- */
+/** Imports a configured JWK up front, so unusable key material throws `ERR_SESSION_KEY_INVALID`. */
 export async function assertImportableKey(
   key: unknown,
   options: { alg: string | undefined; prefix: string },
@@ -161,25 +128,16 @@ export async function assertImportableKey(
   try {
     await importKey(key, { alg });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw invalidKeyError(`${options.prefix} Invalid session key: ${message}`, error);
+    throw invalidKeyError(`${options.prefix} Invalid session key: ${messageOf(error)}`, error);
   }
 }
 
-/**
- * The `typ` a session writes and requires: the configured one, else
- * `"session+jwt"`. RFC 8725 §3.11 — explicit typing keeps any other JWT signed
- * or sealed with the same key from being accepted as a session.
- */
+/** The configured `typ`, else `"session+jwt"` (RFC 8725 §3.11 explicit typing). */
 export function sessionTyp(configured: unknown): string {
   return typeof configured === "string" && configured ? configured : SESSION_TYP;
 }
 
-/**
- * The header name a session reads its token from: the configured one, else
- * `x-<name>-session` with the name's `__Host-` / `__Secure-` cookie prefix
- * dropped.
- */
+/** The configured header, else `x-<name>-session` without a `__Host-`/`__Secure-` prefix. */
 export function sessionHeaderName(
   sessionName: string,
   configured: false | string | undefined,
@@ -190,13 +148,7 @@ export function sessionHeaderName(
   return `x-${bare.toLowerCase()}-session`;
 }
 
-/**
- * The token carried by a session header value: the bare token, or one behind a
- * `Bearer` scheme matched case-insensitively (RFC 7235 §2.1). A compact token
- * holds no whitespace, so any other value — absent or blank, another scheme
- * such as `Basic`, a `Bearer` with no token — carries none and yields
- * `undefined`, never hiding the cookie.
- */
+/** A bare token or `Bearer <token>` (RFC 7235 §2.1, case-insensitive); anything else is `undefined`. */
 export function headerToken(value: string | null | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
   const words = value.trim().split(/\s+/);
@@ -205,28 +157,29 @@ export function headerToken(value: string | null | undefined): string | undefine
   return words.length === 1 && first ? first : undefined;
 }
 
-/** The first candidate that actually carries a token. */
-export function pickToken(...candidates: (string | undefined)[]): string | undefined {
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.length > 0) return candidate;
+/** Cookie first (this response's own write wins; a written deletion means no token), then the header. */
+export function resolveSessionToken(
+  source: SessionTokenSource,
+  sessionName: string,
+  read: {
+    written?: (name: string) => string | undefined;
+    cookie: (name: string) => string | undefined;
+    header: (name: string) => string | null | undefined;
+  },
+): string | undefined {
+  let cookieValue: string | undefined;
+  if (source.cookie !== false) {
+    const written = read.written?.(sessionName);
+    if (written === "") return undefined;
+    cookieValue = written ?? read.cookie(sessionName);
   }
-  return undefined;
-}
 
-/**
- * The attributes a session cookie is written with: the family's defaults, then
- * the configured ones. A token that expires sets the cookie's `expires` and
- * drops a configured `maxAge`, which takes precedence over `expires`
- * (RFC 6265 §5.3) and would keep the cookie alive past its token.
- */
-export function sessionCookieAttributes(options: {
-  defaults: Record<string, unknown>;
-  cookie: object | undefined;
-  expiresAt?: number | undefined;
-}): Record<string, unknown> {
-  const attributes = { ...options.defaults, ...options.cookie };
-  if (options.expiresAt === undefined) return attributes;
-  return { ...attributes, expires: new Date(options.expiresAt), maxAge: undefined };
+  const headerValue =
+    source.sessionHeader === false
+      ? undefined
+      : headerToken(read.header(sessionHeaderName(sessionName, source.sessionHeader)));
+
+  return cookieValue || headerValue || undefined;
 }
 
 /** `exp` in ms for a session issued at `createdAt`, or `undefined` for no expiry. */
@@ -239,11 +192,7 @@ export function resolveExpiresAt(
     : createdAt + computeDurationInSeconds(options.maxAge) * 1000;
 }
 
-/**
- * Claims an incoming token must carry: always `jti` and `iat`, plus `exp` when
- * the session has a `maxAge`. A token's `exp` is what bounds its life, so a
- * session with a lifetime refuses a token that carries none.
- */
+/** Always `jti` and `iat`, plus `exp` when the session has a `maxAge`. */
 export function sessionRequiredClaims(
   configured: string[] | undefined,
   options: { maxAge: ExpiresIn | undefined },
@@ -253,10 +202,7 @@ export function sessionRequiredClaims(
   return [...required];
 }
 
-/**
- * An `update()` payload with the adapter-owned claims removed, rejecting keys
- * that would poison the prototype of the session data.
- */
+/** Strips adapter-owned claims and rejects prototype-polluting keys. */
 export function sanitizeSessionUpdate(
   update: object,
   options: { prefix: string },
@@ -281,23 +227,6 @@ export function sanitizeSessionUpdate(
   return sanitized;
 }
 
-/** A decoded token payload with the adapter-owned claims split off. */
-export function splitSessionClaims(payload: JWTClaims & { jti: string; iat: number }): {
-  jti: string;
-  iat: number;
-  exp: number | undefined;
-  data: Record<string, unknown>;
-} {
-  const data: Record<string, unknown> = Object.create(null);
-  for (const key of Object.keys(payload)) {
-    if (RESERVED_CLAIMS.includes(key)) continue;
-    data[key] = payload[key];
-  }
-  return { jti: payload.jti, iat: payload.iat, exp: payload.exp, data };
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

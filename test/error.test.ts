@@ -9,15 +9,6 @@ import {
 import { base64UrlParse } from "../src/core/utils/base64";
 
 describe.concurrent("isUnsecureError", () => {
-  const thrownByCodec = (): unknown => {
-    try {
-      base64UrlParse("aGVsbG8=", { returnAs: "uint8array" });
-      return undefined;
-    } catch (error) {
-      return error;
-    }
-  };
-
   it("the re-exported class is the one the bundled codecs throw", () => {
     expect(thrownByCodec()).toBeInstanceOf(UnsecureError);
   });
@@ -52,3 +43,13 @@ describe.concurrent("isUnsecureError", () => {
     expect(isJWTError(error)).toBe(false);
   });
 });
+
+/** What the bundled base64url codec throws on a padded segment. */
+function thrownByCodec(): unknown {
+  try {
+    base64UrlParse("aGVsbG8=", { returnAs: "uint8array" });
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}

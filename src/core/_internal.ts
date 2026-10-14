@@ -6,6 +6,7 @@ import type {
   JWK,
   ContentEncryptionAlgorithm,
   JWEEncryptOptions,
+  JWEKeyManagementHeaderParameters,
   JWK_EC_Public,
   JWK_EC_Private,
   JWK_OKP_Public,
@@ -16,16 +17,29 @@ import type {
   JWSAlgorithm,
   JOSEPayloadMode,
   JWEHeaderParameters,
+  JWSProtectedHeader,
   JWKLookupFunctionHeader,
+  PayloadOf,
   KeyManagementAlgorithm,
   UnwrapKeyOptions,
 } from "./types";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
-import { modulusLengthOf } from "./_crypto/_key-algorithm";
-import { inferJWEAllowedAlgorithms, inferJWSAllowedAlgorithms } from "./utils/algorithms";
+import { cryptoKeyCurve, jwsHashOf, modulusLengthOf } from "./_crypto/_key-algorithm";
+import {
+  inferJWEAllowedAlgorithms,
+  inferJWSAllowedAlgorithms,
+  isContentEncryptionAlgorithm,
+} from "./utils/algorithms";
 import { quoteTokenValue } from "./utils/_text";
-import { isCryptoKey, isCryptoKeyPair, isJWK } from "./utils/guards";
+import {
+  assertPlainObject,
+  isCryptoKey,
+  isCryptoKeyPair,
+  isJWK,
+  isJWKSet,
+  isPlainObject,
+} from "./utils/guards";
 import { assertCritShape, parsePayloadBytes, parsePayloadSegment } from "./_jwt-internal";
 import { assertClaimValidationOptions, assertStringList, validateJwtClaims } from "./utils/jwt";
 import {
@@ -37,30 +51,14 @@ import {
   bitLengthTag,
 } from "./_crypto";
 
-/**
- * RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` feed the Concat KDF input
- * verbatim and arrive from the wire, so their size is bounded on both sides.
- */
+/** RFC 7518 §4.6.1.2 / §4.6.1.3 — size bound on `apu` / `apv`. */
 export const MAX_PARTY_INFO_BYTES = 1024;
-
-// -----------------------------------------------------------------------------
-// Bounded work per call (JWS verify + JWE decrypt, compact & multi).
-// -----------------------------------------------------------------------------
 
 export { DEFAULT_PBES2_ITERATIONS };
 
 /**
- * The work one JOSE call does when the caller names no {@link JOSELimits}:
- * 16 signatures, 16 recipients, 8 JWK Set candidates, and the PBKDF2 iterations
- * of four default-strength attempts for the whole call. Exported so the numbers
- * have one source.
- *
- * `pbes2Iterations` is four times {@link DEFAULT_PBES2_ITERATIONS}, so a token
- * whose recipients were all minted at the default cost is openable by the
- * fourth of them: a budget under that would refuse the holder of a key the
- * producer wrote. The worst case stays bounded by two other numbers — the
- * `recipients` limit caps how many attempts are made at all, and `maxIterations`
- * caps what any single attempt may claim.
+ * Default per-call work limits: 16 signatures, 16 recipients, 8 JWK Set candidates,
+ * and PBKDF2 iterations for four default-cost PBES2 attempts in total.
  */
 export const DEFAULT_JOSE_LIMITS: Readonly<Required<JOSELimits>> = /* @__PURE__ */ Object.freeze({
   signatures: 16,
@@ -69,11 +67,7 @@ export const DEFAULT_JOSE_LIMITS: Readonly<Required<JOSELimits>> = /* @__PURE__ 
   pbes2Iterations: 4 * DEFAULT_PBES2_ITERATIONS,
 });
 
-/**
- * Read one limit, falling back to its default. Resolved once at the start of an
- * operation, so a malformed value is an option error regardless of what the
- * token turns out to contain.
- */
+/** Read one limit or its default; a malformed value is `ERR_INVALID_OPTION`. */
 export function resolveLimit(limits: JOSELimits | undefined, name: keyof JOSELimits): number {
   const value = limits?.[name];
   if (value === undefined) return DEFAULT_JOSE_LIMITS[name];
@@ -83,11 +77,7 @@ export function resolveLimit(limits: JOSELimits | undefined, name: keyof JOSELim
   return value;
 }
 
-/**
- * RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — a JSON serialization may carry as many
- * signatures or recipients as its producer likes, and nothing about them is
- * integrity protected. The count is checked before any of them is looked at.
- */
+/** RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — bound the signatures / recipients count. */
 export function assertEntryLimit(
   count: number,
   limit: number,
@@ -100,12 +90,6 @@ export function assertEntryLimit(
   );
 }
 
-/**
- * A JWK Set narrowed by `kid`/`alg`/`use` still decides how many keys one token
- * is tried against, so the surviving candidates are counted before the first
- * import. A set this wide is a lookup that has not been narrowed rather than a
- * token failure.
- */
 export function assertCandidateLimit(count: number, limit: number): void {
   if (count <= limit) return;
   throw new JWTError(
@@ -114,13 +98,7 @@ export function assertCandidateLimit(count: number, limit: number): void {
   );
 }
 
-/**
- * The gate every JWK Set read passes: a set that offers no key for this token
- * is a key-not-found failure, and one that offers more than the caller allows
- * is refused before a single candidate is tried. The header `kid` the set was
- * searched for is named in the message quoted and bounded, since it is token
- * input.
- */
+/** Refuse an empty or over-limit JWK Set candidate list with `ERR_JWK_KEY_NOT_FOUND`. */
 export function assertJWKSetCandidates(
   candidates: readonly unknown[],
   options: { limit: number; kid: unknown },
@@ -135,34 +113,19 @@ export function assertJWKSetCandidates(
   assertCandidateLimit(candidates.length, options.limit);
 }
 
-/**
- * The PBKDF2 iterations one call may still spend. Every PBES2 attempt — the
- * single one of a compact token, or one per recipient and per JWK Set candidate
- * — charges its `p2c` here first, so the `p2c` values of a whole token are
- * summed rather than each being weighed on its own.
- */
+/** PBKDF2 iterations one call may still spend, summed over every PBES2 attempt. */
 export interface PBES2Budget {
-  /**
-   * Charge one PBES2 attempt, given the unwrap options it is about to run with.
-   * A `p2c` outside `minIterations`/`maxIterations` throws that bound and
-   * charges nothing; one that no longer fits in what is left throws, and the
-   * attempt is not made. Either way the iterations are never spent, so a
-   * recipient the caller does hold a key for is still tried on what remains.
-   * A no-op under every other key management algorithm.
-   */
+  /** Charge one PBES2 attempt's `p2c`; throws without charging when out of bounds or over budget. */
   spend(attempt: Pick<UnwrapKeyOptions, "alg" | "p2c" | "minIterations" | "maxIterations">): void;
 }
 
-/** Open a {@link PBES2Budget} of `limit` iterations for one call. */
 export function createPBES2Budget(limit: number): PBES2Budget {
   let remaining = limit;
   return {
     spend(attempt) {
       const { alg, p2c } = attempt;
       if (!alg.startsWith("PBES2")) return;
-      // A `p2c` that is not a positive number is rejected by the PBES2
-      // primitive itself; charging it here would move the budget on a value
-      // that never derives anything.
+      // A non-positive `p2c` is rejected by the PBES2 primitive itself.
       if (typeof p2c !== "number" || !(p2c > 0)) return;
       assertPBES2Iterations(p2c, attempt);
       if (p2c > remaining) {
@@ -173,15 +136,7 @@ export function createPBES2Budget(limit: number): PBES2Budget {
   };
 }
 
-// -----------------------------------------------------------------------------
-// Producer option gates (JWS sign + JWE encrypt, compact & multi).
-// -----------------------------------------------------------------------------
-
-/**
- * Serialize a protected header that is about to be signed or encrypted. A
- * header carrying a BigInt or a circular reference has no JSON form, which is
- * the caller's own option rather than a failure of the token being built.
- */
+/** A header with no JSON form is `ERR_INVALID_OPTION`. */
 export function serializeProtectedHeader(header: object): string {
   try {
     return JSON.stringify(header);
@@ -194,12 +149,7 @@ export function serializeProtectedHeader(header: object): string {
   }
 }
 
-/**
- * RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — `crit` names the extension parameters a
- * recipient must understand. The producer holds itself to what every consumer
- * checks: the same shape, and an entry only for a parameter the header being
- * built actually carries — `"b64"` included.
- */
+/** RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — each `crit` entry is a parameter the header carries. */
 export function assertProducerCrit(header: Record<string, unknown>, family: "JWS" | "JWE"): void {
   const crit = header.crit;
   if (crit === undefined) return;
@@ -218,11 +168,7 @@ const PROTECTED_ONLY_PARAMS = {
   JWE: ["crit"],
 } as const;
 
-/**
- * The header parameters a consumer refuses in any unprotected header, so the
- * producer refuses to write them there: `crit` (RFC 7515 §4.1.11 / RFC 7516
- * §4.1.13) and, for JWS, `b64` (RFC 7797 §3).
- */
+/** Refuse `crit` (RFC 7515 §4.1.11 / RFC 7516 §4.1.13) and JWS `b64` (RFC 7797 §3) outside the protected header. */
 export function assertProtectedOnlyOption(
   header: object | undefined,
   options: { tier: string; family: "JWS" | "JWE" },
@@ -238,33 +184,19 @@ export function assertProtectedOnlyOption(
   }
 }
 
-/**
- * The caller-side counterpart of {@link checkSerializationEntry}: an options
- * bag, signer or recipient is an object, and each member listed in `objects`
- * (a header, the `limits`) is an object when present. Checked before any of it
- * is read, so a malformed entry is the caller's option error rather than a
- * `TypeError`, a header spread out of a string or a limit silently defaulted.
- */
+/** Assert an options entry and each member listed in `objects` are plain objects. */
 export function assertOptionEntry(
   entry: unknown,
   options: { label: string; objects: readonly string[] },
 ): void {
   const { label, objects } = options;
-  if (!isJSONObject(entry)) {
-    throw new JWTError(`"${label}" must be an object.`, "ERR_INVALID_OPTION");
-  }
+  assertPlainObject(entry, label);
   for (const member of objects) {
-    if (entry[member] !== undefined && !isJSONObject(entry[member])) {
-      throw new JWTError(`"${label}.${member}" must be an object.`, "ERR_INVALID_OPTION");
-    }
+    if (entry[member] !== undefined) assertPlainObject(entry[member], `${label}.${member}`);
   }
 }
 
-/**
- * RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` are bytes, and the consumer
- * bounds their size (see {@link MAX_PARTY_INFO_BYTES}), so a producer that
- * exceeds it would mint a token nothing can open.
- */
+/** RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` are bytes within `MAX_PARTY_INFO_BYTES`. */
 export function assertProducerPartyInfo(name: "apu" | "apv", value: unknown): void {
   if (!(value instanceof Uint8Array)) {
     throw new JWTError(
@@ -280,10 +212,7 @@ export function assertProducerPartyInfo(name: "apu" | "apv", value: unknown): vo
   }
 }
 
-/**
- * RFC 7518 §5 — the CEK size is fixed by `enc`. A caller-supplied key of any
- * other size is a malformed option, not a token or key-material failure.
- */
+/** RFC 7518 §5 — the CEK size is fixed by `enc`. */
 export function assertProducerCEK(
   cek: Uint8Array<ArrayBuffer> | undefined,
   enc: ContentEncryptionAlgorithm,
@@ -313,16 +242,7 @@ export function assertProducerIV(
   }
 }
 
-// -----------------------------------------------------------------------------
-// Consumer option gate (JWS verify + JWE decrypt, compact & multi).
-// -----------------------------------------------------------------------------
-
-/**
- * The option gate every verification and decryption passes before the token is
- * read. An expected `typ`, an allowlist or a claim expectation that is present
- * but empty or of the wrong shape is refused rather than read as "no check" —
- * the way `algorithms: []` already admits nothing.
- */
+/** Refuse present-but-empty or malformed consumer options rather than reading them as "no check". */
 export function assertConsumerOptions(
   options: JWTClaimValidationOptions & {
     algorithms?: readonly string[];
@@ -340,31 +260,16 @@ export function assertConsumerOptions(
   assertClaimValidationOptions(options);
 }
 
-// -----------------------------------------------------------------------------
-// JWKSet candidate filter — used by JWS verify + JWE decrypt (compact & multi).
-// -----------------------------------------------------------------------------
-
-/** What a JWK Set is being searched for: a signature check or a key unwrap. */
 export type JWKSetOperation = "sig" | "enc";
 
-/** `key_ops` values (RFC 7517 §4.3) that can serve each operation. */
+/** RFC 7517 §4.3 — `key_ops` values that serve each operation. */
 const JWK_SET_KEY_OPS: Readonly<Record<JWKSetOperation, readonly string[]>> =
   /* @__PURE__ */ Object.freeze({
     sig: ["verify"],
     enc: ["unwrapKey", "decrypt", "deriveBits", "deriveKey"],
   });
 
-/**
- * Build a JWK Set candidate filter for one operation.
- *
- * A set is public-key material: `oct` entries are dropped unless the caller
- * admits them with `allowSymmetric`, and so is anything that is not a JWK. Of
- * what remains an entry is kept when its `kid` matches the header (or the
- * header carries none), its `alg` matches (or it declares none), its `use` is
- * absent or names this operation, and its `key_ops` is absent or permits an
- * operation compatible with it. Used by `getJWKsFromSet` to narrow the retry
- * set before any cryptographic attempt.
- */
+/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; `oct` entries only with `allowSymmetric`. */
 export function buildJWKSetFilter(
   header: { kid?: string; alg?: string } | undefined,
   options: { op: JWKSetOperation; allowSymmetric?: boolean },
@@ -388,15 +293,7 @@ export function buildJWKSetFilter(
   };
 }
 
-// -----------------------------------------------------------------------------
-// ECDH-ES ephemeral key parser (JWE compact + multi).
-// -----------------------------------------------------------------------------
-
-/**
- * Normalize a user-provided ECDH-ES ephemeral key (CryptoKey, CryptoKeyPair,
- * `{ publicKey, privateKey }` object, or private JWK) into
- * `{ epk, epkPrivateKey }` pairs consumable by the encrypt-key primitive.
- */
+/** Normalize a caller's ECDH-ES ephemeral key into `{ epk, epkPrivateKey }`. */
 export function parseEphemeralKey(
   ephemeralKey: NonNullable<JWEEncryptOptions["ecdh"]>["ephemeralKey"],
 ): {
@@ -444,19 +341,31 @@ export function parseEphemeralKey(
   throw new JWTError("Unsupported ECDH-ES ephemeral key material provided.", "ERR_JWK_INVALID");
 }
 
-// -----------------------------------------------------------------------------
-// JWS signing / verification key resolver (compact + multi).
-// -----------------------------------------------------------------------------
+/** RFC 7518 §4.6.1.2 / §4.6.1.3 — ECDH-ES agreement params; an empty `apu` / `apv` is omitted. */
+export function buildECDHAgreementParams(
+  ecdh: JWEEncryptOptions["ecdh"],
+): Pick<JWEKeyManagementHeaderParameters, "apu" | "apv" | "epk" | "epkPrivateKey"> {
+  const params: Pick<JWEKeyManagementHeaderParameters, "apu" | "apv" | "epk" | "epkPrivateKey"> =
+    {};
+  if (!ecdh) return params;
+  const { partyUInfo, partyVInfo, ephemeralKey } = ecdh;
+  if (partyUInfo !== undefined) {
+    assertProducerPartyInfo("apu", partyUInfo);
+    if (partyUInfo.length > 0) params.apu = partyUInfo;
+  }
+  if (partyVInfo !== undefined) {
+    assertProducerPartyInfo("apv", partyVInfo);
+    if (partyVInfo.length > 0) params.apv = partyVInfo;
+  }
+  if (ephemeralKey) {
+    const { epk, epkPrivateKey } = parseEphemeralKey(ephemeralKey);
+    params.epk = epk;
+    params.epkPrivateKey = epkPrivateKey;
+  }
+  return params;
+}
 
-/**
- * Resolve a key for JWS sign/verify:
- *   - Raw `Uint8Array` → imported as HMAC with the expected hash under an `HS*`
- *     algorithm, and rejected under any other: bytes are a shared secret, never
- *     an RSA, EC or OKP key. A minimum key length is enforced based on the alg
- *     digest size.
- *   - RSA keys → `modulusLength ≥ 2048` enforced (RFC 7518 §3.3 / §3.5).
- *   - Other `CryptoKey`s → returned unchanged.
- */
+/** Bytes become an HMAC key (`HS*` only); RSA needs `modulusLength ≥ 2048` (RFC 7518 §3.3 / §3.5). */
 export async function resolveSigningKey(
   alg: string,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -470,13 +379,9 @@ export async function resolveSigningKey(
       );
     }
     assertOctKeyLength(key, alg);
-    return crypto.subtle.importKey(
-      "raw",
-      key,
-      { name: "HMAC", hash: `SHA-${alg.slice(-3)}` },
-      false,
-      [usage],
-    );
+    return crypto.subtle.importKey("raw", key, { name: "HMAC", hash: jwsHashOf(alg) }, false, [
+      usage,
+    ]);
   }
   if (alg.startsWith("RS") || alg.startsWith("PS")) {
     const modulusLength = modulusLengthOf(key.algorithm);
@@ -490,32 +395,16 @@ export async function resolveSigningKey(
   return key;
 }
 
-// -----------------------------------------------------------------------------
-// JWT claim validation guard (JWS verify + JWE decrypt, compact & multi).
-// -----------------------------------------------------------------------------
-
-/**
- * Run RFC 7519 JWT claim validation on a payload the caller asked to be
- * decoded as JSON, unless they opted out with `validateClaims: false`.
- *
- * `"string"` and `"bytes"` payloads carry no claims to validate; asking for
- * them together with `validateClaims: true` is rejected as an option error by
- * {@link resolvePayloadMode}, so silently skipping validation here is never
- * mistaken for having run it.
- */
+/** Validate JWT claims of a `"json"` payload unless `validateClaims: false`. */
 export function validateClaimsIfJson(
   payload: unknown,
   mode: JOSEPayloadMode,
   options: JWTClaimValidationOptions & { validateClaims?: boolean },
 ): void {
   if (mode !== "json" || options.validateClaims === false) return;
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a "json" payload is a parsed JSON object, and validateJwtClaims checks the type of each registered claim it reads
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- validateJwtClaims checks each claim it reads
   validateJwtClaims(payload as JWTClaims, options);
 }
-
-// -----------------------------------------------------------------------------
-// Payload mode + key shape option gates (JWS verify + JWE decrypt, compact & multi).
-// -----------------------------------------------------------------------------
 
 const PAYLOAD_MODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "json",
@@ -523,14 +412,7 @@ const PAYLOAD_MODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "bytes",
 ] satisfies JOSEPayloadMode[]);
 
-/**
- * Resolve the {@link JOSEPayloadMode} a verification or decryption runs under.
- *
- * `payload` is the option; `forceUint8Array` is its deprecated boolean alias
- * and may only agree with it. `validateClaims: true` is meaningful under
- * `"json"` alone — claim validation cannot be asked for over content that is
- * never parsed. Every contradiction is an `ERR_INVALID_OPTION`.
- */
+/** Resolve the payload mode from `payload` / deprecated `forceUint8Array`; contradictions are `ERR_INVALID_OPTION`. */
 export function resolvePayloadMode(options: {
   payload?: JOSEPayloadMode;
   forceUint8Array?: boolean;
@@ -561,10 +443,6 @@ export function resolvePayloadMode(options: {
   return mode;
 }
 
-/**
- * The rejection every entry point shares for a `string` key: a password is the
- * only string JOSE has a use for, and only where PBES2 derives a key from it.
- */
 export function stringKeyError(): JWTError {
   return new JWTError(
     "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().",
@@ -572,76 +450,43 @@ export function stringKeyError(): JWTError {
   );
 }
 
-/** Guard for JWS entry points, whose keys are never passwords. */
 export function assertNotStringKey<K>(key: K): asserts key is Exclude<K, string> {
   if (typeof key === "string") throw stringKeyError();
 }
 
-/**
- * Resolve raw JWE key material before import: a `string` is a PBES2 password
- * and is UTF-8 encoded here (RFC 7518 §4.8.1), rejected under every other
- * `alg`. Anything else passes through to `importKey`.
- */
+/** RFC 7518 §4.8.1 — a string key is a UTF-8 PBES2 password, refused under any other `alg`. */
 export function resolvePasswordKey<K>(alg: string, key: K | string): K | Uint8Array<ArrayBuffer> {
   if (typeof key !== "string") return key;
   if (!alg.startsWith("PBES2")) throw stringKeyError();
   return textEncoder.encode(key);
 }
 
-// -----------------------------------------------------------------------------
-// Algorithm allowlist check (JWS verify + JWE decrypt, compact & multi).
-// -----------------------------------------------------------------------------
-
-/** Policy + error metadata for {@link checkAlgAllowed}. */
 export interface AlgCheckContext {
-  /** Infer the set of allowed algs from a key's shape. */
   infer: (key: unknown, options?: { allowSymmetric?: boolean }) => string[] | undefined;
-  /**
-   * When true, the JWK fast-path is skipped for `oct` keys — their declared
-   * `alg` names a role rather than the header's `alg` (a JWE oct JWK with
-   * `alg: "A256GCM"` is a CEK, so the algorithm it serves is `dir`). True for
-   * JWE, false for JWS where `alg` maps 1:1.
-   */
+  /** An `oct` JWK's `alg` names a role, not the header `alg` (JWE). */
   octRoles: boolean;
-  /** Error code emitted on rejection. */
   errorCode: "ERR_JWS_ALG_NOT_ALLOWED" | "ERR_JWE_ALG_NOT_ALLOWED";
-  /** Error message prefix — `"Algorithm"` (JWS) or `"Key management algorithm"` (JWE). */
   label: string;
+  op: JWKSetOperation;
 }
 
-/** Static context for JWS signature verification. */
 export const JWS_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
   infer: inferJWSAllowedAlgorithms,
   octRoles: false,
   errorCode: "ERR_JWS_ALG_NOT_ALLOWED",
   label: "Algorithm",
+  op: "sig",
 });
 
-/** Static context for JWE key-management algorithms. */
 export const JWE_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
   infer: inferJWEAllowedAlgorithms,
   octRoles: true,
   errorCode: "ERR_JWE_ALG_NOT_ALLOWED",
   label: "Key management algorithm",
+  op: "enc",
 });
 
-/**
- * Verify the header-declared `alg` is allowed for the resolved key.
- *
- * Policy order:
- *   1. Explicit `algorithms` allowlist (when provided) — membership checked
- *      verbatim.
- *   2. Fast path — a JWK whose own `alg` is set names its only allowed
- *      algorithm. JWE skips this for `oct` JWKs, whose `alg` names a role
- *      instead (see `inferJWEAllowedAlgorithms`).
- *   3. Inference — derive the allowed set from the key shape and reject
- *      unless the declared `alg` is in it. For a JWK Set, `allowSymmetric`
- *      decides whether its `oct` entries contribute at all.
- *
- * Returns `undefined` when allowed, or a {@link JWTError} the caller decides
- * whether to throw (compact) or collect as `lastError` for the multi retry
- * loop.
- */
+/** Check the header `alg` against the allowlist, else the JWK's own `alg`, else the key-shape inference. */
 export function checkAlgAllowed(
   alg: string,
   key: unknown,
@@ -672,13 +517,27 @@ function notAllowed(alg: string, ctx: AlgCheckContext): JWTError {
   return new JWTError(`${ctx.label} not allowed: ${alg}`, ctx.errorCode);
 }
 
-// -----------------------------------------------------------------------------
-// JWS algorithm support gate (compact verify + multi verify).
-// -----------------------------------------------------------------------------
+/** Whether key material could be the one the header was produced for (RFC 7515 §4.1.4 / RFC 7516 §4.1.6 `kid` hint). */
+export function keyMatchesHeader(
+  header: { alg?: string; kid?: string; epk?: { crv?: string } },
+  keyMaterial: unknown,
+  options: { ctx: AlgCheckContext; allowSymmetric?: boolean },
+): boolean {
+  const { ctx, allowSymmetric } = options;
+  if (isJWKSet(keyMaterial)) {
+    const candidates = keyMaterial.keys.filter(
+      buildJWKSetFilter(header, { op: ctx.op, allowSymmetric }),
+    );
+    return candidates.length === 0 || candidates.some((k) => keyServesHeaderAlg(header, k, ctx));
+  }
+  if (isJWK(keyMaterial)) {
+    if (header.kid && keyMaterial.kid && header.kid !== keyMaterial.kid) return false;
+    return keyServesHeaderAlg(header, keyMaterial, ctx);
+  }
+  if (isCryptoKey(keyMaterial)) return keyServesHeaderAlg(header, keyMaterial, ctx);
+  return true;
+}
 
-// The library's JWS algorithm set. `satisfies Record<JWSAlgorithm, true>` is the
-// compile-time guard that keeps it in lockstep with the `JWSAlgorithm` union:
-// a missing key and a stray key both fail the type check.
 const JWS_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
   Object.keys({
     HS256: true,
@@ -698,32 +557,17 @@ const JWS_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
   } satisfies Record<JWSAlgorithm, true>),
 );
 
-/**
- * Reject a header-declared `alg` the library cannot verify — `"none"`
- * (RFC 7518 §3.6 Unsecured JWS) and anything outside {@link JWSAlgorithm} —
- * before any key import or WebCrypto call. Returns `undefined` when the alg is
- * supported, or the {@link JWTError} the caller throws (compact) or collects
- * per signature (multi).
- */
+/** Reject `"none"` (RFC 7518 §3.6) and any `alg` outside `JWSAlgorithm`. */
 export function checkJWSAlgSupported(alg: string): JWTError | undefined {
-  if (alg === "none") {
-    return new JWTError('"none" is not a valid signing algorithm', "ERR_JWS_ALG_NOT_ALLOWED");
-  }
-  if (!JWS_ALGORITHM_SET.has(alg)) {
-    return new JWTError(
-      `Algorithm not supported: ${quoteTokenValue(alg)}`,
-      "ERR_JWS_ALG_NOT_ALLOWED",
-    );
-  }
-  return undefined;
+  return checkAlgSupported(alg, {
+    supported: JWS_ALGORITHM_SET,
+    code: "ERR_JWS_ALG_NOT_ALLOWED",
+    label: "Algorithm",
+    role: "signing algorithm",
+  });
 }
 
-/**
- * RFC 7797 §3 / §6 — `b64` is a boolean, and an unencoded payload (`b64: false`)
- * is only honoured when `"b64"` is integrity protected by being listed in
- * `crit`. Returns the {@link JWTError} to throw (compact) or collect (multi)
- * otherwise.
- */
+/** RFC 7797 §3 / §6 — `b64` is a boolean, and `b64: false` must be listed in `crit`. */
 export function checkJWSB64(header: { b64?: unknown; crit?: unknown }): JWTError | undefined {
   if (Object.hasOwn(header, "b64") && typeof header.b64 !== "boolean") {
     return new JWTError('Invalid JWS: "b64" must be a boolean (RFC 7797 §3).', "ERR_JWS_INVALID");
@@ -736,19 +580,13 @@ export function checkJWSB64(header: { b64?: unknown; crit?: unknown }): JWTError
   );
 }
 
-/** RFC 7797 §3 — a `b64` a caller sets on a protected header is a boolean. */
+/** RFC 7797 §3 — a caller's `b64` is a boolean. */
 export function assertB64Option(header: { b64?: unknown } | undefined): void {
   if (!header || !Object.hasOwn(header, "b64") || typeof header.b64 === "boolean") return;
   throw new JWTError('"b64" must be a boolean (RFC 7797 §3).', "ERR_INVALID_OPTION");
 }
 
-/**
- * Settle `b64` on a protected header being built. `b64: true` is the default
- * (RFC 7797 §3) and is dropped — unless `crit` lists it, since a listed
- * parameter must be present (RFC 7515 §4.1.11). `b64: false` must be listed in
- * `crit` (RFC 7797 §6), so `"b64"` is added there, creating `crit` when absent
- * and never duplicating the entry.
- */
+/** Drop a default `b64: true` unless `crit` lists it; list `b64: false` in `crit` (RFC 7797 §3 / §6). */
 export function applyB64Header(header: { b64?: boolean; crit?: string[] }): void {
   assertB64Option(header);
   if (header.b64 === true) {
@@ -761,26 +599,17 @@ export function applyB64Header(header: { b64?: boolean; crit?: string[] }): void
   else if (Array.isArray(crit) && !crit.includes("b64")) header.crit = [...crit, "b64"];
 }
 
-/**
- * The rejection a compact entry point raises for a token that is not a string:
- * `split` would otherwise decide the shape of the failure, or throw a raw
- * `TypeError` before a single segment is looked at.
- */
 export function assertCompactToken(token: unknown, family: "JWS" | "JWE"): asserts token is string {
   if (typeof token !== "string") {
     throw new JWTError(`Invalid ${family}: token must be a string.`, `ERR_${family}_INVALID`);
   }
 }
 
-/**
- * The rejection a JSON-serialization helper raises for an argument that is not
- * an object — there is no serialization to read members off.
- */
 export function assertSerializationObject(
   value: unknown,
   family: "JWS" | "JWE",
 ): asserts value is object {
-  if (!isJSONObject(value)) {
+  if (!isPlainObject(value)) {
     throw new JWTError(
       `Invalid ${family} JSON Serialization: expected an object.`,
       `ERR_${family}_INVALID_SERIALIZATION`,
@@ -788,13 +617,7 @@ export function assertSerializationObject(
   }
 }
 
-/**
- * RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — a `signatures[]` / `recipients[]` entry
- * (or the JWE envelope itself) is a JSON object, each header member listed in
- * `objects` is a JSON object when present, and each base64url member listed in
- * `strings` is a string when present. For an entry, a failure condemns that
- * entry alone: the caller records the returned error and moves on to the next.
- */
+/** RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — an entry is an object with object `objects` and string `strings` members. */
 export function checkSerializationEntry(
   entry: unknown,
   options: {
@@ -806,11 +629,11 @@ export function checkSerializationEntry(
 ): JWTError | undefined {
   const { family, label, objects, strings } = options;
   const code = `ERR_${family}_INVALID` as JWTErrorCode;
-  if (!isJSONObject(entry)) {
+  if (!isPlainObject(entry)) {
     return new JWTError(`Invalid ${family}: ${label} must be a JSON object.`, code);
   }
   for (const member of objects) {
-    if (entry[member] !== undefined && !isJSONObject(entry[member])) {
+    if (entry[member] !== undefined && !isPlainObject(entry[member])) {
       return new JWTError(`Invalid ${family}: ${label} "${member}" must be a JSON object.`, code);
     }
   }
@@ -822,28 +645,36 @@ export function checkSerializationEntry(
   return undefined;
 }
 
-/**
- * A key-lookup function is caller code: whatever it throws means the key for
- * this token could not be resolved, so it surfaces as `ERR_JWK_KEY_NOT_FOUND`
- * with the thrown value as `cause`. A {@link JWTError} it raises itself is its
- * own verdict and passes through.
- */
+/** Wrap a non-`JWTError` thrown by a key lookup as `ERR_JWK_KEY_NOT_FOUND`. */
 export function asKeyLookupError(error: unknown, what: string): JWTError {
-  if (error instanceof JWTError) return error;
-  return new JWTError(`Key lookup failed for ${what}.`, "ERR_JWK_KEY_NOT_FOUND", error);
+  return asJWTError(error, {
+    code: "ERR_JWK_KEY_NOT_FOUND",
+    message: `Key lookup failed for ${what}.`,
+  });
 }
 
-/** The key material a key argument stands for once its lookup function, if it is one, has run. */
+/** Pass a `JWTError` through; wrap anything else under `message` / `code` with it as `cause`. */
+export function asJWTError(
+  error: unknown,
+  options: { code: JWTErrorCode; message: string },
+): JWTError {
+  if (error instanceof JWTError) return error;
+  return new JWTError(options.message, options.code, error);
+}
+
+/** RFC 7516 §11.5 — a failed unwrap or decryption says only that it failed. */
+export function asDecryptionError(error: unknown): JWTError {
+  return asJWTError(error, {
+    code: "ERR_JWE_DECRYPTION_FAILED",
+    message: "JWE decryption failed.",
+  });
+}
+
 export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R
   ? NonNullable<Awaited<R>>
   : K;
 
-/**
- * Resolve the key material a token is checked against: a static key as given,
- * or what a key-lookup function returns for this header. A lookup that throws
- * (see {@link asKeyLookupError}) or returns no key at all (`undefined` /
- * `null`) is `ERR_JWK_KEY_NOT_FOUND`.
- */
+/** Run a key-lookup function; a throw or no key is `ERR_JWK_KEY_NOT_FOUND`. */
 export async function resolveKeyInput<K>(
   key: K,
   options: { header: JWKLookupFunctionHeader; token: string; what: string },
@@ -866,25 +697,10 @@ export async function resolveKeyInput(
   return resolved;
 }
 
-/**
- * Normalize any non-{@link JWTError} raised while importing, resolving or
- * using a verification key (WebCrypto `TypeError`/`DOMException`, codec
- * `SyntaxError`, …) into `ERR_JWK_INVALID`, keeping the original as `cause`.
- * `JWTError`s pass through untouched.
- */
 export function asKeyUsageError(error: unknown, alg: string): JWTError {
-  if (error instanceof JWTError) return error;
-  return new JWTError(`Key is not usable for ${alg}.`, "ERR_JWK_INVALID", error);
+  return asJWTError(error, { code: "ERR_JWK_INVALID", message: `Key is not usable for ${alg}.` });
 }
 
-// -----------------------------------------------------------------------------
-// JWE algorithm, header and segment gates (compact decrypt + multi decrypt).
-// -----------------------------------------------------------------------------
-
-// The key management algorithms `unwrapKey` implements. `KeyManagementAlgorithm`
-// is wider — it also carries the bare `A*GCM` spellings an `oct` JWK may declare
-// for its `A*GCMKW` / `dir` use — so the guard is `Partial<Record<…>>`: a stray
-// or misspelled entry fails the type check, a deliberate omission does not.
 const JWE_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
   Object.keys({
     "dir": true,
@@ -908,9 +724,6 @@ const JWE_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
   } satisfies Partial<Record<KeyManagementAlgorithm, true>>),
 );
 
-// The content encryption algorithms the library implements, each mapped to the
-// form its CEK takes: AES-GCM decrypts from a `CryptoKey`, AES-CBC-HMAC needs
-// the raw bytes to split into MAC and encryption halves.
 const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
   "A128GCM": "cryptokey",
   "A192GCM": "cryptokey",
@@ -920,13 +733,7 @@ const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
   "A256CBC-HS512": "raw",
 } satisfies Record<ContentEncryptionAlgorithm, "cryptokey" | "raw">);
 
-/**
- * RFC 7518 §4.5 — under `dir` the key *is* the content encryption key, so a JWK
- * that declares an `alg` must declare either `dir` or exactly the `enc` it is a
- * CEK for: a key minted for `A256GCM` is not a CEK for `A128CBC-HS256`.
- * Wrapping keys (`A*KW`, `A*GCMKW`, PBES2) never reach this check — importing
- * them under `dir` already fails on their declared algorithm.
- */
+/** RFC 7518 §4.5 — a `dir` JWK's `alg` is `dir` or the token's `enc`. */
 export function assertDirectKeyRole(key: unknown, enc: string | undefined): void {
   if (!isJWK(key) || typeof key.alg !== "string" || key.alg === "dir") return;
   if (enc !== undefined && key.alg === enc) return;
@@ -936,54 +743,38 @@ export function assertDirectKeyRole(key: unknown, enc: string | undefined): void
   );
 }
 
-/** `dir` and bare `ECDH-ES` agree on the CEK directly — RFC 7518 §4.5 / §4.6, RFC 7516 §5.2 step 6. */
+/** RFC 7518 §4.5 / §4.6 — algorithms that agree on the CEK directly. */
 export const JWE_DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);
 
-/**
- * Reject a header-declared key management `alg` the library cannot unwrap —
- * `"none"` and anything outside the implemented set — before the caller's
- * allowlist, any key import or WebCrypto call.
- */
+/** Reject `"none"` and any key management `alg` outside the implemented set. */
 export function checkJWEAlgSupported(alg: string): JWTError | undefined {
-  if (alg === "none") {
-    return new JWTError(
-      '"none" is not a valid key management algorithm',
-      "ERR_JWE_ALG_NOT_ALLOWED",
-    );
-  }
-  if (!isJWEAlgSupported(alg)) {
-    return new JWTError(
-      `Key management algorithm not supported: ${quoteTokenValue(alg)}`,
-      "ERR_JWE_ALG_NOT_ALLOWED",
-    );
-  }
-  return undefined;
+  return checkAlgSupported(alg, {
+    supported: JWE_ALGORITHM_SET,
+    code: "ERR_JWE_ALG_NOT_ALLOWED",
+    label: "Key management algorithm",
+    role: "key management algorithm",
+  });
 }
 
-/** Reject an `enc` outside {@link ContentEncryptionAlgorithm}. */
 export function checkJWEEncSupported(enc: unknown): JWTError | undefined {
-  if (typeof enc === "string" && Object.hasOwn(JWE_ENC_CEK_FORMAT, enc)) return undefined;
+  if (typeof enc === "string" && isContentEncryptionAlgorithm(enc)) return undefined;
   return new JWTError(`Invalid JWE: unsupported "enc" ${quoteTokenValue(enc)}`, "ERR_JWE_INVALID");
 }
 
-/** Whether `alg` is a key management algorithm `unwrapKey` implements. */
 export function isJWEAlgSupported(alg: string): alg is KeyManagementAlgorithm {
   return JWE_ALGORITHM_SET.has(alg);
 }
 
-/** Throw the {@link checkJWEAlgSupported} error; past it, `alg` is a key management algorithm. */
 export function assertJWEAlgSupported(alg: string): asserts alg is KeyManagementAlgorithm {
   const error = checkJWEAlgSupported(alg);
   if (error) throw error;
 }
 
-/** Throw the {@link checkJWEEncSupported} error; past it, `enc` is a content encryption algorithm. */
 export function assertJWEEncSupported(enc: unknown): asserts enc is ContentEncryptionAlgorithm {
   const error = checkJWEEncSupported(enc);
   if (error) throw error;
 }
 
-/** Reject an `enc` outside the caller's `encryptionAlgorithms` allowlist, when one is given. */
 export function checkJWEEncAllowed(
   enc: string,
   encryptionAlgorithms: readonly string[] | undefined,
@@ -995,12 +786,7 @@ export function checkJWEEncAllowed(
   );
 }
 
-/**
- * The CEK a decryption returns under `returnCek`, as bytes. A CEK that cannot
- * leave WebCrypto — a non-extractable `dir` key, or one unwrapped under
- * `extractable: false` — cannot be returned, which is the caller's own option
- * combination rather than a failure of the token.
- */
+/** The CEK as bytes for `returnCek`; a non-extractable key is `ERR_INVALID_OPTION`. */
 export async function exportReturnedCek(
   cek: CryptoKey | Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -1014,18 +800,11 @@ export async function exportReturnedCek(
   return new Uint8Array(await crypto.subtle.exportKey("raw", cek));
 }
 
-/** The CEK form `enc` consumes. Call only after {@link checkJWEEncSupported}. */
 export function cekFormatForEnc(enc: ContentEncryptionAlgorithm): "cryptokey" | "raw" {
   return JWE_ENC_CEK_FORMAT[enc];
 }
 
-/**
- * The unwrap options one JWE recipient is opened with: the algorithms it was
- * encrypted under, the key management parameters its header carries, and the
- * caller's own unwrap overrides. Parameters absent from the header are left
- * off rather than set to `undefined`, so the primitive sees only what the
- * token actually declared.
- */
+/** One recipient's unwrap options; header parameters it lacks are left off, not `undefined`. */
 export function buildUnwrapKeyOptions(
   header: JWEHeaderParameters,
   algorithms: { alg: KeyManagementAlgorithm; enc: ContentEncryptionAlgorithm },
@@ -1057,10 +836,7 @@ export function buildUnwrapKeyOptions(
   return opts;
 }
 
-/**
- * RFC 7516 §5.2 step 6 / §7.2.1 — direct key agreement carries no wrapped CEK,
- * so a non-empty encrypted key is a forgery attempt rather than ignorable bytes.
- */
+/** RFC 7516 §5.2 step 6 — direct key agreement carries an empty encrypted key. */
 export function checkJWEDirectEncryptedKey(
   alg: string,
   encryptedKey: string | undefined,
@@ -1069,12 +845,7 @@ export function checkJWEDirectEncryptedKey(
   return new JWTError(`Invalid JWE: Encrypted key must be empty for ${alg}.`, "ERR_JWE_INVALID");
 }
 
-/**
- * RFC 7518 §5.2 / §5.3 — the IV and authentication tag sizes are fixed by `enc`.
- * Without this the AES-GCM primitive would accept any split of
- * `ciphertext ‖ tag`, leaving the segment boundary attacker-controlled, and the
- * AES-CBC-HMAC comparison would run against a truncated tag.
- */
+/** RFC 7518 §5.2 / §5.3 — the IV and authentication tag sizes are fixed by `enc`. */
 export function checkJWEContentSegments(
   enc: ContentEncryptionAlgorithm,
   iv: Uint8Array<ArrayBuffer>,
@@ -1103,7 +874,6 @@ export function checkJWEZip(header: object | undefined): JWTError | undefined {
   return new JWTError("Invalid JWE: compression is not supported.", "ERR_JWE_INVALID");
 }
 
-/** Producer-side counterpart of {@link checkJWEZip}. */
 export function assertNoZipOption(header: object | undefined, tier: string): void {
   if (!header || !Object.hasOwn(header, "zip")) return;
   throw new JWTError(
@@ -1121,26 +891,13 @@ export function checkJWEUnprotectedCrit(header: object | undefined): JWTError | 
   );
 }
 
-// -----------------------------------------------------------------------------
-// `typ` header comparison (RFC 7515 §4.1.9 / RFC 7516 §4.1.11).
-// -----------------------------------------------------------------------------
-
-/**
- * Compare an expected `typ` against a header's `typ` under RFC 7515 §4.1.9
- * media-type semantics: the comparison is case-insensitive and the
- * `application/` prefix may be omitted when the remainder contains no `"/"`,
- * so `"at+jwt"`, `"AT+JWT"` and `"application/at+jwt"` all match.
- */
+/** RFC 7515 §4.1.9 — case-insensitive `typ` match with an optional `application/` prefix. */
 export function typMatches(expected: string, actual: unknown): boolean {
   if (typeof actual !== "string") return false;
   return normalizeTyp(expected) === normalizeTyp(actual);
 }
 
-/**
- * RFC 7515 §4.1.9 / RFC 7516 §4.1.11 — the `typ` a caller expects is matched
- * against the protected header alone, so an unprotected tier cannot satisfy a
- * type gate. `label` names the signature a JSON serialization failed on.
- */
+/** RFC 7515 §4.1.9 / RFC 7516 §4.1.11 — an expected `typ` is matched against the protected header only. */
 export function checkProtectedTyp(
   expected: string | undefined,
   protectedHeader: { typ?: unknown },
@@ -1163,20 +920,16 @@ function normalizeTyp(typ: string): string {
   return lowered.includes("/") ? lowered : `application/${lowered}`;
 }
 
-// -----------------------------------------------------------------------------
-// Protected header decode (JWS verify + JWE decrypt, compact & multi).
-// -----------------------------------------------------------------------------
+export interface ProtectedHeaderOf {
+  JWS: JWSProtectedHeader;
+  JWE: JWEHeaderParameters;
+}
 
-/**
- * Parse the base64url-encoded JWS/JWE Protected Header. Returns an empty
- * header when `encoded` is absent (valid per RFC 7515 §7.2 / RFC 7516 §7.2.1);
- * throws `ERR_{family}_INVALID` on a malformed header, with the originating
- * `UnsecureError` (base64url or JSON) as `cause`.
- */
-export function decodeProtectedHeader<T extends object>(
+/** Decode a protected header; absent is `{}` (RFC 7515 §7.2 / RFC 7516 §7.2.1). */
+export function decodeProtectedHeader<F extends keyof ProtectedHeaderOf>(
   encoded: string | undefined,
-  family: "JWS" | "JWE",
-): T {
+  family: F,
+): ProtectedHeaderOf[F] {
   let parsed: unknown = {};
   if (encoded) {
     try {
@@ -1188,29 +941,19 @@ export function decodeProtectedHeader<T extends object>(
         error,
       );
     }
-    // RFC 7515 §4 / RFC 7516 §4: the header is a JSON object. `null`, arrays and
-    // JSON scalars parse fine but must not reach the header consumers.
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    // RFC 7515 §4 / RFC 7516 §4: the header is a JSON object.
+    if (!isPlainObject(parsed)) {
       throw new JWTError(
         `Invalid ${family}: Protected header must be a JSON object.`,
         `ERR_${family}_INVALID`,
       );
     }
   }
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a JSON object (checked above) read as the header type; each consumer checks the members it reads
-  return parsed as T;
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- each consumer checks the members it reads
+  return parsed as ProtectedHeaderOf[F];
 }
 
-// -----------------------------------------------------------------------------
-// Wire segment decode (JWS/JWE/JWK) — the single codec-failure boundary.
-// -----------------------------------------------------------------------------
-
-/**
- * Decode a base64url-encoded wire segment or key field into bytes, translating
- * a codec failure into `ERR_{family}_INVALID` with the originating
- * `UnsecureError` as `cause`. Decoding is always strict — the canonical,
- * unpadded RFC 7515 §2 encoding is the contract for token material.
- */
+/** Strictly decode a base64url segment (RFC 7515 §2); failure is `ERR_{family}_INVALID`. */
 export function decodeSegment(
   encoded: string,
   options: { family: "JWS" | "JWE" | "JWK"; what: string },
@@ -1226,58 +969,66 @@ export function decodeSegment(
   }
 }
 
-// -----------------------------------------------------------------------------
-// JWS payload decoding (RFC 7797 aware) — compact verify + multi verify.
-// -----------------------------------------------------------------------------
-
-/**
- * Decode a JWS payload segment under the caller-declared
- * {@link JOSEPayloadMode}, honouring `b64: false` (RFC 7797) — where the
- * segment carries the payload text itself rather than its Base64URL encoding.
- *
- * A segment that cannot be Base64URL-decoded fails as
- * `"Invalid JWS: Payload could not be decoded."`; one that does not meet the
- * declared mode fails with that mode's rejection.
- */
-export function decodeJWSPayload<T>(
+/** Decode a JWS payload segment under the payload mode, honouring `b64: false` (RFC 7797). */
+export function decodeJWSPayload(
   payloadSegment: string,
   useB64: boolean,
   mode: JOSEPayloadMode,
-): T {
+): PayloadOf<JOSEPayloadMode> {
   if (!useB64) {
-    return declaredPayload<T>(
-      mode === "string"
-        ? payloadSegment
-        : parsePayloadBytes<T>(textEncoder.encode(payloadSegment), {
-            payload: mode,
-            family: "JWS",
-          }),
-    );
+    return mode === "string"
+      ? payloadSegment
+      : parsePayloadBytes(textEncoder.encode(payloadSegment), {
+          payload: mode,
+          family: "JWS",
+        });
   }
   try {
-    return declaredPayload<T>(
-      parsePayloadSegment<T>(payloadSegment, {
-        payload: mode,
-        family: "JWS",
-      }),
-    );
+    return parsePayloadSegment(payloadSegment, {
+      payload: mode,
+      family: "JWS",
+    });
   } catch (error) {
     if (error instanceof JWTError) throw error;
     throw new JWTError("Invalid JWS: Payload could not be decoded.", "ERR_JWS_INVALID", error);
   }
 }
 
-/** Parse decrypted JWE plaintext under the caller-declared {@link JOSEPayloadMode}. */
-export function decodeJWEPayload<T>(plaintext: Uint8Array<ArrayBuffer>, mode: JOSEPayloadMode): T {
-  return declaredPayload<T>(parsePayloadBytes<T>(plaintext, { payload: mode, family: "JWE" }));
+export function decodeJWEPayload(
+  plaintext: Uint8Array<ArrayBuffer>,
+  mode: JOSEPayloadMode,
+): PayloadOf<JOSEPayloadMode> {
+  return parsePayloadBytes(plaintext, { payload: mode, family: "JWE" });
 }
 
-/** A parsed payload as the type the caller declared for its payload mode. */
-function declaredPayload<T>(payload: T | string | Uint8Array<ArrayBuffer>): T {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the payload mode decides whether the value is text, bytes or a JSON object, and the caller declares T for that mode
-  return payload as T;
+function checkAlgSupported(
+  alg: string,
+  options: {
+    supported: ReadonlySet<string>;
+    code: "ERR_JWS_ALG_NOT_ALLOWED" | "ERR_JWE_ALG_NOT_ALLOWED";
+    label: string;
+    role: string;
+  },
+): JWTError | undefined {
+  const { supported, code, label, role } = options;
+  if (alg === "none") return new JWTError(`"none" is not a valid ${role}`, code);
+  if (!supported.has(alg)) {
+    return new JWTError(`${label} not supported: ${quoteTokenValue(alg)}`, code);
+  }
+  return undefined;
 }
 
-function isJSONObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function keyServesHeaderAlg(
+  header: { alg?: string; epk?: { crv?: string } },
+  key: JWK | CryptoKey,
+  ctx: AlgCheckContext,
+): boolean {
+  const { alg } = header;
+  if (!alg) return false;
+  const inferred = ctx.infer(key);
+  if (inferred && !inferred.includes(alg)) return false;
+  if (!alg.startsWith("ECDH-ES")) return true;
+  const epkCurve = header.epk?.crv;
+  const keyCurve = isCryptoKey(key) ? cryptoKeyCurve(key) : "crv" in key ? key.crv : undefined;
+  return !epkCurve || !keyCurve || epkCurve === keyCurve;
 }

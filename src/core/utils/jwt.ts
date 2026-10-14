@@ -2,10 +2,7 @@ import type { JWTClaims, JWTClaimValidationOptions, Duration } from "../types";
 import { maybeArray } from "./array";
 import { JWTError } from "../error";
 
-/**
- * Returns true when headers indicate JSON content: a `typ` naming JWT, or a
- * JSON `cty`. A `typ` or `cty` that is not a string indicates nothing.
- */
+/** Whether headers declare JSON content: a string `typ` naming JWT, or a JSON `cty`. */
 export function isJWTContent(header: { typ?: string; cty?: string } | undefined): boolean {
   if (!header) return false;
   const typ: unknown = header.typ;
@@ -42,11 +39,7 @@ const TIME_CONSTANTS: Readonly<Record<string, number>> = Object.freeze({
 const DURATION_REGEX =
   /^(\d+)(s|second|seconds|m|minute|minutes|h|hour|hours|D|day|days|W|week|weeks|M|month|months|Y|year|years)?$/;
 
-/**
- * Parse a {@link Duration} into an integer number of seconds, zero and
- * negatives included. Internal to the library: the `utils` entry point does
- * not re-export it.
- */
+/** Parse a `Duration` into integer seconds, zero and negatives included. */
 export function parseDurationSeconds(value: Duration): number {
   if (typeof value === "number") {
     if (!Number.isInteger(value)) {
@@ -72,14 +65,7 @@ export function parseDurationSeconds(value: Duration): number {
   );
 }
 
-/**
- * Parse a {@link Duration} (integer seconds or shorthand string like `"10m"`)
- * into a positive integer number of seconds. Used for `expiresIn`-style inputs
- * where `0` / negatives are invalid. A malformed value is an `ERR_INVALID_OPTION`.
- *
- * For inputs that legitimately permit `0` (e.g. `notBeforeIn: 0`), compute the
- * bounds at the call site instead.
- */
+/** Parse a `Duration` (e.g. `3600` or `"10m"`) into positive integer seconds; else `ERR_INVALID_OPTION`. */
 export function computeDurationInSeconds(duration: Duration): number {
   const seconds = parseDurationSeconds(duration);
   if (seconds <= 0) {
@@ -91,14 +77,14 @@ export function computeDurationInSeconds(duration: Duration): number {
   return seconds;
 }
 
+/** The `ERR_JWT_EXPIRED` message for a token whose `exp` (NumericDate seconds) has passed. */
+export function expiredClaimMessage(exp: number): string {
+  return `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(exp * 1000).toISOString()})`;
+}
+
 /**
- * Validate JWT claims under JWS verification rules (or custom JWE implementations).
- *
- * Each expectation is checked when it is set: `issuer`, `audience` and `subject`
- * name non-empty strings, `requiredClaims` is an array of claim names, and
- * `maxTokenAge` is a positive duration. An empty or malformed expectation is
- * `ERR_INVALID_OPTION` rather than a check that is skipped; an empty `audience`
- * or `issuer` list is a check no token satisfies.
+ * Validate JWT claims against the set expectations. A malformed expectation throws
+ * `ERR_INVALID_OPTION`; an empty `audience` or `issuer` list matches no token.
  */
 export function validateJwtClaims(
   jwtClaims: JWTClaims,
@@ -108,7 +94,6 @@ export function validateJwtClaims(
   const clockTolerance = _normalizeClockTolerance(options.clockTolerance);
   const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
 
-  // Skip the Set allocations for the common "no required claims" path.
   if (
     options.requiredClaims !== undefined ||
     options.issuer !== undefined ||
@@ -134,8 +119,6 @@ export function validateJwtClaims(
     }
   }
 
-  // RFC 7519 §2 — `exp`, `nbf`, `iat` are NumericDate: a finite, non-negative number of
-  // seconds since the epoch. Fractional values are explicitly allowed.
   _assertNumericDate(jwtClaims.exp, "exp", "Expiration Time");
   _assertNumericDate(jwtClaims.nbf, "nbf", "Not Before");
   _assertNumericDate(jwtClaims.iat, "iat", "Issued At");
@@ -176,11 +159,11 @@ export function validateJwtClaims(
   }
 
   if (typeof jwtClaims.exp === "number" && jwtClaims.exp <= currentTime - clockTolerance) {
-    throw new JWTError(
-      `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(jwtClaims.exp * 1000).toISOString()})`,
-      "ERR_JWT_EXPIRED",
-      { jti: jwtClaims.jti, iat: jwtClaims.iat, exp: jwtClaims.exp },
-    );
+    throw new JWTError(expiredClaimMessage(jwtClaims.exp), "ERR_JWT_EXPIRED", {
+      jti: jwtClaims.jti,
+      iat: jwtClaims.iat,
+      exp: jwtClaims.exp,
+    });
   }
 
   if (options.maxTokenAge !== undefined) {
@@ -209,11 +192,7 @@ export function validateJwtClaims(
   }
 }
 
-/**
- * The shape of every {@link JWTClaimValidationOptions} expectation, checked
- * before any claim is read. Internal to the library: the `utils` entry point
- * does not re-export it.
- */
+/** Assert every claim validation expectation is well-formed. */
 export function assertClaimValidationOptions(options: JWTClaimValidationOptions): void {
   _assertExpectedValues(options.issuer, "issuer");
   _assertExpectedValues(options.audience, "audience");
@@ -226,18 +205,14 @@ export function assertClaimValidationOptions(options: JWTClaimValidationOptions)
   _normalizeClockTolerance(options.clockTolerance);
 }
 
-/**
- * A list option (an allowlist, claim or header names) is an array of strings
- * when present. Internal to the library: the `utils` entry point does not
- * re-export it.
- */
+/** Assert a list option is an array of strings when present. */
 export function assertStringList(value: unknown, name: string): void {
   if (value === undefined) return;
   if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) return;
   throw new JWTError(`"${name}" must be an array of strings.`, "ERR_INVALID_OPTION");
 }
 
-/** Normalize `clockTolerance` (seconds or a {@link Duration}) into non-negative seconds. */
+/** Normalize `clockTolerance` (seconds or a `Duration`) into non-negative seconds. */
 function _normalizeClockTolerance(value: number | Duration | undefined): number {
   if (value === undefined) return 0;
   let seconds: number;

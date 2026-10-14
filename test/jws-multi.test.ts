@@ -9,7 +9,7 @@ import {
   isJWTError,
   isUnsecureError,
 } from "../src/core/jws";
-import { generateJWK, generateKey } from "../src/core/jwk";
+import { generateJWK, generateKey, importKey } from "../src/core/jwk";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
 import type {
   JWK,
@@ -39,14 +39,14 @@ function expectUnverified(
 }
 
 describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
-  const keys: {
+  const keys = {} as {
     rs256: JWK_Pair<"RS256">;
     ps256: JWK_Pair<"PS256">;
     es256: JWK_Pair<"ES256">;
     ed25519: JWK_Pair<"Ed25519">;
     hs256: JWK_oct<"HS256">;
     hs384: JWK_oct<"HS384">;
-  } = {} as any;
+  };
 
   beforeAll(async () => {
     const [rs256, ps256, es256, ed25519, hs256, hs384] = await Promise.all([
@@ -86,8 +86,8 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
       expect(Array.isArray(jws.signatures)).toBe(true);
       expect(jws.signatures).toHaveLength(1);
-      expect("signature" in (jws as any)).toBe(false);
-      expect("protected" in (jws as any)).toBe(false);
+      expect("signature" in jws).toBe(false);
+      expect("protected" in jws).toBe(false);
     });
 
     it("applies JWT claim auto-generation to the shared payload (iat, exp)", async () => {
@@ -239,6 +239,25 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       expect(signerIndex).toBe(1);
     });
 
+    it("reports the same failure as verify, with every tried candidate as the cause", async () => {
+      const [a, b] = await Promise.all([
+        generateJWK("RS256", { modulusLength: 2048 }),
+        generateJWK("RS256", { modulusLength: 2048 }),
+      ]);
+      const jws = await signMulti({ sub: "u1" }, [{ key: { ...a.privateKey, kid: undefined } }]);
+      const set = {
+        keys: [
+          { kty: "RSA", alg: "RS256", n: "!!", e: "AQAB" },
+          { ...b.publicKey, kid: undefined },
+        ],
+      } as unknown as JWKSet;
+      const error = await verifyMulti(jws, set).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+      expect(error.message).toBe("JWS signature verification failed.");
+      const causes = error.cause as Array<{ code: string }>;
+      expect(causes.map((c) => c.code)).toEqual(["ERR_JWK_INVALID", "ERR_JWS_SIGNATURE_INVALID"]);
+    });
+
     it("accepts a JWKLookupFunction", async () => {
       const jws = await signMulti({ sub: "u1" }, [
         { key: keys.rs256.privateKey },
@@ -294,7 +313,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
     it("rejects a string key", async () => {
       const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
-      const error = await verifyMulti(jws, "a-very-long-shared-secret-value" as any, {
+      const error = await verifyMulti(jws, "a-very-long-shared-secret-value" as never, {
         algorithms: ["HS256"],
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
@@ -302,7 +321,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
     it("rejects a string signer key on signMulti", async () => {
       const error = await signMulti({ x: 1 }, [
-        { key: "a-very-long-shared-secret-value" as any, alg: "HS256" },
+        { key: "a-very-long-shared-secret-value" as never, alg: "HS256" },
       ]).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
     });
@@ -350,6 +369,77 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
           (e) => isJWTError(e, "ERR_JWS_NO_MATCHING_SIGNER"),
         );
       });
+
+      // `kid` is a selection hint: key material without a `kid` of its own is
+      // unknown, not mismatched, and is matched on algorithm compatibility.
+      it("attempts a CryptoKey against a signature whose header carries a kid", async () => {
+        const jws = await signMulti({ sub: "u1" }, [
+          { key: keys.rs256.privateKey },
+          { key: keys.es256.privateKey },
+        ]);
+        const header = JSON.parse(base64UrlParse(jws.signatures[1].protected!));
+        expect(header.kid).toBe(keys.es256.privateKey.kid);
+        const cryptoKey = await importKey(keys.es256.publicKey);
+        const { payload, signerIndex } = await verifyMulti(jws, cryptoKey, {
+          strictSignerMatch: true,
+          algorithms: ["RS256", "ES256"],
+        });
+        expect(payload.sub).toBe("u1");
+        expect(signerIndex).toBe(1);
+      });
+
+      it("attempts raw HMAC bytes against a signature whose header carries a kid", async () => {
+        const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+        const raw = base64UrlParse(keys.hs256.k, { returnAs: "uint8array" });
+        const { signerIndex } = await verifyMulti(jws, raw, {
+          strictSignerMatch: true,
+          algorithms: ["HS256"],
+        });
+        expect(signerIndex).toBe(0);
+      });
+
+      it("skips a signature whose alg the CryptoKey cannot serve", async () => {
+        const jws = await signMulti({ sub: "u1" }, [{ key: keys.rs256.privateKey }]);
+        const cryptoKey = await importKey(keys.es256.publicKey);
+        await expect(
+          verifyMulti(jws, cryptoKey, { strictSignerMatch: true, algorithms: ["RS256", "ES256"] }),
+        ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_NO_MATCHING_SIGNER"));
+      });
+
+      it("skips a JWK Set whose kid-matching entry cannot serve the signature's alg", async () => {
+        const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
+        const { alg: _alg, ...es256 } = keys.es256.publicKey;
+        const set: JWKSet = { keys: [{ ...es256, kid: keys.hs256.kid }] };
+        await expect(
+          verifyMulti(jws, set, { strictSignerMatch: true, algorithms: ["HS256"] }),
+        ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_NO_MATCHING_SIGNER"));
+      });
+
+      it("reports ERR_JWK_KEY_NOT_FOUND when no JWK Set entry carries the signature's kid", async () => {
+        const jws = await signMulti({ sub: "u1" }, [{ key: keys.es256.privateKey }]);
+        const set: JWKSet = { keys: [{ ...keys.es256.publicKey, kid: "other" }] };
+        await expect(verifyMulti(jws, set, { strictSignerMatch: true })).rejects.toSatisfy((e) =>
+          isJWTError(e, "ERR_JWK_KEY_NOT_FOUND"),
+        );
+      });
+
+      it("does not select a kid-less JWK Set entry for a signature whose header carries a kid", async () => {
+        const jws = await signMulti({ sub: "u1" }, [{ key: keys.es256.privateKey }]);
+        const { kid: _kid, ...kidless } = keys.es256.publicKey;
+        await expect(
+          verifyMulti(jws, { keys: [kidless] }, { strictSignerMatch: true }),
+        ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWK_KEY_NOT_FOUND"));
+      });
+
+      it("verifies against a looked-up JWK Set that also holds a null entry", async () => {
+        const jws = await signMulti({ sub: "u1" }, [{ key: keys.es256.privateKey }]);
+        const set = { keys: [null, keys.es256.publicKey] } as unknown as JWKSet;
+        const { payload, signerIndex } = await verifyMulti(jws, () => set, {
+          strictSignerMatch: true,
+        });
+        expect(payload.sub).toBe("u1");
+        expect(signerIndex).toBe(0);
+      });
     });
 
     describe("error paths", () => {
@@ -357,6 +447,17 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         await expect(
           verifyMulti(null as unknown as JWSGeneralSerialization, keys.hs256),
         ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_INVALID_SERIALIZATION"));
+      });
+
+      it("rejects an array as a non-object serialization in verifyMulti and verifyMultiAll", async () => {
+        const input = [] as unknown as JWSGeneralSerialization;
+        for (const error of [
+          await verifyMulti(input, keys.hs256).catch((e) => e),
+          await verifyMultiAll(input, () => keys.hs256).catch((e) => e),
+        ]) {
+          expect(isJWTError(error, "ERR_JWS_INVALID_SERIALIZATION")).toBe(true);
+          expect(error.message).toBe("Invalid JWS JSON Serialization: expected an object.");
+        }
       });
 
       it("rejects an object with neither signatures[] nor flattened signature", async () => {
@@ -384,7 +485,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
   describe("verifyMultiAll", () => {
     it("reports a string key as a per-signature failure, not a throw", async () => {
       const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);
-      const outcomes = await verifyMultiAll(jws, (() => "secret-from-lookup") as any, {
+      const outcomes = await verifyMultiAll(jws, () => "secret-from-lookup", {
         algorithms: ["HS256"],
       });
       const failure = expectUnverified(outcomes[0]);
@@ -620,8 +721,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       });
       const outcome = expectUnverified(outcomes[0]);
       expect(isJWTError(outcome.error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
-      // The string falls through to the fallback message path in _asJWTError,
-      // and the original value is preserved as the error's `cause`.
+      // The thrown value is reported under the library's message, and kept as `cause`.
       expect(outcome.error.cause).toBe("plain-string-error");
     });
   });
@@ -790,8 +890,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 });
 
 describe.concurrent("JWS multi-signature hardening", () => {
-  const keys: { hs256: JWK_oct<"HS256">; hs384: JWK_oct<"HS384">; es256: JWK_Pair<"ES256"> } =
-    {} as any;
+  const keys = {} as { hs256: JWK_oct<"HS256">; hs384: JWK_oct<"HS384">; es256: JWK_Pair<"ES256"> };
 
   beforeAll(async () => {
     const [hs256, hs384, es256] = await Promise.all([
@@ -803,8 +902,6 @@ describe.concurrent("JWS multi-signature hardening", () => {
     keys.hs384 = hs384;
     keys.es256 = es256;
   });
-
-  const encodeHeader = (json: string): string => base64UrlStringify(json);
 
   describe("protected header shape", () => {
     it.each(["null", "[]", "123", '"str"'])("verifyMulti rejects %s", async (json) => {
@@ -1401,7 +1498,9 @@ describe.concurrent('JWS JSON serialization "crit" members', () => {
 
     const error = await verifyMulti(jws, key, { payload: "string" }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-    expect(error.message).toBe("Missing critical header parameters: b64");
+    expect(error.message).toBe(
+      'Critical header parameter "b64" listed in "crit" but not present in the protected header.',
+    );
 
     const [outcome] = await verifyMultiAll(jws, () => key, { payload: "string" });
     expect(expectUnverified(outcome).error.code).toBe("ERR_JWS_INVALID");
@@ -1511,3 +1610,7 @@ describe("types", () => {
     );
   });
 });
+
+function encodeHeader(json: string): string {
+  return base64UrlStringify(json);
+}

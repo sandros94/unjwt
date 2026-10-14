@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import { secureRandomBytes, textEncoder } from "unsecure";
 import {
   base64UrlStringify,
@@ -34,6 +34,8 @@ import {
 import { generateKey } from "../src/core/jwk";
 import { isJWTError } from "../src/core/error";
 import type {
+  JOSEPayloadMode,
+  JWTClaims,
   JWK_EC_Public,
   JWK_EC_Private,
   JWK_OKP_Public,
@@ -215,7 +217,7 @@ describe("type guards", () => {
     });
 
     it("returns false for unknown kty", () => {
-      expect(isPublicJWK({ kty: "DH", n: "abc" } as any)).toBe(false);
+      expect(isPublicJWK({ kty: "DH", n: "abc" })).toBe(false);
     });
 
     it("returns false for non-JWK values", () => {
@@ -723,6 +725,14 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
     },
   );
 
+  it.each([
+    [{ crit: ["app"] }, 'Critical header parameter "app" listed in "crit" but not present'],
+    [{ crit: ["app"], app: "web" }, "Unprocessed critical header parameters: app"],
+  ])("reports the same crit violation for JWS and JWE (%j)", (header, message) => {
+    expect(() => validateCriticalHeadersJWS(header)).toThrow(message);
+    expect(() => validateCriticalHeadersJWE(header)).toThrow(message);
+  });
+
   it('allows "b64" (RFC 7797) in a JWS crit', () => {
     expect(() => validateCriticalHeadersJWS({ crit: ["b64"], b64: false })).not.toThrow();
   });
@@ -730,7 +740,7 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
   it("keeps the recognized / missing semantics for extension parameters", () => {
     expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
     expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" })).toThrow(
-      "Missing critical header parameters: app",
+      "Unprocessed critical header parameters: app",
     );
     expect(() => validateCriticalHeadersJWE({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
     expect(() => validateCriticalHeadersJWE({ crit: ["app"] }, ["app"])).toThrow(
@@ -877,3 +887,32 @@ function catchError(fn: () => unknown): unknown {
   }
   return undefined;
 }
+
+describe("types", () => {
+  interface MyClaims extends JWTClaims {
+    role: string;
+  }
+  const bytes = new Uint8Array(0);
+  const anyMode = (mode: JOSEPayloadMode) => parsePayloadBytes(bytes, { payload: mode });
+
+  it("parsePayloadBytes and parsePayloadSegment type their result by payload mode", () => {
+    expectTypeOf(() => parsePayloadBytes(bytes)).returns.toEqualTypeOf<JWTClaims>();
+    expectTypeOf(() => parsePayloadBytes<MyClaims>(bytes)).returns.toEqualTypeOf<MyClaims>();
+    expectTypeOf(() =>
+      parsePayloadBytes<MyClaims>(bytes, { payload: "json" }),
+    ).returns.toEqualTypeOf<MyClaims>();
+    expectTypeOf(() =>
+      parsePayloadBytes(bytes, { payload: "string" }),
+    ).returns.toEqualTypeOf<string>();
+    expectTypeOf(() => parsePayloadBytes(bytes, { payload: "bytes" })).returns.toEqualTypeOf<
+      Uint8Array<ArrayBuffer>
+    >();
+    expectTypeOf(anyMode).returns.toEqualTypeOf<JWTClaims | string | Uint8Array<ArrayBuffer>>();
+    expectTypeOf(() => parsePayloadSegment<MyClaims>("")).returns.toEqualTypeOf<MyClaims>();
+    expectTypeOf(() => parsePayloadSegment("", { payload: "bytes" })).returns.toEqualTypeOf<
+      Uint8Array<ArrayBuffer>
+    >();
+    // @ts-expect-error a claims type only applies to the JSON mode
+    expectTypeOf(() => parsePayloadBytes<MyClaims>(bytes, { payload: "bytes" }));
+  });
+});

@@ -347,7 +347,7 @@ describe.concurrent("JWE Utilities", () => {
 
     it("should throw if alg is missing", async () => {
       const key = keys["A128KW"].key as CryptoKey;
-      await expect(encrypt(plaintextString, key, { enc: "A128GCM" } as any)).rejects.toThrow(
+      await expect(encrypt(plaintextString, key, { enc: "A128GCM" } as never)).rejects.toThrow(
         'JWE "alg" (Key Management Algorithm) must be provided in options',
       );
     });
@@ -385,7 +385,7 @@ describe.concurrent("JWE Utilities", () => {
       await expect(decrypt(jwe, privateKey)).resolves.toBeDefined();
       // `decrypt`'s TS union already rejects `JWK_Public`; the cast exercises the
       // runtime guard for callers that use `as any`.
-      await expect(decrypt(jwe, publicKey as any)).rejects.toThrow(
+      await expect(decrypt(jwe, publicKey as never)).rejects.toThrow(
         expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
       );
     });
@@ -681,10 +681,12 @@ describe.concurrent("JWE Utilities", () => {
       } as unknown as { keys: JWK[] };
       const error = await decrypt(jwe, failing).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+      expect(error.message).toBe("JWE decryption failed.");
       const causes = error.cause as JWTError[];
       expect(Array.isArray(causes)).toBe(true);
       expect(causes).toHaveLength(2);
       expect(causes.every((c) => c instanceof JWTError)).toBe(true);
+      expect(causes.map((c) => c.code)).toEqual(["ERR_JWK_INVALID", "ERR_JWE_DECRYPTION_FAILED"]);
     });
 
     it("ignores oct entries unless the caller admits symmetric material", async () => {
@@ -894,21 +896,17 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     describe("claims and header defaults", () => {
-      const alg: KeyManagementAlgorithm = "A128KW";
-      const enc: ContentEncryptionAlgorithm = "A128GCM";
-
       it("computes iat/exp during encrypt when expiresIn provided and no exp present", async () => {
-        const key = keys[alg].key as CryptoKey;
         const baseClaims: JWTClaims = { sub: "abc" };
 
-        const jwe = await encrypt(baseClaims, key, {
+        const token = await encrypt(baseClaims, key, {
           alg,
           enc,
           expiresIn: "1m", // 1 minute
           currentDate: new Date(0), // epoch
         });
 
-        const { payload, protectedHeader } = await decrypt(jwe, key, {
+        const { payload, protectedHeader } = await decrypt(token, key, {
           currentDate: new Date(30_000), // 30 seconds in
         });
         expect(protectedHeader.typ).toBe("JWT");
@@ -919,33 +917,31 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("does not override existing exp claim when provided", async () => {
-        const key = keys[alg].key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc", exp: 999 };
 
-        const jwe = await encrypt(claimsWithExp, key, {
+        const token = await encrypt(claimsWithExp, key, {
           alg,
           enc,
           expiresIn: 60, // should be ignored because exp already set
           currentDate: new Date(0), // epoch
         });
 
-        const { payload } = await decrypt(jwe, key, {
+        const { payload } = await decrypt(token, key, {
           currentDate: new Date(30_000),
         });
         expect(payload.exp).toBe(999);
       });
 
       it("sets exp from expiresAt (absolute expiry)", async () => {
-        const key = keys[alg].key as CryptoKey;
         const expiresAt = new Date("2030-01-01T00:00:00Z");
-        const jwe = await encrypt({ sub: "abc" }, key, {
+        const token = await encrypt({ sub: "abc" }, key, {
           alg,
           enc,
           expiresAt,
           currentDate: new Date(0),
         });
 
-        const { payload } = await decrypt(jwe, key, {
+        const { payload } = await decrypt(token, key, {
           currentDate: new Date(0),
         });
         expect(payload.exp).toBe(Math.floor(expiresAt.getTime() / 1000));
@@ -953,7 +949,6 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("throws when both expiresIn and expiresAt are set", async () => {
-        const key = keys[alg].key as CryptoKey;
         await expect(
           encrypt({ sub: "abc" }, key, {
             alg,
@@ -965,7 +960,6 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("defaults typ, not cty, for an object and leaves typ undefined for a string", async () => {
-        const key = keys[alg].key as CryptoKey;
         const obj = { hello: "world" };
 
         const jweObj = await encrypt(obj, key, { alg, enc });
@@ -981,7 +975,6 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("accepts critical headers via requiredHeaders option", async () => {
-        const key = keys[alg].key as CryptoKey;
         const jweCrit = await encrypt(plaintextString, key, {
           alg,
           enc,
@@ -994,17 +987,16 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("does have an expired claim but validation is skipped", async () => {
-        const key = keys[alg].key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc" };
 
-        const jwe = await encrypt(claimsWithExp, key, {
+        const token = await encrypt(claimsWithExp, key, {
           alg,
           enc,
           expiresIn: 60,
           currentDate: new Date(0), // epoch
         });
 
-        const { payload } = await decrypt(jwe, key, {
+        const { payload } = await decrypt(token, key, {
           currentDate: new Date(61_000), // 61 seconds after epoch
           validateClaims: false,
         });
@@ -1015,35 +1007,32 @@ describe.concurrent("JWE Utilities", () => {
         // Encrypting a plain JSON string as Uint8Array bypasses `applyTypDefault`
         // so the protected header has no `typ`. Prior to v0.7.0 this silently skipped
         // claim validation because the condition was typ-gated.
-        const key = keys[alg].key as CryptoKey;
         const expiredPayload = {
           sub: "abc",
           exp: Math.floor(Date.now() / 1000) - 60,
         };
-        const jwe = await encrypt(textEncoder.encode(JSON.stringify(expiredPayload)), key, {
+        const token = await encrypt(textEncoder.encode(JSON.stringify(expiredPayload)), key, {
           alg,
           enc,
           protectedHeader: { cty: "application/json" },
         });
 
-        await expect(decrypt(jwe, key)).rejects.toThrow("Token has expired");
+        await expect(decrypt(token, key)).rejects.toThrow("Token has expired");
       });
 
       it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
-        const key = keys[alg].key as CryptoKey;
-        const jwe = await encrypt({ sub: "abc", exp: "never" }, key, { alg, enc });
+        const token = await encrypt({ sub: "abc", exp: "never" }, key, { alg, enc });
 
-        const err = await decrypt(jwe, key).catch((e) => e);
+        const err = await decrypt(token, key).catch((e) => e);
         expect(isJWTError(err)).toBe(true);
         expect((err as JWTError).code).toBe("ERR_JWT_CLAIM_INVALID");
         expect((err as Error).message).toContain('"exp" (Expiration Time) Claim must be a number');
       });
 
       it("should throw if JWT has expired", async () => {
-        const key = keys[alg].key as CryptoKey;
         const claimsWithExp: JWTClaims = { sub: "abc" };
 
-        const jwe = await encrypt(claimsWithExp, key, {
+        const token = await encrypt(claimsWithExp, key, {
           alg,
           enc,
           expiresIn: 60,
@@ -1051,7 +1040,7 @@ describe.concurrent("JWE Utilities", () => {
         });
 
         await expect(
-          decrypt(jwe, key, {
+          decrypt(token, key, {
             currentDate: new Date(61_000),
           }),
         ).rejects.toThrow(
@@ -1060,15 +1049,14 @@ describe.concurrent("JWE Utilities", () => {
       });
 
       it("should throw JWTError with ERR_JWT_EXPIRED code and cause for expired `exp`", async () => {
-        const key = keys[alg].key as CryptoKey;
-        const jwe = await encrypt({ sub: "test-subject", jti: "test-jti-exp" }, key, {
+        const token = await encrypt({ sub: "test-subject", jti: "test-jti-exp" }, key, {
           alg,
           enc,
           expiresIn: 60,
           currentDate: new Date(0),
         });
 
-        const error = await decrypt(jwe, key, {
+        const error = await decrypt(token, key, {
           currentDate: new Date(61_000),
         }).catch((e) => e);
 
@@ -1221,10 +1209,10 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should accept a JWK (with d) as ephemeral key", async () => {
-      const ephemeralJwk = (await generateKey("ECDH-ES+A128KW", {
+      const ephemeralJwk = await generateKey("ECDH-ES+A128KW", {
         namedCurve: "P-256",
         toJWK: true,
-      })) as { privateKey: Record<string, any>; publicKey: Record<string, any> };
+      });
 
       // A JWK_EC_Private has "d" - should be accepted as the ephemeral key.
       // Encrypt covers the JWK branch in parseEphemeralKey; decrypt is not tested
@@ -1232,7 +1220,7 @@ describe.concurrent("JWE Utilities", () => {
       const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
         alg: ecdhAlg,
         enc,
-        ecdh: { ephemeralKey: ephemeralJwk.privateKey as any },
+        ecdh: { ephemeralKey: ephemeralJwk.privateKey },
       });
 
       expect(typeof jwe).toBe("string");
@@ -1240,18 +1228,18 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should accept a plain object {publicKey, privateKey} of JWKs as ephemeral key", async () => {
-      const ephemeralJwk = (await generateKey("ECDH-ES+A128KW", {
+      const ephemeralJwk = await generateKey("ECDH-ES+A128KW", {
         namedCurve: "P-256",
         toJWK: true,
-      })) as { privateKey: Record<string, any>; publicKey: Record<string, any> };
+      });
 
       const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
         alg: ecdhAlg,
         enc,
         ecdh: {
           ephemeralKey: {
-            publicKey: ephemeralJwk.publicKey as any,
-            privateKey: ephemeralJwk.privateKey as any,
+            publicKey: ephemeralJwk.publicKey,
+            privateKey: ephemeralJwk.privateKey,
           },
         },
       });
@@ -1266,7 +1254,7 @@ describe.concurrent("JWE Utilities", () => {
           alg: ecdhAlg,
           enc,
           ecdh: {
-            ephemeralKey: { publicKey: recipientKeyPair.publicKey, privateKey: null } as any,
+            ephemeralKey: { publicKey: recipientKeyPair.publicKey, privateKey: null } as never,
           },
         }),
       ).rejects.toThrow(/publicKey and privateKey/i);
@@ -1281,7 +1269,7 @@ describe.concurrent("JWE Utilities", () => {
       const jwe = await encrypt(plaintextObj, recipientKeyPair.publicKey, {
         alg: ecdhAlg,
         enc,
-        ecdh: { ephemeralKey: ephemeralPair.privateKey as any },
+        ecdh: { ephemeralKey: ephemeralPair.privateKey },
       });
 
       expect(typeof jwe).toBe("string");
@@ -1289,16 +1277,16 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should throw when JWK ephemeral key has no private parameter d", async () => {
-      const ephemeralPair = (await generateKey("ECDH-ES+A128KW", {
+      const ephemeralPair = await generateKey("ECDH-ES+A128KW", {
         namedCurve: "P-256",
         toJWK: true,
-      })) as { privateKey: Record<string, any>; publicKey: Record<string, any> };
+      });
 
       await expect(
         encrypt(plaintextObj, recipientKeyPair.publicKey, {
           alg: ecdhAlg,
           enc,
-          ecdh: { ephemeralKey: ephemeralPair.publicKey as any }, // public JWK — no "d"
+          ecdh: { ephemeralKey: ephemeralPair.publicKey as never }, // public JWK — no "d"
         }),
       ).rejects.toThrow(/private parameter "d"/i);
     });
@@ -1466,16 +1454,6 @@ describe.concurrent("JWE Utilities", () => {
       cbcKey = cbc;
       ecdhPair = ecdh;
     });
-
-    function replaceHeader(token: string, header: Record<string, unknown>): string {
-      const parts = token.split(".");
-      parts[0] = base64UrlStringify(JSON.stringify(header));
-      return parts.join(".");
-    }
-
-    function readHeader(token: string): Record<string, unknown> {
-      return JSON.parse(base64UrlParse(token.split(".")[0]));
-    }
 
     it("rejects a non-empty encrypted key for dir", async () => {
       const token = await encrypt(plaintextObj, dirKey, { alg: "dir", enc: "A256GCM" });
@@ -1858,6 +1836,30 @@ describe.concurrent("JWE producer option gates", () => {
     expect(payload).toBe("payload");
   });
 
+  it("omits empty party info from the header", async () => {
+    const jwe = await encrypt("payload", ecdhKey.publicKey, {
+      enc: "A128GCM",
+      ecdh: { partyUInfo: new Uint8Array(0), partyVInfo: new Uint8Array(0) },
+    });
+    const header = JSON.parse(base64UrlParse(jwe.split(".")[0]));
+    expect(header).not.toHaveProperty("apu");
+    expect(header).not.toHaveProperty("apv");
+    const { payload } = await decrypt(jwe, ecdhKey.privateKey, { payload: "string" });
+    expect(payload).toBe("payload");
+  });
+
+  it("refuses an ephemeral key on another curve than the recipient key", async () => {
+    const ephemeral = await generateJWK("ECDH-ES+A256KW", { namedCurve: "X25519" });
+    const error = await encrypt("payload", ecdhKey.publicKey, {
+      enc: "A128GCM",
+      ecdh: { ephemeralKey: ephemeral.privateKey },
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    expect(error.message).toBe(
+      'ECDH-ES ephemeral key curve "X25519" does not match the recipient key curve "P-256".',
+    );
+  });
+
   it.each([[123], [null], [["JWT"]]])("refuses a protected header typ of %j", async (typ) => {
     for (const payload of [{ sub: "u" }, "payload"]) {
       const error = await encrypt(payload, aesKey, { protectedHeader: { typ } as never }).catch(
@@ -2005,4 +2007,14 @@ function withProtectedHeader(token: string, members: Record<string, unknown>): s
   const header = JSON.parse(base64UrlParse(parts[0])) as Record<string, unknown>;
   parts[0] = base64UrlStringify(JSON.stringify({ ...header, ...members }));
   return parts.join(".");
+}
+
+function replaceHeader(token: string, header: Record<string, unknown>): string {
+  const parts = token.split(".");
+  parts[0] = base64UrlStringify(JSON.stringify(header));
+  return parts.join(".");
+}
+
+function readHeader(token: string): Record<string, unknown> {
+  return JSON.parse(base64UrlParse(token.split(".")[0]));
 }

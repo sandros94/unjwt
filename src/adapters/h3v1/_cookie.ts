@@ -1,38 +1,14 @@
 import type { CookieSerializeOptions } from "cookie-esv1";
 import { type H3Event, getCookie, setCookie } from "h3v1";
-import {
-  type ChunkedCookieStore,
-  writeChunked,
-  removeChunked,
-  setCookieValues,
-} from "../_chunked-cookie";
+import { type ChunkedCookieStore, responseCookieStore } from "../_chunked-cookie";
 
-export type ChunkedCookieOptions = CookieSerializeOptions & { chunkMaxLength?: number };
-
-const PREFIX = "[unjwt/h3]";
-
-/**
- * Write a session token to the response cookies, splitting it across
- * `<name>.1` … `<name>.N` behind a `__chunked__N` marker when it is too long
- * for one cookie. The layout matches h3 v2's own chunked cookies, so a cookie
- * written by either adapter is readable by the other.
- */
-export function setChunkedCookie(
-  event: H3Event,
-  name: string,
-  value: string,
-  options: ChunkedCookieOptions = {},
-): void {
-  const { chunkMaxLength, ...attrs } = options;
-  writeChunked(eventStore(event), name, value, { attrs, chunkMaxLength, prefix: PREFIX });
-}
-
-export function deleteChunkedCookie(
-  event: H3Event,
-  name: string,
-  attrs: CookieSerializeOptions = {},
-): void {
-  removeChunked(eventStore(event), name, { attrs });
+/** The h3 v1 event's cookies as a chunked-cookie store, in the same layout as h3 v2. */
+export function eventCookieStore(event: H3Event): ChunkedCookieStore<CookieSerializeOptions> {
+  return responseCookieStore({
+    request: (name) => getCookie(event, name),
+    response: () => responseSetCookies(event),
+    write: (name, value, attrs) => setCookie(event, name, value, attrs),
+  });
 }
 
 /** The `Set-Cookie` headers the response carries so far. */
@@ -40,13 +16,4 @@ export function responseSetCookies(event: H3Event): string[] {
   const value = event.node.res.getHeader("set-cookie");
   if (Array.isArray(value)) return value;
   return typeof value === "string" ? [value] : [];
-}
-
-function eventStore(event: H3Event): ChunkedCookieStore<CookieSerializeOptions> {
-  return {
-    read: (name) => setCookieValues(responseSetCookies(event))[name] ?? getCookie(event, name),
-    write: (name, value, attrs) => setCookie(event, name, value, attrs),
-    expire: (name, attrs) =>
-      setCookie(event, name, "", { ...attrs, expires: new Date(0), maxAge: undefined }),
-  };
 }

@@ -64,7 +64,7 @@
         "no-restricted-globals": "off",
         "typescript/no-non-null-assertion": "off",
         "typescript/no-unsafe-type-assertion": "off",
-        "typescript/no-explicit-any": "warn"
+        "typescript/no-explicit-any": "error"
       }
     }
   ]

@@ -2,21 +2,14 @@ import type { JWTClaims, ExpiresIn } from "../core/types";
 import type { StrictOmit } from "../core/utils/types";
 import type { SessionIssueOptions } from "./_session";
 
-/**
- * What a session's data type must be: an object keyed by strings. Its values
- * are `any` rather than `unknown` so that a data shape declared as an
- * `interface`, which carries no index signature, satisfies it.
- */
-// oxlint-disable-next-line typescript/no-explicit-any -- an interface has no implicit index signature, so only `any` values admit interface-declared session data
+/** Session data shape; `any` values let an `interface` (no index signature) satisfy it. */
+// oxlint-disable-next-line typescript/no-explicit-any -- an interface has no implicit index signature
 export type SessionRecord = Record<string, any>;
 
 export interface SessionClaims
   extends Required<Pick<JWTClaims, "jti" | "iat">>, StrictOmit<JWTClaims, "jti" | "iat"> {}
 
-/**
- * Session data — everything but the claims the adapter owns. `jti`, `iat`,
- * `exp` and `nbf` are minted on every issue and never read from session data.
- */
+/** Session data without the adapter-owned `jti`, `iat`, `exp` and `nbf`. */
 export type SessionData<T extends SessionRecord = SessionClaims> = StrictOmit<
   T,
   "jti" | "iat" | "exp" | "nbf"
@@ -37,16 +30,9 @@ export interface SessionManager<
   readonly data: SessionData<T>;
   readonly token: string | undefined;
   /**
-   * Issue a new token, merging `update` into the session data first. Pass
-   * `options.maxAge` to give this one token a lifetime of its own.
-   *
-   * Session data travels as JSON: this request keeps the values as given,
-   * later reads get their JSON round trip — a `Date` as its ISO string, `NaN`
-   * and `±Infinity` as `null`, `undefined` members dropped.
-   *
-   * Rejects and rolls the session back when the token cannot be issued or its
-   * cookie written. An `onUpdate` hook that throws rejects it too, but runs
-   * once the new token is committed, so the new session stays in place.
+   * Issues a new token after merging `update`; `options.maxAge` overrides this token's lifetime.
+   * Later reads see the data's JSON round trip. Rolls back if issuing or the cookie write fails;
+   * a throwing `onUpdate` rejects but keeps the new session.
    */
   update: (
     update?: SessionUpdate<T>,
@@ -55,33 +41,27 @@ export interface SessionManager<
   clear: () => Promise<SessionManager<T, ConfigMaxAge>>;
 }
 
-/**
- * The lifecycle hooks every session exposes. `TCarrier` names the request the
- * session belongs to the way its framework does — `{ event }` for h3,
- * `{ context }` for Elysia — and is carried by every hook argument.
- *
- * `onRead`, `onExpire` and `onError` are mutually exclusive per incoming token:
- * `onRead` fires only when a session was established from it.
- */
+/** The config members every session shares, whether it signs or seals its token. */
+export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined> {
+  /** Sets `exp = iat + maxAge`, requires `exp` on incoming tokens, drives cookie expiry; unset never expires. */
+  maxAge?: MaxAge;
+  /** Drives the cookie name and default header; prefer `__Host-`; a trailing `.<digits>` is refused. */
+  name?: string;
+  /** Header carrying a bare or `Bearer` token, or `false`. Default `x-<name>-session` (cookie prefix stripped). */
+  sessionHeader?: false | string;
+  /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
+  generateId?: () => string;
+}
+
+/** Lifecycle hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per incoming token. */
 export interface SessionHooks<TSession, TCarrier extends Record<string, unknown>, TConfig> {
-  /**
-   * Fires each time a session that holds a token is read: once the incoming
-   * token was opened and the session established, and again on every later
-   * read of it during the same request — another `useJWSSession` /
-   * `createJWSSession` call, a hook reading it, or a read after `update()`
-   * issued a new token. Dedupe via `session.id` if needed.
-   */
+  /** Fires on every read of a session holding a token, repeats within a request included; dedupe via `session.id`. */
   onRead?: (
     args: TCarrier & { session: TSession & { id: string; token: string }; config: TConfig },
   ) => void | Promise<void>;
-  /**
-   * Fires after a new token was issued and its cookie written — including pure
-   * token refreshes (update with no data). Throwing makes `update()` reject
-   * with that error; the new session is not rolled back.
-   */
+  /** Fires after a token is issued and its cookie written; a throw rejects `update()` without rollback. */
   onUpdate?: (
     args: TCarrier & {
-      /** Session after the update. */
       session: TSession & { id: string; token: string };
       /** Deep-copied snapshot of the session before the update. */
       oldSession: TSession;
@@ -91,7 +71,6 @@ export interface SessionHooks<TSession, TCarrier extends Record<string, unknown>
   /** Fires when the session is cleared. */
   onClear?: (
     args: TCarrier & {
-      /** Last known session before clearing, if any. */
       oldSession: TSession | undefined;
       config: TConfig;
     },
@@ -112,9 +91,8 @@ export interface SessionHooks<TSession, TCarrier extends Record<string, unknown>
   /** Fires on read-path failures other than expiry, and on write-path issue failures. */
   onError?: (
     args: TCarrier & {
-      /** The session involved in the error. */
       session: TSession;
-      // oxlint-disable-next-line typescript/no-explicit-any -- a write-path failure is whatever the cookie write or token issue threw, and the published hook signature reads it without narrowing
+      // oxlint-disable-next-line typescript/no-explicit-any -- a write-path failure is whatever the cookie write or token issue threw
       error: any;
       config: TConfig;
     },

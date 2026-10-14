@@ -65,7 +65,7 @@
     "build": "obuild",
     "dev": "bun --watch ./playground/main.ts",
     "dev:prepare": "obuild --stub && pnpm simple-git-hooks",
-    "lint": "oxlint . && oxfmt --check .",
+    "lint": "oxlint --deny-warnings . && oxfmt --check .",
     "fmt": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",
     "test": "vitest run --slowTestThreshold=1000",

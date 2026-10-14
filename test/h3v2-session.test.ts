@@ -280,7 +280,7 @@ describe("adapter h3 v2", () => {
         context: {},
       };
 
-      const session = await useJWESession(mockEvent as any, roConfig);
+      const session = await useJWESession(mockEvent as never, roConfig);
       await expect(session.update({ foo: "bar" })).rejects.toThrow("[unjwt/h3]");
     });
   });
@@ -520,7 +520,7 @@ describe("adapter h3 v2", () => {
         context: {},
       };
 
-      const session = await useJWSSession(mockEvent as any, roConfig);
+      const session = await useJWSSession(mockEvent as never, roConfig);
       await expect(session.update({ foo: "bar" })).rejects.toThrow("[unjwt/h3]");
     });
   });
@@ -552,13 +552,13 @@ describe("adapter h3 v2", () => {
           { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = new H3({ debug: true });
-        app.all("/", async (event) => {
+        const localApp = new H3({ debug: true });
+        localApp.all("/", async (event) => {
           const session = await useJWESession(event, config);
           return { session };
         });
 
-        const result = await app.request("/", {
+        const result = await localApp.request("/", {
           headers: {
             Cookie: `${config.name}=${token}`,
           },
@@ -597,13 +597,13 @@ describe("adapter h3 v2", () => {
           { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = new H3({ debug: true });
-        app.all("/", async (event) => {
+        const localApp = new H3({ debug: true });
+        localApp.all("/", async (event) => {
           const session = await useJWSSession(event, config);
           return { session };
         });
 
-        const result = await app.request("/", {
+        const result = await localApp.request("/", {
           headers: {
             Cookie: `${config.name}=${token}`,
           },
@@ -822,7 +822,7 @@ describe("adapter h3 v2", () => {
         // Mutate a nested object in place via the updater function — a shallow
         // snapshot (or one taken after the updater ran) would already see "admin".
         await session.update((data) => {
-          (data as any).user.role = "admin";
+          (data.user as { role: string }).role = "admin";
           return {};
         });
         return {};
@@ -852,7 +852,7 @@ describe("adapter h3 v2", () => {
           await session.update({ big: 1n });
         } catch {}
         return {
-          role: (session.data as any).user.role,
+          role: (session.data.user as { role: string }).role,
           hasBig: "big" in session.data,
         };
       });
@@ -881,7 +881,7 @@ describe("adapter h3 v2", () => {
           await session.update({ big: 1n });
         } catch {}
         return {
-          role: (session.data as any).user.role,
+          role: (session.data.user as { role: string }).role,
           hasBig: "big" in session.data,
         };
       });
@@ -1004,25 +1004,25 @@ describe("adapter h3 v2", () => {
         key: jweOctKey,
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWESession(event, config);
         await session.update({ hello: "world" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWESession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
       expect(cookie).toContain("h3-jwe-symjwk=");
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1036,25 +1036,25 @@ describe("adapter h3 v2", () => {
         key: { privateKey: jweOaepPair.privateKey, publicKey: jweOaepPair.publicKey },
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWESession(event, config);
         await session.update({ secret: "data" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWESession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
       expect(cookie).toContain("h3-jwe-keypair=");
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1068,24 +1068,24 @@ describe("adapter h3 v2", () => {
         key: jwsOctKey, // isSymmetricJWK branch in getVerifyKey
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWSSession(event, config);
         await session.update({ foo: "bar" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWSSession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1102,24 +1102,24 @@ describe("adapter h3 v2", () => {
         },
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWSSession(event, config);
         await session.update({ foo: "bar" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWSSession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1136,24 +1136,24 @@ describe("adapter h3 v2", () => {
         },
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWSSession(event, config);
         await session.update({ baz: "qux" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWSSession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({

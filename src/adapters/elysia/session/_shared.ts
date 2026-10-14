@@ -1,17 +1,6 @@
-import {
-  type CookieAttributes,
-  readChunkedCookie,
-  writeChunkedCookie,
-  removeChunkedCookie,
-} from "../_cookie";
-import {
-  type SessionTokenSource,
-  headerToken,
-  pickToken,
-  sessionCookieAttributes,
-  sessionHeaderName,
-} from "../../_session";
-import type { SessionCookieOptions, SessionPort } from "../../_session-core";
+import { readChunkedCookie, writeChunkedCookie, removeChunkedCookie } from "../_cookie";
+import { type SessionTokenSource, resolveSessionToken } from "../../_session";
+import { type SessionPort, recordSlotStore } from "../../_session-core";
 import type { SessionContext } from "./types";
 
 export type { SessionTokenSource };
@@ -20,88 +9,48 @@ export type { SessionTokenSource };
 export const PREFIX = "[unjwt/elysia]";
 
 /** The session states of each request, keyed by family and name. */
-const SESSIONS = /* @__PURE__ */ new WeakMap<object, Record<string, object>>();
+const SESSIONS = /* @__PURE__ */ new WeakMap<object, Record<string, unknown>>();
 
-/**
- * The Elysia side of a session: the reactive cookie jar it reads its token
- * from and writes it back to. Elysia's context carries no slot of its own for
- * the session, so its state is held per request, and every binding of one
- * family and name on that request — the plugin's, a handler's, a hook's —
- * shares it.
- */
+/** The Elysia session port: per-request state shared by every binding, and the reactive cookie jar. */
 export const elysiaSessionPort: SessionPort<SessionContext> = {
   prefix: PREFIX,
 
   carrier: (context) => ({ context }),
 
-  store: (context, slot) => ({
-    get: () => SESSIONS.get(context.request)?.[slot],
-    set: (state) => {
-      let sessions = SESSIONS.get(context.request);
-      if (!sessions) {
-        const created: Record<string, object> = Object.create(null);
-        sessions = created;
-        SESSIONS.set(context.request, created);
-      }
-      sessions[slot] = state;
-    },
-  }),
+  store: (context, slot) => recordSlotStore(() => requestSessions(context.request), slot),
 
   readToken: readSessionToken,
 
-  /** The request is the one object every session of it is created from. */
   scope: (context) => context.request,
 
-  /**
-   * Elysia hands the cookie jar to every lifecycle stage and exposes no sign
-   * that the response was already built, so a write is always accepted; one
-   * made once the response is built (e.g. in `onAfterResponse`) is not sent.
-   */
+  /** Elysia exposes no response-sent signal: writes are always accepted, and lost once the response is built. */
   writable: () => true,
 
-  setCookie: (context, sessionName, token, options) => {
-    writeChunkedCookie(context.cookie, sessionName, token, cookieAttributes(options));
+  setCookie: (context, sessionName, token, { attrs, chunkMaxLength }) => {
+    writeChunkedCookie(context.cookie, sessionName, token, { ...attrs, chunkMaxLength });
   },
 
-  deleteCookie: expireSessionCookie,
-
-  dropCookie: expireSessionCookie,
+  deleteCookie: (context, sessionName, { attrs }) => {
+    removeChunkedCookie(context.cookie, sessionName, attrs);
+  },
 };
 
-/**
- * Read the raw session token for the request. The cookie is consulted first,
- * and the session header (default `x-<name>-session`, optional case-insensitive
- * `Bearer` prefix) only when the cookie carries none.
- */
+/** Read the session token: cookie first, then the session header; the jar cannot tell a deleted cookie from none. */
 export function readSessionToken(
   context: SessionContext,
   sessionName: string,
   source: SessionTokenSource,
 ): string | undefined {
-  const cookieValue =
-    source.cookie === false ? undefined : readChunkedCookie(context.cookie, sessionName);
-
-  const headerValue =
-    source.sessionHeader === false
-      ? undefined
-      : headerToken(
-          context.request.headers.get(sessionHeaderName(sessionName, source.sessionHeader)),
-        );
-
-  return pickToken(cookieValue, headerValue);
+  return resolveSessionToken(source, sessionName, {
+    cookie: (name) => readChunkedCookie(context.cookie, name),
+    header: (name) => context.request.headers.get(name),
+  });
 }
 
-function expireSessionCookie(
-  context: SessionContext,
-  sessionName: string,
-  options: SessionCookieOptions,
-): void {
-  const { chunkMaxLength: _chunkMaxLength, ...attrs } = cookieAttributes(options);
-  removeChunkedCookie(context.cookie, sessionName, attrs);
-}
-
-function cookieAttributes(
-  options: SessionCookieOptions & { expiresAt?: number | undefined },
-): CookieAttributes & { chunkMaxLength?: number } {
-  return sessionCookieAttributes(options);
+function requestSessions(request: object): Record<string, unknown> {
+  const existing = SESSIONS.get(request);
+  if (existing) return existing;
+  const created: Record<string, unknown> = Object.create(null);
+  SESSIONS.set(request, created);
+  return created;
 }

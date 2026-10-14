@@ -97,6 +97,7 @@ describe("internal plumbing (unjwt/internal)", () => {
     "applyTypDefault",
     "assertCritShape",
     "computeJwtTimeClaims",
+    "expiredClaimMessage",
     "getPlaintextBytes",
     "parsePayloadBytes",
     "parsePayloadSegment",
@@ -110,7 +111,12 @@ describe("internal plumbing (unjwt/internal)", () => {
   });
 
   it("keeps the new names off unjwt/utils and the root entry point", () => {
-    for (const name of ["parsePayloadBytes", "parsePayloadSegment", "parsePayloadText"]) {
+    for (const name of [
+      "parsePayloadBytes",
+      "parsePayloadSegment",
+      "parsePayloadText",
+      "expiredClaimMessage",
+    ]) {
       expect(utils).not.toHaveProperty(name);
       expect(root).not.toHaveProperty(name);
     }

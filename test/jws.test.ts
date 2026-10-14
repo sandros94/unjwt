@@ -433,14 +433,14 @@ describe.concurrent("JWS Utilities", () => {
 
     it("should throw if alg is missing", async () => {
       const key = await generateKey("HS256");
-      await expect(sign(payloadObj, key, {} as any)).rejects.toThrow(
+      await expect(sign(payloadObj, key, {} as never)).rejects.toThrow(
         'JWS "alg" (Algorithm) must be provided',
       );
     });
 
     it("should throw ERR_INVALID_OPTION for invalid payload type", async () => {
       const key = await generateKey("HS256");
-      await expect(sign(12_345 as any, key, { alg: "HS256" })).rejects.toThrow(
+      await expect(sign(12_345 as never, key, { alg: "HS256" })).rejects.toThrow(
         expect.objectContaining({ name: "JWTError", code: "ERR_INVALID_OPTION" }),
       );
     });
@@ -803,7 +803,7 @@ describe.concurrent("JWS Utilities", () => {
           protectedHeader: { crit: ["unknownHeader"], unknownHeader: "value" },
         });
         await expect(verify(jws, hs256Key)).rejects.toThrow(
-          "Missing critical header parameters: unknownHeader",
+          "Unprocessed critical header parameters: unknownHeader",
         );
 
         await expect(jose.compactVerify(jws, hs256Key)).rejects.toThrow(
@@ -836,11 +836,11 @@ describe.concurrent("JWS Utilities", () => {
           hs256Key,
         );
         await expect(verify(jwsNoExt, hs256Key)).rejects.toThrow(
-          "Missing critical header parameters: app",
+          'Critical header parameter "app" listed in "crit" but not present in the protected header.',
         );
 
         await expect(
-          jose.compactVerify(jwsNoExt, hs256Key as any, {
+          jose.compactVerify(jwsNoExt, hs256Key, {
             crit: { app: true },
           }),
         ).rejects.toThrow('Extension Header Parameter "app" is missing');
@@ -850,7 +850,9 @@ describe.concurrent("JWS Utilities", () => {
         const jws = await signRawHeader({ alg: "HS256", crit: ["b64"] }, payloadString, hs256Key);
         const error = await verify(jws, hs256Key, { payload: "string" }).catch((e) => e);
         expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-        expect(error.message).toBe("Missing critical header parameters: b64");
+        expect(error.message).toBe(
+          'Critical header parameter "b64" listed in "crit" but not present in the protected header.',
+        );
       });
 
       it("should succeed if 'crit' is present and all params are known, even if options.critical is not set", async () => {
@@ -1335,7 +1337,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
       await expect(verify(jws, hs256Key)).rejects.toThrow(
-        "Missing critical header parameters: exp",
+        "Unprocessed critical header parameters: exp",
       );
     });
 
@@ -1360,7 +1362,7 @@ describe.concurrent("JWS Utilities", () => {
       const { publicKey } = await generateJWK("ES256");
       // `sign`'s type union excludes `JWK_Public`; cast past it to exercise the
       // runtime guard that callers using `as any` would otherwise bypass.
-      await expect(sign(payloadObj, publicKey as any)).rejects.toThrow(
+      await expect(sign(payloadObj, publicKey as never)).rejects.toThrow(
         expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
       );
     });
@@ -1396,10 +1398,7 @@ describe.concurrent("JWS Utilities", () => {
         alg: "HS256",
         protectedHeader: { kid: "key3" },
       });
-      const keyLookup = (_header: { kid?: string; alg?: string }) => {
-        throw new Error("Key lookup failed");
-      };
-      await expect(verify(jws, keyLookup)).rejects.toThrow("Key lookup failed");
+      await expect(verify(jws, failingKeyLookup)).rejects.toThrow("Key lookup failed");
     });
 
     it("should throw if payload decoding fails (e.g., invalid base64)", async () => {
@@ -1643,7 +1642,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       expect(isJWTError(octError, "ERR_JWK_INVALID")).toBe(true);
       expect(octError.message).toBe('JWK "alg" is "HS256" but the operation requires "ES256".');
 
-      const rsaError = await verify(jws, rs256Jwk.publicKey as any, {
+      const rsaError = await verify(jws, rs256Jwk.publicKey, {
         algorithms: ["ES256"],
       }).catch((e) => e);
       expect(isJWTError(rsaError, "ERR_JWK_INVALID")).toBe(true);
@@ -1845,7 +1844,7 @@ describe.concurrent("JWS payload typing (compact)", () => {
 
   it("rejects an unknown payload mode", async () => {
     const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
-    const error = await verify(jws, hs256Key, { payload: "text" as any }).catch((e) => e);
+    const error = await verify(jws, hs256Key, { payload: "text" as never }).catch((e) => e);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
   });
 
@@ -1896,7 +1895,7 @@ describe.concurrent("JWS string keys are rejected", () => {
     "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
 
   it("rejects a string key on sign", async () => {
-    const error = await sign({ sub: "u" }, "a-very-long-shared-secret-value" as any, {
+    const error = await sign({ sub: "u" }, "a-very-long-shared-secret-value" as never, {
       alg: "HS256",
     }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
@@ -1906,7 +1905,7 @@ describe.concurrent("JWS string keys are rejected", () => {
   it("rejects a string key on verify", async () => {
     const key = await generateKey("HS256");
     const jws = await sign({ sub: "u" }, key, { alg: "HS256" });
-    const error = await verify(jws, "a-very-long-shared-secret-value" as any, {
+    const error = await verify(jws, "a-very-long-shared-secret-value" as never, {
       algorithms: ["HS256"],
     }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
@@ -1916,7 +1915,7 @@ describe.concurrent("JWS string keys are rejected", () => {
   it("rejects a string returned by a key lookup function", async () => {
     const key = await generateKey("HS256");
     const jws = await sign({ sub: "u" }, key, { alg: "HS256" });
-    const error = await verify(jws, (() => "secret-from-lookup") as any, {
+    const error = await verify(jws, () => "secret-from-lookup", {
       algorithms: ["HS256"],
     }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
@@ -2111,6 +2110,18 @@ describe.concurrent("JWS verification option gates", () => {
     expect(error.message).toBe('"options" must be an object.');
   });
 
+  it("refuses options that are a class instance and accepts JSON-parsed options", async () => {
+    class VerifyOptions {
+      typ = "at+jwt";
+    }
+    const error = await verify(token, key, new VerifyOptions()).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toBe('"options" must be an object.');
+
+    const { payload } = await verify(token, key, JSON.parse('{"typ":"at+jwt"}'));
+    expect(payload.sub).toBe("u");
+  });
+
   it("quotes and bounds a header kid echoed in a key-not-found message", async () => {
     const kid = `evil\nInjected: yes ${"x".repeat(200)}`;
     const signed = await sign({ sub: "u" }, { ...key, kid });
@@ -2201,4 +2212,8 @@ async function signRawHeader(
   const signingInput = `${base64UrlStringify(JSON.stringify(header))}.${base64UrlStringify(textEncoder.encode(payload))}`;
   const signature = await crypto.subtle.sign("HMAC", key, textEncoder.encode(signingInput));
   return `${signingInput}.${base64UrlStringify(new Uint8Array(signature))}`;
+}
+
+function failingKeyLookup(_header: { kid?: string; alg?: string }): never {
+  throw new Error("Key lookup failed");
 }

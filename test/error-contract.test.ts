@@ -114,7 +114,7 @@ describe("producer algorithm support gates", () => {
 
   it("encryptMulti rejects an unsupported recipient algorithm", async () => {
     await expectCode(
-      () => encryptMulti(payload, [{ key: { ...a128kw, alg: "A128KWW" } as any }]),
+      () => encryptMulti(payload, [{ key: { ...a128kw, alg: "A128KWW" } as never }]),
       "ERR_JWE_ALG_NOT_ALLOWED",
     );
   });
@@ -201,10 +201,7 @@ describe("encrypt key inference", () => {
 
 describe("key management errors", () => {
   it("importKey rejects a JWK whose alg the library does not implement", async () => {
-    await expectCode(
-      () => importKey({ ...rsa.jwk.public, alg: "RS257" } as any),
-      "ERR_JWK_INVALID",
-    );
+    await expectCode(() => importKey({ ...rsa.jwk.public, alg: "RS257" }), "ERR_JWK_INVALID");
   });
 
   it("importKey rejects a JWK whose crv contradicts its alg", async () => {
@@ -216,7 +213,7 @@ describe("key management errors", () => {
 
   it("importKey rejects an ECDH JWK with an unknown crv", async () => {
     await expectCode(
-      () => importKey({ ...ec.jwk.public, alg: "ECDH-ES", crv: "P-999" } as any),
+      () => importKey({ ...ec.jwk.public, alg: "ECDH-ES", crv: "P-999" }),
       "ERR_JWK_INVALID",
     );
   });
@@ -248,7 +245,7 @@ describe("key management errors", () => {
   it("wrapKey rejects ECDH-ES key material that is not a key", async () => {
     await expectCode(
       () =>
-        wrapKey(new Uint8Array(32), new Uint8Array(32) as any, {
+        wrapKey(new Uint8Array(32), new Uint8Array(32) as never, {
           alg: "ECDH-ES+A256KW",
         }),
       "ERR_JWK_INVALID",
@@ -269,7 +266,7 @@ describe("key management errors", () => {
   it("wrapKey rejects RSA-OAEP key material that is not a key", async () => {
     await expectCode(
       () =>
-        wrapKey(new Uint8Array(32), new Uint8Array(32) as any, {
+        wrapKey(new Uint8Array(32), new Uint8Array(32) as never, {
           alg: "RSA-OAEP-256",
         }),
       "ERR_JWK_INVALID",
@@ -279,7 +276,7 @@ describe("key management errors", () => {
   it("unwrapKey rejects ECDH-ES key material that is not a key", async () => {
     await expectCode(
       () =>
-        unwrapKey(new Uint8Array(40), new Uint8Array(32) as any, {
+        unwrapKey(new Uint8Array(40), new Uint8Array(32) as never, {
           alg: "ECDH-ES+A256KW",
           enc: "A256GCM",
           epk: ecdhPair.publicKey as JWK_EC_Public,
@@ -291,7 +288,7 @@ describe("key management errors", () => {
   it("unwrapKey rejects RSA-OAEP key material that is not a key", async () => {
     await expectCode(
       () =>
-        unwrapKey(new Uint8Array(256), new Uint8Array(32) as any, {
+        unwrapKey(new Uint8Array(256), new Uint8Array(32) as never, {
           alg: "RSA-OAEP-256",
           enc: "A256GCM",
         }),
@@ -317,12 +314,12 @@ describe("key management errors", () => {
 
 describe("payload option errors", () => {
   it("sign rejects a payload that is not string, bytes or an object", async () => {
-    await expectCode(() => sign(null as any, hs256), "ERR_INVALID_OPTION");
-    await expectCode(() => sign(42 as any, hs256), "ERR_INVALID_OPTION");
+    await expectCode(() => sign(null as never, hs256), "ERR_INVALID_OPTION");
+    await expectCode(() => sign(42 as never, hs256), "ERR_INVALID_OPTION");
   });
 
   it("encrypt rejects a payload that is not string, bytes or an object", async () => {
-    await expectCode(() => encrypt(null as any, a128kw), "ERR_INVALID_OPTION");
+    await expectCode(() => encrypt(null as never, a128kw), "ERR_INVALID_OPTION");
   });
 
   it("sign rejects a payload that cannot be serialized as JSON", async () => {
@@ -337,7 +334,7 @@ describe("payload option errors", () => {
 
 describe("duration option errors", () => {
   it("computeDurationInSeconds rejects a malformed duration", () => {
-    expect(() => computeDurationInSeconds("soon" as any)).toThrow(JWTError);
+    expect(() => computeDurationInSeconds("soon" as never)).toThrow(JWTError);
     expect(() => computeDurationInSeconds(0)).toThrow(
       expect.objectContaining({ code: "ERR_INVALID_OPTION" }),
     );
@@ -361,49 +358,45 @@ describe("duration option errors", () => {
 
 describe("compact entry inputs", () => {
   it("verify rejects a token that is not a string", async () => {
-    const error = await expectCode(() => verify(42 as any, hs256), "ERR_JWS_INVALID");
+    const error = await expectCode(() => verify(42 as never, hs256), "ERR_JWS_INVALID");
     expect(error.message).toBe("Invalid JWS: token must be a string.");
   });
 
   it("decrypt rejects a token that is not a string", async () => {
-    const error = await expectCode(() => decrypt(null as any, a128kw), "ERR_JWE_INVALID");
+    const error = await expectCode(() => decrypt(null as never, a128kw), "ERR_JWE_INVALID");
     expect(error.message).toBe("Invalid JWE: token must be a string.");
   });
 
   it("generalToFlattenedJWS rejects a non-object", () => {
-    expect(() => generalToFlattenedJWS("nope" as any)).toThrow(
+    expect(() => generalToFlattenedJWS("nope" as never)).toThrow(
       expect.objectContaining({ code: "ERR_JWS_INVALID_SERIALIZATION" }),
     );
   });
 
   it("generalToFlattened rejects a non-object", () => {
-    expect(() => generalToFlattened(null as any)).toThrow(
+    expect(() => generalToFlattened(null as never)).toThrow(
       expect.objectContaining({ code: "ERR_JWE_INVALID_SERIALIZATION" }),
     );
   });
 });
 
 describe("key lookup failures", () => {
-  const boom = () => {
-    throw new RangeError("lookup exploded");
-  };
-
   it("verify reports a throwing lookup as key-not-found", async () => {
     const token = await sign(payload, hs256);
-    const error = await expectCode(() => verify(token, boom as any), "ERR_JWK_KEY_NOT_FOUND");
+    const error = await expectCode(() => verify(token, explodingLookup), "ERR_JWK_KEY_NOT_FOUND");
     expect(error.cause).toBeInstanceOf(RangeError);
   });
 
   it("decrypt reports a throwing lookup as key-not-found", async () => {
     const token = await encrypt(payload, a128kw);
-    const error = await expectCode(() => decrypt(token, boom as any), "ERR_JWK_KEY_NOT_FOUND");
+    const error = await expectCode(() => decrypt(token, explodingLookup), "ERR_JWK_KEY_NOT_FOUND");
     expect(error.cause).toBeInstanceOf(RangeError);
   });
 
   it("verifyMulti reports a throwing lookup as key-not-found", async () => {
     const general = await signMulti(payload, [{ key: hs256 }]);
     const error = await expectCode(
-      () => verifyMulti(general, boom as any),
+      () => verifyMulti(general, explodingLookup),
       "ERR_JWK_KEY_NOT_FOUND",
     );
     expect(error.cause).toBeInstanceOf(RangeError);
@@ -412,7 +405,7 @@ describe("key lookup failures", () => {
   it("decryptMulti reports a throwing lookup as key-not-found", async () => {
     const general = await encryptMulti(payload, [{ key: a128kw }]);
     const error = await expectCode(
-      () => decryptMulti(general, boom as any),
+      () => decryptMulti(general, explodingLookup),
       "ERR_JWK_KEY_NOT_FOUND",
     );
     expect(error.cause).toBeInstanceOf(RangeError);
@@ -566,14 +559,14 @@ describe("key generation", () => {
       extractable: false,
       toJWK: true,
       keyUsage: ["sign", "verify"],
-    } as any);
+    } as never);
     for (const option of ["extractable", "toJWK", "keyUsage", "modulusLength", "namedCurve"]) {
       expect(jwk).not.toHaveProperty(option);
     }
   });
 
   it("refuses a reserved JWK member in generateJWK metadata", async () => {
-    await expectCode(() => generateJWK("HS256", { kty: "oct" } as any), "ERR_INVALID_OPTION");
+    await expectCode(() => generateJWK("HS256", { kty: "oct" } as never), "ERR_INVALID_OPTION");
   });
 
   it("refuses a reserved JWK member in deriveJWKFromPassword metadata", async () => {
@@ -584,7 +577,7 @@ describe("key generation", () => {
           salt: "saltsalt",
           iterations: 1000,
           k: "nope",
-        } as any),
+        } as never),
       "ERR_INVALID_OPTION",
     );
   });
@@ -622,3 +615,7 @@ describe("round trips the contract must not have broken", () => {
     expect(isJWTError(new JWTError("x", "ERR_INVALID_OPTION"), "ERR_INVALID_OPTION")).toBe(true);
   });
 });
+
+function explodingLookup(): never {
+  throw new RangeError("lookup exploded");
+}

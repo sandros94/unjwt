@@ -1,8 +1,9 @@
 import { textEncoder } from "unsecure/utils";
 
-import { concatUint8Arrays } from "../utils/array";
+import { concatUint8Arrays, uint32be } from "../utils/array";
 import { JWTError } from "../error";
-import { namedCurveOf } from "./_key-algorithm";
+import { checkKeyUsage, namedCurveOf, unusableKey } from "./_key-algorithm";
+import { bitLengthCEK } from "./_aes";
 
 export async function deriveECDHESKey(
   publicKey: CryptoKey,
@@ -42,21 +43,31 @@ export async function deriveECDHESKey(
   return concatKdf(sharedSecret, keyLength, value);
 }
 
+/** RFC 7518 §4.6.2 — the Concat KDF output length: the CEK size, or the AES-KW key size. */
+export function ecdhDerivedBits(alg: string, enc: string): number {
+  return alg === "ECDH-ES" ? bitLengthCEK(enc) : Number.parseInt(alg.slice(-5, -2), 10);
+}
+
 /** A fresh extractable key pair on the curve of an ECDH-ES recipient key. */
 export function generateEphemeralKeyPair(recipientKey: CryptoKey): Promise<CryptoKeyPair> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- an ECDH-ES recipient key is ECDH (an EcKeyAlgorithm) or X25519, and both generate a key pair
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- an ECDH-ES recipient key is ECDH or X25519
   return crypto.subtle.generateKey(recipientKey.algorithm as EcKeyAlgorithm, true, ["deriveBits"]);
 }
 
-export function isECDHKeyAllowed(key: CryptoKey): boolean {
-  switch (namedCurveOf(key.algorithm)) {
+/** RFC 7518 §4.6 / RFC 8037 §3.2 — ECDH-ES runs on P-256, P-384, P-521 or X25519. */
+export function assertECDHKeyAllowed(key: CryptoKey): void {
+  switch (namedCurveOf(key.algorithm) ?? key.algorithm.name) {
     case "P-256":
     case "P-384":
-    case "P-521": {
-      return true;
+    case "P-521":
+    case "X25519": {
+      return;
     }
     default: {
-      return key.algorithm.name === "X25519";
+      throw new JWTError(
+        "ECDH with the provided key is not allowed or not supported",
+        "ERR_JWK_INVALID",
+      );
     }
   }
 }
@@ -68,28 +79,10 @@ export function checkECDHCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage
       break;
     }
     default: {
-      throw unusable("ECDH or X25519");
+      throw unusableKey("ECDH or X25519");
     }
   }
-  checkUsage(key, usage);
-}
-
-// --- Internal helpers ---
-
-function unusable(name: string | number, prop = "algorithm.name") {
-  return new JWTError(
-    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
-    "ERR_JWK_INVALID",
-  );
-}
-
-function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
-  if (usage && !key.usages.includes(usage)) {
-    throw new JWTError(
-      `CryptoKey does not support this operation, its usages must include ${usage}.`,
-      "ERR_JWK_INVALID",
-    );
-  }
+  checkKeyUsage(key, usage);
 }
 
 async function concatKdf(
@@ -118,20 +111,4 @@ async function digest(
   data: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
   return new Uint8Array(await crypto.subtle.digest(`SHA-${algorithm.slice(-3)}`, data));
-}
-
-function writeUInt32BE(buf: Uint8Array<ArrayBuffer>, value: number, offset?: number): void {
-  if (value < 0 || value >= 2 ** 32) {
-    throw new JWTError(
-      `value must be >= 0 and <= ${2 ** 32 - 1}. Received ${value}`,
-      "ERR_INVALID_OPTION",
-    );
-  }
-  buf.set([value >>> 24, value >>> 16, value >>> 8, value & 0xff], offset);
-}
-
-function uint32be(value: number): Uint8Array<ArrayBuffer> {
-  const buf = new Uint8Array(4);
-  writeUInt32BE(buf, value, 0);
-  return buf;
 }

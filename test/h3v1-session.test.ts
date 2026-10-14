@@ -398,11 +398,6 @@ describe("adapter h3 v1", () => {
 
   // #region Hooks
   describe("hooks", () => {
-    const getCookieValue = (cookies: string | string[] | undefined, name: string) => {
-      const list = Array.isArray(cookies) ? cookies : cookies ? [cookies] : [];
-      return list.find((cookie) => cookie.startsWith(`${name}=`))?.split(";")[0];
-    };
-
     describe("jwe session hooks", () => {
       let cookie = "";
       let sessionIdCtr = 0;
@@ -553,17 +548,17 @@ describe("adapter h3 v1", () => {
           { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = createApp({ debug: true });
-        app.use(
+        const localApp = createApp({ debug: true });
+        localApp.use(
           "/",
           eventHandler(async (event) => {
             const session = await useJWESession(event, config);
             return { session };
           }),
         );
-        const request = supertest(toNodeListener(app));
+        const localRequest = supertest(toNodeListener(localApp));
 
-        const result = await request.get("/").set("Cookie", `${config.name}=${token}`);
+        const result = await localRequest.get("/").set("Cookie", `${config.name}=${token}`);
 
         expect(lookupSpy).toHaveBeenCalled();
         expect(result.body.session.data).toMatchObject({ foo: "bar" });
@@ -820,17 +815,17 @@ describe("adapter h3 v1", () => {
           { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = createApp({ debug: true });
-        app.use(
+        const localApp = createApp({ debug: true });
+        localApp.use(
           "/",
           eventHandler(async (event) => {
             const session = await useJWSSession(event, config);
             return { session };
           }),
         );
-        const request = supertest(toNodeListener(app));
+        const localRequest = supertest(toNodeListener(localApp));
 
-        const result = await request.get("/").set("Cookie", `${config.name}=${token}`);
+        const result = await localRequest.get("/").set("Cookie", `${config.name}=${token}`);
 
         expect(lookupSpy).toHaveBeenCalled();
         expect(result.body.session.data).toMatchObject({ foo: "bar" });
@@ -1337,3 +1332,9 @@ describe("adapter h3 v1", () => {
     });
   });
 });
+
+/** The `name=value` pair of the `name` cookie among `Set-Cookie` headers. */
+function getCookieValue(cookies: string | string[] | undefined, name: string): string | undefined {
+  const list = Array.isArray(cookies) ? cookies : cookies ? [cookies] : [];
+  return list.find((cookie) => cookie.startsWith(`${name}=`))?.split(";")[0];
+}

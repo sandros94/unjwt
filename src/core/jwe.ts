@@ -1,4 +1,3 @@
-import { secureRandomBytes } from "unsecure/random";
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64";
@@ -18,20 +17,13 @@ import type {
   JWEDecryptResult,
   JWEHeaderParameters,
   JWEProtectedHeader,
-  JWEKeyManagementHeaderParameters,
 } from "./types/jwe";
 
-import { importKey, unwrapKey, getJWKsFromSet } from "./jwk";
-import {
-  encrypt as joseEncrypt,
-  decrypt as joseDecrypt,
-  assertPBES2Params,
-  generateIV,
-  encryptKey,
-} from "./_crypto";
+import { importKey } from "./jwk";
+import { encrypt as joseEncrypt, assertPBES2Params, generateIV, encryptKey } from "./_crypto";
 import { JWTError } from "./error";
 import { isContentEncryptionAlgorithm } from "./utils/algorithms";
-import { isJWK, isJWKSet } from "./utils/guards";
+import { isJWK } from "./utils/guards";
 import {
   applyTypDefault,
   computeJwtTimeClaims,
@@ -39,21 +31,16 @@ import {
   validateCriticalHeadersJWE,
 } from "./_jwt-internal";
 import {
-  DEFAULT_PBES2_ITERATIONS,
   JWE_ALG_CTX,
   assertCompactToken,
   assertDirectKeyRole,
   checkProtectedTyp,
   assertOptionEntry,
-  assertJWKSetCandidates,
   assertNoZipOption,
   assertProducerCEK,
   assertProducerCrit,
   assertProducerIV,
-  assertProducerPartyInfo,
-  asKeyUsageError,
   assertConsumerOptions,
-  buildJWKSetFilter,
   buildUnwrapKeyOptions,
   checkAlgAllowed,
   assertJWEAlgSupported,
@@ -65,7 +52,6 @@ import {
   createPBES2Budget,
   decodeProtectedHeader,
   exportReturnedCek,
-  parseEphemeralKey,
   resolveKeyInput,
   resolveLimit,
   resolvePasswordKey,
@@ -75,6 +61,7 @@ import {
   decodeSegment,
   decodeJWEPayload,
 } from "./_internal";
+import { buildKeyManagementParams, unwrapAndDecrypt } from "./_jwe-internal";
 
 export type * from "./types/jwe";
 export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt";
@@ -92,12 +79,8 @@ export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi";
 export { DEFAULT_JOSE_LIMITS } from "./_internal";
 
 /**
- * Encrypts a payload to produce a JWE Compact Serialization string.
- *
- * @param payload The payload to encrypt. Can be a string, Uint8Array, or a JSON-serializable object.
- * @param key The key encryption key (KEK). Can be a CryptoKey, JWK, or for PBES2, a password string/Uint8Array.
- * @param options JWE encryption options, including `alg` (key management algorithm) and `enc` (content encryption algorithm).
- * @returns A Promise resolving to the JWE Compact Serialization string.
+ * Encrypt a payload into a JWE Compact Serialization string. `key` is a CryptoKey, a JWK, or
+ * a PBES2 password; `alg` is inferred from it when omitted and `enc` defaults to `A256GCM`.
  */
 export async function encrypt(
   payload: JOSEPayload,
@@ -145,9 +128,7 @@ export async function encrypt(
 
   assertNoZipOption(userHeader, "protected");
 
-  // An `oct` JWK whose `alg` is a content encryption algorithm is a CEK, and a
-  // CEK is what `dir` consumes — the same role mapping the decrypt side reads.
-  // Raw bytes carry no role at all, so nothing is inferred from them.
+  // An `oct` JWK whose `alg` is a content encryption algorithm is a CEK for `dir`.
   const cekRole =
     isJWK(key) && key.kty === "oct" && typeof key.alg === "string"
       ? isContentEncryptionAlgorithm(key.alg)
@@ -172,8 +153,6 @@ export async function encrypt(
   }
   if (!enc) {
     if (alg === "dir") {
-      // Under `dir` the `enc` rides on the JWK: either as its own `alg` — the
-      // algorithm the CEK was minted for — or as an explicit `enc` member.
       enc = cekRole ?? (isJWK(key) ? key.enc : undefined);
       if (!enc) {
         throw new JWTError('JWE "enc" must be provided when alg is "dir"', "ERR_JWE_ENC_MISSING");
@@ -183,8 +162,6 @@ export async function encrypt(
     }
   }
 
-  // Both algorithms are settled before any key work, so an algorithm the
-  // library does not implement fails with the code and message decrypt uses.
   assertJWEAlgSupported(alg);
   assertJWEEncSupported(enc);
 
@@ -192,25 +169,12 @@ export async function encrypt(
   assertProducerIV(providedContentIV, enc);
   if (alg.startsWith("PBES2")) assertPBES2Params({ p2s, p2c });
 
-  const jweKeyManagementParams: JWEKeyManagementHeaderParameters = {};
-  if (keyManagementIV) jweKeyManagementParams.iv = keyManagementIV;
-  if (p2s !== undefined) jweKeyManagementParams.p2s = p2s;
-  else if (alg.startsWith("PBES2")) jweKeyManagementParams.p2s = secureRandomBytes(16);
-  if (p2c !== undefined) jweKeyManagementParams.p2c = p2c;
-  else if (alg.startsWith("PBES2")) jweKeyManagementParams.p2c = DEFAULT_PBES2_ITERATIONS;
-  if (ecdh?.partyUInfo !== undefined) {
-    assertProducerPartyInfo("apu", ecdh.partyUInfo);
-    jweKeyManagementParams.apu = ecdh.partyUInfo;
-  }
-  if (ecdh?.partyVInfo !== undefined) {
-    assertProducerPartyInfo("apv", ecdh.partyVInfo);
-    jweKeyManagementParams.apv = ecdh.partyVInfo;
-  }
-  if (ecdh?.ephemeralKey) {
-    const parsed = parseEphemeralKey(ecdh.ephemeralKey);
-    jweKeyManagementParams.epk = parsed.epk;
-    jweKeyManagementParams.epkPrivateKey = parsed.epkPrivateKey;
-  }
+  const jweKeyManagementParams = buildKeyManagementParams(alg, {
+    keyManagementIV,
+    p2s,
+    p2c,
+    ecdh,
+  });
 
   const wrappingKeyMaterial = await importKey(resolvePasswordKey(alg, key), {
     alg,
@@ -249,16 +213,6 @@ export async function encrypt(
     iv: actualContentIV,
   } = await joseEncrypt(enc, plaintextBytes, finalCek, contentIVBytes, aadBytes);
 
-  if (!actualContentIV) {
-    throw new JWTError("Content encryption IV was not generated or returned.", "ERR_JWE_INVALID");
-  }
-  if (!contentAuthTag) {
-    throw new JWTError(
-      "Content encryption auth tag was not generated or returned.",
-      "ERR_JWE_INVALID",
-    );
-  }
-
   // `dir` and `ECDH-ES` (direct key agreement) have no encrypted key — RFC 7516 §5.2 step 6.
   const encryptedKeyEncoded = jweEncryptedKey ? base64UrlStringify(jweEncryptedKey) : "";
 
@@ -274,20 +228,8 @@ export async function encrypt(
 }
 
 /**
- * Decrypts a JWE Compact Serialization string.
- *
- * The payload type follows `options.payload` (see {@link JOSEPayloadTypeMap}):
- *
- * - no `payload`, or `payload: "json"` → `T`, the claims (`JWTClaims` unless
- *   given, as in `decrypt<MyClaims>(jwe, key)`);
- * - `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array`;
- * - a `payload` that is not a literal → the union of what its modes return.
- *
- * @param jwe The JWE Compact Serialization string.
- * @param key The key decryption key (KEK) or a function to look up the key.
- * @param options JWE decryption options.
- * @returns A Promise resolving to an object containing the decrypted plaintext, protected header, CEK, and AAD.
- * @throws If JWE is invalid, decryption fails, or options are not met.
+ * Decrypt a JWE Compact Serialization string; `key` may be a lookup function.
+ * The payload type follows `options.payload` (claims `T` by default).
  */
 export async function decrypt<T extends Record<string, unknown> = JWTClaims>(
   jwe: string,
@@ -306,11 +248,11 @@ export async function decrypt<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options?: JWEDecryptOptions<Mode>,
 ): Promise<JWEDecryptResult<PayloadOf<Mode>>>;
-export async function decrypt<T extends JOSEPayload>(
+export async function decrypt(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options: JWEDecryptOptions = {},
-): Promise<JWEDecryptResult<T>> {
+): Promise<JWEDecryptResult> {
   assertCompactToken(jwe, "JWE");
   assertConsumerOptions(options);
 
@@ -333,11 +275,8 @@ export async function decrypt<T extends JOSEPayload>(
     authTagEncoded,
   ] = parts;
 
-  const protectedHeader = decodeProtectedHeader<JWEHeaderParameters>(protectedHeaderEncoded, "JWE");
+  const protectedHeader = decodeProtectedHeader(protectedHeaderEncoded, "JWE");
 
-  // Everything the protected header alone decides — algorithm support, `enc`,
-  // compression, `crit`, `typ` — is settled before any key is resolved or
-  // imported, so a malformed token never reaches key management.
   assertHeaderAlgorithms(protectedHeader);
   const { alg, enc } = protectedHeader;
   const headerError =
@@ -386,75 +325,25 @@ export async function decrypt<T extends JOSEPayload>(
 
   const aadBytes = textEncoder.encode(protectedHeaderEncoded);
 
-  let cek!: Uint8Array<ArrayBuffer> | CryptoKey;
-  let plaintextBytes!: Uint8Array<ArrayBuffer>;
+  const { cek, plaintextBytes } = await unwrapAndDecrypt(alg, rawKeyMaterial, {
+    enc,
+    encryptedKey: encryptedKeyBytes,
+    unwrapKeyOptions: unwrapKeyOpts,
+    ciphertext: ciphertextBytes,
+    iv: contentIVBytes,
+    tag: contentAuthTagBytes,
+    aad: aadBytes,
+    kid: protectedHeader.kid,
+    allowSymmetric: options.allowSymmetricJWKSet,
+    keyCandidates: keyCandidateLimit,
+    pbes2Budget,
+  });
 
-  if (isJWKSet(rawKeyMaterial)) {
-    const candidates = getJWKsFromSet(
-      rawKeyMaterial,
-      buildJWKSetFilter(protectedHeader, {
-        op: "enc",
-        allowSymmetric: options?.allowSymmetricJWKSet,
-      }),
-    );
-    assertJWKSetCandidates(candidates, { limit: keyCandidateLimit, kid: protectedHeader.kid });
-    // A candidate this token was not encrypted to — unusable key material as
-    // much as a failed unwrap — only means "try the next one"; the collected
-    // reasons become the `cause` when none decrypts.
-    let decrypted = false;
-    const attempts: JWTError[] = [];
-    for (const candidate of candidates) {
-      try {
-        if (alg === "dir") assertDirectKeyRole(candidate, enc);
-        pbes2Budget.spend(unwrapKeyOpts);
-        const unwrappingKey = await importKey(candidate, { alg, expect: "private" });
-        const candidateCek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
-        plaintextBytes = await joseDecrypt(
-          enc,
-          candidateCek,
-          ciphertextBytes,
-          contentIVBytes,
-          contentAuthTagBytes,
-          aadBytes,
-        );
-        cek = candidateCek;
-        decrypted = true;
-        break;
-      } catch (err) {
-        attempts.push(asKeyUsageError(err, alg));
-      }
-    }
-    if (!decrypted) {
-      throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", attempts);
-    }
-  } else {
-    if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
-    pbes2Budget.spend(unwrapKeyOpts);
-    try {
-      const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial), {
-        alg,
-        expect: "private",
-      });
-      cek = await unwrapKey(encryptedKeyBytes, unwrappingKey, unwrapKeyOpts);
-      plaintextBytes = await joseDecrypt(
-        enc,
-        cek,
-        ciphertextBytes,
-        contentIVBytes,
-        contentAuthTagBytes,
-        aadBytes,
-      );
-    } catch (error_) {
-      if (error_ instanceof JWTError) throw error_;
-      throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", error_);
-    }
-  }
-
-  const payload = decodeJWEPayload<T>(plaintextBytes, payloadMode);
+  const payload = decodeJWEPayload(plaintextBytes, payloadMode);
 
   validateClaimsIfJson(payload, payloadMode, options);
 
-  const result: JWEDecryptResult<T> = {
+  const result: JWEDecryptResult = {
     payload,
     protectedHeader,
   };
@@ -477,7 +366,6 @@ function _buildJWEHeader(
 ): JWEHeaderParameters {
   const safeHeader = sanitizeObjectCopy<JWEHeaderParameters | undefined>(userHeader);
   // Precedence: top-level `alg`/`enc` > key management params > user header > JWK `kid`.
-  // Build imperatively to avoid the intermediate `{ kid }` / spread-output allocations.
   const header = {} as JWEHeaderParameters;
   if (isJWK(key) && key.kid) header.kid = key.kid;
   if (safeHeader) Object.assign(header, safeHeader);

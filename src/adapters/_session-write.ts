@@ -22,19 +22,15 @@ import {
   emptySession,
   kSessionPending,
   mintSessionId,
+  sessionCookie,
+  sessionInstant,
   sessionToken,
   storedSession,
 } from "./_session-core";
 import { loadSession } from "./_session-read";
 import type { SessionManager, SessionRecord, SessionUpdate } from "./_session-types";
 
-/**
- * Issue the current session as a compact token, handed back to the caller
- * rather than written anywhere. A session that has no ID yet is issued under a
- * fresh `jti`, and a config with no token source issues from an empty session.
- * Payload: `session.data` spread at the top level, plus the reserved claims
- * `jti`, `iat`, and `exp` (when the session has a lifetime).
- */
+/** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */
 export async function encodeSession<TCarrier, Config extends SessionCoreConfig>(
   binding: SessionBinding<TCarrier, Config>,
 ): Promise<string> {
@@ -47,10 +43,7 @@ export async function encodeSession<TCarrier, Config extends SessionCoreConfig>(
   return issue(session.id === undefined ? { ...session, id: mintSessionId(config) } : session);
 }
 
-/**
- * Update the session data (if provided) and reissue the token.
- * Pass `options.maxAge` to give this one token a lifetime of its own.
- */
+/** Update the session data (if provided) and reissue the token; `options.maxAge` overrides this token's lifetime. */
 export async function issueSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -61,18 +54,14 @@ export async function issueSession<
   update?: SessionUpdate<T>,
   options?: SessionIssueOptions,
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
-  const { config, codec, port, store, args } = binding;
+  const { config, port, store, args } = binding;
 
-  if (config.cookie !== false && !port.writable(binding.carrier)) {
-    throw readOnlyEventError(`${port.prefix} Cannot update session on read-only event.`);
-  }
+  assertWritable(binding, "update");
 
   const session =
     storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TCarrier, Config>(binding));
 
-  // Snapshot before the updater runs, with a deep copy of `data`, so
-  // `oldSession` is a true "before" state for hook diffing and rollback.
-  const oldSession = { ...session, data: sanitizeObjectCopy(session.data) };
+  const oldSession = snapshotSession(session);
 
   const resolved = typeof update === "function" ? update(session.data) : update;
   if (resolved) {
@@ -80,8 +69,7 @@ export async function issueSession<
   }
 
   const maxAge = options?.maxAge ?? config.maxAge;
-  const now = codec.now(config);
-  const createdAt = now - (now % 1000); // round to seconds
+  const createdAt = sessionInstant(binding);
   const id = mintSessionId(config);
   Object.assign(session, {
     id,
@@ -89,17 +77,16 @@ export async function issueSession<
     expiresAt: resolveExpiresAt(createdAt, { maxAge }),
   });
 
-  // Always issue a token and cache it so `session.token` stays accurate even
-  // when cookies are disabled.
   let issued: SessionState<T, MaxAge> & { id: string; token: string };
   try {
     const token = await encodeSession(binding);
     if (config.cookie !== false) {
-      port.setCookie(binding.carrier, binding.name, token, {
-        defaults: codec.defaultCookie,
-        cookie: config.cookie,
-        expiresAt: session.expiresAt,
-      });
+      port.setCookie(
+        binding.carrier,
+        binding.name,
+        token,
+        sessionCookie(binding, { expiresAt: session.expiresAt }),
+      );
     }
     issued = Object.assign(session, { id, token });
   } catch (error_) {
@@ -114,26 +101,19 @@ export async function issueSession<
     throw error_;
   }
 
-  // Fires after issuing so the hook receives the definitive new token, jti, and
-  // timestamps. Also fires on pure token refresh (update is undefined).
   await config.hooks?.onUpdate?.({ session, oldSession, ...args, config });
 
   return issued;
 }
 
-/**
- * Clear the session: drop the cookie and leave an empty session behind, so a
- * later read in the same request sees no session rather than the request cookie.
- */
+/** Drop the session cookie and leave an empty session for the rest of the request. */
 export async function dropSession<TCarrier, Config extends SessionCoreConfig>(
   binding: SessionBinding<TCarrier, Config>,
 ): Promise<void> {
-  const { config, codec, port, store, args } = binding;
+  const { config, port, store, args } = binding;
 
   assertTokenSource(config, { prefix: port.prefix });
-  if (config.cookie !== false && !port.writable(binding.carrier)) {
-    throw readOnlyEventError(`${port.prefix} Cannot clear session on read-only event.`);
-  }
+  assertWritable(binding, "clear");
 
   let session = storedSession(store);
   if (session && session[kSessionPending]) {
@@ -141,16 +121,13 @@ export async function dropSession<TCarrier, Config extends SessionCoreConfig>(
   }
   const oldSession =
     session && (session.id !== undefined || session.token !== undefined)
-      ? { ...session, data: sanitizeObjectCopy(session.data) }
+      ? snapshotSession(session)
       : undefined;
 
   store.set(emptySession(binding));
 
   if (config.cookie !== false) {
-    port.deleteCookie(binding.carrier, binding.name, {
-      defaults: codec.defaultCookie,
-      cookie: config.cookie,
-    });
+    port.deleteCookie(binding.carrier, binding.name, sessionCookie(binding));
   }
 
   await config.hooks?.onClear?.({ oldSession, ...args, config });
@@ -194,4 +171,20 @@ export function sessionManager<
   };
 
   return manager;
+}
+
+/** A session that writes a cookie cannot be updated or cleared once the response takes none. */
+function assertWritable<TCarrier, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TCarrier, Config>,
+  operation: "update" | "clear",
+): void {
+  const { config, port, carrier } = binding;
+  if (config.cookie !== false && !port.writable(carrier)) {
+    throw readOnlyEventError(`${port.prefix} Cannot ${operation} session on read-only event.`);
+  }
+}
+
+/** A session with a deep copy of its data, unaffected by later changes to the live one. */
+function snapshotSession<S extends { data: Record<string, unknown> }>(session: S): S {
+  return { ...session, data: sanitizeObjectCopy(session.data) };
 }

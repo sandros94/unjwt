@@ -13,10 +13,7 @@ import type {
 } from "../types";
 import { JWTError } from "../error";
 
-/**
- * Type guard for {@link JWK} — an object whose `kty` this library models
- * (`"oct"`/`"RSA"`/`"EC"`/`"OKP"`).
- */
+/** Whether `key` is a JWK whose `kty` this library models (`oct`, `RSA`, `EC`, `OKP`). */
 export function isJWK(key: unknown): key is JWK {
   return (
     typeof key === "object" &&
@@ -26,9 +23,26 @@ export function isJWK(key: unknown): key is JWK {
   );
 }
 
-/** Type guard for {@link JWKSet} — checks for an object with a `keys` array. */
+/** Whether `key` is an object with a `keys` array. */
 export function isJWKSet(key: unknown): key is JWKSet {
   return typeof key === "object" && key !== null && "keys" in key && Array.isArray(key.keys);
+}
+
+/** Whether `value` is a plain object (prototype `Object.prototype` or `null`). */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** Throws `ERR_INVALID_OPTION` when `value` is not a plain object. */
+export function assertPlainObject(
+  value: unknown,
+  name: string,
+): asserts value is Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    throw new JWTError(`"${name}" must be an object.`, "ERR_INVALID_OPTION");
+  }
 }
 
 /** Asserts that `key` is a `CryptoKey`; throws `ERR_JWK_INVALID` otherwise. */
@@ -38,16 +52,13 @@ export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
   }
 }
 
-/**
- * Type guard for `CryptoKey`. Uses `Symbol.toStringTag` instead of `instanceof`
- * so it works across worker / realm boundaries where `CryptoKey` identities differ.
- */
+/** Whether `key` is a `CryptoKey`, checked via `Symbol.toStringTag` to work across realms. */
 export function isCryptoKey(key: unknown): key is CryptoKey {
   // @ts-expect-error indexing CryptoKey via Symbol.toStringTag isn't in the type.
   return key?.[Symbol.toStringTag] === "CryptoKey";
 }
 
-/** Type guard for `CryptoKeyPair` — both `publicKey` and `privateKey` must be CryptoKeys. */
+/** Whether `key` is a `CryptoKeyPair` of two CryptoKeys. */
 export const isCryptoKeyPair = (key: unknown): key is CryptoKeyPair =>
   typeof key === "object" &&
   key !== null &&
@@ -56,30 +67,14 @@ export const isCryptoKeyPair = (key: unknown): key is CryptoKeyPair =>
   isCryptoKey(key.publicKey) &&
   isCryptoKey(key.privateKey);
 
-/**
- * Returns true if the JWK is a symmetric (oct) key.
- *
- * NOTE: a symmetric JWK's `k` is always secret key material. {@link isPrivateJWK}
- * returns `false` for `oct` keys (it only detects asymmetric `d`), so use this
- * guard — not `!isPrivateJWK(key)` — when deciding whether a JWK is safe to
- * publish.
- *
- * The `T` inference preserves the caller's narrowed alg type — passing a
- * `JWK_oct<"HS256">` refines to `JWK_oct<"HS256">`, not `JWK_oct<string>`.
- */
+/** Whether the JWK is symmetric (`oct`); its `k` is always secret. */
 export function isSymmetricJWK<T>(key: T): key is Extract<T, JWK_oct>;
 export function isSymmetricJWK(key: unknown): key is JWK_oct;
 export function isSymmetricJWK(key: unknown): boolean {
   return isJWK(key) && key.kty === "oct" && typeof key.k === "string";
 }
 
-/**
- * Returns true if the JWK is an asymmetric (RSA, EC, OKP) key.
- *
- * The `T` inference preserves the caller's narrowed alg type — passing a
- * `JWK_EC<"ES256">` refines to `JWK_EC<"ES256">`, not `JWK_EC<string>`,
- * and so on for RSA and OKP.
- */
+/** Whether the JWK is asymmetric (RSA, EC, OKP). */
 export function isAsymmetricJWK<T>(key: T): key is Exclude<T, JWK_oct>;
 export function isAsymmetricJWK(key: unknown): key is Exclude<JWK, JWK_oct>;
 export function isAsymmetricJWK(key: unknown): boolean {
@@ -87,17 +82,8 @@ export function isAsymmetricJWK(key: unknown): boolean {
 }
 
 /**
- * Type guard that checks if the provided JWK contains *asymmetric* private key
- * material. It relies purely on the presence of private components (e.g. "d"),
- * not on the alg value.
- *
- * WARNING: this returns `false` for symmetric (`oct`) keys — their `k` is secret
- * material too, but it is not a `d` component. `!isPrivateJWK(key)` is therefore
- * NOT a "safe to share" check: it passes every `oct` key. To filter keys that
- * are safe to publish, use {@link isPublicJWK} (true only for asymmetric public
- * keys); to detect any secret material, combine with {@link isSymmetricJWK}.
- *
- * Preserves narrow alg types from the caller.
+ * Whether the JWK holds asymmetric private material (`d`). It is `false` for `oct` keys,
+ * so `!isPrivateJWK(key)` is not a "safe to publish" check; use `isPublicJWK`.
  */
 export function isPrivateJWK<T>(
   key: T,
@@ -108,13 +94,7 @@ export function isPrivateJWK(key: unknown): boolean {
   return "d" in key && typeof key.d === "string";
 }
 
-/**
- * Type guard that checks if the provided JWK is a public (asymmetric) key:
- * public components present, no private `d`. Returns `false` for `oct` keys
- * (which are always secret), making it the correct "safe to publish" predicate.
- *
- * Preserves narrow alg types from the caller.
- */
+/** Whether the JWK is an asymmetric public key without `d`: the "safe to publish" check. */
 export function isPublicJWK<T>(
   key: T,
 ): key is Exclude<Extract<T, JWK_EC_Public | JWK_OKP_Public | JWK_RSA_Public>, JWK_Private>;

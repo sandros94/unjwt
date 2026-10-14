@@ -7,20 +7,30 @@ import type {
 import { hashNameOf, lengthOf, namedCurveOf } from "../_crypto/_key-algorithm";
 import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards";
 
-/**
- * How a JWK Set's entries are read. A set is public-key material: its `oct`
- * entries only contribute when the caller admits symmetric material with
- * `allowSymmetric`.
- */
+/** RFC 7518 §4.8 — the password-based key management algorithms. */
+export const PBES2_ALGORITHMS: readonly KeyManagementAlgorithm[] = [
+  "PBES2-HS256+A128KW",
+  "PBES2-HS384+A192KW",
+  "PBES2-HS512+A256KW",
+];
+
+/** RFC 7518 §4.6 — the key agreement algorithms. */
+const ECDH_ES_ALGORITHMS: readonly KeyManagementAlgorithm[] = [
+  "ECDH-ES",
+  "ECDH-ES+A128KW",
+  "ECDH-ES+A192KW",
+  "ECDH-ES+A256KW",
+];
+
+/** How a JWK Set's entries are read during algorithm inference. */
 export interface InferAlgorithmsOptions {
   /** Admit `oct` entries of a JWK Set. Defaults to `false`. */
   allowSymmetric?: boolean;
 }
 
 /**
- * Infer the set of JWS signing algorithms a key unambiguously supports.
- * Returns `undefined` when inference is not possible — callers must pass
- * `options.algorithms` explicitly (raw bytes, ambiguous JWK, lookup functions, ...).
+ * Infer the JWS algorithms a key unambiguously supports, or `undefined` when it cannot
+ * (raw bytes, ambiguous JWK, lookup function) and `options.algorithms` must be passed.
  */
 export function inferJWSAllowedAlgorithms(
   key: unknown,
@@ -39,13 +49,8 @@ export function inferJWSAllowedAlgorithms(
 }
 
 /**
- * Infer the set of JWE key-management algorithms a key unambiguously supports.
- * Returns `undefined` when inference is not possible — callers must pass
- * `options.algorithms` explicitly.
- *
- * A password `string` infers to the three PBES2 variants. Raw `Uint8Array`
- * bytes carry no role of their own and infer to nothing: the caller names the
- * algorithm, as they already do when they encrypt with such a key.
+ * Infer the JWE key management algorithms a key unambiguously supports, or `undefined`
+ * when it cannot; a password string infers the PBES2 variants, raw bytes nothing.
  */
 export function inferJWEAllowedAlgorithms(
   key: unknown,
@@ -53,7 +58,7 @@ export function inferJWEAllowedAlgorithms(
 ): KeyManagementAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
   if (typeof key === "string") {
-    return ["PBES2-HS256+A128KW", "PBES2-HS384+A192KW", "PBES2-HS512+A256KW"];
+    return [...PBES2_ALGORITHMS];
   }
   if (key instanceof Uint8Array) return undefined;
   if (typeof key !== "object") return undefined;
@@ -66,13 +71,7 @@ export function inferJWEAllowedAlgorithms(
   return undefined;
 }
 
-/**
- * Union the algorithms every usable entry of a JWK Set contributes. An entry
- * that is not a JWK, an `oct` entry the caller has not admitted, and an entry
- * whose algorithm cannot be inferred are each skipped — one such entry never
- * decides the policy for the keys around it. `undefined` means no entry
- * contributed at all.
- */
+/** Union the algorithms of every usable JWK Set entry; `undefined` when none contributes. */
 function unionFromJWKSet<T extends string>(
   keys: readonly JWK[],
   mapper: (k: JWK) => T[] | undefined,
@@ -100,8 +99,7 @@ function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
   }
   if (jwk.kty === "OKP") {
     const crv = jwk.crv;
-    // `EdDSA` (RFC 8037) leads: it is the interoperable spelling, so any caller
-    // taking the first entry as "the" alg produces a widely accepted token.
+    // `EdDSA` (RFC 8037) leads as the interoperable spelling.
     if (crv === "Ed25519") return ["EdDSA", "Ed25519"];
   }
   return undefined;
@@ -113,25 +111,19 @@ function jweAlgsFromJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   if (jwk.kty === "EC") {
     const crv = jwk.crv;
     if (crv === "P-256" || crv === "P-384" || crv === "P-521") {
-      return ["ECDH-ES", "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"];
+      return [...ECDH_ES_ALGORITHMS];
     }
   }
   if (jwk.kty === "OKP") {
     const crv = jwk.crv;
     if (crv === "X25519") {
-      return ["ECDH-ES", "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"];
+      return [...ECDH_ES_ALGORITHMS];
     }
   }
   return undefined;
 }
 
-/**
- * A symmetric JWK's `alg` names the one role it holds, and roles do not alias.
- * A content encryption algorithm (`A*GCM`, `A*CBC-HS*`) names a CEK, which only
- * `dir` consumes — and `dir` then requires the token's `enc` to be that same
- * algorithm. Every other `alg` — `A*KW`, `A*GCMKW`, PBES2, `dir` itself — names
- * a key management algorithm and admits nothing else.
- */
+/** A content encryption `alg` names a CEK (`dir` only); any other `alg` names itself. */
 function jweAlgsFromOctJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   const alg = jwk.alg;
   if (!alg) return undefined;
@@ -139,10 +131,7 @@ function jweAlgsFromOctJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   return declaredAlgorithm<KeyManagementAlgorithm>(alg);
 }
 
-/**
- * The `enc` values RFC 7518 §5 defines, as an `alg` an `oct` JWK may declare.
- * Internal to the library: the `utils` entry point does not re-export it.
- */
+/** Whether `alg` is an `enc` value RFC 7518 §5 defines. */
 export function isContentEncryptionAlgorithm(alg: string): alg is ContentEncryptionAlgorithm {
   return CONTENT_ENCRYPTION_ALGORITHMS.has(alg);
 }
@@ -208,7 +197,7 @@ function jweAlgsFromCryptoKey(key: CryptoKey): KeyManagementAlgorithm[] | undefi
     }
     case "ECDH":
     case "X25519":
-      return ["ECDH-ES", "ECDH-ES+A128KW", "ECDH-ES+A192KW", "ECDH-ES+A256KW"];
+      return [...ECDH_ES_ALGORITHMS];
     default:
       return undefined;
   }
@@ -222,12 +211,7 @@ function jwsHashBits(hashName: string | undefined): "256" | "384" | "512" | unde
   return undefined;
 }
 
-/**
- * The algorithm a JWK names for itself in its `alg`, taken as declared. A name
- * outside the union is not filtered here: the operation that receives it
- * rejects it as unsupported.
- */
 function declaredAlgorithm<T extends string>(alg: string): T[] {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a key's self-declared algorithm is an open string; unsupported names are rejected by the operation's algorithm check
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a key's self-declared algorithm is an open string
   return [alg as T];
 }

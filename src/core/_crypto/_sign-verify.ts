@@ -1,5 +1,19 @@
 import { JWTError } from "../error";
-import { namedCurveOf } from "./_key-algorithm";
+import {
+  ECDSA_CURVES,
+  checkKeyUsage,
+  hashBitsOf,
+  isAlgorithm,
+  jwsHashOf,
+  namedCurveOf,
+  unusableKey,
+} from "./_key-algorithm";
+
+const HASHED_SIGNATURE_ALGORITHMS: Record<string, "HMAC" | "RSASSA-PKCS1-v1_5" | "RSA-PSS"> = {
+  HS: "HMAC",
+  RS: "RSASSA-PKCS1-v1_5",
+  PS: "RSA-PSS",
+};
 
 export async function sign(
   alg: string,
@@ -29,44 +43,32 @@ export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage):
   switch (alg) {
     case "HS256":
     case "HS384":
-    case "HS512": {
-      if (!isAlgorithm<HmacKeyAlgorithm>(key.algorithm, "HMAC")) throw unusable("HMAC");
-      const expected = Number.parseInt(alg.slice(2), 10);
-      const actual = getHashLength(key.algorithm.hash);
-      if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
-      break;
-    }
+    case "HS512":
     case "RS256":
     case "RS384":
-    case "RS512": {
-      if (!isAlgorithm<RsaHashedKeyAlgorithm>(key.algorithm, "RSASSA-PKCS1-v1_5"))
-        throw unusable("RSASSA-PKCS1-v1_5");
-      const expected = Number.parseInt(alg.slice(2), 10);
-      const actual = getHashLength(key.algorithm.hash);
-      if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
-      break;
-    }
+    case "RS512":
     case "PS256":
     case "PS384":
     case "PS512": {
-      if (!isAlgorithm<RsaHashedKeyAlgorithm>(key.algorithm, "RSA-PSS")) throw unusable("RSA-PSS");
+      const name = HASHED_SIGNATURE_ALGORITHMS[alg.slice(0, 2)];
+      if (!isAlgorithm(key.algorithm, name)) throw unusableKey(name);
       const expected = Number.parseInt(alg.slice(2), 10);
-      const actual = getHashLength(key.algorithm.hash);
-      if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
+      if (hashBitsOf(key.algorithm.hash) !== expected)
+        throw unusableKey(`SHA-${expected}`, "algorithm.hash");
       break;
     }
     case "Ed25519":
     case "EdDSA": {
-      if (!isAlgorithm(key.algorithm, "Ed25519")) throw unusable("Ed25519");
+      if (!isAlgorithm(key.algorithm, "Ed25519")) throw unusableKey("Ed25519");
       break;
     }
     case "ES256":
     case "ES384":
     case "ES512": {
-      if (!isAlgorithm<EcKeyAlgorithm>(key.algorithm, "ECDSA")) throw unusable("ECDSA");
-      const expected = getNamedCurve(alg);
+      if (!isAlgorithm(key.algorithm, "ECDSA")) throw unusableKey("ECDSA");
+      const expected = ECDSA_CURVES[alg];
       const actual = key.algorithm.namedCurve;
-      if (actual !== expected) throw unusable(expected, "algorithm.namedCurve");
+      if (actual !== expected) throw unusableKey(expected, "algorithm.namedCurve");
       break;
     }
     default: {
@@ -74,7 +76,7 @@ export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage):
     }
   }
 
-  checkUsage(key, usage);
+  checkKeyUsage(key, usage);
 }
 
 export function subtleAlgorithm(
@@ -85,7 +87,7 @@ export function subtleAlgorithm(
   | { hash: string; name: string; saltLength: number; namedCurve?: undefined }
   | { hash: string; name: string; namedCurve: string | undefined; saltLength?: undefined }
   | { name: string; hash?: undefined; saltLength?: undefined; namedCurve?: undefined } {
-  const hash = `SHA-${alg.slice(-3)}`;
+  const hash = jwsHashOf(alg);
   switch (alg) {
     case "HS256":
     case "HS384":
@@ -125,47 +127,5 @@ export function subtleAlgorithm(
         "ERR_JWS_ALG_NOT_ALLOWED",
       );
     }
-  }
-}
-
-// --- Internal helpers ---
-
-function unusable(name: string | number, prop = "algorithm.name") {
-  return new JWTError(
-    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
-    "ERR_JWK_INVALID",
-  );
-}
-
-function isAlgorithm<T extends KeyAlgorithm>(
-  algorithm: KeyAlgorithm,
-  name: string,
-): algorithm is T {
-  return algorithm.name === name;
-}
-
-function getHashLength(hash: KeyAlgorithm) {
-  return Number.parseInt(hash.name.slice(4), 10);
-}
-
-function getNamedCurve(alg: string) {
-  switch (alg) {
-    case "ES256":
-      return "P-256";
-    case "ES384":
-      return "P-384";
-    case "ES512":
-      return "P-521";
-    default:
-      throw new JWTError(`alg ${alg} names no named curve`, "ERR_JWS_ALG_NOT_ALLOWED");
-  }
-}
-
-function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
-  if (usage && !key.usages.includes(usage)) {
-    throw new JWTError(
-      `CryptoKey does not support this operation, its usages must include ${usage}.`,
-      "ERR_JWK_INVALID",
-    );
   }
 }

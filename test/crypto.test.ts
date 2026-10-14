@@ -291,7 +291,7 @@ describe.concurrent("_crypto primitives", () => {
 
       const exported = await keyToJWK(cryptoKey);
       expect(exported.kty).toBe("EC");
-      expect((exported as any).d).toBe(ec.jwk.private.d);
+      expect(exported).toHaveProperty("d", ec.jwk.private.d);
     });
 
     it("jwkTokey / keyToJWK roundtrip — RSA public", async () => {
@@ -301,7 +301,7 @@ describe.concurrent("_crypto primitives", () => {
 
       const exported = await keyToJWK(cryptoKey);
       expect(exported.kty).toBe("RSA");
-      expect((exported as any).n).toBe(rsa.jwk.public.n);
+      expect(exported).toHaveProperty("n", rsa.jwk.public.n);
     });
 
     it("jwkTokey rejects an OKP JWK whose crv is not a known curve", async () => {
@@ -310,7 +310,7 @@ describe.concurrent("_crypto primitives", () => {
         alg: "EdDSA",
         crv: "Curve25519",
         x: "",
-      } as any).catch((e) => e);
+      } as never).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toContain("Curve25519");
     });
@@ -319,7 +319,7 @@ describe.concurrent("_crypto primitives", () => {
       const raw = crypto.getRandomValues(new Uint8Array(32));
       const jwk = await keyToJWK(raw);
       expect(jwk.kty).toBe("oct");
-      expect(typeof (jwk as any).k).toBe("string");
+      expect("k" in jwk && typeof jwk.k).toBe("string");
     });
   });
 

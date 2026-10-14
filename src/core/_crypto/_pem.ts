@@ -2,13 +2,10 @@ import { base64Stringify, base64Parse } from "../utils/base64";
 
 import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
+import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm";
 
-/** Key Import Function options. */
 export interface KeyImportOptions {
-  /**
-   * The value to use as {@link !SubtleCrypto.importKey} `extractable` argument. Default is false for
-   * private keys, true otherwise.
-   */
+  /** `extractable` for `SubtleCrypto.importKey`; defaults to `false` for private keys, `true` otherwise. */
   extractable?: boolean;
 }
 
@@ -38,8 +35,6 @@ export const fromX509: PEMImportFunction = (pem, alg, options?) => {
   return fromSPKI(spki, alg, options);
 };
 
-// --- Internal helpers ---
-
 type PEMImportFunction = (
   pem: string,
   alg: string,
@@ -51,14 +46,7 @@ const formatPEM = (b64: string, descriptor: string) => {
   return `-----BEGIN ${descriptor}-----\n${newlined}\n-----END ${descriptor}-----`;
 };
 
-/**
- * Returns the base64 body of the single armoured block `descriptor` names.
- *
- * Exactly one block is accepted: a bundle would otherwise import its first key
- * and silently drop the rest, and trailing data would be ignored altogether.
- * Text before the block is permitted (RFC 7468 §2), as `openssl` tooling
- * routinely prints attributes or a human-readable dump ahead of it.
- */
+/** The base64 body of the single armoured block `descriptor` names; leading text is allowed (RFC 7468 §2). */
 const pemBody = (pem: string, descriptor: string): string => {
   const begin = `-----BEGIN ${descriptor}-----`;
   const end = `-----END ${descriptor}-----`;
@@ -137,14 +125,14 @@ const genericImport = async (
     case "PS256":
     case "PS384":
     case "PS512": {
-      algorithm = { name: "RSA-PSS", hash: `SHA-${alg.slice(-3)}` };
+      algorithm = { name: "RSA-PSS", hash: jwsHashOf(alg) };
       keyUsages = isPublic ? ["verify"] : ["sign"];
       break;
     }
     case "RS256":
     case "RS384":
     case "RS512": {
-      algorithm = { name: "RSASSA-PKCS1-v1_5", hash: `SHA-${alg.slice(-3)}` };
+      algorithm = { name: "RSASSA-PKCS1-v1_5", hash: jwsHashOf(alg) };
       keyUsages = isPublic ? ["verify"] : ["sign"];
       break;
     }
@@ -152,25 +140,14 @@ const genericImport = async (
     case "RSA-OAEP-256":
     case "RSA-OAEP-384":
     case "RSA-OAEP-512": {
-      algorithm = {
-        name: "RSA-OAEP",
-        hash: `SHA-${Number.parseInt(alg.slice(-3), 10) || 1}`,
-      };
+      algorithm = { name: "RSA-OAEP", hash: rsaOaepHashOf(alg) };
       keyUsages = isPublic ? ["encrypt", "wrapKey"] : ["decrypt", "unwrapKey"];
       break;
     }
-    case "ES256": {
-      algorithm = { name: "ECDSA", namedCurve: "P-256" };
-      keyUsages = isPublic ? ["verify"] : ["sign"];
-      break;
-    }
-    case "ES384": {
-      algorithm = { name: "ECDSA", namedCurve: "P-384" };
-      keyUsages = isPublic ? ["verify"] : ["sign"];
-      break;
-    }
+    case "ES256":
+    case "ES384":
     case "ES512": {
-      algorithm = { name: "ECDSA", namedCurve: "P-521" };
+      algorithm = { name: "ECDSA", namedCurve: ECDSA_CURVES[alg] };
       keyUsages = isPublic ? ["verify"] : ["sign"];
       break;
     }
@@ -236,11 +213,7 @@ const OKP_CURVE_OIDS = {
   Ed25519: [0x2b, 0x65, 0x70],
 } as const satisfies Readonly<Record<string, readonly number[]>>;
 
-/**
- * Resolves the WebCrypto algorithm name from the curve OID carried by the key
- * body. The curve is never assumed from `alg`: a body on any other curve
- * (Ed448, X448, …) is refused rather than imported as the one `alg` implies.
- */
+/** The WebCrypto name of the key body's curve OID; never assumed from `alg`. */
 const requireOKPCurve = (
   keyData: Uint8Array<ArrayBuffer>,
   crv: keyof typeof OKP_CURVE_OIDS,
@@ -393,7 +366,6 @@ const getSPKI = (x509: string): string => {
   if (createPublicKey) {
     try {
       return new createPublicKey(x509).export({ format: "pem", type: "spki" });
-      // eslint-disable-next-line no-empty
     } catch {}
   }
 

@@ -58,8 +58,6 @@ function cookieStore(jar: ChunkableCookieJar): ChunkedCookieStore<CookieAttribut
       return typeof value === "string" ? value : undefined;
     },
     write: (name, value, attrs) => reactiveCookie(jar, name).set({ ...attrs, value }),
-    expire: (name, attrs) =>
-      reactiveCookie(jar, name).set({ ...attrs, value: "", maxAge: 0, expires: new Date(0) }),
   };
 }
 

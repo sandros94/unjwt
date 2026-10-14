@@ -1,10 +1,15 @@
-import type { H3Event, HTTPEvent } from "h3v2";
+import type { HTTPEvent } from "h3v2";
 
 import type { CookieSerializeOptions } from "cookie-esv3";
 
-import type { ExpiresIn, JWEDecryptJWK, JWEHeaderParameters } from "../../../core/types";
+import type { ExpiresIn } from "../../../core/types";
 import type { SessionIssueOptions } from "../../_session";
-import { type JWECodecConfig, type JWESessionConfig, createJWECodec } from "../../_codec-jwe";
+import {
+  type JWECodecConfig,
+  type JWESessionConfig,
+  type JWESessionHooks,
+  createJWECodec,
+} from "../../_codec-jwe";
 import {
   type SessionBinding,
   type SessionState,
@@ -14,7 +19,7 @@ import {
 } from "../../_session-core";
 import { loadSession } from "../../_session-read";
 import { dropSession, encodeSession, issueSession, sessionManager } from "../../_session-write";
-import type { SessionHooks, SessionRecord } from "../../_session-types";
+import type { SessionRecord } from "../../_session-types";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
 import { PREFIX, h3SessionPort } from "./_shared";
 
@@ -22,57 +27,35 @@ export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "h3-jwe" });
 
-/**
- * In-memory session state for the current request, mirroring the claims of
- * the underlying compact JWE token.
- */
+/** Session state for the current request, mirroring the claims of its JWE token. */
 export interface SessionJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
-/**
- * Lifecycle hooks for JWE sessions. `onRead`, `onExpire`, and `onError` are
- * mutually exclusive per incoming token — `onRead` fires only when a session
- * was successfully established from it.
- */
+/** JWE session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
 export interface SessionHooksJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
-> extends SessionHooks<
+  TEvent extends HTTPEvent = HTTPEvent,
+> extends JWESessionHooks<
   SessionJWE<T, MaxAge>,
   { event: TEvent },
   SessionConfigJWE<T, MaxAge, TEvent>
-> {
-  /** Resolve the decryption key for the incoming token from its protected header (e.g. by `kid`). */
-  onUnsealKeyLookup?: (args: {
-    header: JWEHeaderParameters;
-    event: TEvent;
-    config: SessionConfigJWE<T, MaxAge, TEvent>;
-  }) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
-}
+> {}
 
-/**
- * Configuration for a JWE-backed (encrypted) session.
- */
+/** Configuration for a JWE-backed (encrypted) session. */
 export interface SessionConfigJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
+  TEvent extends HTTPEvent = HTTPEvent,
 > extends JWESessionConfig<MaxAge, CookieSerializeOptions> {
-  /**
-   * Session name — drives the cookie name and the default session header. Default `"h3-jwe"`.
-   * Prefer a `__Host-` prefix; a name ending in a dot and digits is refused.
-   */
+  /** Cookie and session-header name. Default `"h3-jwe"`; a `.<digits>` suffix throws `ERR_SESSION_CONFIG_INVALID`. */
   name?: string;
-  /** Lifecycle hooks — see {@link SessionHooksJWE}. */
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
 }
 
-/**
- * Create a session manager for the current request using JWE (encrypted).
- */
+/** Create a JWE (encrypted) session manager for the request. */
 export async function useJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -83,9 +66,7 @@ export async function useJWESession<
   return sessionManager<T, MaxAge, HTTPEvent, JWECodecConfig>(binding);
 }
 
-/**
- * Get (and lazily initialize) the session for the current request.
- */
+/** Get (and lazily initialize) the session for the current request. */
 export async function getJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -94,11 +75,7 @@ export async function getJWESession<
   return loadSession<T, MaxAge, HTTPEvent, JWECodecConfig>(bind(event, config));
 }
 
-/**
- * Read the raw session token for the request. The cookie is consulted first,
- * and the session header (default `x-<name>-session`, optional case-insensitive
- * `Bearer` prefix) only when the cookie carries none.
- */
+/** Read the raw session token: cookie first, then the session header (default `x-<name>-session`, optional `Bearer`). */
 export function getJWESessionToken<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -107,10 +84,7 @@ export function getJWESessionToken<
   return sessionToken(bind(event, config));
 }
 
-/**
- * Update the session data (if provided) and reissue the JWE token.
- * Pass `options.maxAge` to give this one token a lifetime of its own.
- */
+/** Update the session data (if provided) and reissue the JWE; `options.maxAge` overrides this token's lifetime. */
 export async function updateJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -124,14 +98,7 @@ export async function updateJWESession<
   return issueSession<T, MaxAge, HTTPEvent, JWECodecConfig>(bind(event, config), update, options);
 }
 
-/**
- * Seal the current session as a compact JWE and return it — no cookie is
- * written. A session with no ID yet is sealed under a fresh `jti`, and a
- * config with neither a cookie nor a session header seals an empty session,
- * so one-off tokens (magic links, password resets) need no token source.
- * Payload: `session.data` spread at the top level, plus the reserved claims
- * `jti`, `iat`, and `exp` (when the session has a lifetime).
- */
+/** Seal the session as a compact JWE without writing a cookie; fresh `jti` if no ID, no token source needed. */
 export async function sealJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -140,14 +107,7 @@ export async function sealJWESession<
   return encodeSession(bind(event, config));
 }
 
-/**
- * Decrypt and parse a compact JWE into a Session structure.
- * Performs:
- *  - authenticated decryption
- *  - claim validation (always on): `jti` & `iat` required, `exp` honoured
- *  - `typ` header check, and alg/enc pinning when configured
- *  - `exp` required when the session has a `maxAge`
- */
+/** Decrypt a compact JWE into a session, checking `typ`, pinned `alg`/`enc`, `jti`/`iat` and `exp` (required with `maxAge`). */
 export async function unsealJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -163,10 +123,7 @@ export async function unsealJWESession<
   });
 }
 
-/**
- * Clear the session: drop the cookie and leave an empty session behind, so a
- * later read in the same request sees no session rather than the request cookie.
- */
+/** Drop the session cookie and leave an empty session for the rest of the request. */
 export async function clearJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

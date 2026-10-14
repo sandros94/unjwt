@@ -5,6 +5,7 @@ import { base64UrlStringify } from "../src/core/utils/base64";
 import {
   JWS_ALG_CTX,
   JWE_ALG_CTX,
+  asJWTError,
   buildJWKSetFilter,
   checkAlgAllowed,
   decodeJWSPayload,
@@ -122,6 +123,26 @@ describe.concurrent("_internal helpers", () => {
       const filter = buildJWKSetFilter(undefined, { op: "sig" });
       expect(filter(noAlg)).toBe(true);
       expect(filter(kidMatch)).toBe(false);
+    });
+  });
+
+  describe("asJWTError", () => {
+    it("passes a JWTError through unchanged", () => {
+      const original = new JWTError("Specific verdict.", "ERR_JWS_INVALID");
+      expect(asJWTError(original, { code: "ERR_JWK_INVALID", message: "Other." })).toBe(original);
+    });
+
+    it("reports anything else under the library message, never the thrown text", () => {
+      const raw = new TypeError("internal runtime detail");
+      const error = asJWTError(raw, { code: "ERR_JWS_INVALID", message: "Invalid JWS." });
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect(error.message).toBe("Invalid JWS.");
+      expect(error.cause).toBe(raw);
+      const fromString = asJWTError("thrown string", {
+        code: "ERR_JWS_INVALID",
+        message: "Invalid JWS.",
+      });
+      expect(fromString.message).toBe("Invalid JWS.");
     });
   });
 
@@ -334,7 +355,7 @@ describe.concurrent("_internal helpers", () => {
 
     it("rejects an unknown mode", () => {
       expectThrowsJWTError(
-        () => resolvePayloadMode({ payload: "utf8" as any }),
+        () => resolvePayloadMode({ payload: "utf8" as never }),
         "ERR_INVALID_OPTION",
       );
     });
@@ -508,7 +529,7 @@ describe.concurrent("_internal helpers", () => {
   describe("decodeProtectedHeader", () => {
     it("parses valid base64url-encoded JSON", () => {
       const encoded = base64UrlStringify(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-      const header = decodeProtectedHeader<{ alg?: string; typ?: string }>(encoded, "JWS");
+      const header = decodeProtectedHeader(encoded, "JWS");
       expect(header.alg).toBe("HS256");
       expect(header.typ).toBe("JWT");
     });
@@ -535,7 +556,7 @@ describe.concurrent("_internal helpers", () => {
 
     it("strips prototype-pollution keys via safeJsonParse", () => {
       const poisoned = base64UrlStringify('{"alg":"HS256","__proto__":{"polluted":true}}');
-      const header = decodeProtectedHeader<Record<string, unknown>>(poisoned, "JWS");
+      const header = decodeProtectedHeader(poisoned, "JWS");
       expect(header.alg).toBe("HS256");
       expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     });
@@ -544,8 +565,8 @@ describe.concurrent("_internal helpers", () => {
   describe("decodeJWSPayload", () => {
     it('useB64=true, "json": parses the segment into an object', () => {
       const segment = base64UrlStringify(JSON.stringify({ sub: "u1" }));
-      const result = decodeJWSPayload<{ sub: string }>(segment, true, "json");
-      expect(result.sub).toBe("u1");
+      const result = decodeJWSPayload(segment, true, "json");
+      expect(result).toEqual({ sub: "u1" });
     });
 
     it('useB64=true, "json": rejects a segment that is not a JSON object', () => {
@@ -555,16 +576,16 @@ describe.concurrent("_internal helpers", () => {
 
     it('useB64=true, "string": returns the decoded text', () => {
       const segment = base64UrlStringify("hello");
-      const result = decodeJWSPayload<string>(segment, true, "string");
+      const result = decodeJWSPayload(segment, true, "string");
       expect(result).toBe("hello");
     });
 
     it('useB64=true, "bytes": returns raw bytes', () => {
       const bytes = textEncoder.encode("raw");
       const segment = base64UrlStringify(bytes);
-      const result = decodeJWSPayload<Uint8Array>(segment, true, "bytes");
+      const result = decodeJWSPayload(segment, true, "bytes");
       expect(result).toBeInstanceOf(Uint8Array);
-      expect(textDecoder.decode(result)).toBe("raw");
+      expect(textDecoder.decode(result as Uint8Array<ArrayBuffer>)).toBe("raw");
     });
 
     it("useB64=true: reports an undecodable segment", () => {
@@ -575,19 +596,19 @@ describe.concurrent("_internal helpers", () => {
     });
 
     it('useB64=false, "string": returns the payload segment as-is', () => {
-      const result = decodeJWSPayload<string>("raw-payload", false, "string");
+      const result = decodeJWSPayload("raw-payload", false, "string");
       expect(result).toBe("raw-payload");
     });
 
     it('useB64=false, "bytes": UTF-8 encodes the segment', () => {
-      const result = decodeJWSPayload<Uint8Array>("raw-payload", false, "bytes");
+      const result = decodeJWSPayload("raw-payload", false, "bytes");
       expect(result).toBeInstanceOf(Uint8Array);
-      expect(textDecoder.decode(result)).toBe("raw-payload");
+      expect(textDecoder.decode(result as Uint8Array<ArrayBuffer>)).toBe("raw-payload");
     });
 
     it('useB64=false, "json": parses the segment', () => {
-      const result = decodeJWSPayload<{ sub: string }>('{"sub":"u1"}', false, "json");
-      expect(result.sub).toBe("u1");
+      const result = decodeJWSPayload('{"sub":"u1"}', false, "json");
+      expect(result).toEqual({ sub: "u1" });
     });
   });
 

@@ -1,10 +1,15 @@
-import type { ExpiresIn, JWKSet, JWSVerifyJWK, JWKLookupFunctionHeader } from "../../../core/types";
-import { type JWSCodecConfig, type JWSSessionConfig, createJWSCodec } from "../../_codec-jws";
+import type { ExpiresIn } from "../../../core/types";
+import {
+  type JWSCodecConfig,
+  type JWSSessionConfig,
+  type JWSSessionHooks,
+  createJWSCodec,
+} from "../../_codec-jws";
 export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws";
 import { type SessionBinding, type SessionState, bindSession } from "../../_session-core";
 import { loadSession } from "../../_session-read";
 import { sessionManager } from "../../_session-write";
-import type { SessionHooks, SessionRecord } from "../../_session-types";
+import type { SessionRecord } from "../../_session-types";
 import { type SessionPlugin, sessionPlugin } from "../_plugin";
 import type { CookieAttributes } from "../_cookie";
 import type { SessionClaims, SessionManager, SessionContext } from "./types";
@@ -23,17 +28,11 @@ export interface SessionHooksJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TContext extends SessionContext = SessionContext,
-> extends SessionHooks<
+> extends JWSSessionHooks<
   SessionJWS<T, MaxAge>,
   { context: TContext },
   SessionConfigJWS<T, MaxAge, TContext>
-> {
-  onVerifyKeyLookup?: (args: {
-    header: JWKLookupFunctionHeader;
-    context: TContext;
-    config: SessionConfigJWS<T, MaxAge, TContext>;
-  }) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
-}
+> {}
 
 export interface SessionConfigJWS<
   T extends SessionRecord = SessionClaims,

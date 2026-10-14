@@ -3,6 +3,7 @@ import { base64UrlStringify } from "../utils/base64";
 
 import { concatUint8Arrays } from "../utils/array";
 import { JWTError } from "../error";
+import { checkKeyUsage, innerKeyWrapAlg, isAlgorithm, unusableKey } from "./_key-algorithm";
 import { aesKwWrap, aesKwUnwrap } from "./_aes";
 
 /** RFC 7518 §4.8.1.2 — the floor every PBES2 `p2c` is held to. */
@@ -11,19 +12,10 @@ export const DEFAULT_PBES2_MIN_ITERATIONS = 1000;
 /** The PBKDF2 work a PBES2 token is minted with when the caller names none. */
 export const DEFAULT_PBES2_ITERATIONS = 600_000;
 
-/**
- * The ceiling one unwrap accepts unless the caller raises `maxIterations`: the
- * cost a producer mints by default, and no more, so a token cannot claim more
- * work than the library itself would spend writing one.
- */
+/** The `p2c` ceiling one unwrap accepts by default: the cost a producer mints with. */
 export const DEFAULT_PBES2_MAX_ITERATIONS: number = DEFAULT_PBES2_ITERATIONS;
 
-/**
- * RFC 7518 §4.8.1 — the PBES2 parameters a token is minted with. `p2s` is at
- * least 8 octets and `p2c` a positive integer inside the bounds the unwrap side
- * enforces, so the library never mints a token it would itself refuse to open.
- * A value outside them is caller input, not key material: `ERR_INVALID_OPTION`.
- */
+/** RFC 7518 §4.8.1 — mint-side `p2s`/`p2c` stay within the unwrap bounds; else `ERR_INVALID_OPTION`. */
 export function assertPBES2Params(params: {
   p2s: Uint8Array<ArrayBuffer> | undefined;
   p2c: number | undefined;
@@ -46,10 +38,7 @@ export function assertPBES2Salt(salt: unknown, name: string): void {
   throw new JWTError(`${name} must be 8 or more octets (RFC 7518 §4.8.1.1).`, "ERR_INVALID_OPTION");
 }
 
-/**
- * RFC 7518 §4.8.1.2 — a PBES2 iteration count is an integer of at least
- * {@link DEFAULT_PBES2_MIN_ITERATIONS}.
- */
+/** RFC 7518 §4.8.1.2 — a PBES2 iteration count is an integer of at least 1000. */
 export function assertPBES2Count(count: unknown, name: string): asserts count is number {
   if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
     throw new JWTError(`${name} must be a positive integer.`, "ERR_INVALID_OPTION");
@@ -70,14 +59,11 @@ export async function pbes2Wrap(
   p2s: Uint8Array<ArrayBuffer>,
 ): Promise<{ encryptedKey: Uint8Array<ArrayBuffer>; p2c: number; p2s: string }> {
   const derived = await deriveKey(p2s, alg, p2c, key);
-  const encryptedKey = await aesKwWrap(alg.slice(-6), derived, cek);
+  const encryptedKey = await aesKwWrap(innerKeyWrapAlg(alg), derived, cek);
   return { encryptedKey, p2c, p2s: base64UrlStringify(p2s) };
 }
 
-/**
- * The `p2c` bounds one PBES2 unwrap accepts: `minIterations` (default 1000,
- * RFC 7518 §4.8.1.2) to `maxIterations` (default {@link DEFAULT_PBES2_MAX_ITERATIONS}).
- */
+/** The `p2c` bounds one PBES2 unwrap accepts, defaulting to the `DEFAULT_PBES2_*` limits. */
 export function assertPBES2Iterations(
   p2c: number,
   bounds: { minIterations?: number; maxIterations?: number },
@@ -111,7 +97,7 @@ export async function pbes2Unwrap(
 ): Promise<Uint8Array<ArrayBuffer>> {
   assertPBES2Iterations(p2c, { minIterations, maxIterations });
   const derived = await deriveKey(p2s, alg, p2c, key);
-  return aesKwUnwrap(alg.slice(-6), derived, encryptedKey);
+  return aesKwUnwrap(innerKeyWrapAlg(alg), derived, encryptedKey);
 }
 
 export async function deriveKey(
@@ -120,9 +106,7 @@ export async function deriveKey(
   p2c: number,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  if (!(p2s instanceof Uint8Array) || p2s.length < 8) {
-    throw new JWTError("PBES2 Salt Input must be 8 or more octets", "ERR_INVALID_OPTION");
-  }
+  assertPBES2Salt(p2s, '"p2s"');
   if (p2c === undefined || p2c < 1) {
     throw new JWTError(
       "PBES2 Iteration Count Parameter must be a positive integer",
@@ -146,34 +130,9 @@ export async function deriveKey(
 
 export function checkPBES2CryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
   if (!isAlgorithm(key.algorithm, "PBKDF2")) {
-    throw unusable("PBKDF2");
+    throw unusableKey("PBKDF2");
   }
-  checkUsage(key, usage);
-}
-
-// --- Internal helpers ---
-
-function unusable(name: string | number, prop = "algorithm.name") {
-  return new JWTError(
-    `CryptoKey does not support this operation, its ${prop} must be ${name}`,
-    "ERR_JWK_INVALID",
-  );
-}
-
-function isAlgorithm<T extends KeyAlgorithm>(
-  algorithm: KeyAlgorithm,
-  name: string,
-): algorithm is T {
-  return algorithm.name === name;
-}
-
-function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
-  if (usage && !key.usages.includes(usage)) {
-    throw new JWTError(
-      `CryptoKey does not support this operation, its usages must include ${usage}.`,
-      "ERR_JWK_INVALID",
-    );
-  }
+  checkKeyUsage(key, usage);
 }
 
 async function getPBKDF2CryptoKey(

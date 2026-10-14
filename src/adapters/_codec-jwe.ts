@@ -1,12 +1,6 @@
 import { encrypt, decrypt } from "../core/jwe";
 import { DEFAULT_PBES2_ITERATIONS } from "../core/_internal";
-import {
-  isCryptoKey,
-  isJWK,
-  isSymmetricJWK,
-  isPrivateJWK,
-  isPublicJWK,
-} from "../core/utils/guards";
+import { isCryptoKey, isJWK, isSymmetricJWK, isPublicJWK } from "../core/utils/guards";
 import type {
   ExpiresIn,
   JWEEncryptJWK,
@@ -19,31 +13,20 @@ import type {
   JWKLookupFunction,
 } from "../core/types";
 import type { StrictOmit } from "../core/utils/types";
+import { assertKeyMaterial, invalidKeyError } from "./_session";
 import {
-  assertImportableKey,
-  assertKeyMaterial,
-  invalidConfigError,
-  invalidKeyError,
-  rethrowAsInvalidToken,
-  sessionRequiredClaims,
-  sessionTyp,
-  splitSessionClaims,
-} from "./_session";
-import type {
-  OpenedSession,
-  SessionCodec,
-  SessionCoreConfig,
-  SessionCoreHooks,
-  StoredSession,
-} from "./_session-core";
+  type SessionPayload,
+  assertKeyPair,
+  assertPinnedCryptoKey,
+  createSessionCodec,
+  isKeyPair,
+  sessionIssueOptions,
+  sessionOpenOptions,
+} from "./_session-codec";
+import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_session-core";
+import type { SessionBaseConfig, SessionHooks } from "./_session-types";
 
-/**
- * Key used for sealing — a symmetric JWK, a `CryptoKey`, or an asymmetric
- * pair: the public key seals, the private key unseals. A `CryptoKey` carries
- * no algorithm, so it additionally requires `jwe.encryptOptions.alg` and
- * `enc`. Passwords are not keys — derive one once with
- * `deriveJWKFromPassword()` and pass the JWK.
- */
+/** Symmetric JWK, `CryptoKey` (requires pinned `alg` and `enc`), or a pair: public seals, private unseals. */
 export type JWESessionKey =
   | CryptoKey
   | JWEEncryptJWK
@@ -52,7 +35,7 @@ export type JWESessionKey =
       publicKey?: JWEAsymmetricPublicJWK | CryptoKey;
     };
 
-/** JWE decrypt overrides a session accepts — everything the adapter does not own itself. */
+/** JWE decrypt overrides, minus the options the adapter owns. */
 export type SessionDecryptOptions = StrictOmit<
   JWEDecryptOptions,
   | "algorithms"
@@ -64,11 +47,7 @@ export type SessionDecryptOptions = StrictOmit<
   | "payload"
 >;
 
-/**
- * JWE encrypt options a session accepts. `exp` and `nbf` are the adapter's to
- * mint — `exp` from `maxAge`, never an `nbf` — so the options that would set
- * them are not the caller's.
- */
+/** JWE encrypt options, minus those setting `exp`/`nbf` (the adapter mints `exp` from `maxAge`). */
 export type SessionEncryptOptions = StrictOmit<
   JWEEncryptOptions,
   "expiresIn" | "expiresAt" | "notBeforeIn" | "notBeforeAt"
@@ -84,42 +63,27 @@ export interface JWESessionOptions {
 export interface JWESessionConfig<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TCookie extends object = object,
-> {
+> extends SessionBaseConfig<MaxAge> {
   /** Key used for sealing — see {@link JWESessionKey}. */
   key: JWESessionKey;
-  /**
-   * Session lifetime — sets `exp = iat + maxAge` in the token, requires an
-   * incoming token to carry an `exp`, and drives the cookie expiry. Without it
-   * the session writes no `exp` and never expires on its own.
-   */
-  maxAge?: MaxAge;
-  /**
-   * Session name — drives the cookie name and the default session header.
-   * Prefer a `__Host-` prefix; a name ending in a dot and digits is refused.
-   */
-  name?: string;
-  /**
-   * Cookie options (`false` to disable). Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`.
-   * With a lifetime, `expires` follows the token's `exp` and `maxAge` is dropped.
-   */
+  /** `false` to disable. Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`. */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
-  /**
-   * Request header to read the token from (`false` to disable), as a bare token
-   * or `Bearer <token>`. Must be a header name. Default `x-<name>-session`, with
-   * `<name>` stripped of a `__Host-` / `__Secure-` cookie prefix.
-   */
-  sessionHeader?: false | string;
-  /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
-  generateId?: () => string;
-  /**
-   * JWE encrypt/decrypt overrides. Set `encryptOptions.alg` and `enc` to pin the session algorithms — unsealing then accepts only them.
-   * `encryptOptions.protectedHeader.typ` names the session type (default `"session+jwt"`): every token is sealed with it and
-   * every incoming token must carry it, so no other JWT sealed with the same key reads as a session (RFC 8725 §3.11).
-   */
+  /** Pinned `encryptOptions.alg`/`enc` restrict unsealing; `protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). */
   jwe?: JWESessionOptions;
 }
 
-/** The JWE config as the codec reads it, whatever framework declares it. */
+/** JWE session hooks, plus the unseal key lookup. */
+export interface JWESessionHooks<
+  TSession,
+  TCarrier extends Record<string, unknown>,
+  TConfig,
+> extends SessionHooks<TSession, TCarrier, TConfig> {
+  /** Resolve the decryption key for the incoming token from its protected header (e.g. by `kid`). */
+  onUnsealKeyLookup?: (
+    args: TCarrier & { header: JWEHeaderParameters; config: TConfig },
+  ) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
+}
+
 export interface JWECodecConfig extends SessionCoreConfig {
   key: JWESessionKey;
   jwe?: JWESessionOptions;
@@ -132,10 +96,8 @@ export interface JWECodecConfig extends SessionCoreConfig {
   };
 }
 
-/** What an incoming JWE session token is unsealed with: the config's key, or its lookup hook. */
 type JWEOpenKey = JWEDecryptJWK | CryptoKey | JWKLookupFunction<JWEDecryptJWK>;
 
-/** Cookie attributes a JWE session writes unless the config overrides them. */
 export const JWE_DEFAULT_COOKIE = {
   path: "/",
   secure: true,
@@ -143,100 +105,53 @@ export const JWE_DEFAULT_COOKIE = {
   sameSite: "lax",
 } as const;
 
-/**
- * The JWE half of a session: seal the session claims into a compact token, and
- * unseal one back.
- *
- * Unsealing always runs claim validation (`jti` & `iat` required, `exp`
- * honoured and required alongside a `maxAge`), checks the `typ`
- * header, and pins the algorithms when the config does.
- */
+/** Seals session claims into a compact JWE; unsealing validates claims and `typ`, pinning algorithms when configured. */
 export function createJWECodec(options: {
   prefix: string;
   defaultName: string;
 }): SessionCodec<JWECodecConfig> {
   const { prefix, defaultName } = options;
 
-  const openKey = (config: JWECodecConfig, carrier: Record<string, unknown>): JWEOpenKey =>
-    config.hooks?.onUnsealKeyLookup
-      ? (header: JWEHeaderParameters) =>
-          config.hooks?.onUnsealKeyLookup?.({ header, ...carrier, config })
-      : getDecryptKey(config, prefix);
-
-  const openWith = async (
-    config: JWECodecConfig,
-    sealed: string,
-    key: JWEOpenKey,
-  ): Promise<OpenedSession> => {
-    const alg = config.jwe?.encryptOptions?.alg;
-    const enc = config.jwe?.encryptOptions?.enc;
-
-    const { payload } = await decrypt<{ jti: string; iat: number }>(sealed, key, {
-      ...config.jwe?.decryptOptions,
-      maxIterations: sessionMaxIterations(config),
-      requiredClaims: sessionRequiredClaims(config.jwe?.decryptOptions?.requiredClaims, {
-        maxAge: config.maxAge,
-      }),
-      typ: sessionTyp(config.jwe?.encryptOptions?.protectedHeader?.typ),
-      maxTokenAge: undefined,
-      algorithms: alg ? [alg] : undefined,
-      encryptionAlgorithms: enc ? [enc] : undefined,
-      payload: "json",
-      validateClaims: true,
-    }).catch((error_: unknown) => rethrowAsInvalidToken(error_, { prefix }));
-
-    const { jti, iat, exp, data } = splitSessionClaims(payload);
-
-    return {
-      id: jti,
-      createdAt: iat * 1000,
-      expiresAt: exp ? exp * 1000 : undefined,
-      data,
-    };
-  };
-
-  const assertDecryptKey = async (config: JWECodecConfig): Promise<void> => {
-    if (config.hooks?.onUnsealKeyLookup) return;
-    const key = getDecryptKey(config, prefix);
-    await assertImportableKey(key, { alg: config.jwe?.encryptOptions?.alg, prefix });
-  };
-
-  return {
+  return createSessionCodec<JWECodecConfig, JWEEncryptJWK | CryptoKey, JWEOpenKey>({
     family: "jwe",
+    prefix,
     defaultName,
     defaultCookie: JWE_DEFAULT_COOKIE,
 
-    now: (config) => config.jwe?.encryptOptions?.currentDate?.getTime() ?? Date.now(),
-
-    issuer: (config) => {
-      const key = getEncryptKey(config, prefix);
-      return (state) => issueWith(config, state, key);
+    issueOptions: (config) => config.jwe?.encryptOptions,
+    issueKey: (config) => getEncryptKey(config, prefix),
+    openKey: (config) => getDecryptKey(config, prefix),
+    lookup: (config, carrier) => {
+      const hooks = config.hooks;
+      if (!hooks?.onUnsealKeyLookup) return undefined;
+      return (header: JWEHeaderParameters) =>
+        hooks.onUnsealKeyLookup?.({ header, ...carrier, config });
     },
 
-    assertKeys: async (config) => {
-      const key = getEncryptKey(config, prefix);
-      await assertImportableKey(key, { alg: config.jwe?.encryptOptions?.alg, prefix });
-      if (!isSymmetricJWK(key)) await assertDecryptKey(config);
-    },
+    issue: (config, payload, key) =>
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a CryptoKey reaches here only with `alg` and `enc` pinned
+      encrypt(payload, key as JWEEncryptJWK, sessionIssueOptions(config.jwe?.encryptOptions)),
 
-    opener: (config, carrier) => {
-      const key = openKey(config, carrier);
-      return (sealed) => openWith(config, sealed, key);
+    open: async (config, sealed, key) => {
+      const { decryptOptions, encryptOptions } = config.jwe ?? {};
+      const enc = encryptOptions?.enc;
+      const { payload } = await decrypt<SessionPayload>(sealed, key, {
+        ...decryptOptions,
+        maxIterations: sessionMaxIterations(config),
+        ...sessionOpenOptions({
+          maxAge: config.maxAge,
+          requiredClaims: decryptOptions?.requiredClaims,
+          typ: encryptOptions?.protectedHeader?.typ,
+          alg: encryptOptions?.alg,
+        }),
+        encryptionAlgorithms: enc ? [enc] : undefined,
+      });
+      return payload;
     },
-
-    open: async (config, sealed, carrier) => {
-      await assertDecryptKey(config);
-      return openWith(config, sealed, openKey(config, carrier));
-    },
-  };
+  });
 }
 
-/**
- * PBES2 unwrap accepts at most the `p2c` the session itself mints, so a token
- * that asks a PBES2 session for a costlier iteration count is refused. The
- * session is PBES2 when its pinned `alg` says so, or when the key it mints
- * tokens with carries a PBES2 `alg` — whatever key a lookup hook opens with.
- */
+/** Caps a PBES2 session's accepted `p2c` at the count it mints itself. */
 function sessionMaxIterations(config: JWECodecConfig): number | undefined {
   const configured = config.jwe?.decryptOptions?.maxIterations;
   if (configured !== undefined) return configured;
@@ -250,124 +165,63 @@ function getEncryptKey(config: JWECodecConfig, prefix: string): JWEEncryptJWK | 
   const key = config.key;
   assertKeyMaterial(key, { prefix });
 
-  let _key: JWEEncryptJWK | CryptoKey | undefined;
-  if (isCryptoKey(key)) {
-    _key = key;
-  } else if (isSymmetricJWK(key)) {
-    _key = key;
+  let resolved: JWEEncryptJWK | CryptoKey | undefined;
+  if (isCryptoKey(key) || isSymmetricJWK(key)) {
+    resolved = key;
   } else if (isKeyPair(key)) {
-    // Without a public half, `encrypt` derives the public parts from the private JWK.
-    const { publicKey, privateKey } = keyPairHalves(key, prefix);
-    _key = publicKey ?? privateKey;
+    assertJWEKeyPair(key, prefix);
+    resolved = key.publicKey ?? key.privateKey;
   }
 
-  if (!_key) {
+  if (!resolved) {
     throw invalidKeyError(`${prefix} Invalid JWE key. It must be a JWK or a CryptoKey.`, key);
   }
 
-  assertPinnedAlgEnc(_key, config, prefix);
-  return _key;
+  assertPinnedAlgEnc(resolved, config, prefix);
+  return resolved;
 }
 
 function getDecryptKey(config: JWECodecConfig, prefix: string): JWEDecryptJWK | CryptoKey {
   const key = config.key;
   assertKeyMaterial(key, { prefix });
 
-  let _key: JWEDecryptJWK | CryptoKey | undefined;
-  if (isCryptoKey(key)) {
-    _key = key;
-  } else if (isSymmetricJWK(key)) {
-    _key = key;
+  let resolved: JWEDecryptJWK | CryptoKey | undefined;
+  if (isCryptoKey(key) || isSymmetricJWK(key)) {
+    resolved = key;
   } else if (isKeyPair(key)) {
-    _key = keyPairHalves(key, prefix).privateKey;
+    assertJWEKeyPair(key, prefix);
+    resolved = key.privateKey;
   }
 
-  if (!_key) {
+  if (!resolved) {
     throw invalidKeyError(
       `${prefix} Invalid JWE key. It must be a JWK, a private JWK, or a CryptoKey.`,
       key,
     );
   }
 
-  assertPinnedAlgEnc(_key, config, prefix);
-  return _key;
+  assertPinnedAlgEnc(resolved, config, prefix);
+  return resolved;
 }
 
-function isKeyPair(key: object): key is { privateKey?: unknown; publicKey?: unknown } {
-  return "privateKey" in key || "publicKey" in key;
-}
-
-/**
- * Both halves of an asymmetric pair, each checked to be the half it is named
- * after, whichever of them the caller is about to use — a half that is not key
- * material is a configuration the session cannot serve, never a value handed
- * on to the cipher.
- */
-function keyPairHalves(
+/** A JWE pair's public half is optional: without one, the private JWK seals too. */
+function assertJWEKeyPair(
   key: { privateKey?: unknown; publicKey?: unknown },
   prefix: string,
-): {
-  privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
-  publicKey?: JWEAsymmetricPublicJWK | CryptoKey;
-} {
-  const { privateKey, publicKey } = key;
-  if (!isCryptoKey(privateKey) && !isPrivateJWK(privateKey)) {
-    throw invalidKeyError(
-      `${prefix} Invalid JWE key: "privateKey" must be a private JWK or a CryptoKey.`,
-      key,
-    );
-  }
-  if (publicKey !== undefined && !isCryptoKey(publicKey) && !isPublicJWK(publicKey)) {
-    throw invalidKeyError(
-      `${prefix} Invalid JWE key: "publicKey" must be a public JWK or a CryptoKey.`,
-      key,
-    );
-  }
-  return {
-    privateKey,
-    publicKey,
-  };
+): void {
+  assertKeyPair(key, {
+    prefix,
+    family: "JWE",
+    isPublic: (half) => half === undefined || isCryptoKey(half) || isPublicJWK(half),
+    publicHalf: "a public JWK or a CryptoKey",
+  });
 }
 
 function assertPinnedAlgEnc(key: unknown, config: JWECodecConfig, prefix: string): void {
-  if (!isCryptoKey(key)) return;
-  if (!config.jwe?.encryptOptions?.alg || !config.jwe?.encryptOptions?.enc) {
-    throw invalidConfigError(
-      `${prefix} A CryptoKey session key carries no algorithm: set "jwe.encryptOptions.alg" and "enc".`,
-    );
-  }
-}
-
-/** Seal the session claims into a compact JWE. */
-function issueWith(
-  config: JWECodecConfig,
-  state: StoredSession,
-  key: JWEEncryptJWK | CryptoKey,
-): Promise<string> {
-  const iat = Math.floor(state.createdAt / 1000);
-  const exp = state.expiresAt ? Math.floor(state.expiresAt / 1000) : undefined;
-
-  const payload: Record<string, unknown> = {
-    ...state.data,
-    jti: state.id,
-    iat,
-  };
-  if (exp) {
-    payload.exp = exp;
-  }
-
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a CryptoKey reaches here only with `encryptOptions.alg` and `enc` pinned (assertPinnedAlgEnc), as its own overload requires
-  return encrypt(payload, key as JWEEncryptJWK, {
-    ...config.jwe?.encryptOptions,
-    // `exp` is computed from the session lifetime and carried via the claim
-    // above; a session never writes `nbf`.
-    expiresIn: undefined,
-    expiresAt: undefined,
-    notBeforeIn: undefined,
-    notBeforeAt: undefined,
-    protectedHeader: {
-      ...config.jwe?.encryptOptions?.protectedHeader,
-      typ: sessionTyp(config.jwe?.encryptOptions?.protectedHeader?.typ),
-    },
+  const { alg, enc } = config.jwe?.encryptOptions ?? {};
+  assertPinnedCryptoKey(key, {
+    pinned: Boolean(alg && enc),
+    prefix,
+    hint: '"jwe.encryptOptions.alg" and "enc"',
   });
 }

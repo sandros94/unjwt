@@ -3,20 +3,10 @@ import { base64UrlStringify } from "../utils/base64";
 import type { JWK } from "../types";
 import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
+import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm";
 import { quoteTokenValue } from "../utils/_text";
 
-/**
- * Import a JWK as a `CryptoKey` for the algorithm its `alg` names.
- *
- * The operation decides which usages the key needs; a JWK's `key_ops` can only
- * narrow that set (RFC 7517 §4.3), never widen it, and a `key_ops` permitting
- * none of them is a key the caller cannot use for this operation. `ext` works
- * the same way: private key material is non-extractable unless the caller asks
- * otherwise, and `ext: false` lowers extractability but never raises it.
- *
- * Key material WebCrypto itself refuses fails as `ERR_JWK_INVALID`, carrying the
- * originating `DOMException` as its `cause`.
- */
+/** Import a JWK for its `alg`; `key_ops` (RFC 7517 §4.3) and `ext` only ever narrow usages and extractability. */
 export async function jwkTokey(
   jwk: JWK,
   options: { extractable?: boolean } = {},
@@ -42,8 +32,6 @@ export async function jwkTokey(
       permittedUsages(jwk, keyUsages),
     );
   } catch (error) {
-    // WebCrypto reports a JWK it cannot import — a curve that contradicts the
-    // `alg`, a truncated coordinate, an `e` it refuses — as a `DOMException`.
     if (error instanceof JWTError) throw error;
     throw new JWTError(
       `Key is not usable for ${quoteTokenValue(jwk.alg)}.`,
@@ -72,17 +60,11 @@ export async function keyToJWK<T extends JWK>(
     jwk = await crypto.subtle.exportKey("jwk", key);
   }
 
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- WebCrypto exports a complete JWK of the key's own kty, and the caller names the kty it passed in
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- WebCrypto exports a complete JWK of the key's own kty
   return jwk as T;
 }
 
-// --- Internal helpers ---
-
-/**
- * Intersect a JWK's `key_ops` with the usages the operation needs. An operation
- * that needs none (a public ECDH key derives nothing itself) takes the JWK's
- * declaration as-is.
- */
+/** Intersect a JWK's `key_ops` with the usages the operation needs. */
 function permittedUsages(jwk: JWK, keyUsages: KeyUsage[]): KeyUsage[] {
   const keyOps = jwk.key_ops;
   if (!keyOps || keyUsages.length === 0) return keyUsages;
@@ -106,17 +88,14 @@ function subtleMapping(jwk: JWK): {
         case "PS256":
         case "PS384":
         case "PS512": {
-          algorithm = { name: "RSA-PSS", hash: `SHA-${jwk.alg.slice(-3)}` };
+          algorithm = { name: "RSA-PSS", hash: jwsHashOf(jwk.alg) };
           keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "RS256":
         case "RS384":
         case "RS512": {
-          algorithm = {
-            name: "RSASSA-PKCS1-v1_5",
-            hash: `SHA-${jwk.alg.slice(-3)}`,
-          };
+          algorithm = { name: "RSASSA-PKCS1-v1_5", hash: jwsHashOf(jwk.alg) };
           keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
@@ -124,10 +103,7 @@ function subtleMapping(jwk: JWK): {
         case "RSA-OAEP-256":
         case "RSA-OAEP-384":
         case "RSA-OAEP-512": {
-          algorithm = {
-            name: "RSA-OAEP",
-            hash: `SHA-${Number.parseInt(jwk.alg.slice(-3), 10) || 1}`,
-          };
+          algorithm = { name: "RSA-OAEP", hash: rsaOaepHashOf(jwk.alg) };
           keyUsages = hasPrivateMember(jwk) ? ["decrypt", "unwrapKey"] : ["encrypt", "wrapKey"];
           break;
         }
@@ -142,18 +118,10 @@ function subtleMapping(jwk: JWK): {
     }
     case "EC": {
       switch (jwk.alg) {
-        case "ES256": {
-          algorithm = { name: "ECDSA", namedCurve: "P-256" };
-          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
-          break;
-        }
-        case "ES384": {
-          algorithm = { name: "ECDSA", namedCurve: "P-384" };
-          keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
-          break;
-        }
+        case "ES256":
+        case "ES384":
         case "ES512": {
-          algorithm = { name: "ECDSA", namedCurve: "P-521" };
+          algorithm = { name: "ECDSA", namedCurve: ECDSA_CURVES[jwk.alg] };
           keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
@@ -213,13 +181,7 @@ function subtleMapping(jwk: JWK): {
   return { algorithm, keyUsages };
 }
 
-/**
- * Returns the JWK's `crv` once it is known to be one of `allowed`.
- *
- * The curve drives the WebCrypto algorithm name, so an unknown value must never
- * reach `crypto.subtle` — nor may a curve be assumed from `alg` alone, which
- * would import a key on another curve as `Ed25519`.
- */
+/** The JWK's own `crv`, once known to be one of `allowed`; never assumed from `alg`. */
 function requireCurve(jwk: JWK, allowed: readonly string[]): string {
   const crv: unknown = "crv" in jwk ? jwk.crv : undefined;
   if (typeof crv !== "string" || !allowed.includes(crv)) {

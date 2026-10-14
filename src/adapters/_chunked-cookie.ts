@@ -6,27 +6,37 @@ export const CHUNK_MARKER = "__chunked__";
 /** Chunk payload size before a token is split across `name.1` … `name.N`. */
 export const DEFAULT_CHUNK_MAX_LENGTH = 4000;
 
-/**
- * Upper bound on the chunks a session may occupy. It also bounds the cleanup
- * of a previous set, so a forged `__chunked__N` marker cannot make one response
- * carry an unbounded number of `Set-Cookie` headers.
- */
+/** Max chunks per session; also bounds the cleanup a forged `__chunked__N` marker can trigger. */
 export const MAX_CHUNK_COUNT = 16;
 
+export interface ExpirableCookieAttributes {
+  expires?: Date;
+  maxAge?: number;
+}
+
 /** The cookie primitives a framework provides, over which chunking is layered. */
-export interface ChunkedCookieStore<A> {
-  /**
-   * The value `name` holds for this response: the one it already wrote, else
-   * the request's. A write sizes its cleanup from it, so a set that shrinks
-   * within one request still expires the chunks it no longer uses.
-   */
+export interface ChunkedCookieStore<A extends ExpirableCookieAttributes> {
+  /** The value this response already wrote for `name`, else the request's. */
   read: (name: string) => string | undefined;
   write: (name: string, value: string, attrs: A) => void;
-  expire: (name: string, attrs: A) => void;
+}
+
+export function responseCookieStore<A extends ExpirableCookieAttributes>(cookies: {
+  request: (name: string) => string | undefined;
+  response: () => readonly string[];
+  write: (name: string, value: string, attrs: A) => void;
+}): ChunkedCookieStore<A> {
+  return {
+    read: (name) => setCookieValues(cookies.response())[name] ?? cookies.request(name),
+    write: cookies.write,
+  };
 }
 
 /** The full value of a chunked (or plain) cookie, or `undefined` when a chunk is missing. */
-export function readChunked<A>(store: ChunkedCookieStore<A>, name: string): string | undefined {
+export function readChunked<A extends ExpirableCookieAttributes>(
+  store: ChunkedCookieStore<A>,
+  name: string,
+): string | undefined {
   const main = store.read(name);
   if (main === undefined) return undefined;
   if (!main.startsWith(CHUNK_MARKER)) return main;
@@ -43,11 +53,8 @@ export function readChunked<A>(store: ChunkedCookieStore<A>, name: string): stri
   return parts.join("");
 }
 
-/**
- * Write `value` as a plain cookie, or as a marker plus `name.1` … `name.N`
- * chunks, expiring the chunks a previous, longer value left behind.
- */
-export function writeChunked<A>(
+/** Writes a plain cookie or a marker plus `name.1` … `name.N`, expiring a longer previous set's surplus. */
+export function writeChunked<A extends ExpirableCookieAttributes>(
   store: ChunkedCookieStore<A>,
   name: string,
   value: string,
@@ -63,10 +70,10 @@ export function writeChunked<A>(
     );
   }
 
-  const previousCount = Math.min(parseChunkCount(store.read(name)), MAX_CHUNK_COUNT);
+  const previousCount = parseChunkCount(store.read(name));
   const firstSurplus = chunkCount <= 1 ? 1 : chunkCount + 1;
   for (let index = firstSurplus; index <= previousCount; index++) {
-    store.expire(chunkName(name, index), attrs);
+    expire(store, chunkName(name, index), attrs);
   }
 
   if (chunkCount <= 1) {
@@ -81,27 +88,25 @@ export function writeChunked<A>(
 }
 
 /** Expire the base cookie and every chunk the current value claims. */
-export function removeChunked<A>(
+export function removeChunked<A extends ExpirableCookieAttributes>(
   store: ChunkedCookieStore<A>,
   name: string,
   options: { attrs: A },
 ): void {
-  const count = Math.min(parseChunkCount(store.read(name)), MAX_CHUNK_COUNT);
-  store.expire(name, options.attrs);
+  const count = parseChunkCount(store.read(name));
+  expire(store, name, options.attrs);
   for (let index = 1; index <= count; index++) {
-    store.expire(chunkName(name, index), options.attrs);
+    expire(store, chunkName(name, index), options.attrs);
   }
 }
 
-/** {@link readChunked} over a read function alone, for a store nothing writes to. */
 export function readChunkedBy(
   read: (name: string) => string | undefined,
   name: string,
 ): string | undefined {
-  return readChunked({ read, write: noop, expire: noop }, name);
+  return readChunked({ read, write: noop }, name);
 }
 
-/** Reassemble a chunked value from cookies already parsed into a record. */
 export function readChunkedFrom(
   cookies: Record<string, string | undefined>,
   name: string,
@@ -109,11 +114,7 @@ export function readChunkedFrom(
   return readChunkedBy((key) => cookies[key], name);
 }
 
-/**
- * The value a response's `Set-Cookie` headers assign to `name`, reassembled
- * when they carry a chunk set. A response that assigns nothing to `name`
- * yields `undefined`, so an unrelated cookie never masks the request's.
- */
+/** `undefined` when the response assigns nothing to `name`, so an unrelated cookie never masks the request's. */
 export function readChunkedFromSetCookie(
   setCookies: readonly string[],
   name: string,
@@ -127,35 +128,25 @@ export function readChunkedFromSetCookie(
 export function setCookieValues(setCookies: readonly string[]): Record<string, string> {
   const cookies: Record<string, string> = Object.create(null);
   for (const setCookie of setCookies) {
-    const [pair = ""] = setCookie.split(";", 1);
-    const separator = pair.indexOf("=");
-    if (separator === -1) continue;
-    cookies[pair.slice(0, separator).trim()] = decodeValue(pair.slice(separator + 1).trim());
+    const pair = setCookiePair(setCookie);
+    if (pair) cookies[pair.name] = decodeValue(pair.value);
   }
   return cookies;
 }
 
-/** The cookie a `Set-Cookie` header assigns, or `undefined` for a malformed header. */
 export function setCookieName(setCookie: string): string | undefined {
-  const [pair = ""] = setCookie.split(";", 1);
-  const separator = pair.indexOf("=");
-  return separator === -1 ? undefined : pair.slice(0, separator).trim();
+  return setCookiePair(setCookie)?.name;
 }
 
 export function chunkName(name: string, index: number): string {
   return `${name}.${index}`;
 }
 
-/** Whether `cookieName` is one of the chunk cookies `<name>.<n>` of `name`. */
 export function isChunkName(cookieName: string, name: string): boolean {
   return cookieName.startsWith(`${name}.`) && /^\d+$/.test(cookieName.slice(name.length + 1));
 }
 
-/**
- * The chunk count a base cookie value claims. A value that merely starts with
- * the marker text, or claims more chunks than {@link MAX_CHUNK_COUNT} allows,
- * is not a chunk set and yields `0`.
- */
+/** `0` for a value that only starts with the marker or claims more than `MAX_CHUNK_COUNT` chunks. */
 export function parseChunkCount(main: string | undefined): number {
   if (main === undefined || !main.startsWith(CHUNK_MARKER)) return 0;
   const suffix = main.slice(CHUNK_MARKER.length);
@@ -163,6 +154,22 @@ export function parseChunkCount(main: string | undefined): number {
   const count = Number.parseInt(suffix, 10);
   if (count < 1 || count > MAX_CHUNK_COUNT) return 0;
   return count;
+}
+
+/** RFC 6265 §5.2.2: `Max-Age=0`, plus the epoch `Expires` for clients that ignore `Max-Age`. */
+function expire<A extends ExpirableCookieAttributes>(
+  store: ChunkedCookieStore<A>,
+  name: string,
+  attrs: A,
+): void {
+  store.write(name, "", { ...attrs, maxAge: 0, expires: new Date(0) });
+}
+
+function setCookiePair(setCookie: string): { name: string; value: string } | undefined {
+  const [pair = ""] = setCookie.split(";", 1);
+  const separator = pair.indexOf("=");
+  if (separator === -1) return undefined;
+  return { name: pair.slice(0, separator).trim(), value: pair.slice(separator + 1).trim() };
 }
 
 function decodeValue(value: string): string {

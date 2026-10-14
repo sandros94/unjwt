@@ -1,7 +1,7 @@
-import { base64UrlStringify, base64UrlParse } from "../utils/base64";
+import { base64UrlStringify } from "../utils/base64";
 import { JWTError } from "../error";
 import { quoteTokenValue } from "../utils/_text";
-import { cryptoKeyCurve } from "./_key-algorithm";
+import { cryptoKeyCurve, innerKeyWrapAlg } from "./_key-algorithm";
 
 import type {
   JWEKeyManagementHeaderParameters,
@@ -13,10 +13,15 @@ import type {
   JWK_OKP_Public,
 } from "../types";
 import { isJWK, assertCryptoKey, isCryptoKey } from "../utils/guards";
-import { bitLengthCEK, generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes";
+import { generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes";
 import { jwkTokey, keyToJWK } from "./_key-codec";
 import { encryptRSAES } from "./_rsa";
-import { deriveECDHESKey, generateEphemeralKeyPair, isECDHKeyAllowed } from "./_ecdh";
+import {
+  deriveECDHESKey,
+  ecdhDerivedBits,
+  generateEphemeralKeyPair,
+  assertECDHKeyAllowed,
+} from "./_ecdh";
 import { pbes2Wrap } from "./_pbes2";
 
 export async function encryptKey(
@@ -44,60 +49,12 @@ export async function encryptKey(
     case "ECDH-ES+A192KW":
     case "ECDH-ES+A256KW": {
       assertCryptoKey(key);
-      if (!isECDHKeyAllowed(key)) {
-        throw new JWTError(
-          "ECDH with the provided key is not allowed or not supported by your javascript runtime",
-          "ERR_JWK_INVALID",
-        );
-      }
-      const { apu, apv, epk: providedEpk, epkPrivateKey } = providedParameters;
-
-      if (providedEpk && !epkPrivateKey) {
-        throw new JWTError(
-          "ECDH-ES custom ephemeral key material must include the matching private key.",
-          "ERR_JWK_INVALID",
-        );
-      }
-
-      let ephemeralPrivateKey: CryptoKey;
-      let epkHeader: JWK_EC_Public | JWK_OKP_Public;
-
-      if (epkPrivateKey) {
-        ephemeralPrivateKey = await ensurePrivateKey(alg, epkPrivateKey);
-        const publicSource = providedEpk ?? epkPrivateKey;
-        epkHeader = await exportPublicJwkFrom(publicSource);
-      } else {
-        if (providedEpk) {
-          throw new JWTError(
-            "ECDH-ES custom ephemeral public key requires a matching private key.",
-            "ERR_JWK_INVALID",
-          );
-        }
-        const generated = await generateEphemeralKeyPair(key);
-        ephemeralPrivateKey = generated.privateKey;
-        epkHeader = await exportPublicJwkFrom(generated.publicKey);
-      }
-
-      const sharedSecret = await deriveECDHESKey(
-        key,
-        ephemeralPrivateKey,
-        alg === "ECDH-ES" ? enc : alg,
-        alg === "ECDH-ES" ? bitLengthCEK(enc) : Number.parseInt(alg.slice(-5, -2), 10),
-        apu,
-        apv,
-      );
-      parameters = { epk: epkHeader };
-      if (apu) parameters.apu = base64UrlStringify(apu);
-      if (apv) parameters.apv = base64UrlStringify(apv);
-
-      if (alg === "ECDH-ES") {
-        cek = sharedSecret;
-        break;
-      }
-
-      cek = providedCek || generateCEK(enc);
-      const kwAlg = alg.slice(-6);
-      encryptedKey = await aesKwWrap(kwAlg, sharedSecret, cek);
+      ({ cek, encryptedKey, parameters } = await ecdhesWrap(alg, {
+        enc,
+        recipientKey: key,
+        cek: providedCek,
+        parameters: providedParameters,
+      }));
       break;
     }
     case "RSA-OAEP":
@@ -146,43 +103,64 @@ export async function encryptKey(
   return { cek, encryptedKey, parameters };
 }
 
-export async function normalizeKey(
-  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
+/** RFC 7518 §4.6 — ECDH-ES: the derived key is the CEK (direct) or wraps it (`+A*KW`). */
+export async function ecdhesWrap(
   alg: string,
-): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
-  if (key instanceof Uint8Array) {
-    return key;
+  options: {
+    enc: string | undefined;
+    recipientKey: CryptoKey;
+    cek: Uint8Array<ArrayBuffer> | undefined;
+    parameters: Pick<JWEKeyManagementHeaderParameters, "apu" | "apv" | "epk" | "epkPrivateKey">;
+  },
+): Promise<{
+  cek: Uint8Array<ArrayBuffer>;
+  encryptedKey?: Uint8Array<ArrayBuffer>;
+  parameters: { epk: JWK_EC_Public | JWK_OKP_Public; apu?: string; apv?: string };
+}> {
+  const { enc, recipientKey } = options;
+  const { apu, apv, epk: providedEpk, epkPrivateKey } = options.parameters;
+  assertECDHKeyAllowed(recipientKey);
+
+  if (providedEpk && !epkPrivateKey) {
+    throw new JWTError(
+      "ECDH-ES custom ephemeral key material must include the matching private key.",
+      "ERR_JWK_INVALID",
+    );
   }
 
-  if (isCryptoKey(key)) {
-    return key;
+  let ephemeralPrivateKey: CryptoKey;
+  let epk: JWK_EC_Public | JWK_OKP_Public;
+  if (epkPrivateKey) {
+    ephemeralPrivateKey = await ensurePrivateKey(alg, epkPrivateKey);
+    assertEphemeralCurve(ephemeralPrivateKey, recipientKey);
+    epk = await exportPublicJwkFrom(providedEpk ?? epkPrivateKey);
+  } else {
+    const generated = await generateEphemeralKeyPair(recipientKey);
+    ephemeralPrivateKey = generated.privateKey;
+    epk = await exportPublicJwkFrom(generated.publicKey);
   }
 
-  if (isJWK(key)) {
-    if ("k" in key && key.k) {
-      try {
-        return base64UrlParse(key.k, { returnAs: "uint8array" });
-      } catch (error) {
-        throw new JWTError('Invalid JWK: "k" could not be decoded.', "ERR_JWK_INVALID", error);
-      }
-    }
-    return jwkTokey(key.alg ? key : { ...key, alg });
-  }
+  const kdfAlg = alg === "ECDH-ES" ? contentAlgorithm(enc) : alg;
+  const sharedSecret = await deriveECDHESKey(
+    recipientKey,
+    ephemeralPrivateKey,
+    kdfAlg,
+    ecdhDerivedBits(alg, kdfAlg),
+    apu,
+    apv,
+  );
+  const parameters: { epk: JWK_EC_Public | JWK_OKP_Public; apu?: string; apv?: string } = { epk };
+  if (apu) parameters.apu = base64UrlStringify(apu);
+  if (apv) parameters.apv = base64UrlStringify(apv);
 
-  throw new JWTError("Invalid key type provided", "ERR_JWK_INVALID");
+  if (alg === "ECDH-ES") return { cek: sharedSecret, parameters };
+
+  const cek = options.cek ?? generateCEK(contentAlgorithm(enc));
+  const encryptedKey = await aesKwWrap(innerKeyWrapAlg(alg), sharedSecret, cek);
+  return { cek, encryptedKey, parameters };
 }
 
-/**
- * Import a wire-supplied ECDH-ES `"epk"` (RFC 7518 §4.6.1.1) as a public
- * CryptoKey.
- *
- * The ephemeral public key travels inside the JWE header, so every member of it
- * is attacker-controlled: only `kty`, `crv` and the public coordinates are
- * carried into the import, the curve must be one the library agrees on *and*
- * the one the recipient key uses (a mismatched curve would otherwise reach
- * WebCrypto as a cross-curve derivation attempt), and private key material is
- * refused outright.
- */
+/** Import a wire-supplied `epk` (RFC 7518 §4.6.1.1) from its public members, on the recipient's curve. */
 export async function normalizeEpk(
   epk: JWK_EC_Public | JWK_OKP_Public | CryptoKey,
   options: { alg: string; recipientKey: CryptoKey },
@@ -215,8 +193,6 @@ export async function normalizeEpk(
     throw invalidEpk("is missing its public coordinates.");
   }
 
-  // Only the public key material crosses into the import — `alg`, `key_ops`,
-  // `ext`, `use` and any extension member are the library's to decide.
   const publicJwk =
     epk.kty === "EC" && typeof y === "string"
       ? { kty: "EC" as const, crv, x, y, alg: options.alg }
@@ -225,10 +201,29 @@ export async function normalizeEpk(
   return jwkTokey(publicJwk);
 }
 
-// --- Internal helpers ---
-
 const EC_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["P-256", "P-384", "P-521"]);
 const OKP_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["X25519"]);
+
+/** RFC 7518 §4.6.2 — direct ECDH-ES agrees on a key for one content encryption algorithm. */
+function contentAlgorithm(enc: string | undefined): string {
+  if (enc) return enc;
+  throw new JWTError(
+    'ECDH-ES requires "enc", the content encryption algorithm the key is agreed for.',
+    "ERR_JWE_INVALID",
+  );
+}
+
+/** RFC 7518 §4.6 — the ephemeral key agrees with the recipient key only on the same curve. */
+function assertEphemeralCurve(ephemeralKey: CryptoKey, recipientKey: CryptoKey): void {
+  assertECDHKeyAllowed(ephemeralKey);
+  const ephemeralCurve = cryptoKeyCurve(ephemeralKey);
+  const recipientCurve = cryptoKeyCurve(recipientKey);
+  if (ephemeralCurve === recipientCurve) return;
+  throw new JWTError(
+    `ECDH-ES ephemeral key curve ${quoteTokenValue(ephemeralCurve)} does not match the recipient key curve ${quoteTokenValue(recipientCurve)}.`,
+    "ERR_JWK_INVALID",
+  );
+}
 
 function invalidEpk(detail: string): JWTError {
   return new JWTError(`Invalid JWE: "epk" ${detail}`, "ERR_JWE_INVALID");
@@ -241,11 +236,7 @@ function assertEpkCurve(epkCurve: string | undefined, recipientCurve: string | u
   );
 }
 
-/**
- * The `epk` header member for an ephemeral public key: its public key
- * parameters alone, as RFC 7518 §4.6.1.1 asks for the minimum members needed
- * to represent the key.
- */
+/** The `epk` header member: the public key parameters alone (RFC 7518 §4.6.1.1). */
 function toPublicEpkJwk(jwk: JWK): JWK_EC_Public | JWK_OKP_Public {
   const { kty } = jwk;
   const crv: unknown = "crv" in jwk ? jwk.crv : undefined;
@@ -281,13 +272,9 @@ async function ensurePrivateKey(
   alg: string,
   value: CryptoKey | JWK_EC | JWK_OKP,
 ): Promise<CryptoKey> {
-  const normalized = await normalizeKey(value, alg);
-  if (!(normalized instanceof CryptoKey)) {
-    throw new JWTError(
-      "ECDH-ES ephemeral private key must be a CryptoKey or convertible JWK.",
-      "ERR_JWK_INVALID",
-    );
-  }
+  const normalized = isCryptoKey(value)
+    ? value
+    : await jwkTokey(value.alg ? value : { ...value, alg });
   if (normalized.type !== "private") {
     throw new JWTError(
       'ECDH-ES ephemeral private key must have type "private".',

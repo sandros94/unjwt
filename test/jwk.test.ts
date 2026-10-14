@@ -601,7 +601,7 @@ describe.concurrent("JWK Utilities", () => {
 
       it("rejects a private CryptoKey when expect is 'public'", async () => {
         const { privateKey } = await generateKey("ES256");
-        await expect(importKey(privateKey, { expect: "public" } as any)).rejects.toThrow(
+        await expect(importKey(privateKey, { expect: "public" })).rejects.toThrow(
           expect.objectContaining({ name: "JWTError", code: "ERR_JWK_INVALID" }),
         );
       });
@@ -936,11 +936,11 @@ describe.concurrent("JWK Utilities", () => {
 
     it("should throw unwrapKey RSA-OAEP when unwrapping key is not a CryptoKey", async () => {
       await expect(
-        unwrapKey(new Uint8Array(32), secureRandomBytes(32) as any, {
+        unwrapKey(new Uint8Array(32), secureRandomBytes(32) as never, {
           alg: "RSA-OAEP",
           format: "raw",
         }),
-      ).rejects.toThrow("RSA-OAEP requires the unwrapping key to be provided as a CryptoKey");
+      ).rejects.toThrow("RSA-OAEP requires the unwrapping key to be a CryptoKey");
     });
 
     it("should throw unwrapKey for invalid key type", async () => {
@@ -983,7 +983,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       await expect(
-        unwrapKey(new Uint8Array(0), secureRandomBytes(32) as any, {
+        unwrapKey(new Uint8Array(0), secureRandomBytes(32) as never, {
           alg: "ECDH-ES",
           epk: senderKeys.publicKey,
           enc: "A128GCM",
@@ -998,7 +998,7 @@ describe.concurrent("JWK Utilities", () => {
       const aesKey = await generateKey("A128GCM");
 
       await expect(
-        unwrapKey(new Uint8Array(0), aesKey as any, {
+        unwrapKey(new Uint8Array(0), aesKey, {
           alg: "ECDH-ES",
           epk: senderKeys.publicKey,
           enc: "A128GCM",
@@ -1104,16 +1104,13 @@ describe.concurrent("JWK Utilities", () => {
         ["wrapKey"],
       );
 
-      const cekCryptoKey = await crypto.subtle.importKey(
-        "raw",
-        cekBytes,
-        { name: "AES-GCM" },
-        true,
-        ["encrypt", "decrypt"],
-      );
+      const aesGcmCek = await crypto.subtle.importKey("raw", cekBytes, { name: "AES-GCM" }, true, [
+        "encrypt",
+        "decrypt",
+      ]);
 
       const encryptedKey = new Uint8Array(
-        await crypto.subtle.wrapKey("raw", cekCryptoKey, sharedSecretKey, "AES-KW"),
+        await crypto.subtle.wrapKey("raw", aesGcmCek, sharedSecretKey, "AES-KW"),
       );
 
       const unwrapped = await unwrapKey(encryptedKey, recipientKeys.privateKey, {
@@ -1184,6 +1181,88 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       expect(unwrapped).toEqual(cekToWrap);
+    });
+
+    it("wrapKey writes the minimal epk for a generated ephemeral key, as encrypt does", async () => {
+      const recipientKP = await crypto.subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"],
+      );
+      const { epk } = await wrapKey(secureRandomBytes(16), recipientKP.publicKey, {
+        alg: "ECDH-ES+A128KW",
+      });
+      expect(Object.keys(epk).toSorted()).toEqual(["crv", "kty", "x", "y"]);
+    });
+
+    it("wrapKey writes the minimal epk for a caller-supplied ephemeral JWK", async () => {
+      const recipient = await generateJWK("ECDH-ES+A128KW", { namedCurve: "X25519" });
+      const ephemeral = await generateJWK("ECDH-ES+A128KW", { namedCurve: "X25519" });
+      const rawCek = secureRandomBytes(16);
+      const { encryptedKey, epk } = await wrapKey(rawCek, recipient.publicKey, {
+        alg: "ECDH-ES+A128KW",
+        ecdh: { ephemeralKey: ephemeral.privateKey },
+      });
+      expect(epk).toEqual({
+        kty: "OKP",
+        crv: "X25519",
+        x: (ephemeral.publicKey as JWK_OKP_Public).x,
+      });
+      const unwrapped = await unwrapKey(encryptedKey, recipient.privateKey, {
+        alg: "ECDH-ES+A128KW",
+        epk,
+        format: "raw",
+      });
+      expect(unwrapped).toEqual(rawCek);
+    });
+
+    it("wrapKey rejects an ephemeral public JWK that is not an EC or OKP key", async () => {
+      const recipient = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-256" });
+      const ephemeral = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-256" });
+      const error = await wrapKey(secureRandomBytes(16), recipient.publicKey, {
+        alg: "ECDH-ES+A128KW",
+        ecdh: {
+          ephemeralKey: {
+            publicKey: { kty: "oct", k: "AAAA" } as unknown as JWK_EC_Public,
+            privateKey: ephemeral.privateKey as JWK_EC_Private,
+          },
+        },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe('ECDH-ES ephemeral key JWK "kty" must be "EC" or "OKP".');
+    });
+
+    it("wrapKey refuses party info over 1024 bytes, as encrypt does", async () => {
+      const recipient = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-256" });
+      const error = await wrapKey(secureRandomBytes(16), recipient.publicKey, {
+        alg: "ECDH-ES+A128KW",
+        ecdh: { partyUInfo: secureRandomBytes(2000) },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe('"partyUInfo" (apu) must not exceed 1024 bytes (got 2000).');
+    });
+
+    it("wrapKey omits empty party info from its result", async () => {
+      const recipient = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-256" });
+      const result = await wrapKey(secureRandomBytes(16), recipient.publicKey, {
+        alg: "ECDH-ES+A128KW",
+        ecdh: { partyUInfo: new Uint8Array(0), partyVInfo: new Uint8Array(0) },
+      });
+      expect(result).not.toHaveProperty("apu");
+      expect(result).not.toHaveProperty("apv");
+    });
+
+    it("wrapKey refuses an ephemeral key on another curve than the recipient key", async () => {
+      const recipient = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-384" });
+      const ephemeral = await generateJWK("ECDH-ES+A128KW", { namedCurve: "P-256" });
+      const error = await wrapKey(secureRandomBytes(16), recipient.publicKey, {
+        alg: "ECDH-ES+A128KW",
+        ecdh: { ephemeralKey: ephemeral.privateKey },
+      }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe(
+        'ECDH-ES ephemeral key curve "P-256" does not match the recipient key curve "P-384".',
+      );
     });
 
     it("wrapKey/unwrapKey ECDH-ES+A256KW roundtrip — X25519", async () => {
@@ -1536,7 +1615,7 @@ describe.concurrent("JWK Utilities", () => {
     // Pure WeakMapJWKCache unit tests — no module-level state, safe to run concurrently.
     it("WeakMapJWKCache.get returns undefined for an unseen key", () => {
       const cache = new WeakMapJWKCache();
-      const fakeJwk = { kty: "oct", k: "abc", alg: "HS256" } as any;
+      const fakeJwk: JWK_oct = { kty: "oct", k: "abc", alg: "HS256" };
       expect(cache.get(fakeJwk, "HS256")).toBeUndefined();
     });
 
@@ -1546,7 +1625,7 @@ describe.concurrent("JWK Utilities", () => {
         "sign",
         "verify",
       ]);
-      const fakeJwk = { kty: "oct", k: "abc", alg: "HS256" } as any;
+      const fakeJwk: JWK_oct = { kty: "oct", k: "abc", alg: "HS256" };
       cache.set(fakeJwk, "HS256", key);
       expect(cache.get(fakeJwk, "HS256")).toBe(key);
       expect(cache.get(fakeJwk, "HS384")).toBeUndefined();
@@ -1562,7 +1641,7 @@ describe.concurrent("JWK Utilities", () => {
         "sign",
         "verify",
       ]);
-      const fakeJwk = { kty: "oct", k: "abc" } as any;
+      const fakeJwk: JWK_oct = { kty: "oct", k: "abc" };
       cache.set(fakeJwk, "HS256", k256);
       cache.set(fakeJwk, "HS384", k384);
       expect(cache.get(fakeJwk, "HS256")).toBe(k256);
@@ -1602,8 +1681,8 @@ describe.concurrent("JWK Utilities", () => {
         const sets: Array<[object, string]> = [];
         configureJWKCache({
           get: (_jwk, _alg) => undefined,
-          set: (jwk, alg, _key) => {
-            sets.push([jwk, alg]);
+          set: (cachedJwk, alg, _key) => {
+            sets.push([cachedJwk, alg]);
           },
         });
         await importKey(jwk.privateKey, "RS256");
@@ -1616,9 +1695,9 @@ describe.concurrent("JWK Utilities", () => {
         const jwk = await generateJWK("RS256");
         const store = new Map<string, CryptoKey>();
         configureJWKCache({
-          get: async (jwk, alg) => store.get(`${await thumbprint(jwk)}:${alg}`),
-          set: async (jwk, alg, key) => {
-            store.set(`${await thumbprint(jwk)}:${alg}`, key);
+          get: async (cachedJwk, alg) => store.get(`${await thumbprint(cachedJwk)}:${alg}`),
+          set: async (cachedJwk, alg, key) => {
+            store.set(`${await thumbprint(cachedJwk)}:${alg}`, key);
           },
         });
         const first = await importKey(jwk.privateKey, "RS256");
@@ -1631,14 +1710,11 @@ describe.concurrent("JWK Utilities", () => {
 
       it("the documented shared-cache recipe keeps both halves of one pair apart", async () => {
         const [pair, other] = await Promise.all([generateJWK("ES256"), generateJWK("ES256")]);
-        // The recipe from configureJWKCache's JSDoc and the cache guide, verbatim.
-        const cacheKey = async (jwk: JWK, alg: string) =>
-          `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
         const map = new Map<string, CryptoKey>();
         configureJWKCache({
-          get: async (jwk, alg) => map.get(await cacheKey(jwk, alg)),
+          get: async (jwk, alg) => map.get(await thumbprintCacheKey(jwk, alg)),
           set: async (jwk, alg, key) => {
-            map.set(await cacheKey(jwk, alg), key);
+            map.set(await thumbprintCacheKey(jwk, alg), key);
           },
         });
 
@@ -1655,10 +1731,8 @@ describe.concurrent("JWK Utilities", () => {
   });
 
   describe("codec failures wrap into JWTError", () => {
-    const b64 = (n: number) => base64UrlStringify(secureRandomBytes(n));
-
     it('importKey — malformed "k" is ERR_JWK_INVALID with an UnsecureError cause', async () => {
-      const jwk: JWK_oct<"HS256"> = { kty: "oct", alg: "HS256", k: `${b64(32)}=` };
+      const jwk: JWK_oct<"HS256"> = { kty: "oct", alg: "HS256", k: `${randomB64(32)}=` };
       const error = await importKey(jwk).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
@@ -1670,8 +1744,8 @@ describe.concurrent("JWK Utilities", () => {
       const wrappingKey = await generateKey("A256GCMKW");
       const error = await unwrapKey(secureRandomBytes(32), wrappingKey, {
         alg: "A256GCMKW",
-        iv: `${b64(12)}=`,
-        tag: b64(16),
+        iv: `${randomB64(12)}=`,
+        tag: randomB64(16),
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
       expect(error.message).toBe('Invalid JWE: "iv" could not be decoded.');
@@ -1682,8 +1756,8 @@ describe.concurrent("JWK Utilities", () => {
       const wrappingKey = await generateKey("A256GCMKW");
       const error = await unwrapKey(secureRandomBytes(32), wrappingKey, {
         alg: "A256GCMKW",
-        iv: b64(12),
-        tag: `${b64(16)}=`,
+        iv: randomB64(12),
+        tag: `${randomB64(16)}=`,
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
       expect(error.message).toBe('Invalid JWE: "tag" could not be decoded.');
@@ -1693,7 +1767,7 @@ describe.concurrent("JWK Utilities", () => {
     it('unwrapKey — malformed "p2s" is ERR_JWE_INVALID with an UnsecureError cause', async () => {
       const error = await unwrapKey(secureRandomBytes(24), "password", {
         alg: "PBES2-HS256+A128KW",
-        p2s: `${b64(16)}=`,
+        p2s: `${randomB64(16)}=`,
         p2c: 1000,
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
@@ -1712,7 +1786,7 @@ describe.concurrent("JWK Utilities", () => {
           alg: "ECDH-ES",
           epk: sender.publicKey,
           enc: "A256GCM",
-          [param]: `${b64(8)}=`,
+          [param]: `${randomB64(8)}=`,
         }).catch((e) => e);
         expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
         expect(error.message).toBe(`Invalid JWE: "${param}" could not be decoded.`);
@@ -1763,14 +1837,14 @@ describe.concurrent("JWK Utilities", () => {
 
     it.each(RESERVED)("exportKey rejects %s in jwkParams", async (member) => {
       const key = await generateKey("HS256");
-      const error = await exportKey(key, { [member]: "pwned" } as any).catch((e) => e);
+      const error = await exportKey(key, { [member]: "pwned" }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect(error.message).toContain(member);
     });
 
     it("exportKey reports every reserved member it found", async () => {
       const key = await generateKey("HS256");
-      const error = await exportKey(key, { kty: "EC", k: "pwned", kid: "ok" } as any).catch(
+      const error = await exportKey(key, { kty: "EC", k: "pwned", kid: "ok" } as never).catch(
         (e) => e,
       );
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
@@ -1789,7 +1863,7 @@ describe.concurrent("JWK Utilities", () => {
 
     it("importPEM rejects reserved members in jwkParams", async () => {
       const error = await importPEM(rsa.pem.spki, "RS256", {
-        jwkParams: { n: "pwned" } as any,
+        jwkParams: { n: "pwned" } as never,
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect(error.message).toContain("n");
@@ -1797,11 +1871,6 @@ describe.concurrent("JWK Utilities", () => {
   });
 
   describe("PEM input strictness", () => {
-    const pemBlock = (label: string, bytes: Uint8Array<ArrayBuffer>) =>
-      `-----BEGIN ${label}-----\n${(base64Stringify(bytes).match(/.{1,64}/g) ?? []).join(
-        "\n",
-      )}\n-----END ${label}-----\n`;
-
     it("does not overflow the stack on an OID-dense body", async () => {
       const body = new Uint8Array(60_000).fill(0x06);
       const error = await importPEM(pemBlock("PUBLIC KEY", body), "ECDH-ES").catch((e) => e);
@@ -1959,7 +2028,7 @@ describe.concurrent("JWK Utilities", () => {
         alg: "EdDSA",
         crv: "Ed99999",
         x: base64UrlStringify(new Uint8Array(32)),
-      } as any).catch((e) => e);
+      } as never).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toContain("Ed99999");
     });
@@ -1970,7 +2039,7 @@ describe.concurrent("JWK Utilities", () => {
         alg: "ECDH-ES",
         crv: "X99999",
         x: base64UrlStringify(new Uint8Array(32)),
-      } as any).catch((e) => e);
+      } as never).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toContain("X99999");
     });
@@ -1982,7 +2051,7 @@ describe.concurrent("JWK Utilities", () => {
         crv: "secp256k1",
         x: base64UrlStringify(new Uint8Array(32)),
         y: base64UrlStringify(new Uint8Array(32)),
-      } as any).catch((e) => e);
+      } as never).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toContain("secp256k1");
     });
@@ -2005,10 +2074,6 @@ describe.concurrent("JWK Utilities", () => {
   });
 
   describe("unwrapKey — attacker-controlled ECDH parameters", () => {
-    async function ecdhPair(namedCurve: "P-256" | "P-384"): Promise<CryptoKeyPair> {
-      return await generateKey("ECDH-ES", { namedCurve });
-    }
-
     it('rejects an "epk" carrying private key material', async () => {
       const recipient = await ecdhPair("P-256");
       const sender = await ecdhPair("P-256");
@@ -2241,6 +2306,38 @@ describe.concurrent("thumbprint (RFC 7638)", () => {
     }).catch((error_) => error_);
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
   });
+
+  it.each([[null], [[]], ["SHA-256"]])(
+    "rejects options that are not an object (%j) with the message verify uses",
+    async (options) => {
+      const error = await thumbprint(rfcExample, options as unknown as { hash?: "SHA-256" }).catch(
+        (error_) => error_,
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toBe('"options" must be an object.');
+    },
+  );
+});
+
+describe.concurrent("argument shape", () => {
+  it.each([
+    ["wrapKey", () => wrapKey(new Uint8Array(16), new Uint8Array(16), null as never)],
+    ["exportPEM", () => exportPEM(null as never)],
+  ])("%s rejects a non-object argument with the message verify uses", async (_name, run) => {
+    const error = await run().catch((error_: unknown) => error_);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect((error as Error).message).toMatch(/^"(options|jwk)" must be an object\.$/);
+  });
+
+  it("verify and wrapKey word a null options bag the same way", async () => {
+    const [verifyError, wrapError] = await Promise.all([
+      verify("a.b.c", new Uint8Array(32), null as never).catch((error_: unknown) => error_),
+      wrapKey(new Uint8Array(16), new Uint8Array(16), null as never).catch(
+        (error_: unknown) => error_,
+      ),
+    ]);
+    expect((wrapError as Error).message).toBe((verifyError as Error).message);
+  });
 });
 
 describe.concurrent("thumbprint as the default kid", () => {
@@ -2324,7 +2421,7 @@ describe.concurrent("key generation and the direct JWK API", () => {
 
     it.each(gcmkw)("%s is generated for encrypt/decrypt", async (alg) => {
       const kek = await generateKey(alg);
-      expect([...kek.usages].sort()).toEqual(["decrypt", "encrypt"]);
+      expect(kek.usages.toSorted()).toEqual(["decrypt", "encrypt"]);
     });
 
     it.each(gcmkw)("%s wraps and unwraps a CEK", async (alg) => {
@@ -2723,7 +2820,7 @@ function digestOfCanonical(
   hash: "sha256" | "sha384" | "sha512" = "sha256",
 ): string {
   const canonical = `{${Object.keys(members)
-    .sort()
+    .toSorted()
     .map((name) => `${JSON.stringify(name)}:${JSON.stringify(members[name])}`)
     .join(",")}}`;
   return createHash(hash).update(canonical, "utf8").digest("base64url");
@@ -2736,4 +2833,24 @@ function octKey(): JWK_oct<"A128KW"> {
     alg: "A128KW",
     k: base64UrlStringify(new Uint8Array(16).fill(7)),
   };
+}
+
+/** The cache key recipe from configureJWKCache's JSDoc and the cache guide, verbatim. */
+async function thumbprintCacheKey(jwk: JWK, alg: string): Promise<string> {
+  return `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
+}
+
+/** `n` random bytes, base64url-encoded. */
+function randomB64(n: number): string {
+  return base64UrlStringify(secureRandomBytes(n));
+}
+
+function pemBlock(label: string, bytes: Uint8Array<ArrayBuffer>): string {
+  return `-----BEGIN ${label}-----\n${(base64Stringify(bytes).match(/.{1,64}/g) ?? []).join(
+    "\n",
+  )}\n-----END ${label}-----\n`;
+}
+
+async function ecdhPair(namedCurve: "P-256" | "P-384"): Promise<CryptoKeyPair> {
+  return await generateKey("ECDH-ES", { namedCurve });
 }

@@ -1,9 +1,14 @@
-import type { ExpiresIn, JWEDecryptJWK, JWEHeaderParameters } from "../../../core/types";
-import { type JWECodecConfig, type JWESessionConfig, createJWECodec } from "../../_codec-jwe";
+import type { ExpiresIn } from "../../../core/types";
+import {
+  type JWECodecConfig,
+  type JWESessionConfig,
+  type JWESessionHooks,
+  createJWECodec,
+} from "../../_codec-jwe";
 import { type SessionBinding, type SessionState, bindSession } from "../../_session-core";
 import { loadSession } from "../../_session-read";
 import { sessionManager } from "../../_session-write";
-import type { SessionHooks, SessionRecord } from "../../_session-types";
+import type { SessionRecord } from "../../_session-types";
 import { type SessionPlugin, sessionPlugin } from "../_plugin";
 import type { CookieAttributes } from "../_cookie";
 import type { SessionClaims, SessionManager, SessionContext } from "./types";
@@ -23,17 +28,11 @@ export interface SessionHooksJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TContext extends SessionContext = SessionContext,
-> extends SessionHooks<
+> extends JWESessionHooks<
   SessionJWE<T, MaxAge>,
   { context: TContext },
   SessionConfigJWE<T, MaxAge, TContext>
-> {
-  onUnsealKeyLookup?: (args: {
-    header: JWEHeaderParameters;
-    context: TContext;
-    config: SessionConfigJWE<T, MaxAge, TContext>;
-  }) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
-}
+> {}
 
 export interface SessionConfigJWE<
   T extends SessionRecord = SessionClaims,

@@ -11,6 +11,7 @@ import {
   type SessionBinding,
   type SessionCoreConfig,
   type SessionState,
+  type StoredSession,
   dropSessionCookie,
   emptySession,
   kSessionPending,
@@ -28,9 +29,7 @@ export async function loadSession<
 >(binding: SessionBinding<TCarrier, Config>): Promise<SessionState<T, MaxAge>> {
   const { config, codec, store, args } = binding;
 
-  // Key material is configuration, not token content: a session whose key
-  // cannot issue or open a token is a misconfiguration the caller must see,
-  // never an unreadable token reported through `onError` as "no session".
+  // Key errors are misconfiguration: thrown, never reported through `onError`.
   await codec.assertKeys(config);
   const open = codec.opener(config, args);
 
@@ -38,13 +37,7 @@ export async function loadSession<
   if (existing) {
     const session = existing[kSessionPending] ? await existing[kSessionPending] : existing;
 
-    /**
-     * A session holding a token is checked for expiry before it is handed back.
-     * An expired one is dropped and replaced by an empty session, so a later
-     * read in the same request — including one made by the hook below — sees
-     * no session rather than a stale one. A session without a token has
-     * nothing to expire: its `expiresAt` is the lifetime an update would give.
-     */
+    // An expired session is replaced by an empty one, so later reads (the hook's too) see none.
     if (
       session.token !== undefined &&
       session.expiresAt !== undefined &&
@@ -53,23 +46,19 @@ export async function loadSession<
       dropSessionCookie(binding);
       const freshSession = emptySession<T, MaxAge, TCarrier, Config>(binding);
       store.set(freshSession);
-      await config.hooks?.onExpire?.({
+      await fireExpire(binding, {
         session: {
           id: session.id,
           createdAt: session.createdAt,
           expiresAt: session.expiresAt,
           token: session.token,
         },
-        ...args,
         error: expiredSessionError({ id: session.id, expiresAt: session.expiresAt }),
-        config,
       });
       return freshSession;
     }
 
-    if (session.id !== undefined && session.token !== undefined) {
-      await config.hooks?.onRead?.({ session, ...args, config });
-    }
+    await fireRead(binding, session);
     return session;
   }
 
@@ -81,12 +70,7 @@ export async function loadSession<
 
   session.token = token;
 
-  /**
-   * What a second reader on this request awaits is the token read alone: the
-   * state is settled and `kSessionPending` cleared before any hook runs, so a
-   * hook that reads the same session sees that state instead of awaiting a
-   * promise that is itself waiting on the hook.
-   */
+  // State settles before any hook runs, so a hook reading this session does not await itself.
   const pending = open(token)
     .then(
       (opened) => {
@@ -94,7 +78,6 @@ export async function loadSession<
         return { failure: undefined };
       },
       (error: unknown) => {
-        // The token did not open, so it is not this session's token.
         session.token = undefined;
         return { failure: { error } };
       },
@@ -109,17 +92,16 @@ export async function loadSession<
 
   if (failure) {
     if (isJWTError(failure.error, "ERR_JWT_EXPIRED")) {
+      const { jti, iat, exp } = failure.error.cause;
       dropSessionCookie(binding);
-      await config.hooks?.onExpire?.({
+      await fireExpire(binding, {
         session: {
-          id: failure.error.cause.jti,
-          createdAt: failure.error.cause.iat ? failure.error.cause.iat * 1000 : undefined,
-          expiresAt: failure.error.cause.exp ? failure.error.cause.exp * 1000 : undefined,
+          id: jti,
+          createdAt: iat ? iat * 1000 : undefined,
+          expiresAt: exp ? exp * 1000 : undefined,
           token,
         },
-        ...args,
         error: failure.error,
-        config,
       });
     } else {
       await config.hooks?.onError?.({ session, ...args, error: failure.error, config });
@@ -127,8 +109,34 @@ export async function loadSession<
     return session;
   }
 
-  if (session.id !== undefined && session.token !== undefined) {
-    await config.hooks?.onRead?.({ session, ...args, config });
-  }
+  await fireRead(binding, session);
   return session;
+}
+
+async function fireRead<TCarrier, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TCarrier, Config>,
+  session: StoredSession,
+): Promise<void> {
+  if (session.id === undefined || session.token === undefined) return;
+  await binding.config.hooks?.onRead?.({ session, ...binding.args, config: binding.config });
+}
+
+async function fireExpire<TCarrier, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TCarrier, Config>,
+  expired: {
+    session: {
+      id: string | undefined;
+      createdAt: number | undefined;
+      expiresAt: number | undefined;
+      token: string;
+    };
+    error: Error;
+  },
+): Promise<void> {
+  await binding.config.hooks?.onExpire?.({
+    session: expired.session,
+    ...binding.args,
+    error: expired.error,
+    config: binding.config,
+  });
 }
