@@ -1,0 +1,8 @@
+[build]
+base = "docs"
+command = "pnpm build"
+publish = "dist"
+
+[build.environment]
+NODE_VERSION = "24"
+NITRO_PRESET = "netlify"
