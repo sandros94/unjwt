@@ -2,6 +2,7 @@
   "name": "unjwt",
   "version": "0.8.0",
   "description": "Low-level JWT utilities",
+  "homepage": "https://unjwt.s94.dev",
   "license": "MIT",
   "author": {
     "name": "Sandro Circi",
