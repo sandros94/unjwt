@@ -16,7 +16,7 @@ Import: `import { sign, verify } from "unjwt/jws"` — or `from "unjwt"`
 
 Type: `JWSAlgorithm`
 
-`EdDSA` is Ed25519 only: an `Ed448` key is refused at generation and import.
+`EdDSA` is Ed25519 only: an `Ed448` key is refused at generation and import. `EdDSA` (RFC 8037) and `Ed25519` (fully-specified) name the same signature: a key whose `alg` is either verifies and signs tokens under either name, and `inferJWSAllowedAlgorithms` returns both.
 
 ## `sign(payload, key, options?)`
 
