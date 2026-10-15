@@ -8,7 +8,7 @@ Key lookup types (also from `unjwt/jwk`): `JWKLookupFunction`, `JWKLookupFunctio
 
 ## Key Generation
 
-Unless specific control over the output format is required, prefer `generateJWK()` — it always returns a ready-to-use JWK whose `kid` is the key's RFC 7638 thumbprint.
+Unless specific control over the output format is required, prefer `generateJWK()` — it always returns a ready-to-use JWK whose `kid` is the key's RFC 7638 thumbprint (or the `kid` option: a string, or `false` for none).
 
 ### `generateKey(alg, options?)`
 
@@ -23,11 +23,12 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
 | `Ed25519`, `EdDSA`                                | `CryptoKeyPair`                                        | `{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }` |
 | `ECDH-ES*`                                        | `CryptoKeyPair`                                        | `JWK_EC` **or** `JWK_OKP` pair, depending on `namedCurve`    |
 
-**Return types follow the option.** The table is two exported maps keyed by algorithm: `GeneratedKeyMap[alg]` without `toJWK` (or with `toJWK: false`), `GeneratedJWKMap[alg]` with `toJWK: true` — each JWK there also carries `alg` (the literal) and `kid: string`. A non-literal `alg` (e.g. a `GenerateKeyAlgorithm` variable) returns the union of its entries, and a `toJWK` that is not a literal (a `boolean`, a `GenerateKeyOptions` object) returns both maps' entries, so no cast is needed at the call site. `GenerateKeyReturn<TAlg, TOptions>` names the same type.
+**Return types follow the option.** The table is two exported maps keyed by algorithm: `GeneratedKeyMap[alg]` without `toJWK` (or with `toJWK: false`), `GeneratedJWKMap[alg]` with `toJWK: true` — each JWK there also carries `alg` (the literal) and `kid: string` (none under `kid: false`, `kid?: string` for a non-literal `kid` option; `GeneratedJWKMap<false>` names that map). A non-literal `alg` (e.g. a `GenerateKeyAlgorithm` variable) returns the union of its entries, and a `toJWK` that is not a literal (a `boolean`, a `GenerateKeyOptions` object) returns both maps' entries, so no cast is needed at the call site. `GenerateKeyReturn<TAlg, TOptions>` names the same type.
 
 - `alg: GenerateKeyAlgorithm` — any JWS or JWE algorithm except `"dir"` and PBES2
 - `options?: GenerateKeyOptions`
-  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`, with the key's RFC 7638 thumbprint as its `kid` (one `kid` for both halves of a pair). Composite `A*CBC-HS*` keys carry `alg`, `ext` and `key_ops` like every other symmetric JWK, so the result infers `alg: "dir"` on its own
+  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`, with the key's RFC 7638 thumbprint as its `kid` (one `kid` for both halves of a pair) unless `kid` is set. Composite `A*CBC-HS*` keys carry `alg`, `ext` and `key_ops` like every other symmetric JWK, so the result infers `alg: "dir"` on its own
+  - `kid?: string | false` — read only with `toJWK`: a string is set verbatim, `false` sets no `kid`; either skips the thumbprint, a SHA-256 digest about as costly as generating an HMAC key. Anything else throws `ERR_INVALID_OPTION`
   - `extractable?: boolean` — default `true`; ignored when `toJWK: true` (the JWK output requires exporting the intermediate key)
   - `keyUsage?: KeyUsage[]` — narrows the usages derived from `alg`, for every algorithm including `ECDH-ES*` (which admits `deriveBits` / `deriveKey`). A usage the algorithm cannot serve throws `ERR_INVALID_OPTION`. A key pair splits the list between its halves — private takes `sign` / `decrypt` / `unwrapKey` / `deriveBits` / `deriveKey`, public takes `verify` / `encrypt` / `wrapKey` — so a narrowing that empties a half the algorithm would have populated is `ERR_INVALID_OPTION` as well: `generateJWK("ES256", { keyUsage: ["sign"] })` would emit a public JWK with `key_ops: []` that no `verify` accepts. `ECDH-ES*` is complete with its private half alone, since ECDH public keys carry no usage
   - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw
@@ -37,7 +38,7 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
 
 PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriveJWKFromPassword`.
 
-To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` instead of `toJWK: true`.
+To return JWK with extra parameters (e.g. `use`, `x5c`), use `generateJWK()` instead of `toJWK: true`.
 
 > **Extractability.** Generated keys default to `extractable: true` (the JWK-first model needs
 > export). For long-lived asymmetric private keys that should never leave the runtime — a
@@ -47,13 +48,13 @@ To return JWK with extra parameters (e.g. a custom `kid`), use `generateJWK()` i
 
 ### `generateJWK(alg, options?)`
 
-Always returns JWK format with a `kid` — the key's `thumbprint()` (RFC 7638) when the caller supplies none. A key pair carries one `kid`: the thumbprint covers the public members only, so both halves agree.
+Always returns JWK format with a `kid` — the key's `thumbprint()` (RFC 7638) when the caller supplies none, no `kid` with `kid: false` (the digest is skipped either way). A key pair carries one `kid`: the thumbprint covers the public members only, so both halves agree.
 
-Returns `GeneratedJWKMap[alg]` (also named `GenerateJWKReturn<alg>`); a non-literal `alg` returns the union of its entries.
+Returns `GeneratedJWKMap[alg]` (also named `GenerateJWKReturn<alg>`; `GenerateJWKReturn<alg, false>` under `kid: false`); a non-literal `alg` returns the union of its entries.
 
 - `alg: GenerateKeyAlgorithm`
-- `options?` — combined `GenerateKeyOptions` (minus `toJWK`) and JWK metadata (`kid`, `use`,
-  `x5c`, etc.). `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot be
+- `options?` — `GenerateJWKOptions` (`GenerateKeyOptions` minus `toJWK` / `extractable`, with
+  `kid?: string | false`) and JWK metadata (`use`, `x5c`, etc.). `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot be
   overridden here — the generated key wins over anything passed in.
 
 ```ts
@@ -70,6 +71,9 @@ const rsaJwk = await generateJWK("RS256", { modulusLength: 2048, kid: "rsa-1", u
 // No kid supplied → kid is the thumbprint
 const hmac = await generateJWK("HS256");
 hmac.kid === (await thumbprint(hmac)); // true
+
+// kid: false → no kid, no digest
+const bare = await generateJWK("HS256", { kid: false }); // typed without `kid`
 ```
 
 ### `thumbprint(jwk, options?)`
@@ -378,7 +382,8 @@ Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
 Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 algorithm and
 derivation knobs (`alg`, `salt`, `iterations`, `keyUsage`) with JWK metadata fields (`kid`,
 `use`, …). The resulting JWK's `alg`, `kty`, `key_ops`, and `ext` are managed by the library,
-and `kid` defaults to the derived key's `thumbprint()`.
+and `kid` defaults to the derived key's `thumbprint()`; a string `kid` is set verbatim and
+`kid: false` sets none, either skipping the digest.
 
 ```ts
 const jwk = await deriveJWKFromPassword("my-password", {

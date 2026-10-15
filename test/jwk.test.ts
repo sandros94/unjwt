@@ -2368,6 +2368,68 @@ describe.concurrent("thumbprint as the default kid", () => {
   });
 });
 
+describe.concurrent("kid option on generated keys", () => {
+  const derivation = {
+    alg: "PBES2-HS256+A128KW",
+    salt: secureRandomBytes(16),
+    iterations: 2000,
+  } as const;
+
+  it("generateJWK sets no kid on a symmetric key with kid: false", async () => {
+    const key = await generateJWK("HS256", { kid: false });
+    expect("kid" in key).toBe(false);
+    expect(key.alg).toBe("HS256");
+  });
+
+  it("generateJWK sets no kid on either half of a pair with kid: false", async () => {
+    const { privateKey, publicKey } = await generateJWK("ES256", { kid: false });
+    expect("kid" in privateKey).toBe(false);
+    expect("kid" in publicKey).toBe(false);
+  });
+
+  it("generateJWK uses a given kid verbatim on a symmetric key", async () => {
+    const key = await generateJWK("HS256", { kid: "hmac-2026" });
+    expect(key.kid).toBe("hmac-2026");
+  });
+
+  it("generateJWK uses a given kid verbatim on both halves of a pair", async () => {
+    const { privateKey, publicKey } = await generateJWK("ES256", { kid: "ec-2026" });
+    expect(privateKey.kid).toBe("ec-2026");
+    expect(publicKey.kid).toBe("ec-2026");
+  });
+
+  it("generateKey with toJWK follows the kid option", async () => {
+    const named = await generateKey("A256CBC-HS512", { toJWK: true, kid: "cbc-1" });
+    const unnamed = await generateKey("A256CBC-HS512", { toJWK: true, kid: false });
+    const pair = await generateKey("Ed25519", { toJWK: true, kid: false });
+    expect(named.kid).toBe("cbc-1");
+    expect("kid" in unnamed).toBe(false);
+    expect("kid" in pair.privateKey).toBe(false);
+    expect("kid" in pair.publicKey).toBe(false);
+  });
+
+  it("deriveJWKFromPassword sets no kid with kid: false", async () => {
+    const jwk = await deriveJWKFromPassword("password123", { ...derivation, kid: false });
+    expect("kid" in jwk).toBe(false);
+    expect(jwk.alg).toBe("A128KW");
+  });
+
+  it("deriveJWKFromPassword uses a given kid verbatim", async () => {
+    const jwk = await deriveJWKFromPassword("password123", { ...derivation, kid: "pw-1" });
+    expect(jwk.kid).toBe("pw-1");
+  });
+
+  it("refuses a kid that is neither a string nor false", async () => {
+    const generated = await generateJWK("HS256", { kid: 42 as never }).catch((error) => error);
+    const derived = await deriveJWKFromPassword("password123", {
+      ...derivation,
+      kid: true as never,
+    }).catch((error) => error);
+    expect(isJWTError(generated, "ERR_INVALID_OPTION")).toBe(true);
+    expect(isJWTError(derived, "ERR_INVALID_OPTION")).toBe(true);
+  });
+});
+
 describe.concurrent("salt as a string", () => {
   it("derives the same key from a string and its UTF-8 bytes", async () => {
     const options = { alg: "PBES2-HS256+A128KW", iterations: 2000, toJWK: true } as const;
@@ -2730,7 +2792,9 @@ describe("types", () => {
     ).returns.resolves.toEqualTypeOf<CryptoKey | (JWK_oct<"HS256"> & Named<"HS256">)>();
     expectTypeOf((options: GenerateKeyOptions) =>
       generateKey("ES256", options),
-    ).returns.resolves.toEqualTypeOf<GeneratedKeyMap["ES256"] | GeneratedJWKMap["ES256"]>();
+    ).returns.resolves.toEqualTypeOf<
+      GeneratedKeyMap["ES256"] | GeneratedJWKMap<string | false>["ES256"]
+    >();
   });
 
   it("types generateJWK after the JWK map", () => {
@@ -2749,6 +2813,34 @@ describe("types", () => {
       GeneratedJWKMap["RS512"]
     >();
     expectTypeOf<GenerateKeyReturn<"RS512", {}>>().toEqualTypeOf<CryptoKeyPair>();
+  });
+
+  it("types the generated kid after the kid option", () => {
+    expectTypeOf(() => generateJWK("HS256", { kid: false })).returns.resolves.toEqualTypeOf<
+      JWK_oct<"HS256"> & { alg: "HS256" }
+    >();
+    expectTypeOf(() => generateJWK("ES256", { kid: false })).returns.resolves.toEqualTypeOf<{
+      privateKey: JWK_EC_Private<"ES256"> & { alg: "ES256" };
+      publicKey: JWK_EC_Public<"ES256"> & { alg: "ES256" };
+    }>();
+    expectTypeOf(() => generateJWK("HS256", { kid: "k1" })).returns.resolves.toEqualTypeOf<
+      JWK_oct<"HS256"> & Named<"HS256">
+    >();
+    expectTypeOf((kid: string | false) =>
+      generateJWK("HS256", { kid }),
+    ).returns.resolves.toEqualTypeOf<JWK_oct<"HS256"> & { alg: "HS256"; kid?: string }>();
+    expectTypeOf(() =>
+      generateKey("HS256", { toJWK: true, kid: false }),
+    ).returns.resolves.toEqualTypeOf<JWK_oct<"HS256"> & { alg: "HS256" }>();
+    expectTypeOf(() =>
+      generateKey("RS256", { toJWK: true, kid: "k1" }),
+    ).returns.resolves.toEqualTypeOf<GeneratedJWKMap["RS256"]>();
+    expectTypeOf<GenerateKeyReturn<"HS256", { toJWK: true; kid: false }>>().toEqualTypeOf<
+      GeneratedJWKMap<false>["HS256"]
+    >();
+    expectTypeOf<GenerateJWKReturn<"ES256", false>>().toEqualTypeOf<
+      GeneratedJWKMap<false>["ES256"]
+    >();
   });
 
   it("types importKey after the kind of key it is given", () => {

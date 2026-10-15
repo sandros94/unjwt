@@ -1349,6 +1349,56 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
     });
 
+    it("h3 v2: an undecodable configured key fails every request, not only the first", async () => {
+      const config = { name: "badk", key: { ...jwsKey, k: "!!" } } as const;
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const error = await caught(() => useJWSSessionV2(event, config));
+        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
+      });
+
+      for (let request = 0; request < 3; request++) {
+        const response = await app.request("/");
+        expect(await response.json()).toEqual({ key: true });
+      }
+    });
+
+    it("h3 v2: the same key object serves request after request", async () => {
+      const config = { name: "samekey", key: { ...jwsKey } } as const;
+      const app = new H3({ debug: true });
+      app.post("/mint", async (event) => {
+        const session = await useJWSSessionV2(event, config);
+        await session.update({ who: "ada" });
+        return { token: session.token };
+      });
+      app.get("/read", async (event) => {
+        const session = await useJWSSessionV2(event, config);
+        return { who: (session.data as Record<string, unknown>).who ?? null };
+      });
+
+      const minted = await app.request("/mint", { method: "POST" });
+      const { token } = (await minted.json()) as { token: string };
+      const read = await app.request("/read", { headers: { cookie: `samekey=${token}` } });
+      expect(await read.json()).toEqual({ who: "ada" });
+    });
+
+    it("h3 v2: a configured key is checked on its first use, not again for the same object", async () => {
+      const key: { kty: "oct"; k: string; alg: "HS256" } = { ...jwsKey };
+      const app = new H3({ debug: true });
+      app.get("/:which", async (event) => {
+        const configured = event.context.params?.which === "copy" ? { ...key } : key;
+        const error = await caught(() =>
+          useJWSSessionV2(event, { name: "checkedonce", key: configured }),
+        );
+        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
+      });
+
+      expect(await (await app.request("/same")).json()).toEqual({ key: false });
+      key.k = "!!";
+      expect(await (await app.request("/same")).json()).toEqual({ key: false });
+      expect(await (await app.request("/copy")).json()).toEqual({ key: true });
+    });
+
     it("h3 v2: session data that is not JSON-serializable is an option error", async () => {
       const app = new H3({ debug: true });
       app.get("/", async (event) => {

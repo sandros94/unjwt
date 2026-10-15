@@ -12,6 +12,8 @@ const SESSION_TYP = "session+jwt";
 
 const FORBIDDEN_KEYS: readonly string[] = ["__proto__", "constructor", "prototype"];
 
+const importedKeys = /* @__PURE__ */ new WeakMap<object, Map<string, Promise<void>>>();
+
 /** Per-issue overrides for a single `update()` call. */
 export interface SessionIssueOptions {
   /** Lifetime for this issue only, overriding the config's `maxAge`. */
@@ -117,7 +119,10 @@ export function assertKeyMaterial(key: unknown, options: { prefix: string }): vo
   }
 }
 
-/** Imports a configured JWK up front, so unusable key material throws `ERR_SESSION_KEY_INVALID`. */
+/**
+ * Imports a configured JWK up front, so unusable key material throws `ERR_SESSION_KEY_INVALID`.
+ * A successful import is remembered per JWK object and `alg`; a failed one is retried.
+ */
 export async function assertImportableKey(
   key: unknown,
   options: { alg: string | undefined; prefix: string },
@@ -125,9 +130,21 @@ export async function assertImportableKey(
   if (!isJWK(key)) return;
   const alg = key.alg ?? options.alg;
   if (key.kty !== "oct" && !alg) return;
+  let imports = importedKeys.get(key);
+  if (!imports) {
+    imports = new Map();
+    importedKeys.set(key, imports);
+  }
+  const slot = alg ?? "";
+  let pending = imports.get(slot);
+  if (!pending) {
+    pending = importKey(key, { alg }).then(() => undefined);
+    imports.set(slot, pending);
+  }
   try {
-    await importKey(key, { alg });
+    await pending;
   } catch (error) {
+    if (imports.get(slot) === pending) imports.delete(slot);
     throw invalidKeyError(`${options.prefix} Invalid session key: ${messageOf(error)}`, error);
   }
 }

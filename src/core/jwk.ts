@@ -94,10 +94,12 @@ export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error"
 /**
  * Generates a key for a JWA algorithm: a `CryptoKey` for symmetric algorithms, raw bytes for
  * the `A*CBC-HS*` composites, a `CryptoKeyPair` for asymmetric ones; with `toJWK: true`, a JWK
- * (or JWK pair) whose `kid` is its RFC 7638 thumbprint. PBES2, `"dir"` and `"none"` are refused.
+ * (or JWK pair) named by the `kid` option or its RFC 7638 thumbprint. PBES2, `"dir"` and `"none"` are refused.
  *
  * @param options
  *   - `extractable?` — defaults to `true`; ignored when `toJWK` is set.
+ *   - `kid?` — with `toJWK`, a string set verbatim or `false` for no `kid`, either skipping the
+ *     thumbprint digest; anything else throws `ERR_INVALID_OPTION`.
  *   - `keyUsage?` — narrows the usages derived from `alg`; leaving either half of a pair with
  *     no usage throws `ERR_INVALID_OPTION`.
  *   - `modulusLength?` — RSA only; defaults to `2048`.
@@ -105,10 +107,14 @@ export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error"
  *   - `namedCurve?` — EC/OKP only; defaults to `"P-256"` / `"Ed25519"`. One that contradicts
  *     the curve `ES*` or `Ed25519` names throws `ERR_INVALID_OPTION`.
  */
-export async function generateKey<TAlg extends GenerateKeyAlgorithm, ToJWK extends boolean = false>(
+export async function generateKey<
+  TAlg extends GenerateKeyAlgorithm,
+  ToJWK extends boolean = false,
+  Kid extends string | false = string,
+>(
   alg: TAlg,
-  options?: GenerateKeyOptions<ToJWK>,
-): Promise<GenerateKeyReturn<TAlg, GenerateKeyOptions<ToJWK>>>;
+  options?: GenerateKeyOptions<ToJWK, Kid>,
+): Promise<GenerateKeyReturn<TAlg, GenerateKeyOptions<ToJWK, Kid>>>;
 export async function generateKey(
   alg: string,
   options: GenerateKeyOptions = {},
@@ -117,6 +123,7 @@ export async function generateKey(
 > {
   const exportToJWK = options.toJWK !== undefined && options.toJWK;
   const defaultExtractable = exportToJWK || options.extractable !== false;
+  const kid = exportToJWK ? assertKidOption(options.kid) : undefined;
 
   // Composite AES-CBC+HMAC keys are not importable via WebCrypto, so they stay raw bytes.
   if (alg === "A128CBC-HS256" || alg === "A192CBC-HS384" || alg === "A256CBC-HS512") {
@@ -126,7 +133,7 @@ export async function generateKey(
     if (exportToJWK) {
       // WebCrypto never exports these bytes, so the members its JWK export would write are set.
       const jwk = await keyToJWK<JWK_oct>(keyBytes);
-      return withThumbprintKid({
+      return withGeneratedKid(kid, {
         ...jwk,
         alg,
         ext: true,
@@ -147,14 +154,12 @@ export async function generateKey(
   if (exportToJWK) {
     if (key instanceof CryptoKey) {
       // Force `alg`: Web Crypto's JWK export drops the `KW` suffix on AES-GCM key wrap algs.
-      return withThumbprintKid({ ...(await exportKey(key)), alg });
+      return withGeneratedKid(kid, { ...(await exportKey(key)), alg });
     } else {
       const [pub, priv] = await Promise.all([exportKey(key.publicKey), exportKey(key.privateKey)]);
-      const kid = await thumbprint({ ...pub, alg });
-      return {
-        privateKey: { ...priv, alg, kid },
-        publicKey: { ...pub, alg, kid },
-      };
+      const publicKey = await withGeneratedKid(kid, { ...pub, alg });
+      const named = publicKey.kid === undefined ? undefined : { kid: publicKey.kid };
+      return { privateKey: { ...priv, alg, ...named }, publicKey };
     }
   }
 
@@ -162,56 +167,61 @@ export async function generateKey(
 }
 
 /**
- * Generates a JWK (or JWK pair) for a JWA algorithm, its `kid` the caller's or its RFC 7638
- * thumbprint. PBES2, `"dir"` and `"none"` are refused.
+ * Generates a JWK (or JWK pair) for a JWA algorithm, its `kid` the caller's, none with
+ * `kid: false`, or else its RFC 7638 thumbprint. PBES2, `"dir"` and `"none"` are refused.
  *
  * @param options
  *   - `keyUsage?`, `modulusLength?` (default `2048`), `publicExponent?` (default `0x010001`),
  *     `namedCurve?` (default `"P-256"` / `"Ed25519"`); a narrowing that empties a pair half or
  *     a curve that contradicts `alg` throws `ERR_INVALID_OPTION`.
- *   - JWK metadata (`kid`, `use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the result;
+ *   - `kid?` — a string set verbatim or `false` for no `kid`, either skipping the thumbprint
+ *     digest; anything else throws `ERR_INVALID_OPTION`.
+ *   - JWK metadata (`use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the result;
  *     `alg`, `kty`, `key_ops`, `ext` and key-material members are reserved (`ERR_INVALID_OPTION`).
  */
-export async function generateJWK<TAlg extends GenerateKeyAlgorithm>(
+export async function generateJWK<
+  TAlg extends GenerateKeyAlgorithm,
+  Kid extends string | false = string,
+>(
   alg: TAlg,
-  options?: GenerateJWKOptions & JWKMetadata,
-): Promise<GenerateJWKReturn<TAlg>>;
+  options?: GenerateJWKOptions<Kid> & Omit<JWKMetadata, "kid">,
+): Promise<GenerateJWKReturn<TAlg, Kid>>;
 export async function generateJWK(
   alg: GenerateKeyAlgorithm,
-  options?: GenerateJWKOptions & JWKMetadata,
+  options?: GenerateJWKOptions & Omit<JWKMetadata, "kid">,
 ): Promise<JWK | { privateKey: JWK; publicKey: JWK }> {
   const {
     keyUsage,
     modulusLength,
     publicExponent,
     namedCurve,
+    kid,
     extractable: _extractable,
     toJWK: _toJWK,
     ...jwkParams
   } = (options ?? {}) as GenerateJWKOptions &
-    JWKMetadata & {
+    Omit<JWKMetadata, "kid"> & {
       extractable?: boolean;
       toJWK?: boolean;
     };
   assertNoReservedJWKParams(jwkParams);
-  const callerKid = typeof jwkParams.kid === "string" ? jwkParams.kid : undefined;
 
   const result = await generateKey(alg, {
     keyUsage,
     modulusLength,
     publicExponent,
     namedCurve,
+    kid,
     toJWK: true,
   });
 
-  const named = callerKid === undefined ? undefined : { kid: callerKid };
   if (result && typeof result === "object" && "privateKey" in result && "publicKey" in result) {
     return {
-      privateKey: { ...jwkParams, ...result.privateKey, ...named },
-      publicKey: { ...jwkParams, ...result.publicKey, ...named },
+      privateKey: { ...jwkParams, ...result.privateKey },
+      publicKey: { ...jwkParams, ...result.publicKey },
     };
   }
-  return { ...jwkParams, ...result, ...named };
+  return { ...jwkParams, ...result };
 }
 
 /**
@@ -273,18 +283,21 @@ export async function deriveKeyFromPassword(
 
 /**
  * Derives a `JWK_oct` from a password per PBES2 (RFC 7518 §4.8); its `alg` is the inner AES-KW
- * variant and its `kid` the caller's or its RFC 7638 thumbprint.
+ * variant and its `kid` the caller's, none with `kid: false`, or else its RFC 7638 thumbprint.
  *
  * @param options
  *   - `alg` (PBES2 only, else `ERR_JWK_UNSUPPORTED`), `salt` (at least 8 octets), `iterations`
  *     (integer of at least 1000, else `ERR_INVALID_OPTION`), `keyUsage?` (default
  *     `["wrapKey", "unwrapKey"]`).
- *   - JWK metadata (`kid`, `use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the result;
+ *   - `kid?` — a string set verbatim or `false` for no `kid`, either skipping the thumbprint
+ *     digest; anything else throws `ERR_INVALID_OPTION`.
+ *   - JWK metadata (`use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the result;
  *     `alg`, `kty`, `key_ops`, `ext` and key-material members are reserved (`ERR_INVALID_OPTION`).
  */
 export async function deriveJWKFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
-  options: Omit<DeriveKeyOptions, "toJWK" | "extractable"> & JWKMetadata,
+  options: Omit<DeriveKeyOptions, "toJWK" | "extractable"> &
+    Omit<JWKMetadata, "kid"> & { kid?: string | false },
 ): Promise<JWK_oct> {
   assertPlainObject(options, "options");
   const {
@@ -292,11 +305,13 @@ export async function deriveJWKFromPassword(
     salt,
     iterations,
     keyUsage,
+    kid: kidOption,
     extractable: _extractable,
     toJWK: _toJWK,
     ...jwkParams
-  } = options as DeriveKeyOptions & JWKMetadata;
+  } = options as DeriveKeyOptions & Omit<JWKMetadata, "kid"> & { kid?: string | false };
   assertNoReservedJWKParams(jwkParams);
+  const kid = assertKidOption(kidOption);
   const result = await deriveKeyFromPassword(password, {
     alg,
     salt,
@@ -304,8 +319,7 @@ export async function deriveJWKFromPassword(
     keyUsage,
     toJWK: true,
   });
-  const kid = typeof jwkParams.kid === "string" ? jwkParams.kid : await thumbprint(result);
-  return { ...jwkParams, kid, ...result };
+  return { ...jwkParams, ...(await withGeneratedKid(kid, result)) };
 }
 
 /**
@@ -1407,9 +1421,19 @@ function assertPairUsages(
   return usages;
 }
 
-/** Name a freshly generated JWK by its RFC 7638 thumbprint. */
-async function withThumbprintKid<T extends JWK>(jwk: T): Promise<T> {
-  return { ...jwk, kid: await thumbprint(jwk) };
+/** A `kid` option is a string, `false` or absent; anything else is refused, not ignored. */
+function assertKidOption(kid: unknown): string | false | undefined {
+  if (kid === undefined || kid === false || typeof kid === "string") return kid;
+  throw new JWTError('"kid" must be a string or false.', "ERR_INVALID_OPTION");
+}
+
+/** Names a fresh JWK by the given `kid`, by none for `false`, else by its RFC 7638 thumbprint. */
+async function withGeneratedKid<T extends JWK>(
+  kid: string | false | undefined,
+  jwk: T,
+): Promise<T> {
+  if (kid === false) return jwk;
+  return { ...jwk, kid: kid ?? (await thumbprint(jwk)) };
 }
 
 /** Algorithms the PEM helpers round-trip; `satisfies` keeps them in lockstep with the union. */

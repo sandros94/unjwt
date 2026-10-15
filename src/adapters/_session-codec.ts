@@ -35,7 +35,7 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   open: (config: Config, token: string, key: OpenKey) => Promise<SessionPayload>;
 }
 
-/** Keys resolve before any token is read; open failures other than expiry become `ERR_SESSION_TOKEN_INVALID`. */
+/** Keys resolve before any token is read, each configured key checked once per key object; open failures other than expiry become `ERR_SESSION_TOKEN_INVALID`. */
 export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, OpenKey>(
   spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
 ): SessionCodec<Config> {

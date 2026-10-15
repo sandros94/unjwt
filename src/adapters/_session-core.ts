@@ -79,7 +79,7 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   now: (config: Config) => number;
   /** Resolves the issuing key before any session is read; returns the bound issuer. */
   issuer: (config: Config) => (state: StoredSession) => Promise<string>;
-  /** Imports every configured key; throws `ERR_SESSION_KEY_INVALID` for an unusable one. */
+  /** Imports every configured key, once per key object; throws `ERR_SESSION_KEY_INVALID` for an unusable one. */
   assertKeys: (config: Config) => Promise<void>;
   /** Resolves the opening key before the token is read (a missing key is a config error); returns the bound opener. */
   opener: (

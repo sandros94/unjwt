@@ -30,20 +30,31 @@ export type CompositeKey = {
 
 export type GenerateKeyAlgorithm = Exclude<JWKAlgorithm, "none" | "dir" | JWK_PBES2>;
 
-/** Options for `generateKey`; `ToJWK` is the `toJWK` literal that picks key objects or JWKs. */
-export interface GenerateKeyOptions<ToJWK extends boolean = boolean> {
+/** Options for `generateJWK`; `Kid` is the `kid` option that types the generated `kid`. */
+export interface GenerateJWKOptions<Kid extends string | false = string | false> {
   /** Key usages; composite (CBC) keys get their default usages separately. */
   keyUsage?: KeyUsage[];
-  /** Mark the key(s) extractable; ignored when `toJWK` is set. Default: `true`. */
-  extractable?: boolean;
   /** RSA modulus length. Default: `2048`. */
   modulusLength?: number;
   /** RSA public exponent. Default: `65537`. */
   publicExponent?: Uint8Array<ArrayBuffer>;
   /** EC/OKP curve. Default: `"P-256"` (EC), `"Ed25519"` (OKP). */
   namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519";
-  /** Return JWKs with a generated `kid` instead of key objects. */
+  /** `kid` to set verbatim, or `false` for none. Default: the RFC 7638 thumbprint, a SHA-256 digest per key. */
+  kid?: Kid;
+}
+
+/** Options for `generateKey`; `ToJWK` is the `toJWK` literal that picks key objects or JWKs. */
+export interface GenerateKeyOptions<
+  ToJWK extends boolean = boolean,
+  Kid extends string | false = string | false,
+> extends GenerateJWKOptions<Kid> {
+  /** Mark the key(s) extractable; ignored when `toJWK` is set. Default: `true`. */
+  extractable?: boolean;
+  /** Return JWKs instead of key objects. */
   toJWK?: ToJWK;
+  /** Read only with `toJWK`: `kid` to set verbatim, or `false` for none. Default: the RFC 7638 thumbprint, a SHA-256 digest per key. */
+  kid?: Kid;
 }
 
 /** `generateKey` result per algorithm without `toJWK`: `CryptoKey` (symmetric), raw bytes (`A*CBC-HS*`), `CryptoKeyPair` (asymmetric). */
@@ -55,23 +66,24 @@ export type GeneratedKeyMap = {
       : CryptoKey;
 };
 
-/** `generateJWK` result per algorithm: an `oct` JWK or a JWK pair, each carrying `alg` and `kid`. */
-export type GeneratedJWKMap = {
+/** `generateJWK` result per algorithm: an `oct` JWK or a JWK pair, each carrying `alg`, and `kid` unless `Kid` is `false`. */
+export type GeneratedJWKMap<Kid extends string | false = string> = {
   [A in GenerateKeyAlgorithm]: A extends JWK_Asymmetric_Algorithm
-    ? GeneratedJWKPair<JWK_Pair<A>, A>
-    : JWK_oct<A> & GeneratedJWKMembers<A>;
+    ? GeneratedJWKPair<JWK_Pair<A>, A, Kid>
+    : JWK_oct<A> & GeneratedJWKMembers<A, Kid>;
 };
 
 /** `generateKey` return type for `TAlg` under `TOptions`; JWKs when `toJWK` is `true`. */
 export type GenerateKeyReturn<
   TAlg extends GenerateKeyAlgorithm,
   TOptions extends GenerateKeyOptions,
-> = GeneratedKeyShape<TAlg, Exclude<TOptions["toJWK"], undefined>>;
+> = GeneratedKeyShape<TAlg, Exclude<TOptions["toJWK"], undefined>, GeneratedKid<TOptions>>;
 
-export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK" | "extractable">;
-
-/** `generateJWK` return type for `TAlg`. */
-export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GeneratedJWKMap[TAlg];
+/** `generateJWK` return type for `TAlg` under the `kid` option `Kid`. */
+export type GenerateJWKReturn<
+  TAlg extends GenerateKeyAlgorithm,
+  Kid extends string | false = string,
+> = GeneratedJWKMap<Kid>[TAlg];
 
 /** What `importKey` resolves to per input: bytes and `oct` JWKs to raw bytes, a `CryptoKey` as is, asymmetric JWKs to a `CryptoKey`. */
 export interface ImportedKeyMap {
@@ -499,14 +511,29 @@ export type JWKPEMAlgorithm =
   | JWK_ECDH_ES
   | JWK_OKP_SIGN;
 
-type GeneratedJWKMembers<A> = { alg: A; kid: string };
+type GeneratedJWKMembers<A, Kid> = [Kid] extends [false]
+  ? { alg: A }
+  : [Kid] extends [string]
+    ? { alg: A; kid: string }
+    : { alg: A; kid?: string };
 
-type GeneratedJWKPair<P, A> = P extends { privateKey: infer Private; publicKey: infer Public }
-  ? { privateKey: Private & GeneratedJWKMembers<A>; publicKey: Public & GeneratedJWKMembers<A> }
+type GeneratedJWKPair<P, A, Kid> = P extends { privateKey: infer Private; publicKey: infer Public }
+  ? {
+      privateKey: Private & GeneratedJWKMembers<A, Kid>;
+      publicKey: Public & GeneratedJWKMembers<A, Kid>;
+    }
   : never;
 
-type GeneratedKeyShape<TAlg extends GenerateKeyAlgorithm, ToJWK> = [ToJWK] extends [never]
+type GeneratedKid<TOptions> = "kid" extends keyof TOptions
+  ? ThumbprintIfUnset<Extract<TOptions["kid" & keyof TOptions], string | false>>
+  : string;
+
+type ThumbprintIfUnset<Kid extends string | false> = [Kid] extends [never] ? string : Kid;
+
+type GeneratedKeyShape<TAlg extends GenerateKeyAlgorithm, ToJWK, Kid extends string | false> = [
+  ToJWK,
+] extends [never]
   ? GeneratedKeyMap[TAlg]
   : ToJWK extends true
-    ? GeneratedJWKMap[TAlg]
+    ? GeneratedJWKMap<Kid>[TAlg]
     : GeneratedKeyMap[TAlg];
