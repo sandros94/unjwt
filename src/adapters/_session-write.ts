@@ -8,6 +8,7 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import type { ExpiresIn } from "../core/types";
 import {
   type SessionIssueOptions,
+  RESERVED_CLAIMS,
   assertTokenSource,
   hasTokenSource,
   readOnlyEventError,
@@ -74,6 +75,7 @@ export async function issueSession<
   if (resolved) {
     Object.assign(session.data, sanitizeSessionUpdate(resolved, { prefix: port.prefix }));
   }
+  for (const claim of RESERVED_CLAIMS) delete session.data[claim];
 
   const maxAge = options?.maxAge ?? config.maxAge;
   const createdAt = sessionInstant(binding);

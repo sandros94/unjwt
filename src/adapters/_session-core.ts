@@ -7,6 +7,7 @@
 import type { ExpiresIn } from "../core/types";
 import {
   type SessionTokenSource,
+  assertCookiePrefix,
   assertRolling,
   assertSessionHeader,
   assertSessionName,
@@ -143,6 +144,10 @@ export function bindSession<TCarrier, Config extends SessionCoreConfig>(
   const name = config.name || codec.defaultName;
   assertSessionName(name, { prefix: port.prefix });
   assertSessionHeader(config.sessionHeader, { prefix: port.prefix });
+  if (config.cookie !== false) {
+    const attrs: Record<string, unknown> = { ...codec.defaultCookie, ...config.cookie };
+    assertCookiePrefix(name, attrs, { prefix: port.prefix });
+  }
   assertRolling(config, { prefix: port.prefix });
   claimSessionName(port.scope(carrier), name, codec.family, port.prefix);
   return {

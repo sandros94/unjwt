@@ -132,7 +132,9 @@ type SessionUpdate<T> =
   one token a lifetime of its own.
 - `clear()` — expires the cookie, resets state, fires `onClear` (distinct from expiry → `onExpire`).
 - Reserved claims `jti`, `iat`, `exp` and `nbf` are adapter-owned: stripped from every `update()`
-  payload and never read back out of `session.data`. A token's lifetime comes only from `maxAge`.
+  payload, dropped from `session.data` on every issue, never read back out of `session.data`.
+  A token's lifetime comes only from `maxAge`. A token with an `iat` later than now plus
+  `clockTolerance` is refused even without a `maxAge`.
   A `__proto__`, `constructor` or `prototype` key in an update throws `ERR_INVALID_OPTION`.
   Data travels as JSON: the writing request keeps the values as given, later reads get their JSON
   round trip (`Date` → ISO string, `NaN`/`±Infinity` → `null`, `undefined` members dropped).
@@ -233,7 +235,9 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
   `clear()`.
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a
   cookie that shadows the session (the adapter reads the first cookie of a name); the defaults
-  satisfy the prefix. The default session header drops a `__Host-` / `__Secure-` prefix:
+  satisfy the prefix, and a `__Host-` name with `domain`, a `path` other than `/` or
+  `secure: false` (or a `__Secure-` name with `secure: false`) throws
+  `ERR_SESSION_CONFIG_INVALID` at bind time. The default session header drops a `__Host-` / `__Secure-` prefix:
   `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another
   session and throws `ERR_SESSION_CONFIG_INVALID`.
 - **Foreign tokens.** A token is only a session when it carries the session `typ` (default

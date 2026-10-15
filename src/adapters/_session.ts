@@ -87,6 +87,28 @@ export function assertSessionName(name: string, options: { prefix: string }): vo
   }
 }
 
+/** A `__Host-` cookie must be Secure, carry `Path=/` and no `Domain`; a `__Secure-` cookie must be Secure (RFC 6265bis §4.1.3). */
+export function assertCookiePrefix(
+  name: string,
+  attrs: { secure?: unknown; domain?: unknown; path?: unknown },
+  options: { prefix: string },
+): void {
+  const lower = name.toLowerCase();
+  const host = lower.startsWith("__host-");
+  if (!host && !lower.startsWith("__secure-")) return;
+  const rule = host
+    ? '"__Host-" cookie must be Secure, with Path=/ and no Domain'
+    : '"__Secure-" cookie must be Secure';
+  const broken =
+    attrs.secure === false ||
+    (host && (attrs.domain !== undefined || (attrs.path !== undefined && attrs.path !== "/")));
+  if (broken) {
+    throw invalidConfigError(
+      `${options.prefix} Session ${quoteTokenValue(name)}: a ${rule} (RFC 6265bis §4.1.3).`,
+    );
+  }
+}
+
 /** Reject a `sessionHeader` that is not a header name (RFC 7230 §3.2). */
 export function assertSessionHeader(header: unknown, options: { prefix: string }): void {
   if (header === undefined || header === false) return;

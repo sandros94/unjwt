@@ -120,6 +120,7 @@ export function createJWECodec(options: {
     defaultCookie: JWE_DEFAULT_COOKIE,
 
     issueOptions: (config) => config.jwe?.encryptOptions,
+    openOptions: (config) => config.jwe?.decryptOptions,
     issueKey: (config) => getEncryptKey(config, prefix),
     openKey: (config) => getDecryptKey(config, prefix),
     lookup: (config, carrier) => {

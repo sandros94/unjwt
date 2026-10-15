@@ -1934,6 +1934,50 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
+  // #region issued in the future
+  describe("issued in the future", () => {
+    it.each(portFamilyCases())(
+      "$label: a token issued in the future is refused even without a maxAge",
+      async (port) => {
+        const future = new Date(Date.now() + 3600_000);
+        const minted = await mintToken(
+          port,
+          {
+            ...baseConfig(port),
+            ...(port.family === "jws"
+              ? { jws: { signOptions: { currentDate: future } } }
+              : { jwe: { encryptOptions: { currentDate: future } } }),
+          },
+          { user: "alice" },
+        );
+        const onError = vi.fn();
+        const body = await port.run(
+          { ...baseConfig(port), hooks: { onError } },
+          async (open) => ({ id: (await open()).id ?? null }),
+          { cookies: { [port.name]: minted } },
+        );
+        expect(body.id).toBeNull();
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(isJWTError(onError.mock.calls[0]?.[0]?.error, "ERR_SESSION_TOKEN_INVALID")).toBe(
+          true,
+        );
+
+        const tolerated = await port.run(
+          {
+            ...baseConfig(port),
+            ...(port.family === "jws"
+              ? { jws: { verifyOptions: { clockTolerance: "2h" } } }
+              : { jwe: { decryptOptions: { clockTolerance: "2h" } } }),
+          },
+          async (open) => ({ id: (await open()).id ?? null }),
+          { cookies: { [port.name]: minted } },
+        );
+        expect(tolerated.id).toBeTypeOf("string");
+      },
+    );
+  });
+  // #endregion
+
   // #region adapter-owned claims
   describe("claims the adapter owns", () => {
     it.each(portFamilyCases())("$label: issue options cannot set exp or nbf", async (port) => {
@@ -1956,6 +2000,40 @@ describe("session adapters — shared contract", () => {
         expect(claims).not.toHaveProperty("nbf");
       }
     });
+  });
+  // #endregion
+
+  // #region reserved claims in session data
+  describe("reserved claims in session data", () => {
+    const mutate = async (port: PortFamilyCase) =>
+      port.run(baseConfig(port), async (open) => {
+        const session = await open();
+        await session.update({ user: "alice" });
+        Object.assign(session.data, { nbf: 1, exp: 4102444800, iat: 1, jti: "mine" });
+        await session.update();
+        return { id: session.id ?? null, token: session.token ?? null, data: { ...session.data } };
+      });
+
+    it.each(portFamilyCases())(
+      "$label: reserved claims written into session.data do not become the session's own",
+      async (port) => {
+        const body = await mutate(port);
+        expect(body.id).not.toBe("mine");
+        expect(body.data).toEqual({ user: "alice" });
+      },
+    );
+
+    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
+      "$label: reserved claims written into session.data never reach the token",
+      async (port) => {
+        const body = await mutate(port);
+        const claims = decodeSegment(String(body.token).split(".")[1] ?? "");
+        expect(claims.nbf).toBeUndefined();
+        expect(claims.exp).toBeUndefined();
+        expect(claims.jti).toBe(body.id);
+        expect(claims.iat).not.toBe(1);
+      },
+    );
   });
   // #endregion
 
@@ -2710,6 +2788,66 @@ describe("session adapters — shared contract", () => {
         expect(setCookieAttributes(cookie)).toMatchObject({ path: "/", secure: true });
         expect(cookieAttribute(cookie, "domain")).toBeUndefined();
         expect(body).toEqual({ user: "alice" });
+      },
+    );
+  });
+  // #endregion
+
+  // #region cookie name prefixes
+  describe("cookie name prefixes", () => {
+    const codeOf = async (
+      port: PortFamilyCase,
+      config: Record<string, unknown>,
+    ): Promise<string | null> =>
+      (
+        await port.run(baseConfig(port), async (open) => {
+          const error = await caught(() => open(config));
+          return { code: isJWTError(error) ? error.code : null };
+        })
+      ).code as string | null;
+
+    it.each(portFamilyCases())(
+      "$label: a __Host- name refuses a Domain, a Path other than / and an insecure cookie",
+      async (port) => {
+        const name = `__Host-${port.name}`;
+        expect(await codeOf(port, { name, key: port.key, cookie: { domain: "example.com" } })).toBe(
+          "ERR_SESSION_CONFIG_INVALID",
+        );
+        expect(await codeOf(port, { name, key: port.key, cookie: { path: "/app" } })).toBe(
+          "ERR_SESSION_CONFIG_INVALID",
+        );
+        expect(await codeOf(port, { name, key: port.key, cookie: { secure: false } })).toBe(
+          "ERR_SESSION_CONFIG_INVALID",
+        );
+        expect(
+          await codeOf(port, {
+            name: `__Secure-${port.name}`,
+            key: port.key,
+            cookie: { secure: false },
+          }),
+        ).toBe("ERR_SESSION_CONFIG_INVALID");
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a __Host- name with the default attributes, or without a cookie, is accepted",
+      async (port) => {
+        const name = `__Host-${port.name}`;
+        const response = await port.serve({ name, key: port.key }, async (open) => {
+          const session = await open();
+          await session.update({ user: "alice" });
+          return { id: session.id ?? null };
+        });
+        expect(response.body.id).toBeTypeOf("string");
+        expect(
+          response.cookies.some((c) => c.startsWith(`${name}=`) && /;\s*Secure/i.test(c)),
+        ).toBe(true);
+        expect(response.cookies.some((c) => /;\s*Domain=/i.test(c))).toBe(false);
+
+        const headerOnly = await port.run({ name, key: port.key, cookie: false }, async (open) => ({
+          id: (await open()).id ?? null,
+        }));
+        expect(headerOnly.id).toBeNull();
       },
     );
   });
@@ -3817,4 +3955,10 @@ function setCookieNames(response: Response): string[] {
 /** An RSA key pair of the family `port` runs. */
 function rsaPairFor(port: PortFamilyCase) {
   return generateJWK(port.family === "jws" ? "RS256" : "RSA-OAEP-256");
+}
+
+function decodeSegment(segment: string): Record<string, unknown> {
+  const text = atob(segment.replaceAll("-", "+").replaceAll("_", "/"));
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a JWT payload the test just minted
+  return JSON.parse(text) as Record<string, unknown>;
 }

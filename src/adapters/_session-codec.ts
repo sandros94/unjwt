@@ -1,4 +1,5 @@
-import type { ExpiresIn, JWTClaims } from "../core/types";
+import type { ExpiresIn, JWTClaims, Duration } from "../core/types";
+import { computeDurationInSeconds } from "../core/utils/jwt";
 import { isCryptoKey, isPrivateJWK, isSymmetricJWK } from "../core/utils/guards";
 import {
   RESERVED_CLAIMS,
@@ -8,6 +9,7 @@ import {
   rethrowAsInvalidToken,
   sessionRequiredClaims,
   sessionTyp,
+  invalidTokenError,
 } from "./_session";
 import type {
   OpenedSession,
@@ -26,6 +28,8 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   defaultCookie: Record<string, unknown>;
   /** Supplies the pinned `alg` and the `currentDate` the session runs on. */
   issueOptions: (config: Config) => { alg?: string; currentDate?: Date } | undefined;
+  /** Supplies the `clockTolerance` an incoming token is read with. */
+  openOptions: (config: Config) => { clockTolerance?: number | Duration } | undefined;
   issueKey: (config: Config) => IssueKey;
   openKey: (config: Config) => OpenKey;
   lookup: (config: Config, carrier: Record<string, unknown>) => OpenKey | undefined;
@@ -45,12 +49,19 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
   const keyFor = (config: Config, carrier: Record<string, unknown>): OpenKey =>
     spec.lookup(config, carrier) ?? spec.openKey(config);
 
-  const openWith = async (config: Config, token: string, key: OpenKey): Promise<OpenedSession> =>
-    openedSession(
-      await spec
-        .open(config, token, key)
-        .catch((error: unknown) => rethrowAsInvalidToken(error, { prefix })),
-    );
+  const now = (config: Config) => spec.issueOptions(config)?.currentDate?.getTime() ?? Date.now();
+
+  const openWith = async (config: Config, token: string, key: OpenKey): Promise<OpenedSession> => {
+    const payload = await spec
+      .open(config, token, key)
+      .catch((error: unknown) => rethrowAsInvalidToken(error, { prefix }));
+    assertNotFromTheFuture(payload, {
+      now: now(config),
+      clockTolerance: spec.openOptions(config)?.clockTolerance,
+      prefix,
+    });
+    return openedSession(payload);
+  };
 
   const assertOpenKey = async (config: Config): Promise<void> => {
     if (spec.lookup(config, {})) return;
@@ -65,7 +76,7 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
     defaultName: spec.defaultName,
     defaultCookie: spec.defaultCookie,
 
-    now: (config) => spec.issueOptions(config)?.currentDate?.getTime() ?? Date.now(),
+    now,
 
     issuer: (config) => {
       const key = spec.issueKey(config);
@@ -183,9 +194,28 @@ export function assertPinnedCryptoKey(
 function sessionPayload(state: StoredSession): Record<string, unknown> {
   const iat = Math.floor(state.createdAt / 1000);
   const exp = state.expiresAt ? Math.floor(state.expiresAt / 1000) : undefined;
-  const payload: Record<string, unknown> = { ...state.data, jti: state.id, iat };
+  const payload: Record<string, unknown> = {};
+  for (const key of Object.keys(state.data)) {
+    if (!RESERVED_CLAIMS.includes(key)) payload[key] = state.data[key];
+  }
+  payload.jti = state.id;
+  payload.iat = iat;
   if (exp) payload.exp = exp;
   return payload;
+}
+
+/** A session issued after "now" is refused whatever its `exp`; `clockTolerance` widens "now" (RFC 7519 §4.1.6). */
+function assertNotFromTheFuture(
+  payload: SessionPayload,
+  options: { now: number; clockTolerance: number | Duration | undefined; prefix: string },
+): void {
+  const tolerance =
+    options.clockTolerance === undefined ? 0 : computeDurationInSeconds(options.clockTolerance);
+  if (payload.iat > Math.floor(options.now / 1000) + tolerance) {
+    throw invalidTokenError(
+      `${options.prefix} Invalid session token: issued in the future (iat: ${new Date(payload.iat * 1000).toISOString()}).`,
+    );
+  }
 }
 
 function openedSession(payload: SessionPayload): OpenedSession {

@@ -38,8 +38,10 @@ Peer dep: `h3`
   entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or
   `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
 - **Reserved claims.** `jti`, `iat`, `exp` and `nbf` are adapter-owned. They are stripped
-  from every `update()` payload (object and updater-function form alike) and never read
-  back out of `session.data`. A token's lifetime comes only from `maxAge` — on the config,
+  from every `update()` payload (object and updater-function form alike), dropped from
+  `session.data` on every issue even when written there directly, and never read back out
+  of `session.data`. An incoming token whose `iat` is later than now plus `clockTolerance`
+  is refused (`ERR_SESSION_TOKEN_INVALID`) whether or not a `maxAge` is set. A token's lifetime comes only from `maxAge` — on the config,
   or on one call via `session.update(data, { maxAge })`. Update data that is not a plain object
   (a string, an array), or a `__proto__`, `constructor` or `prototype` key in it, throws
   `ERR_INVALID_OPTION`. Data travels as JSON: the writing request keeps the values as given,
@@ -73,7 +75,10 @@ Peer dep: `h3`
   chunk.
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`): every adapter reads the first cookie
   of a name, so a sibling subdomain could otherwise plant one that shadows the session; the
-  defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix. The default session header
+  defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix, and the prefix rules are
+  enforced at bind time on every adapter: a `__Host-` name with `domain`, a `path` other than
+  `/` or `secure: false`, or a `__Secure-` name with `secure: false`, throws
+  `ERR_SESSION_CONFIG_INVALID` (RFC 6265bis §4.1.3). The default session header
   drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and
   digits (`app.1`) spells a chunk cookie of another session and throws
   `ERR_SESSION_CONFIG_INVALID`.

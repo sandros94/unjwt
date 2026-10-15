@@ -116,6 +116,7 @@ export function createJWSCodec(options: {
     defaultCookie: JWS_DEFAULT_COOKIE,
 
     issueOptions: (config) => config.jws?.signOptions,
+    openOptions: (config) => config.jws?.verifyOptions,
     issueKey: (config) => getSignKey(config, prefix),
     openKey: (config) => getVerifyKey(config, prefix),
     lookup: (config, carrier) => {
