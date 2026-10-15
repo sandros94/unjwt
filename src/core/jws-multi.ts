@@ -149,7 +149,7 @@ export async function signMulti(
  * Per-signature failures are collected and the last one is thrown when none verifies.
  * The payload type follows `options.payload`, as in `verify`.
  */
-export async function verifyMulti<T extends Record<string, unknown> = JWTClaims>(
+export async function verifyMulti<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options?: JWSMultiVerifyOptions<"json"> & { forceUint8Array?: false },
@@ -296,7 +296,7 @@ export async function verifyMulti(
  * const outcomes = await verifyMultiAll(jws, (header) => jwkSet);
  * if (!outcomes.every((o) => o.verified)) throw new Error("not all signatures verified");
  */
-export async function verifyMultiAll<T extends Record<string, unknown> = JWTClaims>(
+export async function verifyMultiAll<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyResolver: JWKLookupFunction,
   options?: JWSMultiVerifyAllOptions<"json"> & { forceUint8Array?: false },

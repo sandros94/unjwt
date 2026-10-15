@@ -75,7 +75,7 @@ export async function sign(
   options: JWSSignOptions & { alg: JWSAlgorithm },
 ): Promise<string>;
 export async function sign(
-  payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
+  payload: JOSEPayload,
   key: CryptoKey | JWSSignJWK | Uint8Array<ArrayBuffer>,
   options: JWSSignOptions = {},
 ): Promise<string> {
@@ -152,7 +152,7 @@ export async function sign(
  * Verifies a JWS Compact Serialization against a key, JWK Set or key resolver.
  * The payload type follows `options.payload`: claims `T` for `"json"` (default), `string`, or `Uint8Array`.
  */
-export async function verify<T extends Record<string, unknown> = JWTClaims>(
+export async function verify<T extends object = JWTClaims>(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options?: JWSVerifyOptions<"json"> & { forceUint8Array?: false },
