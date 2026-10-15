@@ -1,13 +1,4 @@
-/**
- * The decoded JOSE protected header received by a {@link JWKLookupFunction}.
- *
- * The most commonly inspected fields are explicitly typed; additional
- * algorithm-specific parameters (`epk`, `p2s`, `p2c`, `apu`, `apv`, …) are
- * accessible through the index signature.
- *
- * `alg` is always present on both JWS and JWE tokens. `enc` is only present
- * on JWE tokens.
- */
+/** Decoded protected header passed to a `JWKLookupFunction`; `enc` is present on JWE only. */
 export type JWKLookupFunctionHeader = {
   kid?: string;
   alg?: string;
@@ -17,126 +8,116 @@ export type JWKLookupFunctionHeader = {
   [propName: string]: unknown;
 };
 
-/**
- * A callback that resolves the decryption or verification key from a token's
- * decoded protected header and the raw compact token string.
- *
- * Accepted by both {@link verify} (JWS) and {@link decrypt} (JWE). When a
- * {@link JWKSet} is returned, the library tries each key whose `kid` and `alg`
- * are compatible with the header in order, stopping at the first that succeeds
- * — see {@link getJWKsFromSet} for the selection logic.
- *
- * Returning a `string` is meaningful for JWE only (PBES2 password); for JWS
- * a string return is encoded to bytes and used as a raw symmetric key.
- *
- * The optional `TReturn` generic lets callers who always hand back a specific
- * key shape (e.g. a `JWK_EC_Public<"ES256">`) preserve that narrowing all the
- * way into the `verify` / `decrypt` key resolution path.
- */
+/** Resolves the verify/decrypt key from the protected header and compact token; a string is a PBES2 password (JWE) or raw key bytes (JWS); `undefined`, `null` or a throw is `ERR_JWK_KEY_NOT_FOUND`. */
 export type JWKLookupFunction<
   TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>,
-> = (header: JWKLookupFunctionHeader, token: string) => TReturn | Promise<TReturn>;
+> = (
+  header: JWKLookupFunctionHeader,
+  token: string,
+) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
 
-/**
- * Interface for custom JWK import cache implementations.
- *
- * The adapter receives the full JWK object so each implementation can choose
- * its own keying strategy:
- * - {@link WeakMapJWKCache} uses the object reference (GC-friendly, no string hashing needed)
- * - A `kid`-keyed cache extracts `jwk.kid` and uses it as a string key
- * - A content-hash cache hashes `jwk.k` or `jwk.n`+`jwk.e`
- *
- * @example Use a custom kid-keyed cache:
- * ```ts
- * import { configureJWKCache } from 'unjwt/jwk';
- * const map = new Map<string, CryptoKey>();
- * configureJWKCache({
- *   get: (jwk, alg) => map.get(`${jwk.kid}:${alg}`),
- *   set: (jwk, alg, key) => map.set(`${jwk.kid}:${alg}`, key),
- * });
- * ```
- */
+/** Custom JWK import cache; key on the JWK `thumbprint` plus private/public half and `alg`, never on `kid`. Both methods may return a promise. */
 export interface JWKCacheAdapter {
-  get(jwk: JWK, alg: string): CryptoKey | undefined;
-  set(jwk: JWK, alg: string, key: CryptoKey): void;
+  get(jwk: JWK, alg: string): CryptoKey | undefined | Promise<CryptoKey | undefined>;
+  set(jwk: JWK, alg: string, key: CryptoKey): void | Promise<void>;
 }
 
 /** Structure returned for composite AES-CBC + HMAC keys. */
 export type CompositeKey = {
-  /** The AES-CBC encryption/decryption key. */
   encryptionKey: CryptoKey;
-  /** The HMAC key for integrity/authentication. */
   macKey: CryptoKey;
 };
 
 export type GenerateKeyAlgorithm = Exclude<JWKAlgorithm, "none" | "dir" | JWK_PBES2>;
 
-/** Options for the generateKey function. */
-export interface GenerateKeyOptions {
-  /** Key usages for the generated key(s). Note: For composite keys (CBC), default usages are applied separately. */
+/** Options for `generateJWK`; `Kid` is the `kid` option that types the generated `kid`. */
+export interface GenerateJWKOptions<Kid extends string | false = string | false> {
+  /** Key usages; composite (CBC) keys get their default usages separately. */
   keyUsage?: KeyUsage[];
-  /**
-   * Mark the key(s) as extractable. Defaults to true. Ignored when `toJWK` is set —
-   * the JWK output requires exporting the intermediate key. For long-lived asymmetric
-   * private keys that should never leave the runtime, prefer `false` (and omit `toJWK`):
-   * the key still signs/decrypts but its material cannot be exported.
-   */
-  extractable?: boolean;
-  /** RSA modulus length. Defaults to 2048. */
+  /** RSA modulus length. Default: `2048`. */
   modulusLength?: number;
-  /** RSA public exponent. Defaults to 65537 (0x010001). */
+  /** RSA public exponent. Default: `65537`. */
   publicExponent?: Uint8Array<ArrayBuffer>;
-  /** Named curve for EC or OKP keys. Defaults to "P-256" for EC and "Ed25519" for OKP. */
-  namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519" | "Ed448";
-  /**
-   * Export the generated key(s) as JWK. When `true`, keys are returned in JWK
-   * format with a generated `kid`. To include additional JWK parameters
-   * (e.g. a custom `kid`), use {@link generateJWK} instead.
-   */
-  toJWK?: boolean;
+  /** EC/OKP curve. Default: `"P-256"` (EC), `"Ed25519"` (OKP). */
+  namedCurve?: "P-256" | "P-384" | "P-521" | "X25519" | "Ed25519";
+  /** `kid` to set verbatim, or `false` for none. Default: the RFC 7638 thumbprint, a SHA-256 digest per key. */
+  kid?: Kid;
 }
 
-type GenerateKeyReturnJWK<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_Asymmetric_Algorithm
-  ? JWK_Pair<TAlg>
-  : TAlg extends JWK_AES_CBC_HMAC | JWK_Symmetric_Algorithm
-    ? JWK_oct<TAlg>
-    : never;
+/** Options for `generateKey`; `ToJWK` is the `toJWK` literal that picks key objects or JWKs. */
+export interface GenerateKeyOptions<
+  ToJWK extends boolean = boolean,
+  Kid extends string | false = string | false,
+> extends GenerateJWKOptions<Kid> {
+  /** Mark the key(s) extractable; ignored when `toJWK` is set. Default: `true`. */
+  extractable?: boolean;
+  /** Return JWKs instead of key objects. */
+  toJWK?: ToJWK;
+  /** Read only with `toJWK`: `kid` to set verbatim, or `false` for none. Default: the RFC 7638 thumbprint, a SHA-256 digest per key. */
+  kid?: Kid;
+}
 
-// AES-CBC+HMAC returns raw bytes — the composite layout isn't directly importable via Web Crypto.
-type GenerateKeyReturnCrypto<TAlg extends GenerateKeyAlgorithm> = TAlg extends JWK_AES_CBC_HMAC
-  ? Uint8Array<ArrayBuffer>
-  : TAlg extends JWK_Asymmetric_Algorithm
-    ? CryptoKeyPair
-    : CryptoKey;
+/** `generateKey` result per algorithm without `toJWK`: `CryptoKey` (symmetric), raw bytes (`A*CBC-HS*`), `CryptoKeyPair` (asymmetric). */
+export type GeneratedKeyMap = {
+  [A in GenerateKeyAlgorithm]: A extends JWK_AES_CBC_HMAC
+    ? Uint8Array<ArrayBuffer>
+    : A extends JWK_Asymmetric_Algorithm
+      ? CryptoKeyPair
+      : CryptoKey;
+};
 
+/** `generateJWK` result per algorithm: an `oct` JWK or a JWK pair, each carrying `alg`, and `kid` unless `Kid` is `false`. */
+export type GeneratedJWKMap<Kid extends string | false = string> = {
+  [A in GenerateKeyAlgorithm]: A extends JWK_Asymmetric_Algorithm
+    ? GeneratedJWKPair<JWK_Pair<A>, A, Kid>
+    : JWK_oct<A> & GeneratedJWKMembers<A, Kid>;
+};
+
+/** `generateKey` return type for `TAlg` under `TOptions`; JWKs when `toJWK` is `true`. */
 export type GenerateKeyReturn<
   TAlg extends GenerateKeyAlgorithm,
   TOptions extends GenerateKeyOptions,
-> = TOptions["toJWK"] extends true ? GenerateKeyReturnJWK<TAlg> : GenerateKeyReturnCrypto<TAlg>;
+> = GeneratedKeyShape<TAlg, Exclude<TOptions["toJWK"], undefined>, GeneratedKid<TOptions>>;
 
-export type GenerateJWKOptions = Omit<GenerateKeyOptions, "toJWK" | "extractable">;
+/** `generateJWK` return type for `TAlg` under the `kid` option `Kid`. */
+export type GenerateJWKReturn<
+  TAlg extends GenerateKeyAlgorithm,
+  Kid extends string | false = string,
+> = GeneratedJWKMap<Kid>[TAlg];
 
-export type GenerateJWKReturn<TAlg extends GenerateKeyAlgorithm> = GenerateKeyReturnJWK<TAlg>;
+/** What `importKey` resolves to per input: bytes and `oct` JWKs to raw bytes, a `CryptoKey` as is, asymmetric JWKs to a `CryptoKey`. */
+export interface ImportedKeyMap {
+  bytes: Uint8Array<ArrayBuffer>;
+  oct: Uint8Array<ArrayBuffer>;
+  cryptoKey: CryptoKey;
+  asymmetric: CryptoKey;
+}
 
-/** Options for the deriveKeyFromPassword function. */
+/** `ImportedKeyMap` entry for key input `K`; a union input yields a union. */
+export type ImportedKey<K> = ImportedKeyMap[K extends Uint8Array
+  ? "bytes"
+  : K extends CryptoKey
+    ? "cryptoKey"
+    : K extends JWK_oct
+      ? "oct"
+      : "asymmetric"];
+
+/** Options for `deriveKeyFromPassword`. */
 export interface DeriveKeyOptions {
-  /** Salt value (p2s). Must be at least 8 bytes. */
-  salt: Uint8Array<ArrayBuffer>;
-  /** Iteration count (p2c). Must be a positive integer. */
+  alg: JWK_PBES2;
+  /** Salt (p2s), bytes or UTF-8 text; at least 8 octets (RFC 7518 §4.8.1.1). */
+  salt: string | Uint8Array<ArrayBuffer>;
+  /** Iteration count (p2c), a positive integer. */
   iterations: number;
-  /** Key usages for the derived key. Defaults to ["wrapKey", "unwrapKey"]. */
+  /** Key usages. Default: `["wrapKey", "unwrapKey"]`. */
   keyUsage?: KeyUsage[];
-  /** Mark the derived key as extractable. Defaults to false. Ignored when `toJWK` is set — the JWK output requires exporting the derived key. */
+  /** Mark the derived key extractable; ignored when `toJWK` is set. Default: `false`. */
   extractable?: boolean;
-  /**
-   * Export the derived key as JWK_oct. When `true`, returns the derived key in
-   * JWK format. To include additional JWK parameters (e.g. a custom `kid`),
-   * use {@link deriveJWKFromPassword} instead.
-   */
+  /** Return the derived key as a `JWK_oct`. */
   toJWK?: boolean;
 }
 
-/** PBES2 → AES-KW alg that ends up stamped on the derived JWK's `alg`. */
+/** PBES2 → AES-KW `alg` stamped on the derived JWK. */
 type DerivedJWKAlg<TAlg extends JWK_PBES2> = TAlg extends "PBES2-HS256+A128KW"
   ? "A128KW"
   : TAlg extends "PBES2-HS384+A192KW"
@@ -165,15 +146,7 @@ export type KeyManagementAlgorithm =
 
 export type ContentEncryptionAlgorithm = JWK_AES_GCM | JWK_AES_CBC_HMAC;
 
-/**
- * Keys admissible as the `wrappingKey` argument of {@link wrapKey}, narrowed
- * by the key management algorithm. Mirrors the runtime branches in
- * `jwk.wrapKey` and the inference in `inferJWEAllowedAlgorithms`.
- *
- * - `dir` accepts any symmetric JWK (the key _is_ the CEK).
- * - AES-GCMKW tolerates a JWK whose `alg` is the bare `A*GCM` counterpart —
- *   matches the `jweAlgsFromOctJWK` aliasing rule.
- */
+/** Keys admissible as the `wrappingKey` of `wrapKey` for algorithm `A`; `dir` takes any symmetric key. */
 export type WrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_RSA_ENC
   ? CryptoKey | JWK_RSA_Public<A>
   : A extends JWK_ECDH_ES
@@ -183,16 +156,12 @@ export type WrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_RSA
       : A extends JWK_AES_KW
         ? CryptoKey | JWK_oct<A>
         : A extends JWK_AES_GCM_KW
-          ? CryptoKey | JWK_oct<A | `A${"128" | "192" | "256"}GCM`>
+          ? CryptoKey | JWK_oct<A>
           : A extends "dir"
             ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
             : never;
 
-/**
- * Keys admissible as the `unwrappingKey` argument of {@link unwrapKey}.
- * The private-side counterpart of {@link WrappingKeyFor} — symmetric branches
- * are identical; asymmetric branches use the `_Private` variants.
- */
+/** Private-side counterpart of `WrappingKeyFor`, for the `unwrappingKey` of `unwrapKey`. */
 export type UnwrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_RSA_ENC
   ? CryptoKey | JWK_RSA_Private<A>
   : A extends JWK_ECDH_ES
@@ -202,119 +171,79 @@ export type UnwrappingKeyFor<A extends KeyManagementAlgorithm> = A extends JWK_R
       : A extends JWK_AES_KW
         ? CryptoKey | JWK_oct<A>
         : A extends JWK_AES_GCM_KW
-          ? CryptoKey | JWK_oct<A | `A${"128" | "192" | "256"}GCM`>
+          ? CryptoKey | JWK_oct<A>
           : A extends "dir"
             ? CryptoKey | JWK_oct | Uint8Array<ArrayBuffer>
             : never;
 
-/** Options for the wrapKey function. */
-export interface WrapKeyOptions {
-  /**
-   * Initialization Vector for AES-GCMKW. A fresh random IV is generated when
-   * not provided — production code should always omit this option.
-   *
-   * **Never reuse an IV and never derive it from external input.** A single
-   * IV reused under the same wrapping key breaks AES-GCM entirely (plaintext
-   * recovery and forgery). Provided only for tests and reproduction of known
-   * vectors in security research.
-   */
+/** Options for `wrapKey`. */
+export interface WrapKeyOptions<TAlg extends KeyManagementAlgorithm = KeyManagementAlgorithm> {
+  alg: TAlg;
+  /** AES-GCMKW IV, random when omitted; never reuse one under the same key (tests and known vectors only). */
   iv?: Uint8Array<ArrayBuffer>;
   /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
   p2s?: Uint8Array<ArrayBuffer>;
   /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
   p2c?: number;
-  /** ECDH-ES specific options. */
   ecdh?: {
-    /**
-     * ECDH-ES ephemeral key material. A fresh ephemeral key pair is generated
-     * automatically when this is not provided.
-     */
-    ephemeralKey?:
-      | CryptoKey
-      | JWK_EC_Private
-      | CryptoKeyPair
-      | { publicKey: CryptoKey | JWK_EC_Public; privateKey: CryptoKey | JWK_EC_Private };
+    /** Ephemeral key material. Generated when omitted. */
+    ephemeralKey?: ECDHEphemeralKeyInput;
     /** Agreement PartyUInfo (apu). */
     partyUInfo?: Uint8Array<ArrayBuffer>;
     /** Agreement PartyVInfo (apv). */
     partyVInfo?: Uint8Array<ArrayBuffer>;
-    /**
-     * Content encryption algorithm used for key-length derivation.
-     * Required only when `alg` is `"ECDH-ES"` (direct key agreement).
-     * Not needed for `ECDH-ES+A128KW`, `+A192KW`, or `+A256KW`.
-     */
+    /** Required only for direct `"ECDH-ES"` key agreement. */
     enc?: ContentEncryptionAlgorithm;
   };
 }
 
-/**
- * Result of {@link wrapKey}, discriminated by key management algorithm family.
- *
- * Narrow the shape by passing a literal `alg` to `wrapKey`:
- * - PBES2 → `{ encryptedKey, p2s, p2c }`
- * - AES-GCMKW → `{ encryptedKey, iv, tag }`
- * - ECDH-ES / ECDH-ES+A*KW → `{ encryptedKey, epk, apu?, apv? }`
- * - dir / AES-KW / RSA-OAEP → `{ encryptedKey }`
- */
+/** Result of `wrapKey`, shaped by the `alg` family; string members are base64url. */
 export type WrapKeyResult<TAlg extends KeyManagementAlgorithm = KeyManagementAlgorithm> =
   TAlg extends JWK_PBES2
     ? {
         encryptedKey: Uint8Array<ArrayBuffer>;
-        /** PBES2 Salt value (p2s). Base64URL encoded. */
         p2s: string;
-        /** PBES2 Iteration count (p2c). */
         p2c: number;
       }
     : TAlg extends JWK_AES_GCM_KW
       ? {
           encryptedKey: Uint8Array<ArrayBuffer>;
-          /** AES-GCMKW Initialization Vector. Base64URL encoded. */
           iv: string;
-          /** AES-GCMKW Authentication Tag. Base64URL encoded. */
           tag: string;
         }
       : TAlg extends JWK_ECDH_ES
         ? {
             encryptedKey: Uint8Array<ArrayBuffer>;
-            /** Ephemeral Public Key. */
-            epk: JWK_EC_Public;
-            /** Agreement PartyUInfo. Base64URL encoded. Present only when supplied. */
+            epk: JWK_EC_Public | JWK_OKP_Public;
             apu?: string;
-            /** Agreement PartyVInfo. Base64URL encoded. Present only when supplied. */
             apv?: string;
           }
         : { encryptedKey: Uint8Array<ArrayBuffer> };
 
-/** Options for the unwrapKey function. */
-export interface UnwrapKeyOptions {
-  /**
-   * Output format of the unwrapped key.
-   * - `"cryptokey"` (default) — returns a `CryptoKey` ready for use with WebCrypto.
-   * - `"raw"` — returns the raw key bytes as `Uint8Array` (useful for
-   *   interoperability or when the algorithm is not directly importable).
-   */
+/** Options for `unwrapKey`. */
+export interface UnwrapKeyOptions<TAlg extends KeyManagementAlgorithm = KeyManagementAlgorithm> {
+  alg: TAlg;
+  /** `"cryptokey"` returns a `CryptoKey`, `"raw"` the key bytes. Default: `"cryptokey"`. */
   format?: "cryptokey" | "raw";
-  /** Initialization Vector (required for AES-GCMKW). Base64URL encoded or Uint8Array. */
+  /** Required for AES-GCMKW; base64url or bytes. */
   iv?: Uint8Array<ArrayBuffer> | string;
-  /** Authentication Tag (required for AES-GCMKW). Base64URL encoded or Uint8Array. */
+  /** Required for AES-GCMKW; base64url or bytes. */
   tag?: Uint8Array<ArrayBuffer> | string;
-  /** PBES2 Salt value (required for PBES2). Base64URL encoded or Uint8Array. */
+  /** Required for PBES2; base64url or bytes. */
   p2s?: Uint8Array<ArrayBuffer> | string;
-  /** PBES2 Iteration count (required for PBES2). */
+  /** Required for PBES2. */
   p2c?: number;
   /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
   minIterations?: number;
-  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  /** Maximum accepted PBES2 `p2c` on unwrap. Default: `600_000`. */
   maxIterations?: number;
-  /** ECDH-ES Ephemeral Public Key (required for ECDH-ES). */
-  epk?: JWK_EC_Public | CryptoKey;
-  /** ECDH-ES Agreement PartyUInfo. Base64URL encoded or Uint8Array. */
+  /** Required for ECDH-ES. */
+  epk?: JWK_EC_Public | JWK_OKP_Public | CryptoKey;
   apu?: Uint8Array<ArrayBuffer> | string;
-  /** ECDH-ES Agreement PartyVInfo. Base64URL encoded or Uint8Array. */
   apv?: Uint8Array<ArrayBuffer> | string;
-  /** Content Encryption Algorithm used with ECDH-ES (required for direct key agreement). */
+  /** Required for direct ECDH-ES key agreement. */
   enc?: ContentEncryptionAlgorithm;
-  /** Expected unwrapped key algorithm (e.g., 'AES-GCM', 'AES-CBC'). Used by crypto.subtle.unwrapKey. */
+  /** Algorithm to import the unwrapped key as. */
   unwrappedKeyAlgorithm?:
     | string
     | Algorithm
@@ -322,34 +251,28 @@ export interface UnwrapKeyOptions {
     | AesCtrParams
     | AesCbcParams
     | AesGcmParams;
-  /** Expected key usages for the unwrapped key. */
   keyUsage?: KeyUsage[];
-  /** Mark the unwrapped key as extractable. Defaults to true. */
+  /** Mark the unwrapped key extractable. Default: `true`. */
   extractable?: boolean;
 }
 
-/**
- * Forked from https://github.com/panva/jose/tree/v6.0.10
- * Copyright (c) 2018 Filip Skokan.
- * LICENSE: https://github.com/panva/jose/blob/v6.0.10/LICENSE.md
- */
+/** Result of `unwrapKey`: bytes for `format: "raw"`, else a `CryptoKey`; a non-literal `format` keeps both. */
+export type UnwrapKeyResult<TOptions extends { format?: "cryptokey" | "raw" }> =
+  "format" extends keyof TOptions
+    ? [TOptions["format"]] extends ["raw"]
+      ? Uint8Array<ArrayBuffer>
+      : [TOptions["format"]] extends ["cryptokey" | undefined]
+        ? CryptoKey
+        : CryptoKey | Uint8Array<ArrayBuffer>
+    : CryptoKey;
 
-/**
- * Generic JSON Web Key Parameters.
- *
- * The `Alg` type parameter constrains the JWK's `alg` field. Each concrete JWK
- * interface below tightens `Alg` to the algorithm family admissible for that key
- * type — e.g. a `JWK_oct<JWK_HMAC>` can only hold `"HS256" | "HS384" | "HS512"`
- * in `alg`.
- */
+/** Forked from https://github.com/panva/jose/tree/v6.0.10, Copyright (c) 2018 Filip Skokan, LICENSE: https://github.com/panva/jose/blob/v6.0.10/LICENSE.md */
+
+/** Generic JWK parameters; `Alg` constrains the `alg` member. */
 export interface JWKParameters<Alg extends string = string> {
   /** JWK "kty" (Key Type) Parameter */
   "kty": string;
-  /**
-   * JWK "alg" (Algorithm) Parameter
-   *
-   * @see {@link https://github.com/panva/jose/issues/210 Algorithm Key Requirements}
-   */
+  /** JWK "alg" (Algorithm) Parameter */
   "alg"?: Alg;
   /** JWK "key_ops" (Key Operations) Parameter */
   "key_ops"?: KeyUsage[];
@@ -367,19 +290,28 @@ export interface JWKParameters<Alg extends string = string> {
   "x5u"?: string;
   /** JWK "kid" (Key ID) Parameter */
   "kid"?: string;
-  /**
-   * Non-standard JWK content encryption algorithm hint.
-   * When `alg` is `"dir"`, the library reads this field to infer the
-   * content encryption algorithm (`enc`) when it is not provided in options.
-   */
+  /** Non-standard `enc` hint, read when `alg` is `"dir"` and no `enc` option is given. */
   "enc"?: ContentEncryptionAlgorithm;
 }
+
+/** JWK members a caller may set on a produced key: all but `alg`, `kty`, `key_ops` and `ext`. */
+export type JWKMetadata = Omit<JWKParameters, "alg" | "kty" | "key_ops" | "ext">;
+
+/** ECDH-ES ephemeral key material: a private key, a `CryptoKeyPair`, or an object with both halves. */
+export type ECDHEphemeralKeyInput =
+  | CryptoKey
+  | JWK_EC_Private
+  | JWK_OKP_Private
+  | CryptoKeyPair
+  | {
+      publicKey: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
+      privateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
+    };
 
 /** Public EC JSON Web Keys */
 export interface JWK_EC_Public<
   Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string,
 > extends JWKParameters<Alg> {
-  /** EC JWK "kty" (Key Type) Parameter */
   kty: "EC";
   /** EC JWK "crv" (Curve) Parameter */
   crv: string;
@@ -406,7 +338,6 @@ export type JWK_EC<Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string>
 export interface JWK_RSA_Public<
   Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
 > extends JWKParameters<Alg> {
-  /** RSA JWK "kty" (Key Type) Parameter */
   kty: "RSA";
   /** RSA JWK "e" (Exponent) Parameter */
   e: string;
@@ -442,7 +373,6 @@ export type JWK_RSA<
 export interface JWK_OKP_Public<
   Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
 > extends JWKParameters<Alg> {
-  /** ED JWK "kty" (Key Type) Parameter */
   kty: "OKP";
   /** ED JWK "crv" (Curve) Parameter */
   crv: string;
@@ -475,7 +405,6 @@ export interface JWK_oct<
     | "dir"
     | (string & {}) = string,
 > extends JWKParameters<Alg> {
-  /** Oct JWK "kty" (Key Type) Parameter */
   kty: "oct";
   /** Oct JWK "k" (Key Value) Parameter */
   k: string;
@@ -509,28 +438,14 @@ export type JWK_Private<Alg extends string = string> =
   | JWK_EC_Private<Alg>
   | JWK_OKP_Private<Alg>;
 
-/**
- * JSON Web Key ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK}). "RSA", "EC", "OKP" and "oct" key types are supported.
- */
+/** JSON Web Key (RFC 7517) of type "RSA", "EC", "OKP" or "oct". */
 export type JWK<Alg extends string = string> =
   | JWK_oct<Alg>
   | JWK_RSA<Alg>
   | JWK_EC<Alg>
   | JWK_OKP<Alg>;
 
-/**
- * A pair of public and private JSON Web Keys, narrowed by `Alg` when that
- * uniquely identifies the key family:
- *
- * - `JWK_Pair<"RS256">` → RSA pair only
- * - `JWK_Pair<"ES256">` → EC pair only
- * - `JWK_Pair<"ECDH-ES+A256KW">` → EC pair **or** OKP pair (curve decides at runtime)
- * - `JWK_Pair<"Ed25519">` / `JWK_Pair<"EdDSA">` → OKP pair only
- *
- * The final branch is a generic fallback (`Alg = string`, or any custom /
- * forward-compat algorithm that doesn't match a known family) — it yields
- * the permissive three-branch union.
- */
+/** Public/private JWK pair, narrowed to the key family `Alg` identifies (ECDH-ES: EC or OKP). */
 export type JWK_Pair<Alg extends string = string> = Alg extends
   | JWK_RSA_SIGN
   | JWK_RSA_PSS
@@ -549,16 +464,8 @@ export type JWK_Pair<Alg extends string = string> = Alg extends
             | { publicKey: JWK_EC_Public<Alg>; privateKey: JWK_EC_Private<Alg> }
             | { publicKey: JWK_OKP_Public<Alg>; privateKey: JWK_OKP_Private<Alg> };
 
-/**
- * JSON Web Key Set ({@link https://www.rfc-editor.org/rfc/rfc7517 JWK Set}). "RSA", "EC" and "oct" key types are supported.
- *
- * The optional `T` generic preserves the precise key tuple when constructed
- * in TS — e.g. `JWKSet<[JWK_oct<"HS256">, JWK_EC_Public<"ES256">]>` — while the
- * default `JWK[]` keeps the permissive behavior expected for JWKS fetched from
- * external sources (runtime trials each candidate).
- */
+/** JSON Web Key Set (RFC 7517); `T` preserves a precise key tuple. */
 export interface JWKSet<T extends readonly JWK[] = JWK[]> {
-  /** JWK Set "keys" Parameter */
   keys: T;
 
   [parameter: string]: unknown;
@@ -594,7 +501,7 @@ export type JWKAlgorithm =
   | JWK_AES_CBC_HMAC
   | JWK_PBES2
   | JWK_ECDH_ES
-  | "dir"; // Direct encryption (no key wrapping)
+  | "dir";
 
 export type JWKPEMAlgorithm =
   | JWK_RSA_PSS
@@ -603,3 +510,30 @@ export type JWKPEMAlgorithm =
   | JWK_ECDSA
   | JWK_ECDH_ES
   | JWK_OKP_SIGN;
+
+type GeneratedJWKMembers<A, Kid> = [Kid] extends [false]
+  ? { alg: A }
+  : [Kid] extends [string]
+    ? { alg: A; kid: string }
+    : { alg: A; kid?: string };
+
+type GeneratedJWKPair<P, A, Kid> = P extends { privateKey: infer Private; publicKey: infer Public }
+  ? {
+      privateKey: Private & GeneratedJWKMembers<A, Kid>;
+      publicKey: Public & GeneratedJWKMembers<A, Kid>;
+    }
+  : never;
+
+type GeneratedKid<TOptions> = "kid" extends keyof TOptions
+  ? ThumbprintIfUnset<Extract<TOptions["kid" & keyof TOptions], string | false>>
+  : string;
+
+type ThumbprintIfUnset<Kid extends string | false> = [Kid] extends [never] ? string : Kid;
+
+type GeneratedKeyShape<TAlg extends GenerateKeyAlgorithm, ToJWK, Kid extends string | false> = [
+  ToJWK,
+] extends [never]
+  ? GeneratedKeyMap[TAlg]
+  : ToJWK extends true
+    ? GeneratedJWKMap<Kid>[TAlg]
+    : GeneratedKeyMap[TAlg];

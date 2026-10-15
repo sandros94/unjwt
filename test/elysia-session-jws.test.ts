@@ -24,18 +24,21 @@ function makeContext(
   const store = new Map<string, MockEntry>();
   for (const [k, v] of Object.entries(opts.cookies ?? {})) store.set(k, { value: v });
 
-  const cookie = new Proxy({} as SessionContext["cookie"], {
-    get(_t, prop: string) {
-      return {
-        get value() {
-          return store.get(prop)?.value;
-        },
-        set(config: CookieAttributes & { value: string }) {
-          store.set(prop, { value: config.value, lastWrite: config });
-        },
-      };
+  const cookie = new Proxy(
+    {},
+    {
+      get(_t, prop: string) {
+        return {
+          get value() {
+            return store.get(prop)?.value;
+          },
+          set(config: CookieAttributes & { value: string }) {
+            store.set(prop, { value: config.value, lastWrite: config });
+          },
+        };
+      },
     },
-  });
+  );
 
   const context: SessionContext = {
     cookie,
@@ -82,11 +85,11 @@ describe("elysia JWS session core", () => {
 
     expect(session.id).toBeTypeOf("string");
     expect(session.token).toBeTypeOf("string");
-    expect((session.data as any).user).toBe("alice");
+    expect(session.data.user).toBe("alice");
     expect(liveCookies(store)["elysia-jws"]).toBe(session.token);
     expect(onUpdate).toHaveBeenCalledOnce();
-    expect(onUpdate.mock.calls[0]![0].oldSession.id).toBeUndefined();
-    expect(onUpdate.mock.calls[0]![0].session.id).toBe(session.id);
+    expect(onUpdate.mock.calls[0][0].oldSession.id).toBeUndefined();
+    expect(onUpdate.mock.calls[0][0].session.id).toBe(session.id);
   });
 
   it("round-trips a session token from the cookie on the next request (fires onRead)", async () => {
@@ -100,8 +103,8 @@ describe("elysia JWS session core", () => {
     const s2 = await createJWSSession(second.context, { ...cfg, hooks: { onRead } });
 
     expect(s2.id).toBe(s1.id);
-    expect((s2.data as any).user).toBe("bob");
-    expect((s2.data as any).role).toBe("admin");
+    expect(s2.data.user).toBe("bob");
+    expect(s2.data.role).toBe("admin");
     expect(onRead).toHaveBeenCalledOnce();
   });
 
@@ -117,7 +120,7 @@ describe("elysia JWS session core", () => {
     const session = await createJWSSession(context, { ...cfg, hooks: { onRead } });
 
     expect(session.id).toBe(minted.id);
-    expect((session.data as any).user).toBe("carol");
+    expect(session.data.user).toBe("carol");
     expect(onRead).toHaveBeenCalledOnce();
   });
 
@@ -141,7 +144,7 @@ describe("elysia JWS session core", () => {
 
     expect(onExpire).toHaveBeenCalledOnce();
     expect(onRead).not.toHaveBeenCalled();
-    expect(onExpire.mock.calls[0]![0].session.id).toBe(minted.id);
+    expect(onExpire.mock.calls[0][0].session.id).toBe(minted.id);
     expect(session.id).toBeUndefined();
   });
 
@@ -163,12 +166,26 @@ describe("elysia JWS session core", () => {
     await session.update({ user: "erin" });
     const idBefore = session.id;
 
-    await expect(session.update({ bad: 1n as unknown as string })).rejects.toThrow(TypeError);
+    await expect(session.update({ bad: 1n as unknown as string })).rejects.toThrow(
+      expect.objectContaining({ name: "JWTError", code: "ERR_INVALID_OPTION" }),
+    );
 
     expect(onError).toHaveBeenCalledOnce();
     expect(session.id).toBe(idBefore);
-    expect((session.data as any).user).toBe("erin");
+    expect(session.data.user).toBe("erin");
     expect("bad" in session.data).toBe(false);
+  });
+
+  it("writes no cookie when a request only reads its session", async () => {
+    const { context: writer, store: written } = makeContext();
+    const session = await createJWSSession(writer, { key: hsKey });
+    await session.update({ user: "frank" });
+    const token = written.get("elysia-jws")!.value as string;
+
+    const { context, store } = makeContext({ cookies: { "elysia-jws": token } });
+    const read = await createJWSSession(context, { key: hsKey });
+    expect(read.data).toMatchObject({ user: "frank" });
+    expect(store.get("elysia-jws")?.lastWrite).toBeUndefined();
   });
 
   it("onUpdate.oldSession.data is a deep pre-update snapshot", async () => {
@@ -179,8 +196,8 @@ describe("elysia JWS session core", () => {
       hooks: {
         onUpdate: ({ session: s, oldSession }) => {
           snapshots.push({
-            oldRole: (oldSession.data as any).user?.role,
-            newRole: (s.data as any).user?.role,
+            oldRole: (oldSession.data.user as { role?: string } | undefined)?.role,
+            newRole: (s.data.user as { role?: string } | undefined)?.role,
           });
         },
       },
@@ -188,12 +205,12 @@ describe("elysia JWS session core", () => {
 
     await session.update({ user: { role: "user" } });
     await session.update((data) => {
-      (data as any).user.role = "admin";
+      (data.user as { role: string }).role = "admin";
       return {};
     });
 
-    expect(snapshots[1]!.oldRole).toBe("user");
-    expect(snapshots[1]!.newRole).toBe("admin");
+    expect(snapshots[1].oldRole).toBe("user");
+    expect(snapshots[1].newRole).toBe("admin");
   });
 
   it("clear() resets state, expires the cookie, and fires onClear with the old session", async () => {
@@ -210,7 +227,7 @@ describe("elysia JWS session core", () => {
     expect(Object.keys(session.data)).toHaveLength(0);
     expect(store.get("elysia-jws")?.lastWrite?.maxAge).toBe(0);
     expect(onClear).toHaveBeenCalledOnce();
-    expect(onClear.mock.calls[0]![0].oldSession.id).toBe(idBefore);
+    expect(onClear.mock.calls[0][0].oldSession.id).toBe(idBefore);
   });
 
   it("works with an asymmetric key pair (private signs, public verifies)", async () => {
@@ -223,7 +240,7 @@ describe("elysia JWS session core", () => {
     const s2 = await createJWSSession(second.context, cfg);
 
     expect(s2.id).toBe(s1.id);
-    expect((s2.data as any).user).toBe("grace");
+    expect(s2.data.user).toBe("grace");
   });
 
   it("omits exp when maxAge is unset and enforces it when set", async () => {

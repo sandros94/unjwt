@@ -1,7 +1,7 @@
 import type { JWK_Public } from "./jwk";
-import type { MaxTokenAge } from ".";
+import type { Duration, ExpiresIn, MaxTokenAge } from ".";
 
-/** Header Parameters common to JWE and JWS */
+/** Header Parameters common to JWE and JWS. */
 export interface JoseHeaderParameters {
   /** "kid" (Key ID) Header Parameter */
   kid?: string;
@@ -30,19 +30,24 @@ export interface JoseHeaderParameters {
   /** "crit" (Critical) Header Parameter */
   crit?: string[];
 
-  /** Any other JWS/JWE Header member. */
   [propName: string]: unknown;
 }
 
-/**
- * Payload accepted by {@link sign} and {@link encrypt}.
- *
- * Covers raw strings and bytes for non-JWT use, plus any JSON-serializable
- * object for JWT and generic structured payloads. JWT-specific claim names
- * are not enforced at this level — use {@link JWTClaims} when you want typed
- * claim names and spec-compliant field types.
- */
+/** Payload accepted by `sign` and `encrypt`: a string, raw bytes, or a JSON object. */
 export type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
+
+/** How a verified or decrypted payload is decoded: `"json"` object, UTF-8 `"string"`, or raw `"bytes"`. */
+export type JOSEPayloadMode = keyof JOSEPayloadTypeMap;
+
+/** The payload type each `JOSEPayloadMode` resolves to. */
+export interface JOSEPayloadTypeMap<T = JWTClaims> {
+  json: T;
+  string: string;
+  bytes: Uint8Array<ArrayBuffer>;
+}
+
+/** The payload type returned under `Mode`; a union of modes yields the union of payloads. */
+export type PayloadOf<Mode extends JOSEPayloadMode, T = JWTClaims> = JOSEPayloadTypeMap<T>[Mode];
 
 export interface JWTClaims {
   /** "iss" (Issuer) Claim */
@@ -60,7 +65,6 @@ export interface JWTClaims {
   /** "jti" (JWT ID) Claim */
   jti?: string;
 
-  /** Any other JWT member. */
   [propName: string]: unknown;
 }
 
@@ -72,32 +76,68 @@ export interface JWT<T = JWTClaims> {
   claims: T;
 }
 
+/** Per-call work bounds; each entry must be a positive integer, else `ERR_INVALID_OPTION`. */
+export interface JOSELimits {
+  /** Max `signatures[]` entries in a JWS JSON serialization. @default 16 */
+  signatures?: number;
+  /** Max `recipients[]` entries in a JWE JSON serialization. @default 16 */
+  recipients?: number;
+  /** Max JWK Set candidates tried per token after `kid`/`alg`/`use` filtering. @default 8 */
+  keyCandidates?: number;
+  /** Total PBKDF2 iterations one call may spend across PBES2 attempts. @default 2_400_000 */
+  pbes2Iterations?: number;
+}
+
+/** Claim expectations, each checked when set; an empty or malformed value is `ERR_INVALID_OPTION`. */
 export interface JWTClaimValidationOptions {
-  /** Expected JWT "aud" (Audience) Claim value(s). Implies presence requirement. */
+  /** Expected "aud" value(s); `aud` is checked only when this is set (RFC 7519 §4.1.3). */
   audience?: string | string[];
-  /** Expected JWT "iss" (Issuer) Claim value(s). Implies presence requirement. */
+  /** Expected "iss" value(s); implies presence. */
   issuer?: string | string[];
-  /** Expected JWT "sub" (Subject) Claim value. Implies presence requirement. */
+  /** Expected "sub" value; implies presence. */
   subject?: string;
-  /** Maximum token age, from the JWT "iat" (Issued At) Claim value. Implies presence requirement. */
+  /** Maximum token age from "iat"; implies presence. */
   maxTokenAge?: MaxTokenAge;
-  /**
-   * Clock skew tolerance (in seconds) for validating time-based claims (nbf/exp/iat).
-   *
-   * @default 0
-   */
-  clockTolerance?: number;
-  /** Expected JWT "typ" (Type) Header Parameter value. Implies presence requirement. */
+  /** Clock skew tolerance for nbf/exp/iat, in seconds or a `Duration`. @default 0 */
+  clockTolerance?: number | Duration;
+  /** Expected "typ" header, compared as a media type (RFC 7515 §4.1.9); implies presence. */
   typ?: string;
-  /** Date to use when comparing NumericDate claims, defaults to `new Date()`. */
+  /** Date used for NumericDate comparisons. @default new Date() */
   currentDate?: Date;
   /** Additional required claim names. */
   requiredClaims?: string[];
-  /**
-   * Critical header parameters that this caller understands and has processed.
-   * If the token's `crit` header lists a parameter not present in this list
-   * (and not natively understood by the library), verification will fail per
-   * RFC 7515 §4.1.11 / RFC 7516 §4.1.13.
-   */
+  /** `crit` header parameters the caller understands (RFC 7515 §4.1.11, RFC 7516 §4.1.13). */
   recognizedHeaders?: string[];
+}
+
+/** Time claims a producer computes; a claim already in the payload is kept as given. */
+export interface JWTTimeClaimOptions {
+  /** Reference moment for `iat` and relative durations. @default new Date() */
+  currentDate?: Date;
+  /** Duration until `exp`; exclusive with `expiresAt`. */
+  expiresIn?: ExpiresIn;
+  /** Absolute `exp`; exclusive with `expiresIn`. */
+  expiresAt?: Date;
+  /** Duration from `iat` until `nbf` (`0` sets `nbf = iat`); exclusive with `notBeforeAt`. */
+  notBeforeIn?: ExpiresIn;
+  /** Absolute `nbf` (RFC 7519 §4.1.5); exclusive with `notBeforeIn`. */
+  notBeforeAt?: Date;
+}
+
+/** Options shared by `verify` and `decrypt` (compact and multi). */
+export interface JOSEConsumerOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends JWTClaimValidationOptions {
+  /** Admit `oct` entries of a JWK Set as key material; only for application-controlled sets. @default false */
+  allowSymmetricJWKSet?: boolean;
+  /** Payload decoding mode; a mismatch is `ERR_JWS_INVALID` / `ERR_JWE_INVALID`. @default "json" */
+  payload?: Mode;
+  /**
+   * If true, forces the payload to be returned as a `Uint8Array`.
+   *
+   * @deprecated Use `payload: "bytes"`. Deprecated in v0.8.0, removed in v0.9.0
+   */
+  forceUint8Array?: boolean;
+  /** `false` skips claim validation; `true` with a non-`"json"` payload is `ERR_INVALID_OPTION`. */
+  validateClaims?: boolean;
 }

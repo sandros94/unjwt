@@ -10,7 +10,7 @@ Import path: `unjwt/adapters/elysia`
 import { jwsSession, jweSession } from "unjwt/adapters/elysia";
 ```
 
-Also re-exports: `generateJWK`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`, all core types.
+Also re-exports: `generateJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`, all core types, and the session option types `SessionSignOptions`, `SessionVerifyOptions`, `SessionEncryptOptions`, `SessionDecryptOptions`.
 
 Peer dep: `elysia` (optional). Runs anywhere `app.handle(Request)` does (Bun, Node, Deno, Workers);
 `@elysiajs/node` is only needed to run an actual server via `.listen()`, not for `handle()`.
@@ -28,8 +28,15 @@ Peer dep: `elysia` (optional). Runs anywhere `app.handle(Request)` does (Bun, No
 import { Elysia, t } from "elysia";
 import { jweSession } from "unjwt/adapters/elysia";
 
+// Derive once at boot — the adapter takes key material, never a password.
+const key = await deriveJWKFromPassword(process.env.SESSION_SECRET!, {
+  alg: "PBES2-HS256+A128KW",
+  salt: process.env.SESSION_SALT!,
+  iterations: 600_000,
+});
+
 const app = new Elysia()
-  .use(jweSession({ key: process.env.SESSION_SECRET!, maxAge: "7D" }))
+  .use(jweSession({ key, maxAge: "7D" }))
   .post(
     "/login",
     async ({ session, body }) => {
@@ -42,7 +49,8 @@ const app = new Elysia()
 ```
 
 `ctx.session` is typed (the plugin's scoped `resolve` populates it per request). Cookie defaults match
-the rest of the library: JWE `httpOnly: true`, JWS `httpOnly: false`, both `secure: true`, `path: "/"`.
+the rest of the library: JWE `httpOnly: true`, JWS `httpOnly: false`, both `secure: true`, `path: "/"`,
+`sameSite: "lax"`.
 
 ## Guard macro
 
@@ -75,7 +83,23 @@ const app = new Elysia()
 - Guard names follow `contextKey`: `requireAccess`, `requireRefresh`, etc.
 
 With defaults, two plugins would both expose `ctx.session` (later wins) — always set distinct
-`contextKey` + `name` when combining.
+`contextKey` + `name` when combining. Each plugin's Elysia identity is seeded from `name` and
+`contextKey`, so two differently-named sessions register side by side instead of deduplicating.
+
+A `name` spells one cookie and one cookie carries one token, so on any one request a name belongs
+to one session — families included. Binding a second family under a name already
+bound on the same request throws `ERR_SESSION_CONFIG_INVALID`
+(`'[unjwt/elysia] Session name "app" is already used by a JWS session on this request; …'`).
+Re-creating the same family under the same name — a hook re-reading its own session — is the same
+session and is always allowed. All bindings of one family and name on a request (plugin, handler,
+hook) share one state: a hook's `clear()` empties `ctx.session` and closes `requireSession`, a hook's
+`update()` hands the handler the new session.
+
+Elysia serializes cookies when it builds the response, and its lifecycle context is the same before
+and after (`response` and `responseValue` are both set once the handler returns), so the adapter
+cannot tell `onAfterHandle` from `onAfterResponse`: an `update()`/`clear()` after the response is
+built (e.g. `onAfterResponse`) resolves, but its cookie is never sent. Write the session before the
+response is built.
 
 ## SessionManager Interface
 
@@ -88,26 +112,32 @@ interface SessionManager<
 > {
   readonly id: string | undefined; // jti — undefined until update() is called (lazy)
   readonly createdAt: number; // iat, ms
-  readonly expiresAt: ConfigMaxAge extends ExpiresIn
-    ? number
-    : "exp" extends keyof T
-      ? T["exp"]
-      : number | undefined;
-  readonly data: SessionData<T>; // payload, excludes jti/iat/exp
+  readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined;
+  readonly data: SessionData<T>; // payload, excludes jti/iat/exp/nbf
   readonly token: string | undefined;
-  update: (update?: SessionUpdate<T>) => Promise<SessionManager<T, ConfigMaxAge>>;
+  update: (
+    update?: SessionUpdate<T>,
+    options?: SessionIssueOptions, // { maxAge?: ExpiresIn } — this issue only
+  ) => Promise<SessionManager<T, ConfigMaxAge>>;
   clear: () => Promise<SessionManager<T, ConfigMaxAge>>;
 }
 
 type SessionUpdate<T> =
-  Partial<SessionData<T>> | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
+  | Partial<SessionData<T>>
+  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
 ```
 
 - Lazy: `session.id` is `undefined` until `update()`; reading `ctx.session` alone sets no cookie.
-- `update()` — partial merge, updater fn, or no-arg token rotation.
+- `update()` — partial merge, updater fn, or no-arg token rotation. `update(data, { maxAge })` gives
+  one token a lifetime of its own.
 - `clear()` — expires the cookie, resets state, fires `onClear` (distinct from expiry → `onExpire`).
-- Reserved claims `jti`/`iat` always overwrite same-named data keys; `exp` only when `maxAge` is set
-  (without `maxAge`, an `exp` data key becomes the token's real expiry).
+- Reserved claims `jti`, `iat`, `exp` and `nbf` are adapter-owned: stripped from every `update()`
+  payload, dropped from `session.data` on every issue, never read back out of `session.data`.
+  A token's lifetime comes only from `maxAge`. A token with an `iat` later than now plus
+  `clockTolerance` is refused even without a `maxAge`.
+  A `__proto__`, `constructor` or `prototype` key in an update throws `ERR_INVALID_OPTION`.
+  Data travels as JSON: the writing request keeps the values as given, later reads get their JSON
+  round trip (`Date` → ISO string, `NaN`/`±Infinity` → `null`, `undefined` members dropped).
 
 ## Config
 
@@ -116,20 +146,25 @@ type SessionUpdate<T> =
 ```ts
 interface SessionConfigJWS<T, MaxAge, TContext> {
   key:
+    | CryptoKey // requires jws.signOptions.alg
     | JWK_oct<JWK_HMAC>
     | {
-        privateKey: JWSAsymmetricPrivateJWK;
-        publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet;
+        privateKey: JWSAsymmetricPrivateJWK | CryptoKey;
+        publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet | CryptoKey;
       };
   maxAge?: MaxAge;
+  rolling?: true | ExpiresIn;
   name?: string; // default "elysia-jws"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
-  sessionHeader?: false | string; // default x-<name>-session; "Bearer " stripped
+  sessionHeader?: false | string; // default x-<name>-session (name without __Host-/__Secure-); "Bearer " stripped (case-insensitive)
   generateId?: () => string;
   jws?: {
-    signOptions?: Omit<JWSSignOptions, "expiresIn">;
-    verifyOptions?: JWTClaimValidationOptions;
+    // JWSSignOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
+    // `protectedHeader.typ` sets the session `typ` (default "session+jwt") incoming tokens must carry
+    signOptions?: SessionSignOptions;
+    /** JWSVerifyOptions the adapter does not own (`limits`, `allowSymmetricJWKSet`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
+    verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TContext>;
 }
@@ -140,18 +175,29 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
 ```ts
 interface SessionConfigJWE<T, MaxAge, TContext> {
   key:
-    | string
+    | CryptoKey // requires jwe.encryptOptions.alg + enc
     | JWEEncryptJWK
-    | { privateKey: JWEAsymmetricPrivateJWK; publicKey?: JWEAsymmetricPublicJWK };
+    | {
+        privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
+        publicKey: JWEAsymmetricPublicJWK | CryptoKey;
+      };
   maxAge?: MaxAge;
+  rolling?: true | ExpiresIn;
   name?: string; // default "elysia-jwe"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
   sessionHeader?: false | string;
   generateId?: () => string;
   jwe?: {
-    encryptOptions?: Omit<JWEEncryptOptions, "expiresIn">;
-    decryptOptions?: JWTClaimValidationOptions;
+    // JWEEncryptOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
+    // `protectedHeader.typ` sets the session `typ` (default "session+jwt") incoming tokens must carry
+    encryptOptions?: SessionEncryptOptions;
+    // JWEDecryptOptions minus the adapter-owned algorithms, encryptionAlgorithms,
+    // typ, validateClaims and forceUint8Array — so minIterations/maxIterations,
+    // clockTolerance, issuer and audience are settable. With a PBES2 `alg` pinned or
+    // carried by the configured `key` (whatever `onUnsealKeyLookup` returns),
+    // `maxIterations` defaults to the `p2c` the session itself mints.
+    decryptOptions?: SessionDecryptOptions;
   };
   hooks?: SessionHooksJWE<T, MaxAge, TContext>;
 }
@@ -164,6 +210,52 @@ Verification/unsealing then accepts only those values; otherwise they are inferr
 `path`, `priority`, `sameSite`, `secure`, `partitioned`. The adapter does NOT use Elysia's cookie
 signing — the JWS/JWE token is already authenticated; the raw token is stored (chunked).
 
+## Keys, token source and errors
+
+- **Key material only.** `key` is a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`.
+  A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with
+  `deriveJWKFromPassword()`. A `CryptoKey` needs `jws.signOptions.alg` (or
+  `jwe.encryptOptions.alg` + `enc`), else `ERR_SESSION_CONFIG_INVALID`. A configured JWK is
+  imported when the session is created: one it cannot use (undecodable `k`, wrong AES key length)
+  throws `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`.
+  A pair half that is not the half it is named after — for a JWS `publicKey` list or set, any
+  entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or
+  `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
+- **Token source.** The cookie is read first; the session header is the fallback when the cookie
+  carries no token. The header carries the bare token or `Bearer <token>`; any other value —
+  blank, another scheme such as `Basic …`, a `Bearer` with no token — carries none, so it never
+  hides the cookie nor reaches `onError`. A `sessionHeader` that is not a header name, or
+  `cookie: false` + `sessionHeader: false`, throws `ERR_SESSION_CONFIG_INVALID` on first use.
+- **Cookie lifetime.** A session with a lifetime sets the cookie's `expires` to the token's `exp`
+  and drops a configured `cookie.maxAge` (`Max-Age` beats `Expires`, RFC 6265 §5.3); without one,
+  `cookie.expires` / `cookie.maxAge` are written as configured.
+  `clear()` and an expired read write `Max-Age=0` plus an epoch `Expires` on the cookie and every
+  chunk.
+  There is no lower-level token getter: `session.token` reads the session state, empty after
+  `clear()`.
+- **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a
+  cookie that shadows the session (the adapter reads the first cookie of a name); the defaults
+  satisfy the prefix, and a `__Host-` name with `domain`, a `path` other than `/` or
+  `secure: false` (or a `__Secure-` name with `secure: false`) throws
+  `ERR_SESSION_CONFIG_INVALID` at bind time. The default session header drops a `__Host-` / `__Secure-` prefix:
+  `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another
+  session and throws `ERR_SESSION_CONFIG_INVALID`.
+- **Foreign tokens.** A token is only a session when it carries the session `typ` (default
+  `"session+jwt"`, set through `protectedHeader.typ`, compared as a media type; RFC 8725 §3.11).
+  No `cty` is written or required. Tokens issued before 0.8 carry `typ: "JWT"` and are refused, so every existing session signs out once after the upgrade. With
+  `maxAge` set it must also carry `exp`. That `exp` alone bounds its life, so a token issued with
+  `update(data, { maxAge })` keeps its own lifetime past the config's `maxAge`. A foreign token is
+  `ERR_SESSION_TOKEN_INVALID` → `onError` even when expired; only a session token's expiry reaches
+  `onExpire`.
+- **Update data** must be a plain object; a string, an array or a `__proto__`-like key throws
+  `ERR_INVALID_OPTION`.
+- **Chunking.** The base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` …
+  `<name>.<count>`, up to 16 chunks; the same layout as both H3 adapters, so cookies are
+  interchangeable. Cleanup of a previous set is bounded by the same limit.
+- **Errors.** Every adapter error is a `JWTError`: `ERR_SESSION_TOKEN_INVALID` (with the original
+  failure as `cause`), `ERR_SESSION_KEY_INVALID`, `ERR_SESSION_CONFIG_INVALID`,
+  `ERR_SESSION_READONLY_EVENT`, `ERR_INVALID_OPTION`.
+
 ## Lifecycle Hooks
 
 `config.hooks` — same set as H3: `onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`, plus
@@ -175,18 +267,25 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
 Each hook receives `{ session, context, config }` — `context` is the Elysia context (not an H3
 `event`). Guarantees (ported from H3v2):
 
-- `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires only
-  when a valid session was established.
+- `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires once
+  per request, when the session is read from its token; later reads in the request are silent.
+- `session` in `onRead`, `onUpdate` and `onError` is the manager (`update()`, `clear()`);
+  `oldSession` is a snapshot. `onUpdate` carries `trigger: "update" | "rolling"`.
+- `rolling: true | ExpiresIn` reissues a session on read so `exp` slides (needs `maxAge`).
+- Every hook is dispatched with the session state already settled, so a hook may call
+  `createJWSSession` / `createJWESession` again on the same context and gets the same session.
 - `onExpire` receives the expired token's decoded claims via `error.cause` (`jti`/`iat`/`exp`), so
-  `session.id` is available.
-- `onUpdate` fires after every successful sign/seal (including data-less token refresh) with a
-  deep-cloned `oldSession`.
-- `onError` fires on read-path failures other than expiry, and on write-path sign/seal failures
-  (with `session.data` rolled back).
+  `session.id` is available. The session cookie is removed and `session.token` reset before it fires.
+- `onUpdate` fires after every successful sign/seal and cookie write (including data-less token
+  refresh) with a deep-cloned `oldSession`. A hook that throws makes `update()` reject with its
+  error while the new session stays in place — no rollback, no `onError`.
+- `onError` fires on read-path failures other than expiry, and on write-path sign/seal or cookie
+  write failures (with `session.data` rolled back). A read-path `error` is always an `ERR_SESSION_TOKEN_INVALID`
+  `JWTError` whose `cause` is the failure underneath.
 
 ```ts
 jweSession({
-  key: secret,
+  key,
   maxAge: "7D",
   hooks: {
     onUpdate: ({ session }) => db.sessions.upsert(session.id!, session.expiresAt),
@@ -209,7 +308,8 @@ new Elysia()
 
 **Must destructure `{ cookie, request }`** in the `resolve` signature. Elysia provisions context
 fields by statically scanning the hook source; passing an opaque `ctx` means `cookie` is never
-referenced there and stays `undefined` at runtime (the session can't read/write it).
+referenced there and stays `undefined` at runtime. A `cookie` object that holds no reactive cookie
+throws `ERR_SESSION_CONFIG_INVALID` on the first write, naming the jar contract.
 
 ## Notes / gotchas
 
@@ -217,6 +317,9 @@ referenced there and stays `undefined` at runtime (the session can't read/write 
   in `_plugin.ts`) so the package satisfies `isolatedDeclarations`; the factory body is cast
   `as unknown as SessionPlugin<…>` because Elysia's `.macro()` expects literal keys while the guard
   key is computed.
+- The session lifecycle is the shared core in `src/adapters/_session-core.ts`, over the JWS/JWE
+  codec and the Elysia port in `session/_shared.ts` (reactive-jar cookie writes, token reading),
+  so hooks, error codes and claim handling match the h3 adapters exactly.
 - Build: the adapter is an input of the single multi-input bundle (shared core in `dist/_chunks/`,
   `elysia` external, `unsecure` inlined) — no core duplication.
 - Testable in vitest+Node via `app.handle(new Request(...))`; no Bun required.

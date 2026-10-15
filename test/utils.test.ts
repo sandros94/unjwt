@@ -1,6 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 import { secureRandomBytes, textEncoder } from "unsecure";
 import {
+  base64UrlStringify,
+  base64UrlParse,
+  base64Stringify,
+  base64Parse,
+  base64UrlEncode,
+  base64UrlDecode,
+  base64Encode,
+  base64Decode,
   concatUint8Arrays,
   maybeArray,
   isJWK,
@@ -10,14 +18,24 @@ import {
   assertCryptoKey,
   isCryptoKeyPair,
   computeDurationInSeconds,
-  computeJwtTimeClaims,
+  isJWTContent,
   validateJwtClaims,
-  validateCriticalHeadersJWE,
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
 } from "../src/core/utils";
+import {
+  computeJwtTimeClaims,
+  parsePayloadBytes,
+  parsePayloadSegment,
+  parsePayloadText,
+  validateCriticalHeadersJWE,
+  validateCriticalHeadersJWS,
+} from "../src/core/internal";
 import { generateKey } from "../src/core/jwk";
+import { isJWTError } from "../src/core/error";
 import type {
+  JOSEPayloadMode,
+  JWTClaims,
   JWK_EC_Public,
   JWK_EC_Private,
   JWK_OKP_Public,
@@ -48,14 +66,18 @@ describe.concurrent("Utility Functions", () => {
       expect(computeDurationInSeconds(10)).toBe(10);
     });
 
-    it("should throw on invalid input", () => {
+    it("should throw ERR_INVALID_OPTION on invalid input", () => {
+      const optionError = expect.objectContaining({
+        name: "JWTError",
+        code: "ERR_INVALID_OPTION",
+      });
       // @ts-expect-error intentional invalid input
-      expect(() => computeDurationInSeconds("")).toThrow(TypeError);
+      expect(() => computeDurationInSeconds("")).toThrow(optionError);
       // @ts-expect-error intentional invalid input
-      expect(() => computeDurationInSeconds("5x")).toThrow(TypeError);
-      expect(() => computeDurationInSeconds(-10)).toThrow(TypeError);
-      expect(() => computeDurationInSeconds(0)).toThrow(TypeError);
-      expect(() => computeDurationInSeconds(Number.NaN)).toThrow(TypeError);
+      expect(() => computeDurationInSeconds("5x")).toThrow(optionError);
+      expect(() => computeDurationInSeconds(-10)).toThrow(optionError);
+      expect(() => computeDurationInSeconds(0)).toThrow(optionError);
+      expect(() => computeDurationInSeconds(Number.NaN)).toThrow(optionError);
     });
   });
 
@@ -148,12 +170,26 @@ describe.concurrent("Utility Functions", () => {
     });
 
     it("throws on invalid expiresAt / notBeforeAt Dates", () => {
-      expect(() => computeJwtTimeClaims({}, { expiresAt: new Date("not-a-date") })).toThrow(
-        /valid Date/i,
-      );
-      expect(() => computeJwtTimeClaims({}, { notBeforeAt: new Date("not-a-date") })).toThrow(
-        /valid Date/i,
-      );
+      for (const options of [
+        { expiresAt: new Date("not-a-date") },
+        { notBeforeAt: new Date("not-a-date") },
+      ]) {
+        const error = catchError(() => computeJwtTimeClaims({}, options));
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect((error as Error).message).toMatch(/valid Date/i);
+      }
+    });
+
+    it.each([
+      ["a number", 1_900_000_000],
+      ["a string", "2030-01-01T00:00:00Z"],
+      ["null", null],
+    ])("throws when expiresAt / notBeforeAt is %s", (_label, value) => {
+      for (const name of ["expiresAt", "notBeforeAt"] as const) {
+        const error = catchError(() => computeJwtTimeClaims({}, { [name]: value }));
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect((error as Error).message).toContain(name);
+      }
     });
   });
 });
@@ -181,7 +217,7 @@ describe("type guards", () => {
     });
 
     it("returns false for unknown kty", () => {
-      expect(isPublicJWK({ kty: "DH", n: "abc" } as any)).toBe(false);
+      expect(isPublicJWK({ kty: "DH", n: "abc" })).toBe(false);
     });
 
     it("returns false for non-JWK values", () => {
@@ -301,13 +337,39 @@ describe("validateCriticalHeadersJWE (direct)", () => {
   });
 
   it("does not throw when all crit params are understood and present", () => {
+    // Registered parameters (`enc`, `p2c`, …) may never appear in `crit`; extensions can.
     expect(() =>
-      validateCriticalHeadersJWE({ crit: ["enc", "p2c"], enc: "A128GCM", p2c: 2048 }, []),
+      validateCriticalHeadersJWE({ crit: ["app", "tenant"], app: "web", tenant: "acme" }, [
+        "app",
+        "tenant",
+      ]),
     ).not.toThrow();
   });
 
   it("does not throw when crit is absent", () => {
     expect(() => validateCriticalHeadersJWE({ enc: "A128GCM" }, [])).not.toThrow();
+  });
+});
+
+describe("isJWTContent", () => {
+  it("recognises a JWT typ and a JSON cty", () => {
+    expect(isJWTContent({ typ: "at+jwt" })).toBe(true);
+    expect(isJWTContent({ cty: "application/json" })).toBe(true);
+    expect(isJWTContent({ cty: "application/ld+json" })).toBe(true);
+    expect(isJWTContent({ typ: "text", cty: "text/plain" })).toBe(false);
+    expect(isJWTContent(undefined)).toBe(false);
+  });
+
+  it.each([42, null, {}, ["jwt"]])("returns false for a non-string typ (%j)", (typ) => {
+    expect(isJWTContent({ typ: typ as never })).toBe(false);
+  });
+
+  it("returns false for a non-string cty", () => {
+    expect(isJWTContent({ cty: 42 as never })).toBe(false);
+  });
+
+  it("still reads a JSON cty beside a non-string typ", () => {
+    expect(isJWTContent({ typ: 42 as never, cty: "application/json" })).toBe(true);
   });
 });
 
@@ -370,6 +432,33 @@ describe("validateJwtClaims additional cases", () => {
       validateJwtClaims({ sub: "actual-subject" }, { subject: "expected-subject" }),
     ).toThrow('"sub" (Subject) Claim');
   });
+
+  it.each([
+    ["an empty audience", { audience: "" }],
+    ["an audience list with an empty entry", { audience: [""] }],
+    ["an audience that is not a string", { audience: 1 }],
+    ["an empty issuer", { issuer: "" }],
+    ["an issuer list with a non-string entry", { issuer: ["i", 2] }],
+    ["an empty subject", { subject: "" }],
+    ["a subject that is not a string", { subject: 1 }],
+    ["maxTokenAge: 0", { maxTokenAge: 0 }],
+    ["requiredClaims that is a string", { requiredClaims: "exp" }],
+    ["requiredClaims with a non-string entry", { requiredClaims: ["exp", 1] }],
+  ])("refuses %s instead of skipping the check", (_label, options) => {
+    const claims = { sub: "u", iss: "i", aud: "a", iat: Math.floor(Date.now() / 1000) };
+    expect(() => validateJwtClaims(claims, options as never)).toThrow(
+      expect.objectContaining({ code: "ERR_INVALID_OPTION" }),
+    );
+  });
+
+  it("keeps an empty audience or issuer list as a check nothing satisfies", () => {
+    expect(() => validateJwtClaims({ aud: "a" }, { audience: [] })).toThrow(
+      expect.objectContaining({ code: "ERR_JWT_CLAIM_INVALID" }),
+    );
+    expect(() => validateJwtClaims({ iss: "i" }, { issuer: [] })).toThrow(
+      expect.objectContaining({ code: "ERR_JWT_CLAIM_INVALID" }),
+    );
+  });
 });
 
 describe("inferJWSAllowedAlgorithms", () => {
@@ -386,14 +475,18 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms({ kty: "EC", crv: "P-384", x: "", y: "" })).toEqual(["ES384"]);
     expect(inferJWSAllowedAlgorithms({ kty: "EC", crv: "P-521", x: "", y: "" })).toEqual(["ES512"]);
     expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed25519", x: "" })).toEqual([
-      "Ed25519",
       "EdDSA",
+      "Ed25519",
     ]);
-    expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed448", x: "" })).toEqual(["EdDSA"]);
+  });
+
+  it("infers nothing for an OKP JWK on an unsupported curve", () => {
+    expect(inferJWSAllowedAlgorithms({ kty: "OKP", crv: "Ed448", x: "" })).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms({ kty: "OKP", crv: "X448", x: "" })).toBeUndefined();
   });
 
   it("infers from CryptoKeys across JWS alg families", async () => {
-    const hmac = (await generateKey("HS384")) as CryptoKey;
+    const hmac = await generateKey("HS384");
     expect(inferJWSAllowedAlgorithms(hmac)).toEqual(["HS384"]);
 
     const rsa = await generateKey("RS512", { modulusLength: 2048 });
@@ -407,24 +500,63 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms(ec.publicKey)).toEqual(["ES384"]);
 
     const ed = await generateKey("Ed25519");
-    expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["Ed25519", "EdDSA"]);
+    expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["EdDSA", "Ed25519"]);
   });
 
-  it("returns undefined for a JWKSet where any key lacks alg and kty-based inference fails", () => {
+  it("infers nothing from a CryptoKey whose hash is not SHA-256/384/512", async () => {
+    const usages: KeyUsage[] = ["sign", "verify"];
+    const rsa = { modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-1" };
+    const [hmac, pkcs1, pss] = await Promise.all([
+      crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-1" }, false, usages),
+      crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", ...rsa }, false, usages),
+      crypto.subtle.generateKey({ name: "RSA-PSS", ...rsa }, false, usages),
+    ]);
+    expect(inferJWSAllowedAlgorithms(hmac)).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms(pkcs1.publicKey)).toBeUndefined();
+    expect(inferJWSAllowedAlgorithms(pss)).toBeUndefined();
+  });
+
+  it("returns undefined for a JWKSet where no key contributes", () => {
     const incomplete = { keys: [{ kty: "oct", k: "abc" }] };
     expect(inferJWSAllowedAlgorithms(incomplete)).toBeUndefined();
+  });
+
+  it("skips JWKSet entries it cannot infer instead of failing the whole set", () => {
+    const set = {
+      keys: [
+        { kty: "RSA", n: "x", e: "AQAB" },
+        { kty: "EC", crv: "P-256", x: "", y: "" },
+        null,
+        "junk",
+      ],
+    };
+    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
+  });
+
+  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
+    const set = {
+      keys: [
+        { kty: "EC", crv: "P-256", x: "", y: "" },
+        { kty: "oct", k: "x", alg: "HS256" },
+      ],
+    };
+    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
+    expect(inferJWSAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["ES256", "HS256"]);
   });
 });
 
 describe("inferJWEAllowedAlgorithms", () => {
-  it("infers password-like material to PBES2 + dir", () => {
+  it("infers a password string to the PBES2 family alone", () => {
     expect(inferJWEAllowedAlgorithms("pw")).toEqual([
       "PBES2-HS256+A128KW",
       "PBES2-HS384+A192KW",
       "PBES2-HS512+A256KW",
-      "dir",
     ]);
-    expect(inferJWEAllowedAlgorithms(new Uint8Array(16))).toHaveLength(4);
+  });
+
+  it("returns undefined for raw bytes — they carry no role of their own", () => {
+    expect(inferJWEAllowedAlgorithms(new Uint8Array(16))).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms(new Uint8Array(32))).toBeUndefined();
   });
 
   it("returns undefined for lookup functions and non-object primitives", () => {
@@ -440,27 +572,35 @@ describe("inferJWEAllowedAlgorithms", () => {
     expect(inferJWEAllowedAlgorithms({ kty: "OKP", crv: "X25519", x: "" })).toContain("ECDH-ES");
   });
 
-  it("infers from oct JWK alg variants", () => {
-    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A128GCM" })).toEqual([
-      "A128GCMKW",
-      "dir",
-    ]);
-    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256KW" })).toEqual([
-      "A256KW",
-      "dir",
-    ]);
+  it("maps an oct JWK alg to the single role it declares", () => {
+    // Content encryption algs name a CEK, which only `dir` consumes.
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A128GCM" })).toEqual(["dir"]);
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256CBC-HS512" })).toEqual([
       "dir",
+    ]);
+    // Key management algs name a wrapping key, and nothing else.
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256KW" })).toEqual(["A256KW"]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "A256GCMKW" })).toEqual([
+      "A256GCMKW",
+    ]);
+    expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "PBES2-HS256+A128KW" })).toEqual([
+      "PBES2-HS256+A128KW",
     ]);
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x", alg: "dir" })).toEqual(["dir"]);
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x" })).toBeUndefined();
   });
 
+  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
+    const set = { keys: [{ kty: "oct", k: "x", alg: "A256KW" }] };
+    expect(inferJWEAllowedAlgorithms(set)).toBeUndefined();
+    expect(inferJWEAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["A256KW"]);
+  });
+
   it("infers from CryptoKeys across JWE alg families (delegates to privateKey on pairs)", async () => {
-    const kw = (await generateKey("A128KW")) as CryptoKey;
+    const kw = await generateKey("A128KW");
     expect(inferJWEAllowedAlgorithms(kw)).toEqual(["A128KW", "dir"]);
 
-    const gcm = (await generateKey("A192GCM")) as CryptoKey;
+    const gcm = await generateKey("A192GCM");
     expect(inferJWEAllowedAlgorithms(gcm)).toEqual(["A192GCMKW", "dir"]);
 
     const rsaOaep = await generateKey("RSA-OAEP-384", { modulusLength: 2048 });
@@ -472,5 +612,307 @@ describe("inferJWEAllowedAlgorithms", () => {
     const ecdh = await generateKey("ECDH-ES+A128KW", { namedCurve: "P-256" });
     expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES");
     expect(inferJWEAllowedAlgorithms(ecdh.privateKey)).toContain("ECDH-ES+A128KW");
+  });
+});
+
+describe("base64 tooling", () => {
+  const bytes = new Uint8Array([0xfb, 0xff, 0xfe]);
+
+  describe("base64url (RFC 7515 §2)", () => {
+    it("stringifies without padding on the URL-safe alphabet", () => {
+      expect(base64UrlStringify(bytes)).toBe("-__-");
+      expect(base64UrlStringify("hello")).toBe("aGVsbG8");
+      expect(base64UrlStringify(new Uint8Array(0))).toBe("");
+    });
+
+    it("parses canonical unpadded input, mirroring the input type", () => {
+      expect(base64UrlParse("aGVsbG8")).toBe("hello");
+      expect(base64UrlParse("-__-", { returnAs: "uint8array" })).toEqual(bytes);
+      expect(base64UrlParse(textEncoder.encode("aGVsbG8"))).toEqual(textEncoder.encode("hello"));
+      expect(base64UrlParse(textEncoder.encode("aGVsbG8"), { returnAs: "string" })).toBe("hello");
+    });
+
+    it("rejects padding, the standard alphabet, whitespace and stray bits", () => {
+      for (const bad of ["aGVsbG8=", "+__+", "aGVs bG8", "aGVsbG9", "aGVsb"]) {
+        expect(() => base64UrlParse(bad)).toThrowError(
+          expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
+        );
+      }
+    });
+
+    it("loose drops what it cannot use", () => {
+      expect(base64UrlParse("aGVs bG8=", { loose: true })).toBe("hello");
+      expect(base64UrlParse("+__+", { loose: true, returnAs: "bytes" })).toEqual(bytes);
+    });
+  });
+
+  describe("standard base64 (RFC 4648 §4)", () => {
+    it("stringifies padded on the standard alphabet", () => {
+      expect(base64Stringify(bytes)).toBe("+//+");
+      expect(base64Stringify("hello")).toBe("aGVsbG8=");
+    });
+
+    it("parses only padded canonical input", () => {
+      expect(base64Parse("aGVsbG8=")).toBe("hello");
+      expect(base64Parse("+//+", { returnAs: "uint8array" })).toEqual(bytes);
+      for (const bad of ["aGVsbG8", "-__-", "aGVsbG8=="]) {
+        expect(() => base64Parse(bad)).toThrowError(
+          expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
+        );
+      }
+      expect(base64Parse("aGVsbG8", { loose: true })).toBe("hello");
+    });
+  });
+
+  it("keeps the deprecated aliases pointing at the new functions", () => {
+    expect(base64UrlEncode).toBe(base64UrlStringify);
+    expect(base64UrlDecode).toBe(base64UrlParse);
+    expect(base64Encode).toBe(base64Stringify);
+    expect(base64Decode).toBe(base64Parse);
+  });
+});
+
+describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1.13)', () => {
+  const shapeCases: [string, unknown][] = [
+    ["empty array", []],
+    ["non-array", "b64"],
+    ["array with a non-string entry", ["app", 1]],
+  ];
+
+  it.each(shapeCases)("JWS rejects a crit that is an %s", (_label, crit) => {
+    const error = catchError(() =>
+      validateCriticalHeadersJWS({ crit } as { crit?: string[] }, ["app"]),
+    );
+    expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      'Invalid JWS: "crit" must be a non-empty array of strings.',
+    );
+  });
+
+  it.each(shapeCases)("JWE rejects a crit that is an %s", (_label, crit) => {
+    const error = catchError(() =>
+      validateCriticalHeadersJWE({ crit } as { crit?: string[] }, ["app"]),
+    );
+    expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      'Invalid JWE: "crit" must be a non-empty array of strings.',
+    );
+  });
+
+  it.each(["alg", "typ", "cty", "kid", "crit", "jku", "jwk", "x5u", "x5c", "x5t", "x5t#S256"])(
+    'JWS rejects the registered header parameter "%s" in crit',
+    (param) => {
+      const error = catchError(() =>
+        validateCriticalHeadersJWS({ [param]: "x", crit: [param] }, [param]),
+      );
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+      expect((error as Error).message).toBe(
+        'Invalid JWS: "crit" must not list registered header parameters.',
+      );
+    },
+  );
+
+  it.each(["alg", "enc", "zip", "epk", "apu", "apv", "iv", "tag", "p2s", "p2c"])(
+    'JWE rejects the registered header parameter "%s" in crit',
+    (param) => {
+      const error = catchError(() =>
+        validateCriticalHeadersJWE({ [param]: "x", crit: [param] }, [param]),
+      );
+      expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+      expect((error as Error).message).toBe(
+        'Invalid JWE: "crit" must not list registered header parameters.',
+      );
+    },
+  );
+
+  it.each([
+    [{ crit: ["app"] }, 'Critical header parameter "app" listed in "crit" but not present'],
+    [{ crit: ["app"], app: "web" }, "Unprocessed critical header parameters: app"],
+  ])("reports the same crit violation for JWS and JWE (%j)", (header, message) => {
+    expect(() => validateCriticalHeadersJWS(header)).toThrow(message);
+    expect(() => validateCriticalHeadersJWE(header)).toThrow(message);
+  });
+
+  it('allows "b64" (RFC 7797) in a JWS crit', () => {
+    expect(() => validateCriticalHeadersJWS({ crit: ["b64"], b64: false })).not.toThrow();
+  });
+
+  it("keeps the recognized / missing semantics for extension parameters", () => {
+    expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
+    expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" })).toThrow(
+      "Unprocessed critical header parameters: app",
+    );
+    expect(() => validateCriticalHeadersJWE({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
+    expect(() => validateCriticalHeadersJWE({ crit: ["app"] }, ["app"])).toThrow(
+      'Critical header parameter "app" listed in "crit" but not present',
+    );
+  });
+});
+
+describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
+  const now = Math.floor(Date.now() / 1000);
+
+  describe("clockTolerance", () => {
+    it("accepts a Duration string and normalizes it to seconds", () => {
+      expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "5m" })).not.toThrow();
+      expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "1m" })).toThrow(
+        "Token is not yet valid",
+      );
+    });
+
+    it("accepts a numeric-string Duration as seconds, not as concatenation", () => {
+      expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "300" })).not.toThrow();
+      expect(() => validateJwtClaims({ nbf: now + 600 }, { clockTolerance: "300" })).toThrow(
+        "Token is not yet valid",
+      );
+    });
+
+    it.each([
+      ["NaN", Number.NaN],
+      ["negative", -5],
+      ["Infinity", Number.POSITIVE_INFINITY],
+      ["garbage string", "soon"],
+      ["boolean", true],
+    ])("rejects a %s clockTolerance", (_label, value) => {
+      const error = catchError(() =>
+        validateJwtClaims({ exp: now - 10 }, { clockTolerance: value as number }),
+      );
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect((error as Error).message).toBe(
+        "clockTolerance must be a non-negative number of seconds or a Duration.",
+      );
+    });
+  });
+
+  describe("required claims", () => {
+    it("does not accept an inherited property as a present claim", () => {
+      const claims = Object.create({ iss: "inherited" }) as { iss?: string };
+      const error = catchError(() => validateJwtClaims(claims, { requiredClaims: ["iss"] }));
+      expect(isJWTError(error, "ERR_JWT_CLAIM_MISSING")).toBe(true);
+    });
+
+    it("accepts an own claim that is explicitly undefined as present", () => {
+      expect(() =>
+        validateJwtClaims({ jti: undefined }, { requiredClaims: ["jti"] }),
+      ).not.toThrow();
+    });
+  });
+
+  describe("NumericDate", () => {
+    it.each(["exp", "nbf", "iat"])("rejects a negative %s", (claim) => {
+      const error = catchError(() => validateJwtClaims({ [claim]: -1 }));
+      expect(isJWTError(error, "ERR_JWT_CLAIM_INVALID")).toBe(true);
+    });
+
+    it("keeps fractional NumericDate values valid (RFC 7519 §2)", () => {
+      expect(() => validateJwtClaims({ exp: now + 60.5, nbf: now - 60.5 })).not.toThrow();
+    });
+  });
+
+  it("renders maxTokenAge in the error message exactly as it was passed", () => {
+    const error = catchError(() =>
+      validateJwtClaims({ iat: now - 3600 }, { maxTokenAge: "5m" }),
+    ) as Error;
+    expect(error.message).toContain("maxTokenAge: 5m");
+    expect(error.message).not.toContain("5ms");
+  });
+});
+
+describe("payload parsing", () => {
+  const claimsBytes = textEncoder.encode('{"sub":"u1"}');
+
+  it('parses a JSON object by default and under "json"', () => {
+    expect(parsePayloadBytes(claimsBytes)).toEqual({ sub: "u1" });
+    expect(parsePayloadBytes(claimsBytes, { payload: "json" })).toEqual({ sub: "u1" });
+  });
+
+  it.each(["[1]", "12", '"s"', "null", "nonsense"])('rejects %s under "json"', (raw) => {
+    const error = catchError(() => parsePayloadBytes(textEncoder.encode(raw)));
+    expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    expect((error as Error).message).toBe("Invalid JWS: Payload is not a JSON object.");
+  });
+
+  it("reports the JWE family when asked", () => {
+    const error = catchError(() =>
+      parsePayloadBytes(textEncoder.encode("nonsense"), { family: "JWE" }),
+    );
+    expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
+    expect((error as Error).message).toBe("Invalid JWE: Payload is not a JSON object.");
+  });
+
+  it('returns text under "string" and bytes under "bytes"', () => {
+    expect(parsePayloadBytes(claimsBytes, { payload: "string" })).toBe('{"sub":"u1"}');
+    expect(parsePayloadBytes(claimsBytes, { payload: "bytes" })).toBe(claimsBytes);
+  });
+
+  it("rejects invalid UTF-8 for the text-bearing modes", () => {
+    const invalid = new Uint8Array([0xff, 0xfe]);
+    for (const payload of ["json", "string"] as const) {
+      const error = catchError(() => parsePayloadBytes(invalid, { payload }));
+      expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
+    }
+    expect(parsePayloadBytes(invalid, { payload: "bytes" })).toBe(invalid);
+  });
+
+  it("reads UTF-8 text and reports invalid bytes under the requested family", () => {
+    expect(parsePayloadText(claimsBytes)).toBe('{"sub":"u1"}');
+    const invalid = new Uint8Array([0xff, 0xfe]);
+    expect(
+      isJWTError(
+        catchError(() => parsePayloadText(invalid)),
+        "ERR_JWS_INVALID",
+      ),
+    ).toBe(true);
+    expect(
+      isJWTError(
+        catchError(() => parsePayloadText(invalid, { family: "JWE" })),
+        "ERR_JWE_INVALID",
+      ),
+    ).toBe(true);
+  });
+
+  it("parses a Base64URL segment under the same modes", () => {
+    const segment = base64UrlStringify('{"sub":"u1"}');
+    expect(parsePayloadSegment(segment)).toEqual({ sub: "u1" });
+    expect(parsePayloadSegment(segment, { payload: "string" })).toBe('{"sub":"u1"}');
+    expect(parsePayloadSegment(segment, { payload: "bytes" })).toBeInstanceOf(Uint8Array);
+  });
+});
+
+function catchError(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+describe("types", () => {
+  interface MyClaims extends JWTClaims {
+    role: string;
+  }
+  const bytes = new Uint8Array(0);
+  const anyMode = (mode: JOSEPayloadMode) => parsePayloadBytes(bytes, { payload: mode });
+
+  it("parsePayloadBytes and parsePayloadSegment type their result by payload mode", () => {
+    expectTypeOf(() => parsePayloadBytes(bytes)).returns.toEqualTypeOf<JWTClaims>();
+    expectTypeOf(() => parsePayloadBytes<MyClaims>(bytes)).returns.toEqualTypeOf<MyClaims>();
+    expectTypeOf(() =>
+      parsePayloadBytes<MyClaims>(bytes, { payload: "json" }),
+    ).returns.toEqualTypeOf<MyClaims>();
+    expectTypeOf(() =>
+      parsePayloadBytes(bytes, { payload: "string" }),
+    ).returns.toEqualTypeOf<string>();
+    expectTypeOf(() => parsePayloadBytes(bytes, { payload: "bytes" })).returns.toEqualTypeOf<
+      Uint8Array<ArrayBuffer>
+    >();
+    expectTypeOf(anyMode).returns.toEqualTypeOf<JWTClaims | string | Uint8Array<ArrayBuffer>>();
+    expectTypeOf(() => parsePayloadSegment<MyClaims>("")).returns.toEqualTypeOf<MyClaims>();
+    expectTypeOf(() => parsePayloadSegment("", { payload: "bytes" })).returns.toEqualTypeOf<
+      Uint8Array<ArrayBuffer>
+    >();
+    // @ts-expect-error a claims type only applies to the JSON mode
+    expectTypeOf(() => parsePayloadBytes<MyClaims>(bytes, { payload: "bytes" }));
   });
 });

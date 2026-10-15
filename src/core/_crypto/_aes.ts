@@ -1,9 +1,10 @@
-import { base64UrlEncode } from "unsecure/utils";
+import { base64UrlStringify } from "../utils/base64";
 
-import { concatUint8Arrays, isCryptoKey } from "../utils";
+import { concatUint8Arrays, uint32be } from "../utils/array";
+import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
-
-// --- CEK / IV generation ---
+import { quoteTokenValue } from "../utils/_text";
+import { aesBitsOf, checkKeyUsage, isAlgorithm, lengthOf, unusableKey } from "./_key-algorithm";
 
 const IV_BIT_LENGTHS: Record<string, number> = {
   "A128GCM": 96,
@@ -29,7 +30,7 @@ const CEK_BIT_LENGTHS: Record<string, number> = {
 export function bitLengthIV(alg: string): number {
   const length = IV_BIT_LENGTHS[alg];
   if (length === undefined) {
-    throw new Error(`Unsupported JWE Algorithm: ${alg}`);
+    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
   }
   return length;
 }
@@ -40,14 +41,41 @@ export function generateIV(alg: string): Uint8Array<ArrayBuffer> {
 
 export function checkIvLength(enc: string, iv: Uint8Array<ArrayBuffer>): void {
   if (iv.length << 3 !== bitLengthIV(enc)) {
-    throw new Error("Invalid Initialization Vector length");
+    throw new JWTError("Invalid Initialization Vector length", "ERR_JWE_INVALID");
+  }
+}
+
+// RFC 7518 §5.2.2.1 / §5.3: GCM tags are 128 bits; CBC-HMAC tags are half the CEK size.
+const TAG_BIT_LENGTHS: Record<string, number> = {
+  "A128GCM": 128,
+  "A128GCMKW": 128,
+  "A192GCM": 128,
+  "A192GCMKW": 128,
+  "A256GCM": 128,
+  "A256GCMKW": 128,
+  "A128CBC-HS256": 128,
+  "A192CBC-HS384": 192,
+  "A256CBC-HS512": 256,
+};
+
+export function bitLengthTag(alg: string): number {
+  const length = TAG_BIT_LENGTHS[alg];
+  if (length === undefined) {
+    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
+  }
+  return length;
+}
+
+export function checkTagLength(enc: string, tag: Uint8Array<ArrayBuffer>): void {
+  if (tag.length << 3 !== bitLengthTag(enc)) {
+    throw new JWTError("Invalid Authentication Tag length", "ERR_JWE_INVALID");
   }
 }
 
 export function bitLengthCEK(alg: string): number {
   const length = CEK_BIT_LENGTHS[alg];
   if (length === undefined) {
-    throw new Error(`Unsupported JWE Algorithm: ${alg}`);
+    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
   }
   return length;
 }
@@ -59,15 +87,14 @@ export function generateCEK(alg: string): Uint8Array<ArrayBuffer> {
 export function checkCEKLength(cek: Uint8Array<ArrayBuffer>, expected: number): void {
   const actual = cek.byteLength << 3;
   if (actual !== expected) {
-    throw new Error(
+    throw new JWTError(
       `Invalid Content Encryption Key length. Expected ${expected} bits, got ${actual} bits`,
+      "ERR_INVALID_OPTION",
     );
   }
 }
 
-// RFC 7518 §3.2: HMAC keys must be at least the hash output size; AES-based
-// algorithms require an exact key size. Algorithms whose key size cannot be
-// known from `alg` alone (e.g. "dir", absent alg) are skipped.
+// RFC 7518 §3.2: HMAC keys are at least the hash size; AES keys have an exact size.
 export function assertOctKeyLength(bytes: Uint8Array, alg: string | undefined): void {
   if (!alg) return;
   if (alg === "HS256" || alg === "HS384" || alg === "HS512") {
@@ -80,9 +107,7 @@ export function assertOctKeyLength(bytes: Uint8Array, alg: string | undefined): 
     }
     return;
   }
-  const exactBits = /^A(128|192|256)(GCM)?KW$/.test(alg)
-    ? Number.parseInt(alg.slice(1, 4), 10)
-    : CEK_BIT_LENGTHS[alg];
+  const exactBits = /^A(128|192|256)(GCM)?KW$/.test(alg) ? aesBitsOf(alg) : CEK_BIT_LENGTHS[alg];
   if (exactBits !== undefined && bytes.length << 3 !== exactBits) {
     throw new JWTError(
       `${alg} requires a key of exactly ${exactBits >> 3} bytes (got ${bytes.length})`,
@@ -91,36 +116,26 @@ export function assertOctKeyLength(bytes: Uint8Array, alg: string | undefined): 
   }
 }
 
-// --- AES CryptoKey validation ---
-
 export function checkAESCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
   switch (alg) {
     case "A128GCM":
     case "A192GCM":
-    case "A256GCM": {
-      if (!isAlgorithm<AesKeyAlgorithm>(key.algorithm, "AES-GCM")) throw unusable("AES-GCM");
-      const expected = Number.parseInt(alg.slice(1, 4), 10);
-      const actual = key.algorithm.length;
-      if (actual !== expected) throw unusable(expected, "algorithm.length");
-      break;
-    }
+    case "A256GCM":
     case "A128KW":
     case "A192KW":
     case "A256KW": {
-      if (!isAlgorithm<AesKeyAlgorithm>(key.algorithm, "AES-KW")) throw unusable("AES-KW");
-      const expected = Number.parseInt(alg.slice(1, 4), 10);
-      const actual = key.algorithm.length;
-      if (actual !== expected) throw unusable(expected, "algorithm.length");
+      const name = alg.endsWith("KW") ? "AES-KW" : "AES-GCM";
+      if (!isAlgorithm(key.algorithm, name)) throw unusableKey(name);
+      const expected = aesBitsOf(alg);
+      if (key.algorithm.length !== expected) throw unusableKey(expected, "algorithm.length");
       break;
     }
     default: {
-      throw new TypeError("CryptoKey does not support this operation");
+      throw new JWTError("CryptoKey does not support this operation", "ERR_JWK_INVALID");
     }
   }
-  checkUsage(key, usage);
+  checkKeyUsage(key, usage);
 }
-
-// --- AES-KW key wrap / unwrap ---
 
 export async function aesKwWrap(
   alg: string,
@@ -162,8 +177,6 @@ export async function aesKwUnwrap(
   return new Uint8Array(await crypto.subtle.exportKey("raw", cryptoKeyCek));
 }
 
-// --- AES-GCM key wrap (AES-GCMKW) ---
-
 export async function gcmkwEncrypt(
   alg: string,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -175,8 +188,8 @@ export async function gcmkwEncrypt(
 
   return {
     encryptedKey: wrapped.ciphertext,
-    iv: base64UrlEncode(wrapped.iv!),
-    tag: base64UrlEncode(wrapped.tag!),
+    iv: base64UrlStringify(wrapped.iv),
+    tag: base64UrlStringify(wrapped.tag),
   };
 }
 
@@ -191,8 +204,6 @@ export async function gcmkwDecrypt(
   return decrypt(jweAlgorithm, key, ciphertext, iv, tag, new Uint8Array(0));
 }
 
-// --- AES-GCM / AES-CBC content encryption / decryption ---
-
 export async function encrypt(
   enc: string,
   plaintext: Uint8Array<ArrayBuffer>,
@@ -201,11 +212,11 @@ export async function encrypt(
   aad: Uint8Array<ArrayBuffer>,
 ): Promise<{
   ciphertext: Uint8Array<ArrayBuffer>;
-  tag: Uint8Array<ArrayBuffer> | undefined;
-  iv: Uint8Array<ArrayBuffer> | undefined;
+  tag: Uint8Array<ArrayBuffer>;
+  iv: Uint8Array<ArrayBuffer>;
 }> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
-    throw new TypeError("Key must be one of type: CryptoKey or Uint8Array");
+    throw new JWTError("Key must be one of type: CryptoKey or Uint8Array", "ERR_JWK_INVALID");
   }
 
   if (iv) {
@@ -226,13 +237,11 @@ export async function encrypt(
     case "A128GCM":
     case "A192GCM":
     case "A256GCM": {
-      if (cek instanceof Uint8Array) {
-        checkCEKLength(cek, Number.parseInt(enc.slice(1, 4), 10));
-      }
+      if (cek instanceof Uint8Array) checkCEKLength(cek, aesBitsOf(enc));
       return gcmEncrypt(enc, plaintext, cek, iv, aad);
     }
     default: {
-      throw new Error("Unsupported JWE Content Encryption Algorithm");
+      throw new JWTError("Unsupported JWE Content Encryption Algorithm", "ERR_JWE_INVALID");
     }
   }
 }
@@ -246,17 +255,18 @@ export async function decrypt(
   aad: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (!isCryptoKey(cek) && !(cek instanceof Uint8Array)) {
-    throw new TypeError("Key must be one of type: CryptoKey or Uint8Array");
+    throw new JWTError("Key must be one of type: CryptoKey or Uint8Array", "ERR_JWK_INVALID");
   }
 
   if (!iv) {
-    throw new Error("JWE Initialization Vector missing");
+    throw new JWTError("JWE Initialization Vector missing", "ERR_JWE_INVALID");
   }
   if (!tag) {
-    throw new Error("JWE Authentication Tag missing");
+    throw new JWTError("JWE Authentication Tag missing", "ERR_JWE_INVALID");
   }
 
   checkIvLength(enc, iv);
+  checkTagLength(enc, tag);
 
   switch (enc) {
     case "A128CBC-HS256":
@@ -268,33 +278,12 @@ export async function decrypt(
     case "A128GCM":
     case "A192GCM":
     case "A256GCM": {
-      if (cek instanceof Uint8Array) checkCEKLength(cek, Number.parseInt(enc.slice(1, 4), 10));
+      if (cek instanceof Uint8Array) checkCEKLength(cek, aesBitsOf(enc));
       return gcmDecrypt(enc, cek, ciphertext, iv, tag, aad);
     }
     default: {
-      throw new Error("Unsupported JWE Content Encryption Algorithm");
+      throw new JWTError("Unsupported JWE Content Encryption Algorithm", "ERR_JWE_INVALID");
     }
-  }
-}
-
-// --- Internal helpers ---
-
-function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
-}
-
-function isAlgorithm<T extends KeyAlgorithm>(
-  algorithm: KeyAlgorithm,
-  name: string,
-): algorithm is T {
-  return algorithm.name === name;
-}
-
-function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
-  if (usage && !key.usages.includes(usage)) {
-    throw new TypeError(
-      `CryptoKey does not support this operation, its usages must include ${usage}.`,
-    );
   }
 }
 
@@ -312,13 +301,13 @@ async function getAESKWCryptoKey(
 }
 
 function checkAESKWKeySize(key: CryptoKey, alg: string): void {
-  if ((key.algorithm as AesKeyAlgorithm).length !== Number.parseInt(alg.slice(1, 4), 10)) {
-    throw new TypeError(`Invalid key size for alg: ${alg}`);
+  if (lengthOf(key.algorithm) !== aesBitsOf(alg)) {
+    throw new JWTError(`Invalid key size for alg: ${alg}`, "ERR_JWK_INVALID");
   }
 }
 
 async function importCBCKeys(enc: string, cek: Uint8Array<ArrayBuffer>, usage: KeyUsage) {
-  const keySize = Number.parseInt(enc.slice(1, 4), 10);
+  const keySize = aesBitsOf(enc);
   const [encKey, macKey] = await Promise.all([
     crypto.subtle.importKey("raw", cek.subarray(keySize >> 3), "AES-CBC", false, [usage]),
     crypto.subtle.importKey(
@@ -348,7 +337,7 @@ async function cbcEncrypt(
   aad: Uint8Array<ArrayBuffer>,
 ) {
   if (!(cek instanceof Uint8Array)) {
-    throw new TypeError("CBC key must be of type Uint8Array");
+    throw new JWTError("CBC key must be of type Uint8Array", "ERR_JWK_INVALID");
   }
   const { encKey, macKey, keySize } = await importCBCKeys(enc, cek, "encrypt");
 
@@ -402,7 +391,7 @@ async function cbcDecrypt(
   aad: Uint8Array<ArrayBuffer>,
 ) {
   if (!(cek instanceof Uint8Array)) {
-    throw new TypeError("CBC key must be of type Uint8Array");
+    throw new JWTError("CBC key must be of type Uint8Array", "ERR_JWK_INVALID");
   }
   const { encKey, macKey, keySize } = await importCBCKeys(enc, cek, "decrypt");
 
@@ -418,7 +407,7 @@ async function cbcDecrypt(
     //
   }
   if (!macCheckPassed) {
-    throw new Error("JWE Decryption Failed");
+    throw new JWTError("JWE Decryption Failed", "ERR_JWE_DECRYPTION_FAILED");
   }
 
   let plaintext!: Uint8Array<ArrayBuffer>;
@@ -430,7 +419,7 @@ async function cbcDecrypt(
     //
   }
   if (!plaintext) {
-    throw new Error("JWE Decryption Failed");
+    throw new JWTError("JWE Decryption Failed", "ERR_JWE_DECRYPTION_FAILED");
   }
 
   return plaintext;
@@ -461,16 +450,14 @@ async function gcmDecrypt(
       ),
     );
   } catch {
-    throw new Error("JWE Decryption Failed");
+    throw new JWTError("JWE Decryption Failed", "ERR_JWE_DECRYPTION_FAILED");
   }
 }
 
 let _timingSafeKey: Promise<CryptoKey> | undefined;
 function getTimingSafeKey(): Promise<CryptoKey> {
   if (!_timingSafeKey) {
-    _timingSafeKey = crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, [
-      "sign",
-    ]) as Promise<CryptoKey>;
+    _timingSafeKey = crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   }
   return _timingSafeKey;
 }
@@ -480,10 +467,10 @@ async function timingSafeEqual(
   b: Uint8Array<ArrayBuffer>,
 ): Promise<boolean> {
   if (!(a instanceof Uint8Array)) {
-    throw new TypeError("First argument must be a buffer");
+    throw new JWTError("First argument must be a buffer", "ERR_INVALID_OPTION");
   }
   if (!(b instanceof Uint8Array)) {
-    throw new TypeError("Second argument must be a buffer");
+    throw new JWTError("Second argument must be a buffer", "ERR_INVALID_OPTION");
   }
 
   const algorithm = { name: "HMAC", hash: "SHA-256" };
@@ -495,24 +482,12 @@ async function timingSafeEqual(
   let out = 0;
   let i = -1;
   while (++i < 32) {
-    out |= aHmac[i]! ^ bHmac[i]!;
+    out |= aHmac[i] ^ bHmac[i];
   }
 
   return out === 0;
 }
 
-function writeUInt32BE(buf: Uint8Array<ArrayBuffer>, value: number, offset?: number): void {
-  if (value < 0 || value >= 2 ** 32) {
-    throw new RangeError(`value must be >= 0 and <= ${2 ** 32 - 1}. Received ${value}`);
-  }
-  buf.set([value >>> 24, value >>> 16, value >>> 8, value & 0xff], offset);
-}
-
 function uint64be(value: number): Uint8Array<ArrayBuffer> {
-  const high = Math.floor(value / 2 ** 32);
-  const low = value % 2 ** 32;
-  const buf = new Uint8Array(8);
-  writeUInt32BE(buf, high, 0);
-  writeUInt32BE(buf, low, 4);
-  return buf;
+  return concatUint8Arrays(uint32be(Math.floor(value / 2 ** 32)), uint32be(value % 2 ** 32));
 }

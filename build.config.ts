@@ -24,13 +24,14 @@ export default defineBuildConfig({
         "./src/core/jwe",
         "./src/core/jwk",
         "./src/core/utils/index",
+        "./src/core/internal",
         "./src/adapters/h3v1/index",
         "./src/adapters/h3v2/index",
         "./src/adapters/elysia/index",
       ],
       rolldown: {
         platform: "neutral",
-        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv3", "rou3", "elysia"],
+        external: ["h3v1", "cookie-esv1", "h3v2", "cookie-esv3", "elysia"],
         plugins: [
           replacePlugin(
             {

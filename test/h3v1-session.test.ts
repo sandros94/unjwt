@@ -1,7 +1,7 @@
 import supertest from "supertest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { type App, createApp, createRouter, toNodeListener, eventHandler, readBody } from "h3v1";
-import { base64UrlDecode } from "unsecure/utils";
+import { base64UrlParse } from "../src/core/utils/base64";
 
 import {
   type SessionConfigJWE,
@@ -132,7 +132,7 @@ describe("adapter h3 v1", () => {
     it("initiates session", async () => {
       const result = await request.get("/init");
       expect(result.headers["set-cookie"]).toHaveLength(1);
-      cookie = result.headers["set-cookie"]![0]!;
+      cookie = result.headers["set-cookie"][0]!;
       expect(result.body).toMatchObject({
         session: { id: "1", data: {}, token: expect.any(String) },
       });
@@ -147,7 +147,7 @@ describe("adapter h3 v1", () => {
 
     it("set session data", async () => {
       const result = await request.post("/").set("Cookie", cookie).send({ foo: "bar" });
-      cookie = result.headers["set-cookie"]![0]!;
+      cookie = result.headers["set-cookie"][0]!;
       expect(result.body).toMatchObject({
         session: { id: "2", data: { foo: "bar" } },
       });
@@ -305,7 +305,7 @@ describe("adapter h3 v1", () => {
     it("initiates session", async () => {
       const result = await request.get("/init");
       expect(result.headers["set-cookie"]).toHaveLength(1);
-      cookie = result.headers["set-cookie"]![0]!;
+      cookie = result.headers["set-cookie"][0]!;
       expect(result.body).toMatchObject({
         session: { id: "1", data: {}, token: expect.any(String) },
       });
@@ -320,7 +320,7 @@ describe("adapter h3 v1", () => {
 
     it("set session data", async () => {
       const result = await request.post("/").set("Cookie", cookie).send({ foo: "bar" });
-      cookie = result.headers["set-cookie"]![0]!;
+      cookie = result.headers["set-cookie"][0]!;
       expect(result.body).toMatchObject({
         session: { id: "2", data: { foo: "bar" } },
       });
@@ -398,11 +398,6 @@ describe("adapter h3 v1", () => {
 
   // #region Hooks
   describe("hooks", () => {
-    const getCookieValue = (cookies: string | string[] | undefined, name: string) => {
-      const list = Array.isArray(cookies) ? cookies : cookies ? [cookies] : [];
-      return list.find((cookie) => cookie.startsWith(`${name}=`))?.split(";")[0];
-    };
-
     describe("jwe session hooks", () => {
       let cookie = "";
       let sessionIdCtr = 0;
@@ -550,19 +545,20 @@ describe("adapter h3 v1", () => {
         const token = await encrypt(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key,
+          { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = createApp({ debug: true });
-        app.use(
+        const localApp = createApp({ debug: true });
+        localApp.use(
           "/",
           eventHandler(async (event) => {
             const session = await useJWESession(event, config);
             return { session };
           }),
         );
-        const request = supertest(toNodeListener(app));
+        const localRequest = supertest(toNodeListener(localApp));
 
-        const result = await request.get("/").set("Cookie", `${config.name}=${token}`);
+        const result = await localRequest.get("/").set("Cookie", `${config.name}=${token}`);
 
         expect(lookupSpy).toHaveBeenCalled();
         expect(result.body.session.data).toMatchObject({ foo: "bar" });
@@ -742,7 +738,7 @@ describe("adapter h3 v1", () => {
         expect(refreshedAccessCookie).toBeTruthy();
         expect(refreshedAccessCookie).not.toEqual(accessCookie);
         expect(second.body.access.id).not.toEqual(first.body.access.id);
-        expect(refreshHooks.onRead).toHaveBeenCalledTimes(2);
+        expect(refreshHooks.onRead).toHaveBeenCalledTimes(1);
 
         vi.useRealTimers();
       });
@@ -781,14 +777,14 @@ describe("adapter h3 v1", () => {
       it("has correct custom `typ` headers", async () => {
         const first = await request.post("/login");
         const accessHeader = getCookieValue(first.headers["set-cookie"], accessConfig.name!)!
-          .split("=")[1]!
-          .split(".")[0]!;
+          .split("=")[1]
+          .split(".")[0];
         const refreshHeader = getCookieValue(first.headers["set-cookie"], refreshConfig.name!)!
-          .split("=")[1]!
-          .split(".")[0]!;
+          .split("=")[1]
+          .split(".")[0];
 
-        const accessDecoded = JSON.parse(base64UrlDecode(accessHeader));
-        const refreshDecoded = JSON.parse(base64UrlDecode(refreshHeader));
+        const accessDecoded = JSON.parse(base64UrlParse(accessHeader));
+        const refreshDecoded = JSON.parse(base64UrlParse(refreshHeader));
 
         expect(accessDecoded.typ).toBe("at+jwt");
         expect(refreshDecoded.typ).toBe("rt+jwt");
@@ -816,19 +812,20 @@ describe("adapter h3 v1", () => {
         const token = await sign(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key.privateKey,
+          { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = createApp({ debug: true });
-        app.use(
+        const localApp = createApp({ debug: true });
+        localApp.use(
           "/",
           eventHandler(async (event) => {
             const session = await useJWSSession(event, config);
             return { session };
           }),
         );
-        const request = supertest(toNodeListener(app));
+        const localRequest = supertest(toNodeListener(localApp));
 
-        const result = await request.get("/").set("Cookie", `${config.name}=${token}`);
+        const result = await localRequest.get("/").set("Cookie", `${config.name}=${token}`);
 
         expect(lookupSpy).toHaveBeenCalled();
         expect(result.body.session.data).toMatchObject({ foo: "bar" });
@@ -874,17 +871,17 @@ describe("adapter h3 v1", () => {
 
       expect(updates).toHaveLength(2);
 
-      expect(updates[0]!.oldToken).toBeUndefined();
-      expect(updates[0]!.token).toBeTypeOf("string");
-      expect(updates[0]!.token!.length).toBeGreaterThan(0);
-      expect(updates[0]!.id).toBe("1");
+      expect(updates[0].oldToken).toBeUndefined();
+      expect(updates[0].token).toBeTypeOf("string");
+      expect(updates[0].token!.length).toBeGreaterThan(0);
+      expect(updates[0].id).toBe("1");
 
-      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
-      expect(updates[1]!.token).toBeTypeOf("string");
-      expect(updates[1]!.token).not.toBe(updates[0]!.token);
-      expect(updates[1]!.id).toBe("2");
+      expect(updates[1].oldToken).toBe(updates[0].token);
+      expect(updates[1].token).toBeTypeOf("string");
+      expect(updates[1].token).not.toBe(updates[0].token);
+      expect(updates[1].id).toBe("2");
 
-      expect(res.body.token).toBe(updates[1]!.token);
+      expect(res.body.token).toBe(updates[1].token);
     });
 
     it("JWE onUpdate fires even when update() is called with no data (token refresh)", async () => {
@@ -998,14 +995,14 @@ describe("adapter h3 v1", () => {
       const cookie = initRes.headers["set-cookie"]?.[0];
       expect(cookie).toBeDefined();
 
-      const readRes = await localRequest.get("/").set("Cookie", cookie!);
+      const readRes = await localRequest.get("/").set("Cookie", cookie);
       const lastReadToken = readTokens[readTokens.length - 1];
       expect(lastReadToken).toBeTypeOf("string");
       expect(lastReadToken!.length).toBeGreaterThan(0);
       expect(readRes.body.token).toBe(lastReadToken);
 
       vi.setSystemTime(new Date("2025-01-01T00:00:05.000Z"));
-      await localRequest.get("/").set("Cookie", cookie!);
+      await localRequest.get("/").set("Cookie", cookie);
       expect(expireTokens.length).toBeGreaterThan(0);
       expect(expireTokens[0]).toBeTypeOf("string");
 
@@ -1048,13 +1045,13 @@ describe("adapter h3 v1", () => {
       const res = await localRequest.get("/");
 
       expect(updates).toHaveLength(2);
-      expect(updates[0]!.oldToken).toBeUndefined();
-      expect(updates[0]!.token).toBeTypeOf("string");
-      expect(updates[0]!.id).toBe("1");
-      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
-      expect(updates[1]!.token).not.toBe(updates[0]!.token);
-      expect(updates[1]!.id).toBe("2");
-      expect(res.body.token).toBe(updates[1]!.token);
+      expect(updates[0].oldToken).toBeUndefined();
+      expect(updates[0].token).toBeTypeOf("string");
+      expect(updates[0].id).toBe("1");
+      expect(updates[1].oldToken).toBe(updates[0].token);
+      expect(updates[1].token).not.toBe(updates[0].token);
+      expect(updates[1].id).toBe("2");
+      expect(res.body.token).toBe(updates[1].token);
     });
 
     it("JWS onClear receives the token and fires even with cookie:false", async () => {
@@ -1105,10 +1102,9 @@ describe("adapter h3 v1", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      const badKey = { kty: "EC" } as any;
       const config: SessionConfigJWS = {
         name: "h3-jws-hook-sign-error",
-        key: badKey,
+        key: jwsOctKey,
         hooks: { onError, onUpdate },
       };
 
@@ -1122,7 +1118,9 @@ describe("adapter h3 v1", () => {
         eventHandler(async (event) => {
           const session = await useJWSSession(event, config);
           try {
-            await session.update({ foo: "bar" });
+            // A BigInt has no JSON form, so the session reads fine and only
+            // issuing the token fails.
+            await session.update({ foo: 10n });
           } catch {
             threwInHandler = true;
           }
@@ -1135,7 +1133,7 @@ describe("adapter h3 v1", () => {
       expect(onError).toHaveBeenCalledOnce();
       expect(onUpdate).not.toHaveBeenCalled();
 
-      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(onError.mock.calls[0][0].token).toBeUndefined();
 
       expect(threwInHandler).toBe(true);
       expect(res.body.id).toBeNull();
@@ -1146,10 +1144,9 @@ describe("adapter h3 v1", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      const badKey = { kty: "EC" } as any;
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-seal-error",
-        key: badKey,
+        key: jweOctKey,
         hooks: { onError, onUpdate },
       };
 
@@ -1163,7 +1160,9 @@ describe("adapter h3 v1", () => {
         eventHandler(async (event) => {
           const session = await useJWESession(event, config);
           try {
-            await session.update({ foo: "bar" });
+            // A BigInt has no JSON form, so the session reads fine and only
+            // issuing the token fails.
+            await session.update({ foo: 10n });
           } catch {
             threwInHandler = true;
           }
@@ -1175,7 +1174,7 @@ describe("adapter h3 v1", () => {
 
       expect(onError).toHaveBeenCalledOnce();
       expect(onUpdate).not.toHaveBeenCalled();
-      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(onError.mock.calls[0][0].token).toBeUndefined();
       expect(threwInHandler).toBe(true);
       expect(res.body.id).toBeNull();
       expect(res.body.token).toBeNull();
@@ -1211,7 +1210,7 @@ describe("adapter h3 v1", () => {
       );
 
       const initResult = await localRequest.get("/init");
-      const cookie = initResult.headers["set-cookie"]![0]!;
+      const cookie = initResult.headers["set-cookie"][0];
       expect(cookie).toContain("h3-jwe-symjwk=");
 
       const readResult = await localRequest.get("/").set("Cookie", cookie);
@@ -1248,7 +1247,7 @@ describe("adapter h3 v1", () => {
       );
 
       const initResult = await localRequest.get("/init");
-      const cookie = initResult.headers["set-cookie"]![0]!;
+      const cookie = initResult.headers["set-cookie"][0];
       expect(cookie).toContain("h3-jwe-keypair=");
 
       const readResult = await localRequest.get("/").set("Cookie", cookie);
@@ -1285,7 +1284,7 @@ describe("adapter h3 v1", () => {
       );
 
       const initResult = await localRequest.get("/init");
-      const cookie = initResult.headers["set-cookie"]![0]!;
+      const cookie = initResult.headers["set-cookie"][0];
 
       const readResult = await localRequest.get("/").set("Cookie", cookie);
       expect(readResult.body).toMatchObject({
@@ -1324,7 +1323,7 @@ describe("adapter h3 v1", () => {
       );
 
       const initResult = await localRequest.get("/init");
-      const cookie = initResult.headers["set-cookie"]![0]!;
+      const cookie = initResult.headers["set-cookie"][0];
 
       const readResult = await localRequest.get("/").set("Cookie", cookie);
       expect(readResult.body).toMatchObject({
@@ -1333,3 +1332,9 @@ describe("adapter h3 v1", () => {
     });
   });
 });
+
+/** The `name=value` pair of the `name` cookie among `Set-Cookie` headers. */
+function getCookieValue(cookies: string | string[] | undefined, name: string): string | undefined {
+  const list = Array.isArray(cookies) ? cookies : cookies ? [cookies] : [];
+  return list.find((cookie) => cookie.startsWith(`${name}=`))?.split(";")[0];
+}

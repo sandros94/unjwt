@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { H3 } from "h3v2";
+import { H3, HTTPError } from "h3v2";
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
@@ -203,6 +203,7 @@ describe("adapter h3 v2", () => {
           hello: "world",
         },
         sessionConfig.key,
+        { protectedHeader: { typ: "session+jwt" } },
       );
 
       const result = await app.request("/", {
@@ -279,7 +280,7 @@ describe("adapter h3 v2", () => {
         context: {},
       };
 
-      const session = await useJWESession(mockEvent as any, roConfig);
+      const session = await useJWESession(mockEvent as never, roConfig);
       await expect(session.update({ foo: "bar" })).rejects.toThrow("[unjwt/h3]");
     });
   });
@@ -442,6 +443,7 @@ describe("adapter h3 v2", () => {
           hello: "world",
         },
         sessionConfig.key.privateKey,
+        { protectedHeader: { typ: "session+jwt" } },
       );
 
       const result = await app.request("/", {
@@ -518,7 +520,7 @@ describe("adapter h3 v2", () => {
         context: {},
       };
 
-      const session = await useJWSSession(mockEvent as any, roConfig);
+      const session = await useJWSSession(mockEvent as never, roConfig);
       await expect(session.update({ foo: "bar" })).rejects.toThrow("[unjwt/h3]");
     });
   });
@@ -547,15 +549,16 @@ describe("adapter h3 v2", () => {
         const token = await encrypt(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key,
+          { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = new H3({ debug: true });
-        app.all("/", async (event) => {
+        const localApp = new H3({ debug: true });
+        localApp.all("/", async (event) => {
           const session = await useJWESession(event, config);
           return { session };
         });
 
-        const result = await app.request("/", {
+        const result = await localApp.request("/", {
           headers: {
             Cookie: `${config.name}=${token}`,
           },
@@ -591,15 +594,16 @@ describe("adapter h3 v2", () => {
         const token = await sign(
           { jti: "123", iat: Math.floor(Date.now() / 1000), foo: "bar" },
           key.privateKey,
+          { protectedHeader: { typ: "session+jwt" } },
         );
 
-        const app = new H3({ debug: true });
-        app.all("/", async (event) => {
+        const localApp = new H3({ debug: true });
+        localApp.all("/", async (event) => {
           const session = await useJWSSession(event, config);
           return { session };
         });
 
-        const result = await app.request("/", {
+        const result = await localApp.request("/", {
           headers: {
             Cookie: `${config.name}=${token}`,
           },
@@ -644,13 +648,13 @@ describe("adapter h3 v2", () => {
       const body = await (await localApp.request("/")).json();
 
       expect(updates).toHaveLength(2);
-      expect(updates[0]!.oldToken).toBeUndefined();
-      expect(updates[0]!.token).toBeTypeOf("string");
-      expect(updates[0]!.id).toBe("1");
-      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
-      expect(updates[1]!.token).not.toBe(updates[0]!.token);
-      expect(updates[1]!.id).toBe("2");
-      expect(body.token).toBe(updates[1]!.token);
+      expect(updates[0].oldToken).toBeUndefined();
+      expect(updates[0].token).toBeTypeOf("string");
+      expect(updates[0].id).toBe("1");
+      expect(updates[1].oldToken).toBe(updates[0].token);
+      expect(updates[1].token).not.toBe(updates[0].token);
+      expect(updates[1].id).toBe("2");
+      expect(body.token).toBe(updates[1].token);
     });
 
     it("JWE onUpdate fires even when update() is called with no data (token refresh)", async () => {
@@ -743,13 +747,13 @@ describe("adapter h3 v2", () => {
       const cookie = initRes.headers.getSetCookie()[0];
       expect(cookie).toBeDefined();
 
-      await localApp.request("/", { headers: { Cookie: cookie! } });
+      await localApp.request("/", { headers: { Cookie: cookie } });
       const lastReadToken = readTokens[readTokens.length - 1];
       expect(lastReadToken).toBeTypeOf("string");
       expect(lastReadToken!.length).toBeGreaterThan(0);
 
       vi.setSystemTime(new Date("2025-01-01T00:00:05.000Z"));
-      await localApp.request("/", { headers: { Cookie: cookie! } });
+      await localApp.request("/", { headers: { Cookie: cookie } });
       expect(expireTokens.length).toBeGreaterThan(0);
       expect(expireTokens[0]).toBeTypeOf("string");
 
@@ -786,13 +790,13 @@ describe("adapter h3 v2", () => {
       const body = await (await localApp.request("/")).json();
 
       expect(updates).toHaveLength(2);
-      expect(updates[0]!.oldToken).toBeUndefined();
-      expect(updates[0]!.token).toBeTypeOf("string");
-      expect(updates[0]!.id).toBe("1");
-      expect(updates[1]!.oldToken).toBe(updates[0]!.token);
-      expect(updates[1]!.token).not.toBe(updates[0]!.token);
-      expect(updates[1]!.id).toBe("2");
-      expect(body.token).toBe(updates[1]!.token);
+      expect(updates[0].oldToken).toBeUndefined();
+      expect(updates[0].token).toBeTypeOf("string");
+      expect(updates[0].id).toBe("1");
+      expect(updates[1].oldToken).toBe(updates[0].token);
+      expect(updates[1].token).not.toBe(updates[0].token);
+      expect(updates[1].id).toBe("2");
+      expect(body.token).toBe(updates[1].token);
     });
 
     it("JWS onUpdate: oldSession.data is a deep pre-update snapshot", async () => {
@@ -804,8 +808,8 @@ describe("adapter h3 v2", () => {
         hooks: {
           onUpdate: vi.fn(({ session, oldSession }) => {
             snapshots.push({
-              oldRole: (oldSession.data as any).user?.role,
-              newRole: (session.data as any).user?.role,
+              oldRole: oldSession.data.user?.role,
+              newRole: session.data.user?.role,
             });
           }),
         },
@@ -818,7 +822,7 @@ describe("adapter h3 v2", () => {
         // Mutate a nested object in place via the updater function — a shallow
         // snapshot (or one taken after the updater ran) would already see "admin".
         await session.update((data) => {
-          (data as any).user.role = "admin";
+          (data.user as { role: string }).role = "admin";
           return {};
         });
         return {};
@@ -827,8 +831,8 @@ describe("adapter h3 v2", () => {
       await localApp.request("/");
 
       expect(snapshots).toHaveLength(2);
-      expect(snapshots[1]!.oldRole).toBe("user");
-      expect(snapshots[1]!.newRole).toBe("admin");
+      expect(snapshots[1].oldRole).toBe("user");
+      expect(snapshots[1].newRole).toBe("admin");
     });
 
     it("JWS update failure rolls back session.data (no split state)", async () => {
@@ -848,7 +852,7 @@ describe("adapter h3 v2", () => {
           await session.update({ big: 1n });
         } catch {}
         return {
-          role: (session.data as any).user.role,
+          role: (session.data.user as { role: string }).role,
           hasBig: "big" in session.data,
         };
       });
@@ -858,7 +862,7 @@ describe("adapter h3 v2", () => {
       expect(onError).toHaveBeenCalledOnce();
       expect(body.role).toBe("user");
       expect(body.hasBig).toBe(false);
-      expect("big" in onError.mock.calls[0]![0].session.data).toBe(false);
+      expect("big" in onError.mock.calls[0][0].session.data).toBe(false);
     });
 
     it("JWE update failure rolls back session.data (no split state)", async () => {
@@ -877,7 +881,7 @@ describe("adapter h3 v2", () => {
           await session.update({ big: 1n });
         } catch {}
         return {
-          role: (session.data as any).user.role,
+          role: (session.data.user as { role: string }).role,
           hasBig: "big" in session.data,
         };
       });
@@ -928,10 +932,9 @@ describe("adapter h3 v2", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      const badKey = { kty: "EC" } as any;
       const config: SessionConfigJWS = {
         name: "h3-jws-hook-sign-error",
-        key: badKey,
+        key: jwsOctKey,
         hooks: { onError, onUpdate },
       };
 
@@ -940,7 +943,9 @@ describe("adapter h3 v2", () => {
       localApp.all("/", async (event) => {
         const session = await useJWSSession(event, config);
         try {
-          await session.update({ foo: "bar" });
+          // A BigInt has no JSON form, so the session reads fine and only
+          // issuing the token fails.
+          await session.update({ foo: 10n });
         } catch {
           threwInHandler = true;
         }
@@ -951,7 +956,7 @@ describe("adapter h3 v2", () => {
 
       expect(onError).toHaveBeenCalledOnce();
       expect(onUpdate).not.toHaveBeenCalled();
-      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(onError.mock.calls[0][0].token).toBeUndefined();
       expect(threwInHandler).toBe(true);
       expect(body.id).toBeNull();
       expect(body.token).toBeNull();
@@ -961,10 +966,9 @@ describe("adapter h3 v2", () => {
       const onError = vi.fn();
       const onUpdate = vi.fn();
 
-      const badKey = { kty: "EC" } as any;
       const config: SessionConfigJWE = {
         name: "h3-jwe-hook-seal-error",
-        key: badKey,
+        key: jweOctKey,
         hooks: { onError, onUpdate },
       };
 
@@ -973,7 +977,9 @@ describe("adapter h3 v2", () => {
       localApp.all("/", async (event) => {
         const session = await useJWESession(event, config);
         try {
-          await session.update({ foo: "bar" });
+          // A BigInt has no JSON form, so the session reads fine and only
+          // issuing the token fails.
+          await session.update({ foo: 10n });
         } catch {
           threwInHandler = true;
         }
@@ -984,7 +990,7 @@ describe("adapter h3 v2", () => {
 
       expect(onError).toHaveBeenCalledOnce();
       expect(onUpdate).not.toHaveBeenCalled();
-      expect(onError.mock.calls[0]![0].token).toBeUndefined();
+      expect(onError.mock.calls[0][0].token).toBeUndefined();
       expect(threwInHandler).toBe(true);
       expect(body.id).toBeNull();
       expect(body.token).toBeNull();
@@ -998,25 +1004,25 @@ describe("adapter h3 v2", () => {
         key: jweOctKey,
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWESession(event, config);
         await session.update({ hello: "world" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWESession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
       expect(cookie).toContain("h3-jwe-symjwk=");
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1030,25 +1036,25 @@ describe("adapter h3 v2", () => {
         key: { privateKey: jweOaepPair.privateKey, publicKey: jweOaepPair.publicKey },
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWESession(event, config);
         await session.update({ secret: "data" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWESession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
       expect(cookie).toContain("h3-jwe-keypair=");
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1062,24 +1068,24 @@ describe("adapter h3 v2", () => {
         key: jwsOctKey, // isSymmetricJWK branch in getVerifyKey
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWSSession(event, config);
         await session.update({ foo: "bar" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWSSession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1096,24 +1102,24 @@ describe("adapter h3 v2", () => {
         },
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWSSession(event, config);
         await session.update({ foo: "bar" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWSSession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
@@ -1130,29 +1136,130 @@ describe("adapter h3 v2", () => {
         },
       };
 
-      const app = new H3({ debug: true });
+      const localApp = new H3({ debug: true });
       let cookie = "";
 
-      app.all("/init", async (event) => {
+      localApp.all("/init", async (event) => {
         const session = await useJWSSession(event, config);
         await session.update({ baz: "qux" });
         return { session };
       });
 
-      app.get("/", async (event) => {
+      localApp.get("/", async (event) => {
         const session = await useJWSSession(event, config);
         return { session };
       });
 
-      const initResult = await app.request("/init");
+      const initResult = await localApp.request("/init");
       cookie = initResult.headers.getSetCookie()[0]!;
 
-      const readResult = await app.request("/", {
+      const readResult = await localApp.request("/", {
         headers: { Cookie: cookie },
       });
       expect(await readResult.json()).toMatchObject({
         session: { data: { baz: "qux" } },
       });
+    });
+  });
+  describe("error responses", () => {
+    const jwsConfig: SessionConfigJWS = { name: "h3-jws-err", key: jwsOctKey };
+    const jweConfig: SessionConfigJWE = { name: "h3-jwe-err", key: jweOctKey };
+
+    it("JWS: a session written before the handler throws still reaches the response", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        await session.update({ user: "bob" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jws-err="));
+
+      expect(res.status).toBe(418);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^h3-jws-err=[\w-]+\.[\w-]+\.[\w-]+;/);
+    });
+
+    it("JWE: a session written before the handler throws still reaches the response", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWESession(event, jweConfig);
+        await session.update({ user: "alice" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jwe-err="));
+
+      expect(res.status).toBe(418);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0].split(";")[0].split(".")).toHaveLength(5);
+    });
+
+    it("a session cleared before the handler throws is still expired on the client", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        await session.clear();
+        throw new HTTPError({ status: 500 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jws-err="));
+
+      expect(res.status).toBe(500);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^h3-jws-err=;/);
+    });
+
+    it("keeps unrelated cookies already staged for the error response", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        event.res.errHeaders.append("set-cookie", "other=1; Path=/");
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie();
+
+      expect(cookies.filter((c) => c.startsWith("other="))).toHaveLength(1);
+      expect(cookies.filter((c) => c.startsWith("h3-jws-err="))).toHaveLength(1);
+    });
+
+    it("keeps an error-response cookie whose name only starts with the session name", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        event.res.errHeaders.append("set-cookie", "h3-jws-err.theme=dark; Path=/");
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        throw new HTTPError({ status: 418 });
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie();
+
+      expect(cookies.filter((c) => c.startsWith("h3-jws-err.theme=dark"))).toHaveLength(1);
+      expect(cookies.filter((c) => c.startsWith("h3-jws-err="))).toHaveLength(1);
+    });
+
+    it("a successful response is unaffected", async () => {
+      const localApp = new H3({ debug: true });
+      localApp.all("/", async (event) => {
+        const session = await useJWSSession(event, jwsConfig);
+        await session.update({ user: "alice" });
+        return "ok";
+      });
+
+      const res = await localApp.request("/");
+      const cookies = res.headers.getSetCookie().filter((c) => c.startsWith("h3-jws-err="));
+
+      expect(res.status).toBe(200);
+      expect(cookies).toHaveLength(1);
     });
   });
 });

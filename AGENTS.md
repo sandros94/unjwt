@@ -2,7 +2,7 @@
 
 # unjwt - Agent Guide
 
-`unjwt` is a low-level JWT library using the Web Crypto API. It implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517) with framework adapters for H3 v1/v2 (Nuxt/Nitro). Zero runtime dependencies for core; optional peer deps for adapters (`h3`, `cookie-es`, `rou3`).
+`unjwt` is a low-level JWT library using the Web Crypto API. It implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517) with framework adapters for H3 v1/v2 (Nuxt/Nitro) and Elysia. Zero runtime dependencies for core; optional peer deps for adapters (`h3`, `cookie-es`, `elysia`).
 
 ## Core Principle — Ask First
 
@@ -34,11 +34,12 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 
 ### Module structure (each is a separate export path)
 
-- `unjwt` — barrel re-export of `jws`, `jwe`, `jwk`, `utils` namespaces
+- `unjwt` — flat named exports of everything in `jws`, `jwe`, `jwk` and `utils` (no namespace objects)
 - `unjwt/jws` — `sign()`, `verify()` (Compact) plus `signMulti()`/`verifyMulti()`/`verifyMultiAll()` (General/Flattened)
 - `unjwt/jwe` — `encrypt()`, `decrypt()` (Compact) plus `encryptMulti()`/`decryptMulti()` (General/Flattened)
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
 - `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), `secureRandomBytes`
+- `unjwt/internal` — JOSE plumbing (`parsePayloadBytes`, `computeJwtTimeClaims`, `crit` checks, …) for tests and tooling; no semver guarantee, not re-exported from `unjwt`
 - `unjwt/adapters/h3v1` and `unjwt/adapters/h3v2` — `useJWSSession()`, `useJWESession()` for cookie-based JWT sessions
 - `unjwt/adapters/elysia` — `jwsSession()`/`jweSession()` Elysia plugins (ambient `ctx.session`, `requireSession` guard macro) + `createJWSSession()`/`createJWESession()` lower-level
 
@@ -46,7 +47,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 
 ```
 src/
-  index.ts              # barrel: re-exports core modules as namespaces
+  index.ts              # root entry: flat named re-exports of the core modules
   core/
     jws.ts              # sign/verify (compact); re-exports the multi-recipient API
     jwe.ts              # encrypt/decrypt (compact); re-exports the multi-recipient API
@@ -54,18 +55,32 @@ src/
     jwe-multi.ts        # encryptMulti/decryptMulti (General/Flattened JWE)
     jwk.ts              # key management (generateKey, importKey, exportKey, wrapKey, unwrapKey, PEM conversion)
     _internal.ts        # shared signing-key resolver + JWKSet candidate filter for jws/jwe
+    _jwt-internal.ts    # JOSE plumbing: typ/cty defaults, payload parsing, time claims, crit checks
+    internal.ts         # `unjwt/internal` entry point over _jwt-internal.ts
     error.ts            # JWTError class + error codes (ERR_JWT_EXPIRED, …)
     types/              # TypeScript types for JWK, JWS, JWE, JWT
     utils/              # encoding, type guards, JWT claim validation, sanitization
     _crypto/            # low-level crypto primitives — originally derived from panva/jose, now maintained in-tree
                         # (_sign-verify, _aes, _ecdh, _pbes2, _rsa, _key-codec, _key-encryption, _pem)
   adapters/
+    _session.ts         # framework-agnostic session contract shared by every adapter
+                        # (error factories, reserved-claim stripping, token-source rules, typ/exp helpers)
+    _session-core.ts    # the one session core: state, store/port/codec contracts, load/issue/drop, hooks, manager
+    _session-types.ts   # session types every adapter exposes (SessionClaims/Data/Update/Manager/Hooks)
+    _session-codec.ts   # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
+    _codec-jws.ts       # JWS half of a session: sign/verify, key resolution, JWS config + cookie defaults
+    _codec-jwe.ts       # JWE half of a session: encrypt/decrypt, key resolution, JWE config + cookie defaults
+    _chunked-cookie.ts  # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
     h3v1/               # H3 v1 session adapter (useJWSSession, useJWESession)
+      _cookie.ts        # chunked-cookie layer over h3 v1's getCookie/setCookie
+      session/_shared.ts# port: CompatEvent, context slots, token reading, cookie writes
     h3v2/               # H3 v2 session adapter (same API, different h3 import)
+      session/_shared.ts# port: context slots, token reading, cookie writes, res.errHeaders staging
     elysia/             # Elysia session adapter
       _cookie.ts        # chunked-cookie layer over Elysia's reactive cookie jar
       _plugin.ts        # SessionPlugin<> explicit return type + guardName() helper
-      session/          # createJWSSession/createJWESession cores, jwsSession/jweSession plugins, shared types
+      session/          # createJWSSession/createJWESession, jwsSession/jweSession plugins, shared types
+      session/_shared.ts# port: reactive-jar cookie writes, token reading
 ```
 
 ### Key design patterns
@@ -76,7 +91,8 @@ src/
 - **Bundled `unsecure` dependency:** core imports primitives from [`unsecure`](https://github.com/sandros94/unsecure) (`base64UrlEncode`/`base64UrlDecode`, `secureRandomBytes`, `sanitizeObjectCopy`/`safeJsonParse`). It is a devDependency inlined into dist at build time (not marked external in `build.config.ts`), so the published package keeps zero runtime dependencies.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
-- **Session adapters** store JWT tokens in chunked cookies (via h3's `getChunkedCookie`/`setChunkedCookie`). Sessions are lazy — `id` is `undefined` until `session.update()` is called.
+- **Session adapters** store JWT tokens in chunked cookies — every adapter through `src/adapters/_chunked-cookie.ts` over its framework's own cookie primitives (h3 v2 and h3 v1 via their `_cookie.ts`, Elysia via its reactive jar), all writing the same `__chunked__N` + `<name>.1…N` layout. Sessions are lazy — `id` is `undefined` until `session.update()` is called. `jti`/`iat`/`exp`/`nbf` are adapter-owned; the cookie is read before the session header; every adapter error is a `JWTError` (`ERR_SESSION_*`).
+- **One session core, two codecs, three ports:** `src/adapters/_session-core.ts` owns the whole session lifecycle (token read, expiry, hook dispatch, update with rollback, clear, the manager's lazy getters). It works through two contracts: a _codec_ (`_codec-jws.ts` / `_codec-jwe.ts`, each a spec over `_session-codec.ts`) that issues and opens the token and carries the family's defaults, and a _port_ (each adapter's `session/_shared.ts`) that reaches the framework — session storage, request token, cookie writes, writable-response check. `src/adapters/<fw>/session/{jws,jwe}.ts` is then the public surface alone: the exported functions, the config/hook types, and the binding of port to codec. New session logic belongs in the core, new token rules in a codec, and anything that touches a framework in its port.
 
 ## Testing conventions
 
@@ -86,7 +102,7 @@ src/
 ## Planning & design docs
 
 - **`.agents/vision/`** — working space for drafting **new** features before implementation. Empty when no design is in flight; it is not a historical archive — completed designs live in the code and git history.
-- **`.agents/TODO.md`** — deferred backlog (e.g. deprecated-alias removals slated for a future major version).
+- **`.agents/TODO.md`** — deprecation ledger: every `@deprecated` symbol with its replacement, the release that deprecated it and the release that removes it.
 
 ## Code Conventions
 

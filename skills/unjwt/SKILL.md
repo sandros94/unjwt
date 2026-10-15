@@ -4,7 +4,7 @@ description: "Expert knowledge for working with unjwt — a low-level, zero-dep,
 metadata:
   version: 0.1.0
   library: unjwt
-  library-version: 0.7.2
+  library-version: 0.8.0
   org: sandros94
   documentation: https://github.com/sandros94/unjwt
 ---
@@ -17,14 +17,14 @@ Implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517).
 
 ## Quick orientation
 
-> **Skill written against `unjwt@0.7.2`.** APIs are stable within v0.7 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
+> **Skill written against `unjwt@0.8.0`.** APIs are stable within v0.8 but check the [changelog](https://github.com/sandros94/unjwt/releases) if behaviour seems off on a newer version.
 
 The following is a list of reference files:
 
 - `references/jws.md`: `sign()`, `verify()`, `signMulti()`, `verifyMulti()`, `verifyMultiAll()`, `generalToFlattenedJWS()`, `JWSSignOptions`, `JWSVerifyOptions`, `JWSMultiSignOptions`, `JWSMultiVerifyOptions`, `JWSMultiVerifyAllOptions`, `JWSMultiVerifyOutcome`, `JWSGeneralSerialization`, `JWSFlattenedSerialization`, `JWSMultiSigner`
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `encryptMulti()`, `decryptMulti()`, `generalToFlattened()`, `JWEEncryptOptions`, `JWEDecryptOptions`, `JWEMultiEncryptOptions`, `JWEMultiDecryptOptions`, `JWEGeneralSerialization`, `JWEFlattenedSerialization`, `JWEMultiRecipient`
-- `references/jwk.md`: `generateKey()`, `generateJWK()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`; `importFromPEM`, `exportToPEM` are deprecated aliases), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`, `getJWKFromSet` — deprecated), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
-- `references/utils.md`: `base64UrlEncode`/`base64UrlDecode`, `base64Encode`/`base64Decode`, `secureRandomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
+- `references/jwk.md`: `generateKey()`, `generateJWK()`, `thumbprint()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
+- `references/utils.md`: `base64UrlStringify`/`base64UrlParse`, `base64Stringify`/`base64Parse` (+ deprecated `*Encode`/`*Decode` aliases), `secureRandomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
 - `references/adapters-h3.md`: H3 session adapters (v1 and v2), `useJWESession`, `useJWSSession`, `SessionManager` interface, `SessionConfigJWE`, `SessionConfigJWS`, lifecycle hooks (`onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`), key lookup hooks (`onUnsealKeyLookup`, `onVerifyKeyLookup`), lower-level functions, cookie chunking (v2), header-based tokens, refresh token pattern
 - `references/adapters-elysia.md`: Elysia session adapter, `jwsSession`/`jweSession` plugins, ambient `ctx[contextKey]`, `requireSession` guard macro (derived per `contextKey`), multiple sessions (access JWS + refresh JWE), `createJWSSession`/`createJWESession` lower-level, `SessionConfigJWS`/`SessionConfigJWE`, lifecycle hooks (`context` not `event`), cookie chunking, header tokens, `isolatedDeclarations` plugin typing
 
@@ -37,6 +37,7 @@ The following is a list of reference files:
 | `unjwt/jwe`             | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
 | `unjwt/jwk`             | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                       |
 | `unjwt/utils`           | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`                      |
+| `unjwt/internal`        | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use          |
 | `unjwt/adapters/h3`     | H3 session adapter (aliases h3v1)                                                                    |
 | `unjwt/adapters/h3v1`   | H3 v1 session adapter (Nuxt v4, Nitro v2)                                                            |
 | `unjwt/adapters/h3v2`   | H3 v2 session adapter (Nuxt v5, Nitro v3)                                                            |
@@ -60,20 +61,26 @@ const jwe = await encrypt({ secret: "data" }, "password");
 const { payload } = await decrypt(jwe, "password");
 
 // H3 session
-import { useJWESession } from "unjwt/adapters/h3v2";
+import { useJWESession, generateJWK } from "unjwt/adapters/h3v2";
 
-const session = await useJWESession(event, { key: "secret", maxAge: "7D" });
+const sessionKey = await generateJWK("A256GCM");
+const session = await useJWESession(event, { key: sessionKey, maxAge: "7D" });
 await session.update({ userId: "123" });
 ```
 
 ## Key Concepts
 
-- **`JOSEPayload`**: the payload type accepted by `sign`/`encrypt` — `string | Uint8Array | Record<string, unknown>`; covers both JWT and generic serializable objects. `JWTClaims` remains the spec-compliant sub-type for typed claim access
-- **JWK-first key model**: functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string
+- **`JOSEPayload`**: the payload type accepted by `sign`/`encrypt` — `string | Uint8Array | object`; covers both JWT and generic serializable objects. `JWTClaims` remains the spec-compliant sub-type for typed claim access
+- **JWK-first key model**: functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array
+- **Strings are not keys**: `importKey` and every JWS entry point reject a `string` with `ERR_JWK_INVALID` (`"String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM()."`). JWE is the sole exception, and only as a PBES2 password — under any other `alg` it is rejected too
+- **Payload typing is declared, not sniffed**: `verify`/`verifyMulti`/`verifyMultiAll`/`decrypt`/`decryptMulti` take `payload: "json" | "string" | "bytes"` (default `"json"` — must parse to a non-null, non-array object, and claims are validated). `typ`/`cty` never pick the shape. `validateClaims: true` outside `"json"` is `ERR_INVALID_OPTION`; `forceUint8Array` is a deprecated alias of `payload: "bytes"`
 - **Algorithm inference**: `sign`/`encrypt` infer `alg`/`enc` from JWK properties when not explicitly provided; password strings default to PBES2
 - **`dir` (direct encryption)**: pass a `CryptoKey | JWK_oct | Uint8Array` directly as the CEK; `enc` must always be specified
 - **Multi-recipient JWE**: `encryptMulti()` emits General JSON Serialization (RFC 7516 §7.2.1). One shared CEK, one ciphertext, per-recipient wraps. `dir` and bare `ECDH-ES` are rejected in multi (throw `ERR_JWE_ALG_FORBIDDEN_IN_MULTI`). `decryptMulti()` accepts General + Flattened (auto-normalized); compact tokens stay with `decrypt()`
 - **Multi-signature JWS**: `signMulti()` emits General JSON Serialization (RFC 7515 §7.2.1). Shared payload, per-signer protected header. `b64: false` (RFC 7797) must be consistent across all signers. `verifyMulti()` returns the first valid signature; `verifyMultiAll()` returns per-signer outcomes for policy-driven verification (all-must-verify, M-of-N quorum, named signers). Both accept General + Flattened (auto-normalized); compact tokens stay with `verify()`
 - **ExpiresIn**: time durations accept numbers (seconds) or strings: `"30s"`, `"10m"`, `"2h"`, `"7D"`, `"1W"`, `"3M"`, `"1Y"` (also long forms: `"minutes"`, `"hours"`, `"days"`, `"weeks"`, `"months"`, `"years"`)
 - **H3 Session Adapters**: store JWTs in chunked cookies; sessions are lazy (`id` is `undefined` until `update()` is called)
-- **PBES2 security**: default `p2c` (iteration count) is `600_000` per OWASP cookbook; only lower it for legacy interoperability
+- **PBES2 security**: default `p2c` (iteration count) is `600_000` per OWASP cookbook; only lower it for legacy interoperability. It is also the default unwrap ceiling (`maxIterations`), so producers refuse a higher `p2c`
+- **Bounded work per call**: `verify`/`verifyMulti`/`verifyMultiAll`/`decrypt`/`decryptMulti` take a grouped `limits` option — `signatures` (16), `recipients` (16), `keyCandidates` (8) and `pbes2Iterations` (2 400 000 — four attempts at the default `p2c` of 600 000 — a budget summed across every PBES2 attempt of the call; a single unwrap is separately capped by `maxIterations`, default 600 000). Each operation exposes the subset that applies to it, every value must be a positive integer (`ERR_INVALID_OPTION` otherwise), and `DEFAULT_JOSE_LIMITS` (from `unjwt`, `unjwt/jws`, `unjwt/jwe`) carries the numbers
+- **`kid` defaults to the thumbprint**: `generateJWK()` and `deriveJWKFromPassword()` name a key by its RFC 7638 `thumbprint()` when the caller passes no `kid`. A thumbprint is derived from the key material, so it is also the safe key for a replacement JWK cache — combined with the key half (`"d" in jwk`) and the `alg`, since both halves of a pair share one thumbprint — while a `kid` is a chosen label and two keys may share one
+- **`aud` is opt-in**: the `aud` claim is checked only when `audience` is configured; a token carrying `aud` passes a verifier that sets none

@@ -1,4 +1,11 @@
-import type { JoseHeaderParameters, JOSEPayload, JWTClaimValidationOptions } from "./jwt";
+import type {
+  JoseHeaderParameters,
+  JOSELimits,
+  JOSEPayload,
+  JOSEConsumerOptions,
+  JOSEPayloadMode,
+  JWTTimeClaimOptions,
+} from "./jwt";
 import type {
   JWK_oct,
   JWK_EC_Public,
@@ -16,386 +23,232 @@ import type {
   JWK_ECDH_ES,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
+  JWKSet,
+  JWKLookupFunction,
+  ECDHEphemeralKeyInput,
 } from "./jwk";
-import type { ExpiresIn } from ".";
 import type { StrictOmit } from "../utils/types";
 
-/**
- * Algorithms admissible on an `oct` JWK used for JWE key management. Mirrors
- * the runtime aliasing table in `jweAlgsFromOctJWK` — HMAC algs intentionally
- * excluded (they don't resolve to any JWE `alg`).
- */
+/** `oct` JWK algorithms admissible for JWE key management (HMAC excluded). */
 type _JWEOctAlg = JWK_AES_KW | JWK_AES_GCM | JWK_AES_GCM_KW | JWK_AES_CBC_HMAC | JWK_PBES2 | "dir";
 
-/**
- * Asymmetric public JWKs admissible for JWE encryption. RSA keys carry an
- * RSA-OAEP alg; EC/OKP keys carry an ECDH-ES alg.
- */
+/** Asymmetric public JWKs admissible for JWE encryption (RSA-OAEP or ECDH-ES). */
 export type JWEAsymmetricPublicJWK =
   | JWK_RSA_Public<JWK_RSA_ENC>
   | JWK_EC_Public<JWK_ECDH_ES>
   | JWK_OKP_Public<JWK_ECDH_ES>;
 
-/**
- * Asymmetric private JWKs admissible for JWE decryption. RSA keys carry an
- * RSA-OAEP alg; EC/OKP keys carry an ECDH-ES alg.
- */
+/** Asymmetric private JWKs admissible for JWE decryption (RSA-OAEP or ECDH-ES). */
 export type JWEAsymmetricPrivateJWK =
   | JWK_RSA_Private<JWK_RSA_ENC>
   | JWK_EC_Private<JWK_ECDH_ES>
   | JWK_OKP_Private<JWK_ECDH_ES>;
 
-/**
- * JWKs admissible as the `key` argument of {@link encrypt}. A JWK whose `alg`
- * points at a non-JWE family (e.g. `"HS256"`, `"RS256"`) is rejected at the
- * type level.
- */
+/** JWKs admissible as the `key` of `encrypt`; a non-JWE `alg` is a type error. */
 export type JWEEncryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPublicJWK;
 
-/**
- * JWKs admissible as a `key` for {@link decrypt}. A JWK whose `alg` points at
- * a non-JWE family (e.g. `"HS256"`, `"RS256"`) is rejected at the type level.
- */
+/** JWKs admissible as a `key` of `decrypt`; a non-JWE `alg` is a type error. */
 export type JWEDecryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPrivateJWK;
 
-/** Recognized JWE Header Parameters, any other Header Members may also be present. */
+/** Recognized JWE Header Parameters; other members may also be present. */
 export interface JWEHeaderParameters extends JoseHeaderParameters {
-  /**
-   * `alg` (Algorithm): Header Parameter - Key Management Algorithm
-   */
+  /** Key Management Algorithm. */
   alg?: KeyManagementAlgorithm | (string & {});
-  /**
-   * `enc` (Encryption Algorithm): Header Parameter - Content Encryption Algorithm
-   */
+  /** Content Encryption Algorithm. */
   enc?: ContentEncryptionAlgorithm | (string & {});
-  /**
-   * `p2c` (PBES2 Count): Header Parameter
-   */
+  /** PBES2 Count. */
   p2c?: number;
-  /**
-   * `p2s` (PBES2 Salt): Header Parameter. Base64URL encoded.
-   */
+  /** PBES2 Salt, base64url. */
   p2s?: string;
-  /**
-   * "iv" (Initialization Vector) Header Parameter for AES GCM Key Wrapping. Base64URL encoded.
-   */
+  /** AES-GCMKW Initialization Vector, base64url. */
   iv?: string;
-  /**
-   * "tag" (Authentication Tag) Header Parameter for AES GCM Key Wrapping. Base64URL encoded.
-   */
+  /** AES-GCMKW Authentication Tag, base64url. */
   tag?: string;
-  /**
-   * "epk" (Ephemeral Public Key) Header Parameter for ECDH-ES.
-   */
-  epk?: JWK_EC_Public;
-  /**
-   * "apu" (Agreement PartyUInfo) Header Parameter for ECDH-ES. Base64URL encoded.
-   */
+  /** ECDH-ES Ephemeral Public Key. */
+  epk?: JWK_EC_Public | JWK_OKP_Public;
+  /** ECDH-ES Agreement PartyUInfo, base64url. */
   apu?: string;
-  /**
-   * "apv" (Agreement PartyVInfo) Header Parameter for ECDH-ES. Base64URL encoded.
-   */
+  /** ECDH-ES Agreement PartyVInfo, base64url. */
   apv?: string;
+  /** Compression (RFC 7516 §4.1.3) is not supported: a token carrying `zip` is rejected. */
+  zip?: never;
 
-  /** Any other JWE Header member. */
   [propName: string]: unknown;
 }
 
-/** Recognized JWE Key Management-related Header Parameters. */
+/** Recognized JWE Key Management-related Header Parameters; all but `apu`/`apv` are internal. */
 export interface JWEKeyManagementHeaderParameters {
   apu?: Uint8Array<ArrayBuffer>;
   apv?: Uint8Array<ArrayBuffer>;
-  /**
-   * For Internal use only
-   */
   p2c?: number;
-  /**
-   * For Internal use only
-   */
   p2s?: Uint8Array<ArrayBuffer>;
-  /**
-   * For Internal use only
-   */
   iv?: Uint8Array<ArrayBuffer>;
-  /**
-   * For Internal use only
-   */
-  epk?: CryptoKey | JWK_EC_Public;
-  /**
-   * For Internal use only
-   */
-  epkPrivateKey?: CryptoKey | JWK_EC_Private;
+  epk?: CryptoKey | JWK_EC_Public | JWK_OKP_Public;
+  epkPrivateKey?: CryptoKey | JWK_EC_Private | JWK_OKP_Private;
 }
 
-/**
- * JWE (JSON Web Encryption) encryption options
- */
-export interface JWEEncryptOptions {
-  /** JWE "alg" (Algorithm) Header Parameter. Key Management Algorithm. */
+/** Header parameters the library writes itself and no caller header may set (RFC 7516 §4.1, RFC 7518 §4.6–§4.8). */
+export type JWELibraryHeaderName =
+  | "alg"
+  | "enc"
+  | "iv"
+  | "tag"
+  | "p2s"
+  | "p2c"
+  | "epk"
+  | "apu"
+  | "apv";
+
+/** JWE encryption options. */
+export interface JWEEncryptOptions extends JWTTimeClaimOptions {
   alg?: KeyManagementAlgorithm;
-  /** JWE "enc" (Encryption Algorithm) Header Parameter. Content Encryption Algorithm. */
   enc?: ContentEncryptionAlgorithm;
-  /** Date to use when computing NumericDate claims, defaults to `new Date()`. */
-  currentDate?: Date;
-  /**
-   * Duration until the JWT should expire, relative to `currentDate` (or `new Date()`).
-   * Skipped when the payload already carries an `exp` claim.
-   *
-   * Mutually exclusive with {@link expiresAt}.
-   */
-  expiresIn?: ExpiresIn;
+  /** Extra protected header; `typ` defaults to `"JWT"` for a JSON object payload, `cty` is never added (`"JWT"` for a nested JWT, RFC 7519 §5.2). */
+  protectedHeader?: StrictOmit<JWEHeaderParameters, JWELibraryHeaderName>;
 
-  /**
-   * Absolute moment at which the JWT should expire (sets the `exp` claim directly).
-   * Skipped when the payload already carries an `exp` claim.
-   *
-   * Mutually exclusive with {@link expiresIn}.
-   */
-  expiresAt?: Date;
-
-  /**
-   * Duration from `iat` before which the JWT must not be accepted.
-   * `0` is allowed and sets `nbf = iat` (explicit temporal floor at sign time).
-   * Skipped when the payload already carries an `nbf` claim.
-   *
-   * Mutually exclusive with {@link notBeforeAt}.
-   */
-  notBeforeIn?: ExpiresIn;
-
-  /**
-   * Absolute moment before which the JWT must not be accepted (sets the `nbf`
-   * claim directly per RFC 7519 §4.1.5). Skipped when the payload already
-   * carries an `nbf` claim.
-   *
-   * Mutually exclusive with {@link notBeforeIn}.
-   */
-  notBeforeAt?: Date;
-
-  /** Additional JWE Protected Header parameters. */
-  protectedHeader?: StrictOmit<
-    JWEHeaderParameters,
-    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
-  >;
-
-  /** Initialization Vector for AES-GCMKW key wrapping. Generated if not provided. */
+  /** AES-GCMKW key-wrapping IV. Generated when omitted. */
   keyManagementIV?: Uint8Array<ArrayBuffer>;
-  /** PBES2 Salt value (p2s). Required for PBES2 algorithms. */
+  /** PBES2 Salt (p2s). Required for PBES2 algorithms. */
   p2s?: Uint8Array<ArrayBuffer>;
-  /** PBES2 Iteration count (p2c). Required for PBES2 algorithms. */
+  /** PBES2 iteration count (p2c), between `1000` and `600_000`. Default: `600_000`. */
   p2c?: number;
-  /** ECDH-ES specific options. */
   ecdh?: {
-    /**
-     * ECDH-ES Ephemeral key material. Provide a private key (CryptoKey or JWK),
-     * a CryptoKeyPair, or an object exposing both public and private parts.
-     */
-    ephemeralKey?:
-      | CryptoKey
-      | JWK_EC_Private
-      | CryptoKeyPair
-      | {
-          publicKey: CryptoKey | JWK_EC_Public;
-          privateKey: CryptoKey | JWK_EC_Private;
-        };
-    /** ECDH-ES Agreement PartyUInfo. */
+    ephemeralKey?: ECDHEphemeralKeyInput;
     partyUInfo?: Uint8Array<ArrayBuffer>;
-    /** ECDH-ES Agreement PartyVInfo. */
     partyVInfo?: Uint8Array<ArrayBuffer>;
   };
 
-  /**
-   * Content Encryption Key (CEK) to use.
-   * If provided, it will be used directly. Otherwise, a CEK will be generated.
-   */
+  /** Content Encryption Key. Generated when omitted. */
   cek?: Uint8Array<ArrayBuffer>;
 
-  /**
-   * Initialization Vector for content encryption.
-   * If provided, it will be used. Otherwise, one will be generated.
-   */
+  /** Content encryption IV. Generated when omitted. */
   contentEncryptionIV?: Uint8Array<ArrayBuffer>;
 }
 
-/**
- * JWE (JSON Web Encryption) decryption options
- */
-export interface JWEDecryptOptions extends JWTClaimValidationOptions {
-  /**
-   * A list of allowed JWE "alg" (Algorithm) Header Parameter values for key management.
-   * When omitted, the allowlist is inferred from the key's shape — password strings
-   * and raw `Uint8Array` keys infer the PBES2 family plus `dir`; lookup functions
-   * cannot be inferred and require this option explicitly.
-   */
+/** JWE decryption options; `Mode` is the `payload` option's literal, which sets the returned payload type. */
+export interface JWEDecryptOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends JOSEConsumerOptions<Mode> {
+  /** Allowed `alg` values. Inferred from the key when omitted (a password infers PBES2); required for raw bytes and lookup functions. */
   algorithms?: KeyManagementAlgorithm[];
-  /** A list of allowed JWE "enc" (Encryption Algorithm) Header Parameter values for content encryption. */
+  /** Max JWK Set candidates per token (else `ERR_JWK_KEY_NOT_FOUND`) and PBKDF2 iterations per call (else `ERR_JWE_INVALID`). Default: `{ keyCandidates: 8, pbes2Iterations: 2_400_000 }`. */
+  limits?: Pick<JOSELimits, "keyCandidates" | "pbes2Iterations">;
+  /** Allowed `enc` values. */
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
-  /** Algorithm to import the unwrapped CEK as (e.g., { name: 'AES-GCM' }). Defaults based on 'enc'. */
+  /** Algorithm to import the unwrapped CEK as. Defaults based on `enc`. */
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
 
-  /** Key usages for the unwrapped CEK. Defaults based on 'enc' (typically ['encrypt', 'decrypt']). */
+  /** Unwrapped CEK usages. Defaults based on `enc`. */
   keyUsage?: KeyUsage[];
-  /** Mark the unwrapped CEK as extractable. Defaults to true. */
+  /** Mark the unwrapped CEK extractable. Default: `true`. */
   extractable?: boolean;
-  /** If true, forces the payload to be returned as a Uint8Array, otherwise type is inferred based on JWE headers. */
-  forceUint8Array?: boolean;
-  /**
-   * Controls JWT claim validation after a successful decryption.
-   *
-   * - `true` — always validate claims regardless of the `typ` header
-   * - `false` — skip claim validation entirely
-   * - `undefined` (default) — validate when `typ` is `"JWT"` or contains `"jwt"`
-   */
-  validateClaims?: boolean;
-  /** If true, include the Content Encryption Key (CEK) and Additional Authenticated Data (AAD) in the result. */
+  /** Include the CEK and AAD in the result. */
   returnCek?: boolean;
   /** Minimum accepted PBES2 `p2c` on unwrap. Defaults to 1000 (RFC 7518 §4.8.1.2). */
   minIterations?: number;
-  /** Maximum accepted PBES2 `p2c` on unwrap. Defaults to 1_000_000 to cap PBKDF2 DoS potential. */
+  /** Maximum accepted PBES2 `p2c` on unwrap. Default: `600_000`. */
   maxIterations?: number;
 }
 
-/**
- * JWE Protected Header — the parsed and validated protected header returned
- * after a successful {@link decrypt} call. Both `alg` and `enc` are present
- * and strongly typed because decryption could not have succeeded without them.
- */
+/** Validated protected header returned by `decrypt`; `alg` and `enc` are always present. */
 export interface JWEProtectedHeader extends JWEHeaderParameters {
-  /** Key management algorithm. */
   alg: KeyManagementAlgorithm;
-  /** Content encryption algorithm. */
   enc: ContentEncryptionAlgorithm;
 }
 
-/**
- * Result of a JWE decryption operation.
- */
+/** Result of a JWE decryption. */
 export interface JWEDecryptResult<T extends JOSEPayload = JOSEPayload> {
-  /** The decrypted payload. */
   payload: T;
-  /** The JWE Protected Header. */
   protectedHeader: JWEProtectedHeader;
-  /** The Content Encryption Key (CEK) used for decryption, as Uint8Array. Only present when `returnCek` is true. */
+  /** Present only when `returnCek` is true. */
   cek?: Uint8Array<ArrayBuffer>;
-  /** The Additional Authenticated Data (AAD) used, as Uint8Array. Only present when `returnCek` is true. */
+  /** Present only when `returnCek` is true. */
   aad?: Uint8Array<ArrayBuffer>;
 }
 
-/**
- * JWE Flattened JSON Serialization, RFC 7516 §7.2.2.
- */
+/** JWE Flattened JSON Serialization (RFC 7516 §7.2.2); string members are base64url. */
 export interface JWEFlattenedSerialization {
   header?: JWEHeaderParameters;
   encrypted_key?: string;
-  /** Base64URL-encoded JWE Protected Header (part of AAD). */
+  /** JWE Protected Header (part of AAD). */
   protected?: string;
-  /** Shared JWE Unprotected Header (JSON, not part of AAD). */
+  /** Shared Unprotected Header (not part of AAD). */
   unprotected?: JWEHeaderParameters;
-  /** Base64URL-encoded external Additional Authenticated Data. */
+  /** External Additional Authenticated Data. */
   aad?: string;
-  /** Base64URL-encoded IV (Initialization Vector). */
-  iv?: string;
-  /** Base64URL-encoded ciphertext. */
+  iv: string;
   ciphertext: string;
-  /** Base64URL-encoded authentication tag. */
-  tag?: string;
+  tag: string;
 }
 
-/**
- * JWE General JSON Serialization, RFC 7516 §7.2.1. The canonical
- * multi-recipient output shape of {@link encryptMulti}.
- */
+/** JWE General JSON Serialization (RFC 7516 §7.2.1), the output of `encryptMulti`. */
 export interface JWEGeneralSerialization extends Omit<
   JWEFlattenedSerialization,
   "encrypted_key" | "header"
 > {
-  /** One entry per recipient. */
   recipients: JWEGeneralRecipient[];
 }
 
-/** A single recipient entry within {@link JWEGeneralSerialization.recipients}. */
+/** One recipient entry of a JWE General JSON Serialization. */
 export interface JWEGeneralRecipient {
-  /** Per-recipient JWE Unprotected Header (JSON, not part of AAD). */
+  /** Per-recipient Unprotected Header (not part of AAD). */
   header?: JWEHeaderParameters;
-  /** Base64URL-encoded encrypted CEK for this recipient. */
   encrypted_key?: string;
 }
 
-/**
- * Input shape for a single recipient passed to {@link encryptMulti}.
- *
- * `alg` is inferred from `key.alg` or from the JWK's kty/curve/length using
- * the same rules as {@link encrypt}. `kid` is pulled from `key.kid` when
- * present. To override either, spread or set via {@link JWEMultiRecipient.header}.
- */
+/** One recipient of `encryptMulti`; `alg` and `kid` come from the key unless set in `header`. */
 export interface JWEMultiRecipient {
-  /** Recipient key (JWK-first; `alg` inferred if absent from JWK). */
   key: JWEEncryptJWK;
-  /**
-   * Extra per-recipient JWE Unprotected Header parameters (RFC 7516 §7.2.1).
-   * Excludes fields the library writes automatically: `alg`, `enc`, `iv`,
-   * `tag`, `p2s`, `p2c`, `epk`, `apu`, `apv`.
-   *
-   * Typical use: `x5c`, `x5t`, custom routing metadata.
-   */
-  header?: StrictOmit<
-    JWEHeaderParameters,
-    "alg" | "enc" | "iv" | "tag" | "p2s" | "p2c" | "epk" | "apu" | "apv"
-  >;
-  /** ECDH-ES ephemeral key / party info for this recipient. */
+  /** Extra per-recipient Unprotected Header parameters (RFC 7516 §7.2.1). */
+  header?: StrictOmit<JWEHeaderParameters, JWELibraryHeaderName>;
   ecdh?: JWEEncryptOptions["ecdh"];
-  /** PBES2 salt for this recipient. Randomized (16 bytes) when omitted. */
+  /** PBES2 salt. Random 16 bytes when omitted. */
   p2s?: Uint8Array<ArrayBuffer>;
-  /** PBES2 iteration count for this recipient. Defaults to 600_000. */
+  /** PBES2 iteration count, between `1000` and `600_000`. Default: `600_000`. */
   p2c?: number;
-  /** Initialization vector for AES-GCMKW key wrapping for this recipient. */
   keyManagementIV?: Uint8Array<ArrayBuffer>;
 }
 
-/**
- * Options for {@link encryptMulti}. Extends {@link JWEEncryptOptions} and drops
- * the fields that are per-recipient in multi-recipient mode (`alg`, `ecdh`,
- * `p2s`, `p2c`, `keyManagementIV` — set those on each {@link JWEMultiRecipient}
- * instead).
- */
+/** Options for `encryptMulti`; per-recipient fields are set on each `JWEMultiRecipient`. */
 export interface JWEMultiEncryptOptions extends StrictOmit<
   JWEEncryptOptions,
   "alg" | "ecdh" | "p2s" | "p2c" | "keyManagementIV"
 > {
-  /** Shared JWE Unprotected Header (surfaces as `unprotected` in the output). */
+  /** Shared Unprotected Header, written as `unprotected`. */
   sharedUnprotectedHeader?: Record<string, unknown>;
-  /**
-   * External Additional Authenticated Data (RFC 7516 §5.1). Encoded as
-   * base64url and written to the `aad` field; the content cipher AAD becomes
-   * `BASE64URL(protected) || '.' || BASE64URL(aad)`.
-   */
+  /** External AAD (RFC 7516 §5.1); empty means none (RFC 7516 §7.2.1); not a string or bytes is `ERR_INVALID_OPTION`. */
   aad?: Uint8Array<ArrayBuffer> | string;
 }
 
-/**
- * Options for {@link decryptMulti}. Extends {@link JWEDecryptOptions}.
- */
-export interface JWEMultiDecryptOptions extends JWEDecryptOptions {
-  /**
-   * When `false` (default) decryption trials recipients in order — mirrors the
-   * multi-key retry behaviour of {@link decrypt} against a JWK Set. When
-   * `true`, only recipients whose header unambiguously matches the provided
-   * key (by `kid`, then by `kty`/`crv`/length) are attempted, and any mismatch
-   * throws `ERR_JWE_NO_MATCHING_RECIPIENT` before any crypto work.
-   */
+/** Key material `decryptMulti` accepts, or a function resolving it from the recipient's header. */
+export type JWEMultiDecryptKey =
+  | CryptoKey
+  | JWKSet
+  | JWEDecryptJWK
+  | string
+  | Uint8Array<ArrayBuffer>
+  | JWKLookupFunction;
+
+/** Options for `decryptMulti`. */
+export interface JWEMultiDecryptOptions<
+  Mode extends JOSEPayloadMode = JOSEPayloadMode,
+> extends JWEDecryptOptions<Mode> {
+  /** Max recipients (else `ERR_JWE_INVALID`), JWK Set candidates per recipient, and PBKDF2 iterations summed over the call. Default: `{ recipients: 16, keyCandidates: 8, pbes2Iterations: 2_400_000 }`. */
+  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
+  /** Try only recipients the key could open, else `ERR_JWE_NO_MATCHING_RECIPIENT`; a JWK Set with no candidate is `ERR_JWK_KEY_NOT_FOUND`. Default: `false` (trial in order). */
   strictRecipientMatch?: boolean;
 }
 
-/**
- * Result of a {@link decryptMulti} operation. Extends {@link JWEDecryptResult}
- * with the per-recipient header tier surfaced on the matching recipient.
- */
-export interface JWEMultiDecryptResult<
-  T extends JOSEPayload = JOSEPayload,
-> extends JWEDecryptResult<T> {
-  /** Parsed shared unprotected header, when present on the serialization. */
+/** Result of `decryptMulti`, with the header tiers of the recipient that decrypted. */
+export interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> extends Omit<
+  JWEDecryptResult<T>,
+  "protectedHeader"
+> {
+  /** Protected header as integrity protected (`{}` when absent); `alg`/`enc` may sit in the unprotected tiers (RFC 7516 §7.2.1). */
+  protectedHeader: JWEHeaderParameters;
   sharedUnprotectedHeader?: JWEHeaderParameters;
-  /** Parsed per-recipient unprotected header of the recipient that decrypted. */
+  /** Unprotected header of the recipient that decrypted. */
   recipientHeader?: JWEHeaderParameters;
-  /** Index into `jwe.recipients` of the recipient that successfully decrypted. */
+  /** Index into `recipients` of the recipient that decrypted. */
   recipientIndex: number;
 }

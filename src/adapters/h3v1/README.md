@@ -5,23 +5,35 @@ The `h3` adapter bundles session helpers that store data inside signed or encryp
 > [!WARNING]
 > While these adapters try to be compatible with h3's `useSession` API, the key difference is that new sessions are not automatically created when calling `useJWESession` or `useJWSSession`, marking their `id` as `undefined` until you explicitly call `session.update()`. This is to comply with various specs that do integrate JWT one (such as OAuth) where sessions are only created upon valid operations (like user authorization).
 
-For an in-depth guide on using these adapters, please refer to the [H3 Session Adapters - Usage Guide](../../../docs/h3-session-adapters.md).
+For an in-depth guide on using these adapters, please refer to the [H3 sessions guide](../../../docs/99.Adapters/1.h3-sessions.md).
 
-- `useJWESession(event, config)` encrypts the session payload with the provided `secret` (password string or private/symmetric JWK). Use this when session data must remain confidential. (cookie's `httpOnly: true` by default)
+- `useJWESession(event, config)` encrypts the session payload with `config.key` (a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`). Use this when session data must remain confidential. (cookie's `httpOnly: true` by default)
 - `useJWSSession(event, config)` signs, but does not encrypt, the session payload with `config.key`. Use this when clients may read the session content but you still need tamper protection. (cookie's `httpOnly: false` by default)
 
-Both helpers expose the same API: read `session.id` / `session.data`, call `session.update()` to patch values, and `session.clear()` to invalidate the cookie. When setting `maxAge`, `exp` claim is automatically managed and validated. They also support a number of `hooks` in the config for custom logic (e.g. logging, refreshing, etc).
+Both helpers expose the same API: read `session.id` / `session.data`, call `session.update()` to patch values, and `session.clear()` to invalidate the cookie. `jti`, `iat`, `exp` and `nbf` belong to the adapter — they are stripped from update payloads, and the lifetime comes from `maxAge` (on the config, or on a single `session.update(data, { maxAge })`). They also support a number of `hooks` in the config for custom logic (e.g. logging, refreshing, etc).
+
+Keys are key material, never passwords: turn a secret into a JWK once with `deriveJWKFromPassword()`.
 
 ```ts
 import { defineEventHandler } from "h3";
-import { useJWESession, useJWSSession, generateJWK } from "unjwt/adapters/h3v1";
+import {
+  useJWESession,
+  useJWSSession,
+  generateJWK,
+  deriveJWKFromPassword,
+} from "unjwt/adapters/h3v1";
 
 const keys = await generateJWK("RS256"); // Make sure to persist these keys somewhere!
+const sessionKey = await deriveJWKFromPassword(process.env.SESSION_SECRET!, {
+  alg: "PBES2-HS256+A128KW",
+  salt: process.env.SESSION_SALT!,
+  iterations: 600_000,
+});
 
 export default defineEventHandler(async (event) => {
   const privateSession = await useJWESession(event, {
     name: "app-session",
-    secret: process.env.SESSION_SECRET!, // or symmetric or asymmetric keypair
+    key: sessionKey, // or a symmetric JWK, an asymmetric keypair, or a CryptoKey
   });
 
   await privateSession.update((data) => ({

@@ -1,13 +1,32 @@
+import { UnsecureError, type UnsecureErrorCode } from "unsecure/errors";
+
 /**
- * All known error codes thrown by unjwt.
+ * The `UnsecureError` class unjwt itself throws.
+ *
+ * `unsecure` is inlined into unjwt's dist, so the class a consumer gets from
+ * their own `unsecure` dependency is a *different* class — `instanceof` against
+ * it never matches what unjwt throws. This re-export is the identity that does
+ * match, both for errors thrown directly by the `unjwt/utils` primitives and
+ * for the `cause` carried by a {@link JWTError}.
+ */
+export { UnsecureError, type UnsecureErrorCode };
+
+/**
+ * The closed union of error codes unjwt itself throws.
  *
  * Code naming follows the JOSE spec hierarchy:
  *   ERR_JWT_*  — RFC 7519 JSON Web Token claim validation
  *   ERR_JWS_*  — RFC 7515 JSON Web Signature
  *   ERR_JWE_*  — RFC 7516 JSON Web Encryption
  *   ERR_JWK_*  — RFC 7517 JSON Web Key
+ *   ERR_SESSION_* — the framework session adapters
+ *
+ * Use this type where a typo must not compile — {@link isJWTError} takes it,
+ * so `isJWTError(err, "ERR_JWS_INVALD")` is a type error rather than a check
+ * that silently never matches. Use {@link JWTErrorCode} for values that may
+ * legitimately carry a code this version does not know about.
  */
-export type JWTErrorCode =
+export type KnownJWTErrorCode =
   // JWT claim validation (RFC 7519)
   | "ERR_JWT_EXPIRED" // exp elapsed or maxTokenAge exceeded
   | "ERR_JWT_NBF" // nbf is in the future
@@ -38,7 +57,20 @@ export type JWTErrorCode =
   | "ERR_JWK_INVALID" // malformed or unsupported key material
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set
   | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
-  | (string & {}); // forward-compatible escape hatch
+  // Session adapters
+  | "ERR_SESSION_TOKEN_INVALID" // an incoming session token failed verification or decryption
+  | "ERR_SESSION_READONLY_EVENT" // update / clear on an event without a writable response
+  | "ERR_SESSION_KEY_INVALID" // session key missing, of the wrong shape, or a password string
+  | "ERR_SESSION_CONFIG_INVALID" // a session config combination that cannot work
+  // Caller input that is not token or key material
+  | "ERR_INVALID_OPTION"; // an option value is malformed or out of its documented range
+
+/**
+ * A {@link JWTError} `code`: every {@link KnownJWTErrorCode}, plus any other
+ * string for forward compatibility — a newer unjwt (or a caller constructing
+ * its own `JWTError`) may carry a code this version's union does not list.
+ */
+export type JWTErrorCode = KnownJWTErrorCode | (string & {});
 
 /**
  * Maps known error codes to their structured `cause` shapes.
@@ -84,9 +116,12 @@ export class JWTError<TCode extends JWTErrorCode = JWTErrorCode> extends Error {
  *
  * When called with a code that is a key of `JWTErrorCauseMap`, the return
  * type is additionally narrowed to include the structured `cause` shape for
- * that code. When called with any other `JWTErrorCode`, `code` is narrowed
+ * that code. When called with any other `KnownJWTErrorCode`, `code` is narrowed
  * but `cause` remains `unknown`. When called without a code, narrows only to
  * `JWTError`.
+ *
+ * `code` is a {@link KnownJWTErrorCode}, so a misspelled code fails to
+ * type-check instead of silently never matching.
  *
  * @example
  * if (isJWTError(err, "ERR_JWT_EXPIRED")) {
@@ -97,9 +132,40 @@ export function isJWTError<T extends keyof JWTErrorCauseMap>(
   error: unknown,
   code: T,
 ): error is JWTError<T> & { cause: JWTErrorCauseMap[T] };
-export function isJWTError<T extends JWTErrorCode>(error: unknown, code: T): error is JWTError<T>;
+export function isJWTError<T extends KnownJWTErrorCode>(
+  error: unknown,
+  code: T,
+): error is JWTError<T>;
 export function isJWTError(error: unknown): error is JWTError;
 export function isJWTError(error: unknown, code?: string): boolean {
   if (!(error instanceof JWTError)) return false;
+  return code === undefined || error.code === code;
+}
+
+/**
+ * Type guard that narrows `error` to the bundled {@link UnsecureError}, the
+ * class thrown by unjwt's codec / JSON / random primitives and carried as the
+ * `cause` of a {@link JWTError} when a wire segment or key field fails to
+ * decode. Pass a `code` to narrow further.
+ *
+ * Check against this export rather than a `UnsecureError` imported from a
+ * consumer-installed `unsecure`: unjwt bundles its own copy, so the two classes
+ * are distinct and `instanceof` against the latter is always `false`.
+ *
+ * @example
+ * import { isJWTError, isUnsecureError } from "unjwt/jws";
+ *
+ * const error = await verify(token, key).catch((e) => e);
+ * if (isJWTError(error, "ERR_JWS_INVALID") && isUnsecureError(error.cause, "MALFORMED")) {
+ *   // a segment of the token is not canonical base64url
+ * }
+ */
+export function isUnsecureError<T extends UnsecureErrorCode>(
+  error: unknown,
+  code: T,
+): error is UnsecureError & { code: T };
+export function isUnsecureError(error: unknown): error is UnsecureError;
+export function isUnsecureError(error: unknown, code?: string): boolean {
+  if (!(error instanceof UnsecureError)) return false;
   return code === undefined || error.code === code;
 }

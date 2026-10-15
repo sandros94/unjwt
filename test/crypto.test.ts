@@ -8,6 +8,7 @@ import {
   generateIV,
   generateCEK,
   bitLengthCEK,
+  bitLengthTag,
   aesKwWrap,
   aesKwUnwrap,
   gcmkwEncrypt,
@@ -19,6 +20,7 @@ import { deriveKey as deriveKeyPBES2 } from "../src/core/_crypto/_pbes2";
 import { jwkTokey, keyToJWK } from "../src/core/_crypto/_key-codec";
 import { fromSPKI, fromPKCS8, toPKCS8, toSPKI } from "../src/core/_crypto/_pem";
 import { rsa, ec } from "./keys";
+import { isJWTError } from "../src/core/error";
 
 describe.concurrent("_crypto primitives", () => {
   describe("_sign-verify", () => {
@@ -61,8 +63,8 @@ describe.concurrent("_crypto primitives", () => {
     it("sign/verify roundtrip — Ed25519", async () => {
       const kp = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
       const data = textEncoder.encode("hello");
-      const sig = await sign("Ed25519", kp.privateKey as CryptoKey, data);
-      expect(await verify("Ed25519", (kp as CryptoKeyPair).publicKey, sig, data)).toBe(true);
+      const sig = await sign("Ed25519", kp.privateKey, data);
+      expect(await verify("Ed25519", kp.publicKey, sig, data)).toBe(true);
     });
 
     it("rejects tampered data", async () => {
@@ -111,6 +113,28 @@ describe.concurrent("_crypto primitives", () => {
     it("generateIV produces correct bit lengths", () => {
       expect(generateIV("A128GCM").length).toBe(12);
       expect(generateIV("A128CBC-HS256").length).toBe(16);
+    });
+
+    it("bitLengthTag reports the authentication tag size", () => {
+      expect(bitLengthTag("A128GCM")).toBe(128);
+      expect(bitLengthTag("A256GCM")).toBe(128);
+      expect(bitLengthTag("A128CBC-HS256")).toBe(128);
+      expect(bitLengthTag("A256CBC-HS512")).toBe(256);
+    });
+
+    // The GCM primitive concatenates ciphertext and tag, so an over-long tag would
+    // otherwise move the segment boundary and leave the split attacker-controlled.
+    it("AES-GCM decrypt rejects a tag of the wrong length", async () => {
+      const cek = generateCEK("A256GCM");
+      const iv = generateIV("A256GCM");
+      const plaintext = textEncoder.encode("secret message");
+      const aad = textEncoder.encode("header");
+
+      const { ciphertext, tag } = await encrypt("A256GCM", plaintext, cek, iv, aad);
+      const grown = new Uint8Array([...tag, ...ciphertext.subarray(0, 4)]);
+      await expect(decrypt("A256GCM", cek, ciphertext, iv, grown, aad)).rejects.toThrow(
+        "Invalid Authentication Tag length",
+      );
     });
   });
 
@@ -210,14 +234,14 @@ describe.concurrent("_crypto primitives", () => {
       const ephemeralKP = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);
 
       const senderDerived = await deriveECDHESKey(
-        (recipientKP as CryptoKeyPair).publicKey,
-        (ephemeralKP as CryptoKeyPair).privateKey,
+        recipientKP.publicKey,
+        ephemeralKP.privateKey,
         "A256GCM",
         256,
       );
       const recipientDerived = await deriveECDHESKey(
-        (ephemeralKP as CryptoKeyPair).publicKey,
-        (recipientKP as CryptoKeyPair).privateKey,
+        ephemeralKP.publicKey,
+        recipientKP.privateKey,
         "A256GCM",
         256,
       );
@@ -260,13 +284,14 @@ describe.concurrent("_crypto primitives", () => {
 
   describe("_key-codec: JWK ↔ CryptoKey", () => {
     it("jwkTokey / keyToJWK roundtrip — EC private", async () => {
-      const cryptoKey = await jwkTokey(ec.jwk.private);
+      // Private key material imports non-extractable unless the caller asks otherwise.
+      const cryptoKey = await jwkTokey(ec.jwk.private, { extractable: true });
       expect(cryptoKey).toBeInstanceOf(CryptoKey);
       expect(cryptoKey.type).toBe("private");
 
       const exported = await keyToJWK(cryptoKey);
       expect(exported.kty).toBe("EC");
-      expect((exported as any).d).toBe(ec.jwk.private.d);
+      expect(exported).toHaveProperty("d", ec.jwk.private.d);
     });
 
     it("jwkTokey / keyToJWK roundtrip — RSA public", async () => {
@@ -276,14 +301,25 @@ describe.concurrent("_crypto primitives", () => {
 
       const exported = await keyToJWK(cryptoKey);
       expect(exported.kty).toBe("RSA");
-      expect((exported as any).n).toBe(rsa.jwk.public.n);
+      expect(exported).toHaveProperty("n", rsa.jwk.public.n);
+    });
+
+    it("jwkTokey rejects an OKP JWK whose crv is not a known curve", async () => {
+      const error = await jwkTokey({
+        kty: "OKP",
+        alg: "EdDSA",
+        crv: "Curve25519",
+        x: "",
+      } as never).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("Curve25519");
     });
 
     it("keyToJWK — Uint8Array produces oct JWK", async () => {
       const raw = crypto.getRandomValues(new Uint8Array(32));
       const jwk = await keyToJWK(raw);
       expect(jwk.kty).toBe("oct");
-      expect(typeof (jwk as any).k).toBe("string");
+      expect("k" in jwk && typeof jwk.k).toBe("string");
     });
   });
 
@@ -314,6 +350,17 @@ describe.concurrent("_crypto primitives", () => {
       expect(cryptoKey.type).toBe("private");
       const pem = await toPKCS8(cryptoKey);
       expect(pem).toContain("-----BEGIN PRIVATE KEY-----");
+    });
+
+    it("fromSPKI rejects a bundle of two armoured blocks", async () => {
+      const error = await fromSPKI(rsa.pem.spki + ec.pem.spki, "RS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toContain("exactly one");
+    });
+
+    it("fromPKCS8 rejects data outside the armoured block", async () => {
+      const error = await fromPKCS8(`${rsa.pem.pkcs8}trailing`, "RS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
     });
   });
 });

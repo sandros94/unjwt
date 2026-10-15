@@ -1,3 +1,12 @@
+import { JWTError } from "../error";
+import {
+  checkKeyUsage,
+  hashBitsOf,
+  isAlgorithm,
+  modulusLengthOf,
+  unusableKey,
+} from "./_key-algorithm";
+
 export async function encryptRSAES(
   alg: string,
   key: CryptoKey,
@@ -21,45 +30,23 @@ export async function decryptRSAES(
 }
 
 export function checkRSACryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
-  if (!isAlgorithm<RsaHashedKeyAlgorithm>(key.algorithm, "RSA-OAEP")) {
-    throw unusable("RSA-OAEP");
+  if (!isAlgorithm(key.algorithm, "RSA-OAEP")) {
+    throw unusableKey("RSA-OAEP");
   }
   const expected = Number.parseInt(alg.slice(9), 10) || 1;
-  const actual = getHashLength(key.algorithm.hash);
-  if (actual !== expected) throw unusable(`SHA-${expected}`, "algorithm.hash");
-  checkUsage(key, usage);
+  const actual = hashBitsOf(key.algorithm.hash);
+  if (actual !== expected) throw unusableKey(`SHA-${expected}`, "algorithm.hash");
+  checkKeyUsage(key, usage);
 }
 
 export function checkRSAModulusLength(alg: string, key: CryptoKey): void {
   if (alg.startsWith("RS") || alg.startsWith("PS") || alg.startsWith("RSA")) {
-    const { modulusLength } = key.algorithm as RsaKeyAlgorithm;
+    const modulusLength = modulusLengthOf(key.algorithm);
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new TypeError(`${alg} requires key modulusLength to be 2048 bits or larger`);
+      throw new JWTError(
+        `${alg} requires key modulusLength to be 2048 bits or larger`,
+        "ERR_JWK_INVALID",
+      );
     }
-  }
-}
-
-// --- Internal helpers ---
-
-function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
-}
-
-function isAlgorithm<T extends KeyAlgorithm>(
-  algorithm: KeyAlgorithm,
-  name: string,
-): algorithm is T {
-  return algorithm.name === name;
-}
-
-function getHashLength(hash: KeyAlgorithm) {
-  return Number.parseInt(hash.name.slice(4), 10);
-}
-
-function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
-  if (usage && !key.usages.includes(usage)) {
-    throw new TypeError(
-      `CryptoKey does not support this operation, its usages must include ${usage}.`,
-    );
   }
 }

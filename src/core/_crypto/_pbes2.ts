@@ -1,11 +1,55 @@
-import { textEncoder, base64UrlEncode } from "unsecure/utils";
+import { textEncoder } from "unsecure/utils";
+import { base64UrlStringify } from "../utils/base64";
 
-import { concatUint8Arrays } from "../utils";
+import { concatUint8Arrays } from "../utils/array";
 import { JWTError } from "../error";
+import { checkKeyUsage, innerKeyWrapAlg, isAlgorithm, unusableKey } from "./_key-algorithm";
 import { aesKwWrap, aesKwUnwrap } from "./_aes";
 
+/** RFC 7518 §4.8.1.2 — the floor every PBES2 `p2c` is held to. */
 export const DEFAULT_PBES2_MIN_ITERATIONS = 1000;
-export const DEFAULT_PBES2_MAX_ITERATIONS = 1_000_000;
+
+/** The PBKDF2 work a PBES2 token is minted with when the caller names none. */
+export const DEFAULT_PBES2_ITERATIONS = 600_000;
+
+/** The `p2c` ceiling one unwrap accepts by default: the cost a producer mints with. */
+export const DEFAULT_PBES2_MAX_ITERATIONS: number = DEFAULT_PBES2_ITERATIONS;
+
+/** RFC 7518 §4.8.1 — mint-side `p2s`/`p2c` stay within the unwrap bounds; else `ERR_INVALID_OPTION`. */
+export function assertPBES2Params(params: {
+  p2s: Uint8Array<ArrayBuffer> | undefined;
+  p2c: number | undefined;
+}): void {
+  const { p2s, p2c } = params;
+  if (p2s !== undefined) assertPBES2Salt(p2s, '"p2s"');
+  if (p2c === undefined) return;
+  assertPBES2Count(p2c, '"p2c"');
+  if (p2c > DEFAULT_PBES2_MAX_ITERATIONS) {
+    throw new JWTError(
+      `"p2c" must be between ${DEFAULT_PBES2_MIN_ITERATIONS} and ${DEFAULT_PBES2_MAX_ITERATIONS} iterations (got ${p2c}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/** RFC 7518 §4.8.1.1 — a PBES2 salt input is at least 8 octets. */
+export function assertPBES2Salt(salt: unknown, name: string): void {
+  if (salt instanceof Uint8Array && salt.length >= 8) return;
+  throw new JWTError(`${name} must be 8 or more octets (RFC 7518 §4.8.1.1).`, "ERR_INVALID_OPTION");
+}
+
+/** RFC 7518 §4.8.1.2 — a PBES2 iteration count is an integer of at least 1000. */
+export function assertPBES2Count(count: unknown, name: string): asserts count is number {
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1) {
+    throw new JWTError(`${name} must be a positive integer.`, "ERR_INVALID_OPTION");
+  }
+  if (count < DEFAULT_PBES2_MIN_ITERATIONS) {
+    throw new JWTError(
+      `${name} must be at least ${DEFAULT_PBES2_MIN_ITERATIONS} iterations (got ${count}).`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
 
 export async function pbes2Wrap(
   alg: string,
@@ -15,19 +59,19 @@ export async function pbes2Wrap(
   p2s: Uint8Array<ArrayBuffer>,
 ): Promise<{ encryptedKey: Uint8Array<ArrayBuffer>; p2c: number; p2s: string }> {
   const derived = await deriveKey(p2s, alg, p2c, key);
-  const encryptedKey = await aesKwWrap(alg.slice(-6), derived, cek);
-  return { encryptedKey, p2c, p2s: base64UrlEncode(p2s) };
+  const encryptedKey = await aesKwWrap(innerKeyWrapAlg(alg), derived, cek);
+  return { encryptedKey, p2c, p2s: base64UrlStringify(p2s) };
 }
 
-export async function pbes2Unwrap(
-  alg: string,
-  key: CryptoKey | Uint8Array<ArrayBuffer>,
-  encryptedKey: Uint8Array<ArrayBuffer>,
+/** The `p2c` bounds one PBES2 unwrap accepts, defaulting to the `DEFAULT_PBES2_*` limits. */
+export function assertPBES2Iterations(
   p2c: number,
-  p2s: Uint8Array<ArrayBuffer>,
-  minIterations: number = DEFAULT_PBES2_MIN_ITERATIONS,
-  maxIterations: number = DEFAULT_PBES2_MAX_ITERATIONS,
-): Promise<Uint8Array<ArrayBuffer>> {
+  bounds: { minIterations?: number; maxIterations?: number },
+): void {
+  const {
+    minIterations = DEFAULT_PBES2_MIN_ITERATIONS,
+    maxIterations = DEFAULT_PBES2_MAX_ITERATIONS,
+  } = bounds;
   if (p2c < minIterations) {
     throw new JWTError(
       `PBES2 "p2c" below the minimum of ${minIterations} iterations (got ${p2c}).`,
@@ -40,8 +84,20 @@ export async function pbes2Unwrap(
       "ERR_JWE_INVALID",
     );
   }
+}
+
+export async function pbes2Unwrap(
+  alg: string,
+  key: CryptoKey | Uint8Array<ArrayBuffer>,
+  encryptedKey: Uint8Array<ArrayBuffer>,
+  p2c: number,
+  p2s: Uint8Array<ArrayBuffer>,
+  minIterations?: number,
+  maxIterations?: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  assertPBES2Iterations(p2c, { minIterations, maxIterations });
   const derived = await deriveKey(p2s, alg, p2c, key);
-  return aesKwUnwrap(alg.slice(-6), derived, encryptedKey);
+  return aesKwUnwrap(innerKeyWrapAlg(alg), derived, encryptedKey);
 }
 
 export async function deriveKey(
@@ -50,11 +106,12 @@ export async function deriveKey(
   p2c: number,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  if (!(p2s instanceof Uint8Array) || p2s.length < 8) {
-    throw new Error("PBES2 Salt Input must be 8 or more octets");
-  }
+  assertPBES2Salt(p2s, '"p2s"');
   if (p2c === undefined || p2c < 1) {
-    throw new Error("PBES2 Iteration Count Parameter must be a positive integer");
+    throw new JWTError(
+      "PBES2 Iteration Count Parameter must be a positive integer",
+      "ERR_INVALID_OPTION",
+    );
   }
 
   const salt = concatUint8Arrays(textEncoder.encode(alg), new Uint8Array([0]), p2s);
@@ -73,30 +130,9 @@ export async function deriveKey(
 
 export function checkPBES2CryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
   if (!isAlgorithm(key.algorithm, "PBKDF2")) {
-    throw unusable("PBKDF2");
+    throw unusableKey("PBKDF2");
   }
-  checkUsage(key, usage);
-}
-
-// --- Internal helpers ---
-
-function unusable(name: string | number, prop = "algorithm.name") {
-  return new TypeError(`CryptoKey does not support this operation, its ${prop} must be ${name}`);
-}
-
-function isAlgorithm<T extends KeyAlgorithm>(
-  algorithm: KeyAlgorithm,
-  name: string,
-): algorithm is T {
-  return algorithm.name === name;
-}
-
-function checkUsage(key: CryptoKey, usage?: KeyUsage): void {
-  if (usage && !key.usages.includes(usage)) {
-    throw new TypeError(
-      `CryptoKey does not support this operation, its usages must include ${usage}.`,
-    );
-  }
+  checkKeyUsage(key, usage);
 }
 
 async function getPBKDF2CryptoKey(

@@ -40,9 +40,13 @@
       "types": "./dist/core/utils/index.d.mts",
       "default": "./dist/core/utils/index.mjs"
     },
+    "./internal": {
+      "types": "./dist/core/internal.d.mts",
+      "default": "./dist/core/internal.mjs"
+    },
     "./adapters/h3": {
-      "types": "./dist/adapters/h3v1/index.d.mts",
-      "default": "./dist/adapters/h3v1/index.mjs"
+      "types": "./dist/adapters/h3v2/index.d.mts",
+      "default": "./dist/adapters/h3v2/index.mjs"
     },
     "./adapters/h3v1": {
       "types": "./dist/adapters/h3v1/index.d.mts",
@@ -61,7 +65,7 @@
     "build": "obuild",
     "dev": "bun --watch ./playground/main.ts",
     "dev:prepare": "obuild --stub && pnpm simple-git-hooks",
-    "lint": "oxlint . && oxfmt --check .",
+    "lint": "oxlint --deny-warnings . && oxfmt --check .",
     "fmt": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",
     "test": "vitest run --slowTestThreshold=1000",
@@ -70,32 +74,31 @@
     "bench": "vitest bench --run"
   },
   "devDependencies": {
-    "@types/node": "^24.13.3",
+    "@types/node": "^24.19.2",
     "@types/supertest": "^7.2.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.4",
     "automd": "^0.4.3",
     "cookie-esv1": "npm:cookie-es@^1.2.3",
     "cookie-esv3": "npm:cookie-es@^3.1.1",
-    "elysia": "^1.4.29",
+    "elysia": "^1.4.30",
     "h3v1": "npm:h3@^1.15.11",
-    "h3v2": "npm:h3@^2.0.1-rc.29",
-    "jose": "^6.2.10",
-    "obuild": "^0.4.38",
-    "oxfmt": "^0.64.0",
-    "oxlint": "^1.79.0",
-    "oxlint-tsgolint": "^7.0.2001",
-    "rolldown": "1.2.5",
-    "simple-git-hooks": "^2.13.1",
-    "supertest": "^7.2.2",
+    "h3v2": "npm:h3@^2.0.2",
+    "jose": "^6.2.12",
+    "obuild": "^0.4.45",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
+    "oxlint-tsgolint": "^7.0.2004",
+    "rolldown": "1.2.14",
+    "simple-git-hooks": "^2.14.0",
+    "supertest": "^7.3.1",
     "typescript": "^7.0.2",
-    "unsecure": "^0.2.3",
-    "vitest": "^4.1.11"
+    "unsecure": "^0.3.2",
+    "vitest": "^5.0.4"
   },
   "peerDependencies": {
     "cookie-es": "^1.2.3 || ^3.1.1",
     "elysia": "^1.4.29",
-    "h3": "^1.15.4 || >=2.0.1-rc.22 || ^2.0.1",
-    "rou3": "^0.8.1"
+    "h3": "^1.15.4 || ^2.0.1"
   },
   "peerDependenciesMeta": {
     "cookie-es": {
@@ -105,9 +108,6 @@
       "optional": true
     },
     "h3": {
-      "optional": true
-    },
-    "rou3": {
       "optional": true
     }
   },
