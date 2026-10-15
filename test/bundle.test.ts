@@ -16,18 +16,22 @@ import { rolldown } from "rolldown";
  * breaks it silently and shows up in someone's shipped bytes.
  *
  * Each row bundles a single named import from `src` — not from `dist`, so the
- * test needs no prior build — minifies it with every comment stripped, so
- * the `@__PURE__` annotations a minifier may keep do not count as code, and
- * asserts two things: the byte size is at or under its ceiling, and the
- * markers listed with it are absent.
+ * test needs no prior build — minifies it with every comment stripped, so the
+ * `@__PURE__` annotations a minifier may keep do not count as code, and asserts
+ * two things: the byte size is within `TOLERANCE` of the row's `measured`
+ * value, and the markers listed with it are absent.
  *
- * The ceiling is the size measured when the row was written, plus 15%, rounded
- * up to the next 100 bytes; the measurement is in the comment beside it. A
- * deliberate change that grows a bundle is a one-line diff: re-measure, and
- * update both the ceiling and the comment in the same edit.
+ * `measured` is the size when the row was last measured, and the bound is
+ * two-sided: growth means something was pulled in, a drastic shrink means a
+ * check or branch was shaken out. A deliberate change in either direction is a
+ * one-line diff: re-measure and update `measured`. A change you cannot explain
+ * is the test doing its job.
  */
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
+
+/** Relative slack around `measured`, in both directions. */
+const TOLERANCE = 0.15;
 
 /** Rolldown is fast, but a cold CI worker resolving a native binding is not. */
 const TIMEOUT = 60_000;
@@ -52,56 +56,47 @@ interface Entry {
   name: string;
   /** The module, relative to `src`. */
   module: string;
-  /** Minified bytes this import may not exceed. */
-  ceiling: number;
+  /** Minified bytes when the row was last measured; the test allows `TOLERANCE` either way. */
+  measured: number;
   /** Strings that must not appear in the bundle. */
   absent: ReadonlyArray<string>;
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
-  // measured 26773
   {
     name: "verify",
     module: "core/jws.ts",
-    ceiling: 26900,
+    measured: 26846,
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
-  // measured 20179
   {
     name: "sign",
     module: "core/jws.ts",
-    ceiling: 22700,
+    measured: 19789,
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
-  // measured 41008
-  { name: "decrypt", module: "core/jwe.ts", ceiling: 41700, absent: [MARKERS.thumbprint] },
-  // measured 33217
-  { name: "encrypt", module: "core/jwe.ts", ceiling: 37000, absent: [MARKERS.thumbprint] },
-  // measured 9281
-  { name: "importKey", module: "core/jwk.ts", ceiling: 10200, absent: [MARKERS.pem] },
-  // measured 9738 — every JWK it emits carries its RFC 7638 thumbprint as `kid`
-  { name: "generateKey", module: "core/jwk.ts", ceiling: 10_000, absent: [MARKERS.pem] },
-  // measured 12009
-  { name: "importPEM", module: "core/jwk.ts", ceiling: 13200, absent: [] },
-  // measured 3225
+  { name: "decrypt", module: "core/jwe.ts", measured: 39335, absent: [MARKERS.thumbprint] },
+  { name: "encrypt", module: "core/jwe.ts", measured: 31818, absent: [MARKERS.thumbprint] },
+  { name: "importKey", module: "core/jwk.ts", measured: 9338, absent: [MARKERS.pem] },
+  // the thumbprint is the default `kid` of every JWK it emits
+  { name: "generateKey", module: "core/jwk.ts", measured: 10719, absent: [MARKERS.pem] },
+  { name: "importPEM", module: "core/jwk.ts", measured: 12053, absent: [] },
   {
     name: "base64UrlParse",
     module: "core/utils/base64.ts",
-    ceiling: 3800,
+    measured: 3225,
     absent: [MARKERS.subtleImport],
   },
-  // measured 132
   {
     name: "isJWK",
     module: "core/utils/index.ts",
-    ceiling: 200,
+    measured: 132,
     absent: [MARKERS.randomBytes, MARKERS.base64],
   },
-  // measured 4499
   {
     name: "validateJwtClaims",
     module: "core/utils/jwt.ts",
-    ceiling: 5200,
+    measured: 4524,
     absent: [MARKERS.subtleImport],
   },
 ];
@@ -112,14 +107,15 @@ const VIRTUAL_ENTRY = "\0unjwt-bundle-entry";
 describe("tree-shaking", () => {
   for (const entry of ENTRIES) {
     it(
-      `ships ${entry.name} in at most ${entry.ceiling} bytes, and nothing else`,
+      `ships ${entry.name} in about ${entry.measured} bytes, and nothing else`,
       async () => {
         const code = await bundleImport(entry);
         const size = new TextEncoder().encode(code).length;
+        const drift = (size - entry.measured) / entry.measured;
         expect(
-          size,
-          `${entry.name} bundles to ${size} bytes; re-measure and update the row if the growth is deliberate`,
-        ).toBeLessThanOrEqual(entry.ceiling);
+          Math.abs(drift),
+          `${entry.name} bundles to ${size} bytes, measured ${entry.measured}; re-measure and update the row if the change is deliberate`,
+        ).toBeLessThanOrEqual(TOLERANCE);
         for (const marker of entry.absent) {
           expect(code, `${entry.name} bundle must not contain ${marker}`).not.toContain(marker);
         }
