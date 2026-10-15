@@ -151,6 +151,7 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
         publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet | CryptoKey;
       };
   maxAge?: MaxAge;
+  rolling?: true | ExpiresIn;
   name?: string; // default "elysia-jws"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
@@ -179,6 +180,7 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
         publicKey: JWEAsymmetricPublicJWK | CryptoKey;
       };
   maxAge?: MaxAge;
+  rolling?: true | ExpiresIn;
   name?: string; // default "elysia-jwe"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
@@ -261,11 +263,13 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
 Each hook receives `{ session, context, config }` — `context` is the Elysia context (not an H3
 `event`). Guarantees (ported from H3v2):
 
-- `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires on
-  each read of a session that holds a token — the incoming one, or one `update()` issued earlier in
-  the request — so dedupe on `session.id` where once-per-request is what you want.
+- `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires once
+  per request, when the session is read from its token; later reads in the request are silent.
+- `session` in `onRead`, `onUpdate` and `onError` is the manager (`update()`, `clear()`);
+  `oldSession` is a snapshot. `onUpdate` carries `trigger: "update" | "rolling"`.
+- `rolling: true | ExpiresIn` reissues a session on read so `exp` slides (needs `maxAge`).
 - Every hook is dispatched with the session state already settled, so a hook may call
-  `createJWSSession` / `createJWESession` again on the same context without deadlocking.
+  `createJWSSession` / `createJWESession` again on the same context and gets the same session.
 - `onExpire` receives the expired token's decoded claims via `error.cause` (`jti`/`iat`/`exp`), so
   `session.id` is available. The session cookie is removed and `session.token` reset before it fires.
 - `onUpdate` fires after every successful sign/seal and cookie write (including data-less token

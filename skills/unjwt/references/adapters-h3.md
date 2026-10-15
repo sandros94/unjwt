@@ -112,8 +112,8 @@ Forked from h3's `useSession`, then deliberately diverged:
   unjwt does not, so a rotated token stays distinguishable from a compromised one.
 - **`maxAge` counts from the latest issue**, not first creation. Lineage across rotations is
   the application's job (e.g. record the previous `jti` in `onUpdate`).
-- **No `idleTimeout` / `lastSeenAt`.** Sliding expiration = `session.update()` from `onRead`
-  when `expiresAt - Date.now()` is under the app's threshold.
+- **No `idleTimeout` / `lastSeenAt`.** Sliding expiration = `rolling: true` (reissue on every
+  read) or `rolling: "15m"` (reissue once less than that remains); needs `maxAge`.
 - **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement, hooks, `Bearer `
   prefix on the session header, JWS cookies default `httpOnly: false`.
 - **`clear()` is final for the request.** The context slot is left holding an empty session,
@@ -229,6 +229,8 @@ interface SessionConfigJWE<
     // each half must be key material of its own side, else ERR_SESSION_KEY_INVALID
     | { privateKey: JWK_Private | CryptoKey; publicKey: JWK_Public | CryptoKey };
   maxAge?: MaxAge;
+  /** Reissue on read so `exp` slides: `true` every request, a duration once less than that remains. Needs `maxAge`. */
+  rolling?: true | ExpiresIn;
   name?: string; // cookie name (default: "h3-jwe")
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
   sessionHeader?: false | string; // header to read token from
@@ -267,6 +269,8 @@ interface SessionConfigJWS<
         publicKey: JWK_Public | JWK_Public[] | JWKSet | CryptoKey;
       };
   maxAge?: MaxAge;
+  /** Reissue on read so `exp` slides: `true` every request, a duration once less than that remains. Needs `maxAge`. */
+  rolling?: true | ExpiresIn;
   name?: string; // default: "h3-jws"
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
   sessionHeader?: false | string;
@@ -294,19 +298,20 @@ interface SessionHooksJWS<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
 > {
-  /** Fires on each read of a session established from a valid token. */
+  /** Fires once per request, when the session is read from a valid token. `session` is the manager. */
   onRead?: (args: {
     // `id` and `token` are narrowed to `string` — they are guaranteed present
     // once the token has been successfully read.
-    session: SessionJWS<T, MaxAge> & { id: string; token: string };
+    session: SessionManager<T, MaxAge> & { id: string; token: string };
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
 
-  /** Fires after a successful sign — receives the new session and a snapshot of the old one. */
+  /** Fires after a successful sign, by `update()` or by `rolling` — the live manager and a snapshot of the old state. */
   onUpdate?: (args: {
-    session: SessionJWS<T, MaxAge> & { id: string; token: string };
+    session: SessionManager<T, MaxAge> & { id: string; token: string };
     oldSession: SessionJWS<T, MaxAge>;
+    trigger: "update" | "rolling";
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
@@ -333,7 +338,7 @@ interface SessionHooksJWS<
 
   /** Fires when token verification fails for a non-expiry reason. Mutually exclusive with onRead. */
   onError?: (args: {
-    session: SessionJWS<T, MaxAge>;
+    session: SessionManager<T, MaxAge>;
     event: TEvent;
     error: any;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
@@ -353,14 +358,15 @@ interface SessionHooksJWE<
   TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
 > {
   onRead?: (args: {
-    session: SessionJWE<T, MaxAge> & { id: string; token: string };
+    session: SessionManager<T, MaxAge> & { id: string; token: string };
     event: TEvent;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
 
   onUpdate?: (args: {
-    session: SessionJWE<T, MaxAge> & { id: string; token: string };
+    session: SessionManager<T, MaxAge> & { id: string; token: string };
     oldSession: SessionJWE<T, MaxAge>;
+    trigger: "update" | "rolling";
     event: TEvent;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
@@ -403,13 +409,13 @@ interface SessionHooksJWE<
 
 | Hook       | When it fires                                                                                                                                                                                                                                                                                                                            | Mutually exclusive with |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `onRead`   | Each read of a session decoded from a valid token (`id` and `token` set) — dedupe on `session.id` for once-per-request                                                                                                                                                                                                                   | `onExpire`, `onError`   |
+| `onRead`   | Once per request, when the session is read from a valid token (`id` and `token` set); later reads in the request are silent                                                                                                                                                                                                              | `onExpire`, `onError`   |
 | `onUpdate` | After seal/sign and the cookie write succeed; a hook that throws makes `update()` reject with its error, the new session staying in place (no rollback, no `onError`)                                                                                                                                                                    | —                       |
 | `onClear`  | After explicit `session.clear()` call                                                                                                                                                                                                                                                                                                    | `onExpire`              |
 | `onExpire` | Token's `exp` claim is in the past                                                                                                                                                                                                                                                                                                       | `onRead`, `onClear`     |
 | `onError`  | A read-path failure other than expiry, and a write-path sign/seal failure — the read-path `error` is always an `ERR_SESSION_TOKEN_INVALID` `JWTError` whose `cause` is the underlying failure, while the write-path `error` is the issue failure itself (e.g. `ERR_INVALID_OPTION`) and `session` is rolled back to its pre-update state | `onRead` (read path)    |
 
-Every hook is dispatched with the session state already settled, so a hook may read the same session again — through `useJWSSession`/`getJWSSession` with the same config — and sees the state the request ends up with rather than deadlocking on its own read.
+Every hook is dispatched with the session state already settled, so a hook may read the same session again — through `useJWSSession`/`getJWSSession` with the same config — and gets the same session without `onRead` firing again. `session` in `onRead`, `onUpdate` and `onError` is the manager, so `session.update()` / `session.clear()` work in place.
 
 Key material is configuration rather than token content: a `key` the config cannot resolve into a signing and a verification key throws `ERR_SESSION_KEY_INVALID` out of `useJWSSession` / `getJWSSession` itself, and never reaches `onError` as an unreadable token. A session `name` outside the RFC 6265 cookie-name characters is `ERR_SESSION_CONFIG_INVALID`, raised where the session is bound. So is a `name` a different family already holds on the same request: a name spells one cookie and one cookie carries one token, so a JWS and a JWE session under one name would write over each other (`'[unjwt/h3] Session name "app" is already used by a JWS session on this request; …'`). Reading the same family and name again is the same session and is always allowed.
 
