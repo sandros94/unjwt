@@ -1,13 +1,7 @@
 import { textEncoder } from "unsecure/utils";
 import { safeJsonParse } from "unsecure/sanitize";
 
-import type {
-  JOSEPayload,
-  JWTClaims,
-  JOSEPayloadMode,
-  JWTTimeClaimOptions,
-  PayloadOf,
-} from "./types";
+import type { JWTClaims, JOSEPayloadMode, JWTTimeClaimOptions, PayloadOf } from "./types";
 import type { JWTErrorCode } from "./error";
 import { JWTError } from "./error";
 import { base64UrlParse } from "./utils/base64";
@@ -97,7 +91,9 @@ export function parsePayloadSegment(
 }
 
 /** Encode a payload to bytes; a non-serializable one throws `ERR_INVALID_OPTION`. */
-export function getPlaintextBytes(payload: JOSEPayload): Uint8Array<ArrayBuffer> {
+export function getPlaintextBytes(
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
+): Uint8Array<ArrayBuffer> {
   if (payload instanceof Uint8Array) return payload;
   if (typeof payload === "string") return textEncoder.encode(payload);
   if (typeof payload === "object" && payload !== null) {

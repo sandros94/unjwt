@@ -209,7 +209,7 @@ export async function encryptMulti(
  * `ERR_JWE_NO_MATCHING_RECIPIENT` when none qualifies; a JWK Set with no `kid` candidate
  * throws `ERR_JWK_KEY_NOT_FOUND`. The payload type follows `options.payload`.
  */
-export async function decryptMulti<T extends object = JWTClaims>(
+export async function decryptMulti<T extends Record<string, unknown> = JWTClaims>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,
   options?: JWEMultiDecryptOptions<"json"> & { forceUint8Array?: false },

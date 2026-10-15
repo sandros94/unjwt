@@ -34,7 +34,7 @@ export interface JoseHeaderParameters {
 }
 
 /** Payload accepted by `sign` and `encrypt`: a string, raw bytes, or a JSON object. */
-export type JOSEPayload = string | Uint8Array<ArrayBuffer> | object;
+export type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
 
 /** How a verified or decrypted payload is decoded: `"json"` object, UTF-8 `"string"`, or raw `"bytes"`. */
 export type JOSEPayloadMode = keyof JOSEPayloadTypeMap;

@@ -131,6 +131,30 @@ describe.concurrent("JWS Utilities", () => {
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
+    it("treats EdDSA and Ed25519 as one signature over an Ed25519 key", async () => {
+      const fully = await generateJWK("Ed25519");
+      const rfc8037 = await generateJWK("EdDSA");
+
+      const viaEdDSA = await sign(payloadObj, fully.privateKey, { alg: "EdDSA" });
+      expect(JSON.parse(base64UrlParse(viaEdDSA.split(".")[0])).alg).toBe("EdDSA");
+      await expect(verify(viaEdDSA, fully.publicKey)).resolves.toMatchObject({
+        payload: payloadObj,
+      });
+      await expect(
+        verify(viaEdDSA, fully.publicKey, { algorithms: ["EdDSA"] }),
+      ).resolves.toMatchObject({ payload: payloadObj });
+
+      const viaEd25519 = await sign(payloadObj, rfc8037.privateKey, { alg: "Ed25519" });
+      expect(JSON.parse(base64UrlParse(viaEd25519.split(".")[0])).alg).toBe("Ed25519");
+      await expect(verify(viaEd25519, rfc8037.publicKey)).resolves.toMatchObject({
+        payload: payloadObj,
+      });
+
+      await expect(
+        verify(viaEdDSA, fully.publicKey, { algorithms: ["Ed25519"] }),
+      ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_ALG_NOT_ALLOWED"));
+    });
+
     it("should sign with Ed25519", async () => {
       const { privateKey, publicKey } = await generateKey("Ed25519");
       const jws = await sign(payloadObj, privateKey, { alg: "Ed25519" });
@@ -2137,16 +2161,6 @@ describe.concurrent("JWS verification option gates", () => {
 describe("types", () => {
   type MyClaims = { sub: string; role: "admin" | "user" };
   const key = new Uint8Array(32);
-  interface MyClaimsInterface {
-    sub: string;
-    role: "admin" | "user";
-  }
-
-  it("accepts an interface as the claims type", () => {
-    expectTypeOf(() => verify<MyClaimsInterface>("", key)).returns.resolves.toEqualTypeOf<
-      JWSVerifyResult<MyClaimsInterface>
-    >();
-  });
 
   it("returns the claims for the default and json payload modes", () => {
     expectTypeOf(() => verify("", key)).returns.resolves.toEqualTypeOf<

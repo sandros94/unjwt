@@ -170,7 +170,7 @@ function getEncryptKey(config: JWECodecConfig, prefix: string): JWEEncryptJWK | 
     resolved = key;
   } else if (isKeyPair(key)) {
     assertJWEKeyPair(key, prefix);
-    resolved = key.publicKey;
+    resolved = key.publicKey ?? key.privateKey;
   }
 
   if (!resolved) {
@@ -204,6 +204,7 @@ function getDecryptKey(config: JWECodecConfig, prefix: string): JWEDecryptJWK | 
   return resolved;
 }
 
+/** A JWE pair's public half is optional: without one, the private JWK seals too. */
 function assertJWEKeyPair(
   key: { privateKey?: unknown; publicKey?: unknown },
   prefix: string,
@@ -211,7 +212,7 @@ function assertJWEKeyPair(
   assertKeyPair(key, {
     prefix,
     family: "JWE",
-    isPublic: (half) => isCryptoKey(half) || isPublicJWK(half),
+    isPublic: (half) => half === undefined || isCryptoKey(half) || isPublicJWK(half),
     publicHalf: "a public JWK or a CryptoKey",
   });
 }

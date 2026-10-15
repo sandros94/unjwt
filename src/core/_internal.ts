@@ -30,6 +30,7 @@ import {
   inferJWEAllowedAlgorithms,
   inferJWSAllowedAlgorithms,
   isContentEncryptionAlgorithm,
+  isEd25519Signature,
 } from "./utils/algorithms";
 import { quoteTokenValue } from "./utils/_text";
 import {
@@ -501,7 +502,8 @@ export function checkAlgAllowed(
     return algorithms.includes(alg) ? undefined : notAllowed(alg, ctx);
   }
   if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
-    return key.alg === alg ? undefined : notAllowed(alg, ctx);
+    const served = key.alg === alg || (isEd25519Signature(key.alg) && isEd25519Signature(alg));
+    return served ? undefined : notAllowed(alg, ctx);
   }
   const inferred = ctx.infer(key, { allowSymmetric });
   if (!inferred) {
@@ -530,7 +532,10 @@ export function keyMatchesHeader(
     );
     return candidates.length === 0 || candidates.some((k) => keyServesHeaderAlg(header, k, ctx));
   }
-  if (isJWK(keyMaterial)) return keyServesHeaderAlg(header, keyMaterial, ctx);
+  if (isJWK(keyMaterial)) {
+    if (header.kid && keyMaterial.kid && header.kid !== keyMaterial.kid) return false;
+    return keyServesHeaderAlg(header, keyMaterial, ctx);
+  }
   if (isCryptoKey(keyMaterial)) return keyServesHeaderAlg(header, keyMaterial, ctx);
   return true;
 }

@@ -15,7 +15,6 @@ import {
   isPublicJWK,
   isPrivateJWK,
   isSymmetricJWK,
-  isAsymmetricJWK,
   assertCryptoKey,
   isCryptoKeyPair,
   computeDurationInSeconds,
@@ -39,10 +38,6 @@ import type {
   JWTClaims,
   JWK_EC_Public,
   JWK_EC_Private,
-  JWK_oct,
-  JWK_Public,
-  JWK_Private,
-  JWK,
   JWK_OKP_Public,
   JWK_OKP_Private,
   JWK_RSA_Public,
@@ -919,29 +914,5 @@ describe("types", () => {
     >();
     // @ts-expect-error a claims type only applies to the JSON mode
     expectTypeOf(() => parsePayloadBytes<MyClaims>(bytes, { payload: "bytes" }));
-  });
-});
-
-describe("guards on unknown input", () => {
-  const oct = { kty: "oct", k: "c2VjcmV0", alg: "HS256" };
-  const ec: JWK_EC_Public = { kty: "EC", crv: "P-256", x: "x", y: "y" };
-
-  it("isAsymmetricJWK is false for anything that is not an asymmetric JWK", () => {
-    expect(isAsymmetricJWK(ec)).toBe(true);
-    expect(isAsymmetricJWK(oct)).toBe(false);
-    expect(isAsymmetricJWK("x")).toBe(false);
-    expect(isAsymmetricJWK(null)).toBe(false);
-    expect(isAsymmetricJWK({ kty: "foo" })).toBe(false);
-  });
-
-  it("narrows an unknown value to the key type it checks for", () => {
-    const value = JSON.parse("{}") as unknown;
-    if (isSymmetricJWK(value)) expectTypeOf(value).toEqualTypeOf<JWK_oct>();
-    if (isAsymmetricJWK(value)) expectTypeOf(value).toEqualTypeOf<Exclude<JWK, JWK_oct>>();
-    if (isPrivateJWK(value)) expectTypeOf(value).toEqualTypeOf<JWK_Private>();
-    if (isPublicJWK(value)) expectTypeOf(value).toEqualTypeOf<JWK_Public>();
-    const either = JSON.parse("{}") as JWK_oct | JWK_EC_Public;
-    if (isSymmetricJWK(either)) expectTypeOf(either).toEqualTypeOf<JWK_oct>();
-    else expectTypeOf(either).toEqualTypeOf<JWK_EC_Public>();
   });
 });

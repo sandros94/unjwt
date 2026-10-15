@@ -39,7 +39,11 @@ import type {
   UnwrappingKeyFor,
 } from "./types";
 import { assertPlainObject, isCryptoKey, isJWK, isJWKSet } from "./utils/guards";
-import { PBES2_ALGORITHMS, isContentEncryptionAlgorithm } from "./utils/algorithms";
+import {
+  PBES2_ALGORITHMS,
+  isContentEncryptionAlgorithm,
+  isEd25519Signature,
+} from "./utils/algorithms";
 import { JWTError } from "./error";
 import {
   jwkTokey,
@@ -504,6 +508,7 @@ export async function importKey(
 function assertJWKAlgAuthority(jwk: JWK, alg: string | undefined): void {
   if (!alg || !jwk.alg || jwk.alg === alg) return;
   if (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg)) return;
+  if (isEd25519Signature(jwk.alg) && isEd25519Signature(alg)) return;
   throw new JWTError(
     `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
     "ERR_JWK_INVALID",

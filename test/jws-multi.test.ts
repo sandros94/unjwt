@@ -362,22 +362,12 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         expect(signerIndex).toBe(1);
       });
 
-      it("throws ERR_JWS_NO_MATCHING_SIGNER when the key cannot serve the signature's alg", async () => {
+      it("throws ERR_JWS_NO_MATCHING_SIGNER when no kid matches", async () => {
         const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
         const unrelated: JWK_oct<"HS384"> = { ...keys.hs384, kid: "unrelated" };
         await expect(verifyMulti(jws, unrelated, { strictSignerMatch: true })).rejects.toSatisfy(
           (e) => isJWTError(e, "ERR_JWS_NO_MATCHING_SIGNER"),
         );
-      });
-
-      it("attempts a single JWK whose kid differs from the signature's kid", async () => {
-        const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
-        const rotated: JWK_oct<"HS256"> = { ...keys.hs256, kid: "rotated" };
-        const { payload, signerIndex } = await verifyMulti(jws, rotated, {
-          strictSignerMatch: true,
-        });
-        expect(payload.x).toBe(1);
-        expect(signerIndex).toBe(0);
       });
 
       // `kid` is a selection hint: key material without a `kid` of its own is

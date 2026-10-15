@@ -109,7 +109,7 @@ export async function encrypt(
   },
 ): Promise<string>;
 export async function encrypt(
-  payload: JOSEPayload,
+  payload: string | Uint8Array<ArrayBuffer> | Record<string, unknown>,
   key: CryptoKey | JWEEncryptJWK | string | Uint8Array<ArrayBuffer>,
   options: JWEEncryptOptions = {},
 ): Promise<string> {
@@ -231,7 +231,7 @@ export async function encrypt(
  * Decrypt a JWE Compact Serialization string; `key` may be a lookup function.
  * The payload type follows `options.payload` (claims `T` by default).
  */
-export async function decrypt<T extends object = JWTClaims>(
+export async function decrypt<T extends Record<string, unknown> = JWTClaims>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
   options?: JWEDecryptOptions<"json"> & { forceUint8Array?: false },

@@ -88,7 +88,13 @@ function unionFromJWKSet<T extends string>(
   return algs.size > 0 ? [...algs] : undefined;
 }
 
+/** RFC 8037 `EdDSA` and the fully-specified `Ed25519` name the same signature over an Ed25519 key. */
+export function isEd25519Signature(alg: string): boolean {
+  return alg === "EdDSA" || alg === "Ed25519";
+}
+
 function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
+  if (jwk.alg && isEd25519Signature(jwk.alg)) return ["EdDSA", "Ed25519"];
   if (jwk.alg) return declaredAlgorithm<JWSAlgorithm>(jwk.alg);
   // WebCrypto exports omit `alg` for EC/OKP JWKs; the curve alone identifies the signature alg.
   if (jwk.kty === "EC") {

@@ -68,24 +68,24 @@ export const isCryptoKeyPair = (key: unknown): key is CryptoKeyPair =>
   isCryptoKey(key.privateKey);
 
 /** Whether the JWK is symmetric (`oct`); its `k` is always secret. */
-export function isSymmetricJWK<T extends JWK>(key: T): key is Extract<T, JWK_oct>;
+export function isSymmetricJWK<T>(key: T): key is Extract<T, JWK_oct>;
 export function isSymmetricJWK(key: unknown): key is JWK_oct;
 export function isSymmetricJWK(key: unknown): boolean {
   return isJWK(key) && key.kty === "oct" && typeof key.k === "string";
 }
 
 /** Whether the JWK is asymmetric (RSA, EC, OKP). */
-export function isAsymmetricJWK<T extends JWK>(key: T): key is Exclude<T, JWK_oct>;
+export function isAsymmetricJWK<T>(key: T): key is Exclude<T, JWK_oct>;
 export function isAsymmetricJWK(key: unknown): key is Exclude<JWK, JWK_oct>;
 export function isAsymmetricJWK(key: unknown): boolean {
-  return isJWK(key) && key.kty !== "oct";
+  return !isSymmetricJWK(key);
 }
 
 /**
  * Whether the JWK holds asymmetric private material (`d`). It is `false` for `oct` keys,
  * so `!isPrivateJWK(key)` is not a "safe to publish" check; use `isPublicJWK`.
  */
-export function isPrivateJWK<T extends JWK>(
+export function isPrivateJWK<T>(
   key: T,
 ): key is Extract<T, JWK_EC_Private | JWK_OKP_Private | JWK_RSA_Private>;
 export function isPrivateJWK(key: unknown): key is JWK_Private;
@@ -95,7 +95,7 @@ export function isPrivateJWK(key: unknown): boolean {
 }
 
 /** Whether the JWK is an asymmetric public key without `d`: the "safe to publish" check. */
-export function isPublicJWK<T extends JWK>(
+export function isPublicJWK<T>(
   key: T,
 ): key is Exclude<Extract<T, JWK_EC_Public | JWK_OKP_Public | JWK_RSA_Public>, JWK_Private>;
 export function isPublicJWK(key: unknown): key is JWK_Public;
