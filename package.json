@@ -45,8 +45,8 @@
       "default": "./dist/core/internal.mjs"
     },
     "./adapters/h3": {
-      "types": "./dist/adapters/h3v1/index.d.mts",
-      "default": "./dist/adapters/h3v1/index.mjs"
+      "types": "./dist/adapters/h3v2/index.d.mts",
+      "default": "./dist/adapters/h3v2/index.mjs"
     },
     "./adapters/h3v1": {
       "types": "./dist/adapters/h3v1/index.d.mts",
