@@ -162,7 +162,7 @@ Import: `import { ... } from "unjwt/internal"`
   valid UTF-8; `"bytes"` returns the input. `options.family?: "JWS" | "JWE"` picks the rejection code
   (`ERR_JWS_INVALID` by default). Options type: `ParsePayloadOptions`.
 - `parsePayloadText(bytes, options?)` — payload bytes as UTF-8 text, `options.family` as above.
-- `getPlaintextBytes(payload)` — `string | Uint8Array | Record<string, unknown>` to bytes; a
+- `getPlaintextBytes(payload)` — `string | Uint8Array | object` to bytes; a
   non-serializable object is `ERR_INVALID_OPTION`.
 - `computeJwtTimeClaims(payload, options?)` — `iat` plus `exp`/`nbf` from
   `expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`, an alias of

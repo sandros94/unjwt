@@ -299,7 +299,7 @@ type JWEAsymmetricPrivateJWK =
 type JWEEncryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPublicJWK;
 type JWEDecryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPrivateJWK;
 
-type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
+type JOSEPayload = string | Uint8Array<ArrayBuffer> | object;
 
 // Bounded work per call. Each operation exposes the subset that applies to it;
 // `DEFAULT_JOSE_LIMITS` (exported from `unjwt`, `unjwt/jws` and `unjwt/jwe`)

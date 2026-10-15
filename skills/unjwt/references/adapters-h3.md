@@ -227,7 +227,7 @@ interface SessionConfigJWE<
     | CryptoKey // requires jwe.encryptOptions.alg + enc
     | JWK_Symmetric // symmetric JWK
     // each half must be key material of its own side, else ERR_SESSION_KEY_INVALID
-    | { privateKey: JWK_Private | CryptoKey; publicKey?: JWK_Public | CryptoKey };
+    | { privateKey: JWK_Private | CryptoKey; publicKey: JWK_Public | CryptoKey };
   maxAge?: MaxAge;
   name?: string; // cookie name (default: "h3-jwe")
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });

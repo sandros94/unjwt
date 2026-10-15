@@ -70,7 +70,7 @@ await session.update({ userId: "123" });
 
 ## Key Concepts
 
-- **`JOSEPayload`**: the payload type accepted by `sign`/`encrypt` — `string | Uint8Array | Record<string, unknown>`; covers both JWT and generic serializable objects. `JWTClaims` remains the spec-compliant sub-type for typed claim access
+- **`JOSEPayload`**: the payload type accepted by `sign`/`encrypt` — `string | Uint8Array | object`; covers both JWT and generic serializable objects. `JWTClaims` remains the spec-compliant sub-type for typed claim access
 - **JWK-first key model**: functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array
 - **Strings are not keys**: `importKey` and every JWS entry point reject a `string` with `ERR_JWK_INVALID` (`"String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM()."`). JWE is the sole exception, and only as a PBES2 password — under any other `alg` it is rejected too
 - **Payload typing is declared, not sniffed**: `verify`/`verifyMulti`/`verifyMultiAll`/`decrypt`/`decryptMulti` take `payload: "json" | "string" | "bytes"` (default `"json"` — must parse to a non-null, non-array object, and claims are validated). `typ`/`cty` never pick the shape. `validateClaims: true` outside `"json"` is `ERR_INVALID_OPTION`; `forceUint8Array` is a deprecated alias of `payload: "bytes"`

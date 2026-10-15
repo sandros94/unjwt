@@ -176,7 +176,7 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
     | JWEEncryptJWK
     | {
         privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
-        publicKey?: JWEAsymmetricPublicJWK | CryptoKey;
+        publicKey: JWEAsymmetricPublicJWK | CryptoKey;
       };
   maxAge?: MaxAge;
   name?: string; // default "elysia-jwe"

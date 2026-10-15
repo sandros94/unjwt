@@ -24,7 +24,7 @@ Creates a JWS Compact Serialization token.
 
 **Parameters:**
 
-- `payload` — `JOSEPayload` = `string | Uint8Array | Record<string, unknown>` (objects are JSON-serialized)
+- `payload` — `JOSEPayload` = `string | Uint8Array | object` (objects are JSON-serialized; interfaces welcome)
 - `key` — `CryptoKey | JWSSignJWK | Uint8Array`
   - `JWSSignJWK` narrows by family: `JWK_oct<JWK_HMAC>` | asymmetric private JWK with a signing `alg`.
     A JWK whose `alg` points at a non-signing family (`"RSA-OAEP"`, `"A256KW"`, …) is rejected at the type level.
@@ -311,7 +311,7 @@ type JWSAsymmetricPublicJWK =
 type JWSSignJWK = JWK_oct<JWK_HMAC> | JWSAsymmetricPrivateJWK;
 type JWSVerifyJWK = JWK_oct<JWK_HMAC> | JWSAsymmetricPublicJWK;
 
-type JOSEPayload = string | Uint8Array<ArrayBuffer> | Record<string, unknown>;
+type JOSEPayload = string | Uint8Array<ArrayBuffer> | object;
 
 // Bounded work per call. Each operation exposes the subset that applies to it;
 // `DEFAULT_JOSE_LIMITS` (exported from `unjwt`, `unjwt/jws` and `unjwt/jwe`)
