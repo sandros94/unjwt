@@ -2985,6 +2985,17 @@ describe("session adapters — shared contract", () => {
       },
     );
 
+    it.each(portFamilyCases().filter((port) => port.family === "jwe"))(
+      "$label: names the public half when the pair has none",
+      async (port) => {
+        const { privateKey } = await rsaPairFor(port);
+        const body = await refusal(port, { privateKey });
+
+        expect(body.code).toBe(true);
+        expect(body.message).toMatch(/"publicKey"/);
+      },
+    );
+
     it.each(portFamilyCases().filter((port) => port.family === "jws"))(
       "$label: refuses a public key list or set carrying an entry that is not a public key",
       async (port) => {
