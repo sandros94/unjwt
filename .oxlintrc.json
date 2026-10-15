@@ -64,7 +64,14 @@
         "no-restricted-globals": "off",
         "typescript/no-non-null-assertion": "off",
         "typescript/no-unsafe-type-assertion": "off",
-        "typescript/no-explicit-any": "error"
+        "typescript/no-explicit-any": "error",
+        "unicorn/consistent-function-scoping": "off"
+      }
+    },
+    {
+      "files": ["test/bench/**"],
+      "rules": {
+        "vitest/expect-expect": "off"
       }
     }
   ]

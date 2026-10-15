@@ -10,7 +10,6 @@ ignoredBuiltDependencies:
   - "@parcel/watcher"
   - esbuild
 minimumReleaseAgeExclude:
-  - h3@2.0.1-rc.29
   - unsecure@0.3.1
 onlyBuiltDependencies:
   - simple-git-hooks

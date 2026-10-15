@@ -156,7 +156,8 @@ interface SessionManager<
 
 // SessionUpdate can be a partial object (which gets merged) or an updater function
 type SessionUpdate<T extends Record<string, any> = SessionClaims> =
-  Partial<SessionData<T>> | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
+  | Partial<SessionData<T>>
+  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
 
 interface SessionClaims {
   jti: string; // required

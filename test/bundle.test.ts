@@ -16,8 +16,10 @@ import { rolldown } from "rolldown";
  * breaks it silently and shows up in someone's shipped bytes.
  *
  * Each row bundles a single named import from `src` — not from `dist`, so the
- * test needs no prior build — minifies it, and asserts two things: the byte
- * size is at or under its ceiling, and the markers listed with it are absent.
+ * test needs no prior build — minifies it with every comment stripped, so
+ * the `@__PURE__` annotations a minifier may keep do not count as code, and
+ * asserts two things: the byte size is at or under its ceiling, and the
+ * markers listed with it are absent.
  *
  * The ceiling is the size measured when the row was written, plus 15%, rounded
  * up to the next 100 bytes; the measurement is in the comment beside it. A
@@ -150,7 +152,7 @@ async function bundleImport(entry: Entry): Promise<string> {
     ],
   });
   try {
-    const { output } = await build.generate({ format: "esm", minify: true });
+    const { output } = await build.generate({ format: "esm", minify: true, comments: false });
     return output
       .filter((chunk) => chunk.type === "chunk")
       .map((chunk) => chunk.code)

@@ -123,7 +123,8 @@ interface SessionManager<
 }
 
 type SessionUpdate<T> =
-  Partial<SessionData<T>> | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
+  | Partial<SessionData<T>>
+  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
 ```
 
 - Lazy: `session.id` is `undefined` until `update()`; reading `ctx.session` alone sets no cookie.

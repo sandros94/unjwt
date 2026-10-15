@@ -1650,7 +1650,7 @@ describe.concurrent("JWK Utilities", () => {
 
     // Module-level state tests — must run sequentially to avoid races between
     // configureJWKCache / clearJWKCache calls in the concurrent parent suite.
-    describe.sequential("module-level cache control", () => {
+    describe("module-level cache control", { concurrent: false }, () => {
       afterEach(() => clearJWKCache());
 
       it("default cache returns the same CryptoKey for the same object reference", async () => {
