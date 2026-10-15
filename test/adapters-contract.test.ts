@@ -60,7 +60,7 @@ import {
   bindSession,
 } from "../src/adapters/_session-core";
 import { loadSession } from "../src/adapters/_session-read";
-import { dropSession, issueSession } from "../src/adapters/_session-write";
+import { dropSession, issueSession, sessionActions } from "../src/adapters/_session-write";
 import type { SessionManager } from "../src/adapters/_session-types";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
@@ -2952,6 +2952,184 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
+  // #region reads and rolling
+  describe("reads and rolling", () => {
+    const opened = async (
+      open: (override?: Record<string, unknown>) => Promise<SessionManager>,
+    ) => {
+      const session = await open();
+      return { id: session.id ?? null, token: session.token ?? null, data: { ...session.data } };
+    };
+
+    it.each(portFamilyCases())(
+      "$label: onRead fires once per request, however often the session is opened",
+      async (port) => {
+        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+        const onRead = vi.fn();
+        const body = await port.run(
+          { ...baseConfig(port), hooks: { onRead } },
+          async (open) => {
+            await open();
+            await open();
+            const session = await open();
+            return { id: session.id ?? null };
+          },
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(body.id).toBeTypeOf("string");
+        expect(onRead).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a hook that opens the session again gets the same one without firing itself",
+      async (port) => {
+        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+        let reads = 0;
+        const seen: (string | undefined)[] = [];
+        const config: Record<string, unknown> = {
+          ...baseConfig(port),
+          hooks: {
+            onRead: async (args: Record<string, unknown>) => {
+              reads++;
+              seen.push((await port.reopen(args, config)).id);
+            },
+          },
+        };
+
+        const body = await port.run(
+          config,
+          async (open) => ({ ...(await opened(open)), reads, seen }),
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(body.reads).toBe(1);
+        expect(body.seen).toEqual([body.id]);
+        expect(body.data).toEqual({ user: "alice" });
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: hooks receive the session manager, so onRead can update in place",
+      async (port) => {
+        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+        const onUpdate = vi.fn();
+        const body = await port.run(
+          {
+            ...baseConfig(port),
+            hooks: {
+              onRead: async ({ session }: { session: SessionManager }) => {
+                await session.update({ seen: true });
+              },
+              onUpdate,
+            },
+          },
+          opened,
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(body.data).toEqual({ user: "alice", seen: true });
+        expect(body.token).not.toBe(token);
+        expect(onUpdate).toHaveBeenCalledTimes(1);
+        expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "update" });
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: rolling: true reissues a valid session on read and reports it to onUpdate",
+      async (port) => {
+        const config = expiringConfig(port);
+        const token = await mintToken(port, config, { user: "alice" });
+        const onRead = vi.fn();
+        const onUpdate = vi.fn();
+        const response = await port.serve(
+          { ...config, rolling: true, hooks: { onRead, onUpdate } },
+          opened,
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(response.body.data).toEqual({ user: "alice" });
+        expect(response.body.token).not.toBe(token);
+        expect(response.cookies.length).toBeGreaterThan(0);
+        expect(onRead).toHaveBeenCalledTimes(1);
+        expect(onUpdate).toHaveBeenCalledTimes(1);
+        expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({
+          trigger: "rolling",
+          oldSession: { token },
+        });
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a rolling duration reissues only when less than that remains",
+      async (port) => {
+        const config = { ...expiringConfig(port), rolling: "15m" };
+        const fresh = await mintToken(port, config, { user: "alice" });
+        const ending = await mintToken(port, config, { user: "alice" }, { maxAge: "5m" });
+
+        const kept = await port.serve(config, opened, { cookies: { [port.name]: fresh } });
+        expect(kept.body.token).toBe(fresh);
+        expect(kept.cookies).toEqual([]);
+
+        const rolled = await port.serve(config, opened, { cookies: { [port.name]: ending } });
+        expect(rolled.body.token).not.toBe(ending);
+        expect(rolled.cookies.length).toBeGreaterThan(0);
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: a hook that clears the session on read stops the roll",
+      async (port) => {
+        const config = expiringConfig(port);
+        const token = await mintToken(port, config, { user: "alice" });
+        const onUpdate = vi.fn();
+        const response = await port.serve(
+          {
+            ...config,
+            rolling: true,
+            hooks: {
+              onRead: async ({ session }: { session: SessionManager }) => {
+                await session.clear();
+              },
+              onUpdate,
+            },
+          },
+          opened,
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(response.body.id).toBeNull();
+        expect(onUpdate).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: rolling needs a maxAge and a true or duration value",
+      async (port) => {
+        const codeOf = async (config: Record<string, unknown>) =>
+          (
+            await port.run(config, async (open) => {
+              const error = await caught(open);
+              return { code: isJWTError(error) ? error.code : null };
+            })
+          ).code;
+
+        expect(await codeOf({ ...baseConfig(port), rolling: true })).toBe(
+          "ERR_SESSION_CONFIG_INVALID",
+        );
+        expect(await codeOf({ ...expiringConfig(port), rolling: "soon" })).toBe(
+          "ERR_INVALID_OPTION",
+        );
+        expect(await codeOf({ ...expiringConfig(port), rolling: false })).toBe(
+          "ERR_INVALID_OPTION",
+        );
+        expect(await codeOf({ ...expiringConfig(port), rolling: 0 })).toBe("ERR_INVALID_OPTION");
+      },
+    );
+  });
+  // #endregion
+
   // #region key pair halves
   describe("key pair halves", () => {
     const refusal = (port: PortFamilyCase, key: unknown) =>
@@ -3523,7 +3701,7 @@ function coreBinding(
   return bindSession<object, SessionCoreConfig>(
     {},
     { key: family === "jws" ? jwsKey : jweKey, ...config } as SessionCoreConfig,
-    { port, codec: codec as unknown as SessionCodec<SessionCoreConfig> },
+    { port, codec: codec as unknown as SessionCodec<SessionCoreConfig>, actions: sessionActions() },
   );
 }
 

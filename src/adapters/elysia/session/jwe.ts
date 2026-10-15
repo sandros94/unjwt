@@ -7,7 +7,7 @@ import {
 } from "../../_codec-jwe";
 import { type SessionBinding, type SessionState, bindSession } from "../../_session-core";
 import { loadSession } from "../../_session-read";
-import { sessionManager } from "../../_session-write";
+import { sessionManager, sessionActions } from "../../_session-write";
 import type { SessionRecord } from "../../_session-types";
 import { type SessionPlugin, sessionPlugin } from "../_plugin";
 import type { CookieAttributes } from "../_cookie";
@@ -30,6 +30,7 @@ export interface SessionHooksJWE<
   TContext extends SessionContext = SessionContext,
 > extends JWESessionHooks<
   SessionJWE<T, MaxAge>,
+  SessionManager<T, MaxAge>,
   { context: TContext },
   SessionConfigJWE<T, MaxAge, TContext>
 > {}
@@ -84,5 +85,6 @@ function bind<
   return bindSession<SessionContext, JWECodecConfig>(context, config, {
     port: elysiaSessionPort,
     codec,
+    actions: sessionActions(),
   });
 }

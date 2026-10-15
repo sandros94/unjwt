@@ -19,7 +19,13 @@ import {
   sessionToken,
 } from "../../_session-core";
 import { loadSession } from "../../_session-read";
-import { dropSession, encodeSession, issueSession, sessionManager } from "../../_session-write";
+import {
+  dropSession,
+  encodeSession,
+  issueSession,
+  sessionManager,
+  sessionActions,
+} from "../../_session-write";
 import type { SessionRecord } from "../../_session-types";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
 import { type CompatEvent, PREFIX, h3SessionPort } from "./_shared";
@@ -39,6 +45,7 @@ export interface SessionHooksJWS<
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 > extends JWSSessionHooks<
   SessionJWS<T, MaxAge>,
+  SessionManager<T, MaxAge>,
   { event: TEvent },
   SessionConfigJWS<T, MaxAge, TEvent>
 > {}
@@ -146,5 +153,6 @@ function bind<
   return bindSession<CompatEvent | H3Event, JWSCodecConfig>(event, config, {
     port: h3SessionPort,
     codec,
+    actions: sessionActions(),
   });
 }

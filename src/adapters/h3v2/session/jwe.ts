@@ -18,7 +18,13 @@ import {
   sessionToken,
 } from "../../_session-core";
 import { loadSession } from "../../_session-read";
-import { dropSession, encodeSession, issueSession, sessionManager } from "../../_session-write";
+import {
+  dropSession,
+  encodeSession,
+  issueSession,
+  sessionManager,
+  sessionActions,
+} from "../../_session-write";
 import type { SessionRecord } from "../../_session-types";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
 import { PREFIX, h3SessionPort } from "./_shared";
@@ -40,6 +46,7 @@ export interface SessionHooksJWE<
   TEvent extends HTTPEvent = HTTPEvent,
 > extends JWESessionHooks<
   SessionJWE<T, MaxAge>,
+  SessionManager<T, MaxAge>,
   { event: TEvent },
   SessionConfigJWE<T, MaxAge, TEvent>
 > {}
@@ -143,5 +150,6 @@ function bind<
   return bindSession<HTTPEvent, JWECodecConfig>(event, config, {
     port: h3SessionPort,
     codec,
+    actions: sessionActions(),
   });
 }

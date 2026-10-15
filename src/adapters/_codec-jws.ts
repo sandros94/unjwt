@@ -71,9 +71,10 @@ export interface JWSSessionConfig<
 /** JWS session hooks, plus the verify key lookup. */
 export interface JWSSessionHooks<
   TSession,
+  TManager,
   TCarrier extends Record<string, unknown>,
   TConfig,
-> extends SessionHooks<TSession, TCarrier, TConfig> {
+> extends SessionHooks<TSession, TManager, TCarrier, TConfig> {
   /** Resolve the verification key(s) for the incoming token from its protected header (e.g. by `kid`). */
   onVerifyKeyLookup?: (
     args: TCarrier & { header: JWKLookupFunctionHeader; config: TConfig },

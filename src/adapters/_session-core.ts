@@ -7,6 +7,7 @@
 import type { ExpiresIn } from "../core/types";
 import {
   type SessionTokenSource,
+  assertRolling,
   assertSessionHeader,
   assertSessionName,
   assertTokenSource,
@@ -52,6 +53,7 @@ export interface SessionCoreHooks {
 
 export interface SessionCoreConfig extends SessionTokenSource {
   maxAge?: ExpiresIn;
+  rolling?: true | ExpiresIn;
   name?: string;
   cookie?: false | { chunkMaxLength?: number };
   generateId?: () => string;
@@ -109,12 +111,19 @@ export interface SessionPort<TCarrier> {
   deleteCookie: (carrier: TCarrier, sessionName: string, cookie: SessionCookie) => void;
 }
 
-/** One session of one request: its config, its framework, and its codec. */
+/** The write side as the read path reaches it: the manager hooks receive, and the reissue `rolling` asks for. */
+export interface SessionActions<TCarrier, Config extends SessionCoreConfig> {
+  manager: (binding: SessionBinding<TCarrier, Config>) => object;
+  roll: (binding: SessionBinding<TCarrier, Config>) => Promise<void>;
+}
+
+/** One session of one request: its config, its framework, its codec and its write side. */
 export interface SessionBinding<TCarrier, Config extends SessionCoreConfig> {
   carrier: TCarrier;
   config: Config;
   port: SessionPort<TCarrier>;
   codec: SessionCodec<Config>;
+  actions: SessionActions<TCarrier, Config>;
   /** Session name — drives the cookie name and the default session header. */
   name: string;
   args: Record<string, unknown>;
@@ -124,18 +133,24 @@ export interface SessionBinding<TCarrier, Config extends SessionCoreConfig> {
 export function bindSession<TCarrier, Config extends SessionCoreConfig>(
   carrier: TCarrier,
   config: Config,
-  options: { port: SessionPort<TCarrier>; codec: SessionCodec<Config> },
+  options: {
+    port: SessionPort<TCarrier>;
+    codec: SessionCodec<Config>;
+    actions: SessionActions<TCarrier, Config>;
+  },
 ): SessionBinding<TCarrier, Config> {
-  const { port, codec } = options;
+  const { port, codec, actions } = options;
   const name = config.name || codec.defaultName;
   assertSessionName(name, { prefix: port.prefix });
   assertSessionHeader(config.sessionHeader, { prefix: port.prefix });
+  assertRolling(config, { prefix: port.prefix });
   claimSessionName(port.scope(carrier), name, codec.family, port.prefix);
   return {
     carrier,
     config,
     port,
     codec,
+    actions,
     name,
     args: port.carrier(carrier),
     store: port.store(carrier, `${codec.family}:${name}`),

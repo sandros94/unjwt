@@ -6,6 +6,7 @@
 
 import { isJWTError } from "../core/error";
 import type { ExpiresIn } from "../core/types";
+import { computeDurationInSeconds } from "../core/utils/jwt";
 import { expiredSessionError } from "./_session";
 import {
   type SessionBinding,
@@ -58,7 +59,6 @@ export async function loadSession<
       return freshSession;
     }
 
-    await fireRead(binding, session);
     return session;
   }
 
@@ -104,12 +104,18 @@ export async function loadSession<
         error: failure.error,
       });
     } else {
-      await config.hooks?.onError?.({ session, ...args, error: failure.error, config });
+      await config.hooks?.onError?.({
+        session: binding.actions.manager(binding),
+        ...args,
+        error: failure.error,
+        config,
+      });
     }
     return session;
   }
 
   await fireRead(binding, session);
+  await rollSession(binding, session);
   return session;
 }
 
@@ -118,7 +124,33 @@ async function fireRead<TCarrier, Config extends SessionCoreConfig>(
   session: StoredSession,
 ): Promise<void> {
   if (session.id === undefined || session.token === undefined) return;
-  await binding.config.hooks?.onRead?.({ session, ...binding.args, config: binding.config });
+  await binding.config.hooks?.onRead?.({
+    session: binding.actions.manager(binding),
+    ...binding.args,
+    config: binding.config,
+  });
+}
+
+/** Reissues the session just read when `rolling` asks, unless a hook replaced it or the response is sealed. */
+async function rollSession<TCarrier, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TCarrier, Config>,
+  session: StoredSession,
+): Promise<void> {
+  const { config, codec, port, carrier, store } = binding;
+  const { rolling } = config;
+  if (rolling === undefined || store.get() !== session) return;
+  if (session.token === undefined || session.expiresAt === undefined) return;
+  if (rolling !== true) {
+    const remaining = session.expiresAt - codec.now(config);
+    if (remaining >= computeDurationInSeconds(rolling) * 1000) return;
+  }
+  if (config.cookie !== false && !port.writable(carrier)) {
+    console.warn(
+      `${port.prefix} Session not rolled: cookie cannot be written on a read-only event.`,
+    );
+    return;
+  }
+  await binding.actions.roll(binding);
 }
 
 async function fireExpire<TCarrier, Config extends SessionCoreConfig>(

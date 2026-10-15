@@ -738,7 +738,7 @@ describe("adapter h3 v1", () => {
         expect(refreshedAccessCookie).toBeTruthy();
         expect(refreshedAccessCookie).not.toEqual(accessCookie);
         expect(second.body.access.id).not.toEqual(first.body.access.id);
-        expect(refreshHooks.onRead).toHaveBeenCalledTimes(2);
+        expect(refreshHooks.onRead).toHaveBeenCalledTimes(1);
 
         vi.useRealTimers();
       });

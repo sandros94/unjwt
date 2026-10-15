@@ -96,6 +96,26 @@ export function assertSessionHeader(header: unknown, options: { prefix: string }
   );
 }
 
+/** `rolling` extends a session's `exp` on read, so it needs a `maxAge`, as `true` or as the remaining time that triggers it. */
+export function assertRolling(
+  config: { rolling?: unknown; maxAge?: ExpiresIn },
+  options: { prefix: string },
+): void {
+  const { rolling } = config;
+  if (rolling === undefined) return;
+  if (config.maxAge === undefined) {
+    throw invalidConfigError(`${options.prefix} "rolling" needs a "maxAge" to extend.`);
+  }
+  if (rolling === true) return;
+  if (!isExpiresIn(rolling)) {
+    throw new JWTError(
+      `${options.prefix} "rolling" must be true or a duration.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+  computeDurationInSeconds(rolling);
+}
+
 export function hasTokenSource(source: SessionTokenSource): boolean {
   return source.cookie !== false || source.sessionHeader !== false;
 }
@@ -246,4 +266,8 @@ export function sanitizeSessionUpdate(
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isExpiresIn(value: unknown): value is ExpiresIn {
+  return typeof value === "number" || typeof value === "string";
 }

@@ -75,9 +75,10 @@ export interface JWESessionConfig<
 /** JWE session hooks, plus the unseal key lookup. */
 export interface JWESessionHooks<
   TSession,
+  TManager,
   TCarrier extends Record<string, unknown>,
   TConfig,
-> extends SessionHooks<TSession, TCarrier, TConfig> {
+> extends SessionHooks<TSession, TManager, TCarrier, TConfig> {
   /** Resolve the decryption key for the incoming token from its protected header (e.g. by `kid`). */
   onUnsealKeyLookup?: (
     args: TCarrier & { header: JWEHeaderParameters; config: TConfig },

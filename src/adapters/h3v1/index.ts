@@ -4,6 +4,7 @@ export type {
   SessionIssueOptions,
   SessionManager,
   SessionUpdate,
+  SessionUpdateTrigger,
 } from "./session/types.ts";
 export {
   type SessionConfigJWE,

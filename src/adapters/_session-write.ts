@@ -15,6 +15,7 @@ import {
   sanitizeSessionUpdate,
 } from "./_session";
 import {
+  type SessionActions,
   type SessionBinding,
   type SessionCoreConfig,
   type SessionState,
@@ -28,7 +29,12 @@ import {
   storedSession,
 } from "./_session-core";
 import { loadSession } from "./_session-read";
-import type { SessionManager, SessionRecord, SessionUpdate } from "./_session-types";
+import type {
+  SessionManager,
+  SessionRecord,
+  SessionUpdate,
+  SessionUpdateTrigger,
+} from "./_session-types";
 
 /** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */
 export async function encodeSession<TCarrier, Config extends SessionCoreConfig>(
@@ -53,6 +59,7 @@ export async function issueSession<
   binding: SessionBinding<TCarrier, Config>,
   update?: SessionUpdate<T>,
   options?: SessionIssueOptions,
+  trigger: SessionUpdateTrigger = "update",
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
   const { config, port, store, args } = binding;
 
@@ -97,11 +104,22 @@ export async function issueSession<
       data: oldSession.data,
     });
     session.token = oldSession.token;
-    await config.hooks?.onError?.({ session, ...args, error: error_, config });
+    await config.hooks?.onError?.({
+      session: binding.actions.manager(binding),
+      ...args,
+      error: error_,
+      config,
+    });
     throw error_;
   }
 
-  await config.hooks?.onUpdate?.({ session, oldSession, ...args, config });
+  await config.hooks?.onUpdate?.({
+    session: binding.actions.manager(binding),
+    oldSession,
+    trigger,
+    ...args,
+    config,
+  });
 
   return issued;
 }
@@ -171,6 +189,19 @@ export function sessionManager<
   };
 
   return manager;
+}
+
+/** What a binding needs from this module; passed to `bindSession` by every port. */
+export function sessionActions<TCarrier, Config extends SessionCoreConfig>(): SessionActions<
+  TCarrier,
+  Config
+> {
+  return {
+    manager: (binding) => sessionManager(binding),
+    roll: async (binding) => {
+      await issueSession(binding, undefined, undefined, "rolling");
+    },
+  };
 }
 
 /** A session that writes a cookie cannot be updated or cleared once the response takes none. */

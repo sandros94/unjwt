@@ -7,6 +7,7 @@ export type {
   SessionData,
   SessionManager,
   SessionUpdate,
+  SessionUpdateTrigger,
 } from "../../_session-types";
 
 export interface SessionContext {
