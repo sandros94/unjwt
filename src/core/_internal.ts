@@ -532,10 +532,7 @@ export function keyMatchesHeader(
     );
     return candidates.length === 0 || candidates.some((k) => keyServesHeaderAlg(header, k, ctx));
   }
-  if (isJWK(keyMaterial)) {
-    if (header.kid && keyMaterial.kid && header.kid !== keyMaterial.kid) return false;
-    return keyServesHeaderAlg(header, keyMaterial, ctx);
-  }
+  if (isJWK(keyMaterial)) return keyServesHeaderAlg(header, keyMaterial, ctx);
   if (isCryptoKey(keyMaterial)) return keyServesHeaderAlg(header, keyMaterial, ctx);
   return true;
 }

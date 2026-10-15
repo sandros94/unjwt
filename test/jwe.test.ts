@@ -1941,6 +1941,16 @@ describe.concurrent("JWE decryption option gates", () => {
 describe("types", () => {
   type MyClaims = { sub: string; role: "admin" | "user" };
   const key = new Uint8Array(32);
+  interface MyClaimsInterface {
+    sub: string;
+    role: "admin" | "user";
+  }
+
+  it("accepts an interface as the claims type", () => {
+    expectTypeOf(() => decrypt<MyClaimsInterface>("", key)).returns.resolves.toEqualTypeOf<
+      JWEDecryptResult<MyClaimsInterface>
+    >();
+  });
 
   it("returns the claims for the default and json payload modes", () => {
     expectTypeOf(() => decrypt("", key)).returns.resolves.toEqualTypeOf<

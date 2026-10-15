@@ -325,7 +325,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         expect(recipientIndex).toBe(1);
       });
 
-      it("throws ERR_JWE_NO_MATCHING_RECIPIENT when no kid matches", async () => {
+      it("throws ERR_JWE_NO_MATCHING_RECIPIENT when the key cannot serve the recipient's alg", async () => {
         const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }], {
           enc: "A256GCM",
         });
@@ -625,6 +625,16 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
     });
 
     describe("strictRecipientMatch edge cases", () => {
+      it("attempts a single JWK whose kid differs from the recipient's kid", async () => {
+        const jwe = await encryptMulti({ sub: "u1" }, [{ key: keys.a256kw }], { enc: "A256GCM" });
+        const rotated = { ...keys.a256kw, kid: "rotated" };
+        const { payload, recipientIndex } = await decryptMulti(jwe, rotated, {
+          strictRecipientMatch: true,
+        });
+        expect(payload.sub).toBe("u1");
+        expect(recipientIndex).toBe(0);
+      });
+
       // Key material without a `kid` (a CryptoKey) is unknown, not mismatched: the
       // recipient is matched on algorithm compatibility instead.
       it("matches a kid-bearing recipient by alg compatibility when the key is a CryptoKey", async () => {

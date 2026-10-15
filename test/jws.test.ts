@@ -2161,6 +2161,16 @@ describe.concurrent("JWS verification option gates", () => {
 describe("types", () => {
   type MyClaims = { sub: string; role: "admin" | "user" };
   const key = new Uint8Array(32);
+  interface MyClaimsInterface {
+    sub: string;
+    role: "admin" | "user";
+  }
+
+  it("accepts an interface as the claims type", () => {
+    expectTypeOf(() => verify<MyClaimsInterface>("", key)).returns.resolves.toEqualTypeOf<
+      JWSVerifyResult<MyClaimsInterface>
+    >();
+  });
 
   it("returns the claims for the default and json payload modes", () => {
     expectTypeOf(() => verify("", key)).returns.resolves.toEqualTypeOf<
