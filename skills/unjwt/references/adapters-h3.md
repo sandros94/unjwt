@@ -129,7 +129,10 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **After the response is sent** (`res.headersSent` / `res.writableEnded`): `update()` and
   `clear()` throw `ERR_SESSION_READONLY_EVENT` and leave the session as it was — on h3 v1, and
   on h3 v2 under Node (`event.runtime.node.res`). Other h3 v2 runtimes expose no such signal, so
-  a write made after the response was built is accepted but never sent.
+  a write made after the response was built is accepted but never sent: write inside the
+  handler, before it returns. A read after the response was sent only observes: an expired
+  token reaches `onExpire` without its cookie being dropped and `rolling` does not reissue;
+  the next request, carrying the same token, does both.
 
 Both h3 adapters and the Elysia one run the same session core (`src/adapters/_session-core.ts`)
 over a JWS/JWE codec and a per-framework port (`session/_shared.ts`), so the lifecycle, hook

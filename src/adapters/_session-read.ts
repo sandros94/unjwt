@@ -131,7 +131,7 @@ async function fireRead<TCarrier, Config extends SessionCoreConfig>(
   });
 }
 
-/** Reissues the session just read when `rolling` asks, unless a hook replaced it or the response is sealed. */
+/** Reissues the session just read when `rolling` asks, unless a hook replaced it; a sealed response leaves it to the next request. */
 async function rollSession<TCarrier, Config extends SessionCoreConfig>(
   binding: SessionBinding<TCarrier, Config>,
   session: StoredSession,
@@ -144,12 +144,7 @@ async function rollSession<TCarrier, Config extends SessionCoreConfig>(
     const remaining = session.expiresAt - codec.now(config);
     if (remaining >= computeDurationInSeconds(rolling) * 1000) return;
   }
-  if (config.cookie !== false && !port.writable(carrier)) {
-    console.warn(
-      `${port.prefix} Session not rolled: cookie cannot be written on a read-only event.`,
-    );
-    return;
-  }
+  if (config.cookie !== false && !port.writable(carrier)) return;
   await binding.actions.roll(binding);
 }
 

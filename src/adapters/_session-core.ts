@@ -247,18 +247,12 @@ export function sessionCookie<TCarrier, Config extends SessionCoreConfig>(
   return { attrs, chunkMaxLength };
 }
 
-/** Drops an expired session's cookie; only warns when the response is no longer writable. */
+/** Drops an expired session's cookie; a sealed response leaves it to the next request, which carries the same token. */
 export function dropSessionCookie<TCarrier, Config extends SessionCoreConfig>(
   binding: SessionBinding<TCarrier, Config>,
 ): void {
   const { config, port, carrier } = binding;
-  if (config.cookie === false) return;
-  if (!port.writable(carrier)) {
-    console.warn(
-      `${port.prefix} Session expired but cookie cannot be cleared on a read-only event.`,
-    );
-    return;
-  }
+  if (config.cookie === false || !port.writable(carrier)) return;
   port.deleteCookie(carrier, binding.name, sessionCookie(binding));
 }
 

@@ -3465,21 +3465,54 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(["jws", "jwe"] as const)(
-      "%s: an expired session on a response that takes no cookie warns instead of writing",
+      "%s: an expired session on a sealed response reports expiry and writes nothing",
       async (family) => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         try {
+          const onExpire = vi.fn();
+          const onError = vi.fn();
           const recorder = recordingPort({
             token: await foreignToken(family, EXPIRED_CLAIMS),
             writable: false,
           });
-          const binding = coreBinding(family, recorder.port, { maxAge: 60 });
+          const binding = coreBinding(family, recorder.port, {
+            maxAge: 60,
+            hooks: { onExpire, onError },
+          });
           const session = await loadSession(binding);
 
           expect(session.token).toBeUndefined();
           expect(recorder.writes).toEqual([]);
-          expect(warn).toHaveBeenCalledOnce();
-          expect(String(warn.mock.calls[0][0])).toMatch(/^\[test\] /);
+          expect(onExpire).toHaveBeenCalledOnce();
+          expect(onError).not.toHaveBeenCalled();
+          expect(warn).not.toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a rolling session on a sealed response is read and not reissued",
+      async (family) => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+          const hooks = { onRead: vi.fn(), onUpdate: vi.fn(), onError: vi.fn() };
+          const claims = { jti: "live-session", iat: nowSeconds() - 60, exp: nowSeconds() + 60 };
+          const recorder = recordingPort({
+            token: await foreignToken(family, claims),
+            writable: false,
+          });
+          const binding = coreBinding(family, recorder.port, { maxAge: 60, rolling: true, hooks });
+          const session = await loadSession(binding);
+
+          expect(session.id).toBe("live-session");
+          expect(session.token).toBeTypeOf("string");
+          expect(recorder.writes).toEqual([]);
+          expect(hooks.onRead).toHaveBeenCalledOnce();
+          expect(hooks.onUpdate).not.toHaveBeenCalled();
+          expect(hooks.onError).not.toHaveBeenCalled();
+          expect(warn).not.toHaveBeenCalled();
         } finally {
           warn.mockRestore();
         }
