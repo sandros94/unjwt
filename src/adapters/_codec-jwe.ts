@@ -76,12 +76,12 @@ export interface JWESessionConfig<
 export interface JWESessionHooks<
   TSession,
   TManager,
-  TCarrier extends Record<string, unknown>,
+  TArgs extends Record<string, unknown>,
   TConfig,
-> extends SessionHooks<TSession, TManager, TCarrier, TConfig> {
+> extends SessionHooks<TSession, TManager, TArgs, TConfig> {
   /** Resolve the decryption key for the incoming token from its protected header (e.g. by `kid`). */
   onUnsealKeyLookup?: (
-    args: TCarrier & { header: JWEHeaderParameters; config: TConfig },
+    args: Partial<TArgs> & { header: JWEHeaderParameters; config: TConfig },
   ) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
 }
 
@@ -92,7 +92,7 @@ export interface JWECodecConfig extends SessionCoreConfig {
     onUnsealKeyLookup?(args: {
       header: JWEHeaderParameters;
       config: unknown;
-      [carrier: string]: unknown;
+      [arg: string]: unknown;
     }): JWEDecryptJWK | Promise<JWEDecryptJWK>;
   };
 }
@@ -123,11 +123,11 @@ export function createJWECodec(options: {
     openOptions: (config) => config.jwe?.decryptOptions,
     issueKey: (config) => getEncryptKey(config, prefix),
     openKey: (config) => getDecryptKey(config, prefix),
-    lookup: (config, carrier) => {
+    lookup: (config, args) => {
       const hooks = config.hooks;
       if (!hooks?.onUnsealKeyLookup) return undefined;
       return (header: JWEHeaderParameters) =>
-        hooks.onUnsealKeyLookup?.({ header, ...carrier, config });
+        hooks.onUnsealKeyLookup?.({ header, ...args, config });
     },
 
     issue: (config, payload, key) =>

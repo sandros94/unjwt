@@ -5,14 +5,13 @@ import {
   type JWESessionHooks,
   createJWECodec,
 } from "../../_codec-jwe";
-import { type SessionBinding, type SessionState, bindSession } from "../../_session-core";
-import { loadSession } from "../../_session-read";
-import { sessionManager, sessionActions } from "../../_session-write";
+import type { SessionState } from "../../_session-core";
+import { type SessionDefinition, defineSession } from "../../_session-definition";
 import type { SessionRecord } from "../../_session-types";
-import { type SessionPlugin, sessionPlugin } from "../_plugin";
+import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin";
 import type { CookieAttributes } from "../_cookie";
 import type { SessionClaims, SessionManager, SessionContext } from "./types";
-import { PREFIX, elysiaSessionPort } from "./_shared";
+import { PREFIX, elysiaSessionDriver } from "./_shared";
 
 export type { SessionContext };
 export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe";
@@ -45,6 +44,32 @@ export interface SessionConfigJWE<
   hooks?: SessionHooksJWE<T, MaxAge, TContext>;
 }
 
+/** Defines a JWE (encrypted) session once: `use`, `token`, `issue` and `open` serve every request, `plugin()` mounts it on an app. */
+export function defineJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  K extends string = "session",
+>(
+  config: SessionConfigJWE<T, MaxAge> &
+    (K extends "session" ? { contextKey?: K } : { contextKey: K }),
+): SessionPluginDefinition<T, MaxAge, K> {
+  const definition = define<T, MaxAge>(config);
+  return {
+    ...definition,
+    plugin: () =>
+      sessionPlugin<SessionManager<T, MaxAge>, K>({
+        name: "unjwt/elysia-jwe",
+        sessionName: config.name || codec.defaultName,
+        contextKey: config.contextKey,
+        create: definition.use,
+      }),
+  };
+}
+
+/**
+ * Create a JWE (encrypted) session manager for the request.
+ * @deprecated Use `defineJWESession(config).use(context)`.
+ */
 export async function createJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -53,11 +78,10 @@ export async function createJWESession<
   context: TContext,
   config: SessionConfigJWE<T, MaxAge, TContext>,
 ): Promise<SessionManager<T, MaxAge>> {
-  const binding = bind(context, config);
-  await loadSession<T, MaxAge, SessionContext, JWECodecConfig>(binding);
-  return sessionManager<T, MaxAge, SessionContext, JWECodecConfig>(binding);
+  return define<T, MaxAge>(config).use(context);
 }
 
+/** The Elysia plugin of a JWE (encrypted) session: `defineJWESession(config).plugin()`. */
 export function jweSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -66,25 +90,15 @@ export function jweSession<
   config: SessionConfigJWE<T, MaxAge> &
     (K extends "session" ? { contextKey?: K } : { contextKey: K }),
 ): SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`> {
-  return sessionPlugin<SessionManager<T, MaxAge>, K>({
-    name: "unjwt/elysia-jwe",
-    sessionName: config.name || codec.defaultName,
-    contextKey: config.contextKey,
-    create: (context) => createJWESession<T, MaxAge>(context, config),
-  });
+  return defineJWESession<T, MaxAge, K>(config).plugin();
 }
 
-function bind<
-  T extends SessionRecord,
-  MaxAge extends ExpiresIn | undefined,
-  TContext extends SessionContext,
->(
-  context: TContext,
-  config: SessionConfigJWE<T, MaxAge, TContext>,
-): SessionBinding<SessionContext, JWECodecConfig> {
-  return bindSession<SessionContext, JWECodecConfig>(context, config, {
-    port: elysiaSessionPort,
+function define<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
+  config: JWECodecConfig,
+): SessionDefinition<SessionContext, T, MaxAge> {
+  return defineSession<T, MaxAge, SessionContext, JWECodecConfig>(config, {
+    driver: elysiaSessionDriver,
+    hookArgs: (context) => ({ context }),
     codec,
-    actions: sessionActions(),
   });
 }

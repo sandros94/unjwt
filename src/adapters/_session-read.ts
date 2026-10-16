@@ -8,31 +8,32 @@ import { isJWTError } from "../core/error";
 import type { ExpiresIn } from "../core/types";
 import { computeDurationInSeconds } from "../core/utils/jwt";
 import { expiredSessionError } from "./_session";
+import { dropSessionCookie } from "./_session-bind";
 import {
   type SessionBinding,
   type SessionCoreConfig,
   type SessionState,
   type StoredSession,
-  dropSessionCookie,
   emptySession,
   kSessionPending,
-  sessionToken,
   storedSession,
 } from "./_session-core";
 import type { SessionRecord } from "./_session-types";
+import { assertTokenSource } from "./_transport";
 
 /** Get (and lazily initialize) the session for the current request. */
 export async function loadSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TCarrier,
+  TContext,
   Config extends SessionCoreConfig,
->(binding: SessionBinding<TCarrier, Config>): Promise<SessionState<T, MaxAge>> {
-  const { config, codec, store, args } = binding;
+>(binding: SessionBinding<TContext, Config>): Promise<SessionState<T, MaxAge>> {
+  const { config, codec, store, args, transport } = binding;
 
   // Key errors are misconfiguration: thrown, never reported through `onError`.
   await codec.assertKeys(config);
   const open = codec.opener(config, args);
+  assertTokenSource(transport, { prefix: binding.driver.prefix });
 
   const existing = storedSession<T, MaxAge>(store);
   if (existing) {
@@ -45,7 +46,7 @@ export async function loadSession<
       session.expiresAt < codec.now(config)
     ) {
       dropSessionCookie(binding);
-      const freshSession = emptySession<T, MaxAge, TCarrier, Config>(binding);
+      const freshSession = emptySession<T, MaxAge, TContext, Config>(binding);
       store.set(freshSession);
       await fireExpire(binding, {
         session: {
@@ -62,10 +63,10 @@ export async function loadSession<
     return session;
   }
 
-  const session = emptySession<T, MaxAge, TCarrier, Config>(binding);
+  const session = emptySession<T, MaxAge, TContext, Config>(binding);
   store.set(session);
 
-  const token = sessionToken(binding);
+  const token = transport.read();
   if (!token) return session;
 
   session.token = token;
@@ -119,8 +120,8 @@ export async function loadSession<
   return session;
 }
 
-async function fireRead<TCarrier, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TCarrier, Config>,
+async function fireRead<TContext, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TContext, Config>,
   session: StoredSession,
 ): Promise<void> {
   if (session.id === undefined || session.token === undefined) return;
@@ -132,11 +133,11 @@ async function fireRead<TCarrier, Config extends SessionCoreConfig>(
 }
 
 /** Reissues the session just read when `rolling` asks, unless a hook replaced it; a sealed response leaves it to the next request. */
-async function rollSession<TCarrier, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TCarrier, Config>,
+async function rollSession<TContext, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TContext, Config>,
   session: StoredSession,
 ): Promise<void> {
-  const { config, codec, port, carrier, store } = binding;
+  const { config, codec, transport, store } = binding;
   const { rolling } = config;
   if (rolling === undefined || store.get() !== session) return;
   if (session.token === undefined || session.expiresAt === undefined) return;
@@ -144,12 +145,12 @@ async function rollSession<TCarrier, Config extends SessionCoreConfig>(
     const remaining = session.expiresAt - codec.now(config);
     if (remaining >= computeDurationInSeconds(rolling) * 1000) return;
   }
-  if (config.cookie !== false && !port.writable(carrier)) return;
+  if (!transport.writable()) return;
   await binding.actions.roll(binding);
 }
 
-async function fireExpire<TCarrier, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TCarrier, Config>,
+async function fireExpire<TContext, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TContext, Config>,
   expired: {
     session: {
       id: string | undefined;
