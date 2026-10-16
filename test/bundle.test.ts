@@ -49,6 +49,7 @@ const MARKERS = {
   randomBytes: "getRandomValues",
   subtleImport: "importKey",
   thumbprint: "JWK thumbprint",
+  cookieEs: "cookie-es",
 } as const;
 
 interface Entry {
@@ -60,6 +61,8 @@ interface Entry {
   measured: number;
   /** Strings that must not appear in the bundle. */
   absent: ReadonlyArray<string>;
+  /** Imports left out of the bundle, as the build leaves out an adapter's framework. */
+  external?: ReadonlyArray<string>;
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
@@ -99,6 +102,14 @@ const ENTRIES: ReadonlyArray<Entry> = [
     measured: 4524,
     absent: [MARKERS.subtleImport],
   },
+  // cookie-es is bundled, so the adapter must carry the parser rather than import it
+  {
+    name: "useJWSSession",
+    module: "adapters/h3v1/index.ts",
+    measured: 49085,
+    absent: [MARKERS.cookieEs],
+    external: ["h3v1"],
+  },
 ];
 
 /** The id of the generated entry, `\0`-prefixed so nothing tries to read it. */
@@ -136,6 +147,7 @@ async function bundleImport(entry: Entry): Promise<string> {
     platform: "neutral",
     treeshake: true,
     logLevel: "silent",
+    external: entry.external ? [...entry.external] : undefined,
     plugins: [
       {
         name: "virtual-entry",

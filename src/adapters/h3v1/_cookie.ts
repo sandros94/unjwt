@@ -1,6 +1,7 @@
-import type { CookieSerializeOptions } from "cookie-esv1";
 import { type H3Event, getCookie, setCookie } from "h3v1";
 import { type ChunkedCookieStore, responseCookieStore } from "../_chunked-cookie";
+
+export type CookieSerializeOptions = NonNullable<Parameters<typeof setCookie>[3]>;
 
 /** The h3 v1 event's cookies as a chunked-cookie store, in the same layout as h3 v2. */
 export function eventCookieStore(event: H3Event): ChunkedCookieStore<CookieSerializeOptions> {

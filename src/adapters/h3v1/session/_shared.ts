@@ -1,5 +1,5 @@
 import { type H3Event, type H3EventContext, isEvent } from "h3v1";
-import { parse as parseCookies } from "cookie-esv1";
+import { parse as parseCookies } from "cookie-es";
 import {
   readChunkedFrom,
   readChunkedFromSetCookie,

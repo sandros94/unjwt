@@ -2,7 +2,7 @@
 
 # unjwt - Agent Guide
 
-`unjwt` is a low-level JWT library using the Web Crypto API. It implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517) with framework adapters for H3 v1/v2 (Nuxt/Nitro) and Elysia. Zero runtime dependencies for core; optional peer deps for adapters (`h3`, `cookie-es`, `elysia`).
+`unjwt` is a low-level JWT library using the Web Crypto API. It implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517) with framework adapters for H3 v1/v2 (Nuxt/Nitro) and Elysia. Zero runtime dependencies for core; optional peer deps for adapters (`h3`, `elysia`).
 
 ## Core Principle — Ask First
 
@@ -85,10 +85,11 @@ src/
 
 ### Key design patterns
 
-- **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. Cookie-es similarly as `cookie-esv1`/`cookie-esv3`. The build config (`build.config.ts`) replaces these aliases with the real package names (`h3`, `cookie-es`) in dist output. `elysia` has no dual-version aliasing (single major) — it's a plain optional peer dep, marked `external` in the build.
-- **Single multi-input bundle:** all entry points (core subpaths + every adapter) are `input`s of one `type: "bundle"` in `build.config.ts`, so rolldown code-splits shared core into `dist/_chunks/*` (no per-adapter duplication). Adding an adapter = add its `index` input + any peer dep to `external`. `unsecure` stays bundled (inlined → zero runtime deps).
+- **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. The build config (`build.config.ts`) replaces these aliases with the real package name (`h3`) in dist output. `elysia` has no dual-version aliasing (single major) — it's a plain optional peer dep, marked `external` in the build.
+- **Single multi-input bundle:** all entry points (core subpaths + every adapter) are `input`s of one `type: "bundle"` in `build.config.ts`, so rolldown code-splits shared core into `dist/_chunks/*` (no per-adapter duplication). Adding an adapter = add its `index` input + any peer dep to `external`. `unsecure` and `cookie-es` stay bundled (inlined → zero runtime deps).
 - **`src/core/_crypto/`** originated as a fork of [`panva/jose`](https://github.com/panva/jose) primitives but is now maintained as part of this codebase — modify and fix it like any other module (bug fixes, lint, type-safety). It is excluded from test coverage; adding tests there is optional, not required.
 - **Bundled `unsecure` dependency:** core imports primitives from [`unsecure`](https://github.com/sandros94/unsecure) (`base64UrlEncode`/`base64UrlDecode`, `secureRandomBytes`, `sanitizeObjectCopy`/`safeJsonParse`). It is a devDependency inlined into dist at build time (not marked external in `build.config.ts`), so the published package keeps zero runtime dependencies.
+- **Bundled `cookie-es` dependency:** the H3 v1 adapter parses request cookies with [`cookie-es`](https://github.com/unjs/cookie-es) v3, a devDependency inlined into dist the same way as `unsecure`. Its licence ships in obuild's `dist/THIRD-PARTY-LICENSES.md.gz`. The h3 adapters derive their cookie attribute type from their `h3` version's `setCookie`, so no `cookie-es` type reaches the published declarations.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
 - **Session adapters** store JWT tokens in chunked cookies — every adapter through `src/adapters/_chunked-cookie.ts` over its framework's own cookie primitives (h3 v2 and h3 v1 via their `_cookie.ts`, Elysia via its reactive jar), all writing the same `__chunked__N` + `<name>.1…N` layout. Sessions are lazy — `id` is `undefined` until `session.update()` is called. `jti`/`iat`/`exp`/`nbf` are adapter-owned; the cookie is read before the session header; every adapter error is a `JWTError` (`ERR_SESSION_*`).

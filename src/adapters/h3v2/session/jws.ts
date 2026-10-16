@@ -1,7 +1,5 @@
 import type { HTTPEvent } from "h3v2";
 
-import type { CookieSerializeOptions } from "cookie-esv3";
-
 import type { ExpiresIn } from "../../../core/types";
 import type { SessionIssueOptions } from "../../_session";
 import {
@@ -27,6 +25,7 @@ import {
   sessionActions,
 } from "../../_session-write";
 import type { SessionRecord } from "../../_session-types";
+import type { CookieSerializeOptions } from "../_cookie";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
 import { PREFIX, h3SessionPort } from "./_shared";
 
