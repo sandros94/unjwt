@@ -4,11 +4,11 @@ JWT-based session management for H3 (Nuxt/Nitro). Available for both H3 v1 and v
 
 Import paths:
 
-- `unjwt/adapters/h3` — aliases to h3v1 (will switch to h3v2 in a future breaking change)
+- `unjwt/adapters/h3` — resolves to h3v2
 - `unjwt/adapters/h3v1` — H3 v1 (Nuxt v4, Nitro v2)
 - `unjwt/adapters/h3v2` — H3 v2 (Nuxt v5, Nitro v3)
 
-All three export the same API. Each also re-exports: `generateJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`, and the session option types `SessionSignOptions`, `SessionVerifyOptions`, `SessionEncryptOptions`, `SessionDecryptOptions`.
+All three export the same API: `defineJWSSession`, `defineJWESession` and their types (`SessionDefinition`, `SessionManager`, `OpenedSessionState`, `SessionConfigJWS`, `SessionConfigJWE`, …). Each also re-exports: `generateJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword`, and the session option types `SessionSignOptions`, `SessionVerifyOptions`, `SessionEncryptOptions`, `SessionDecryptOptions`.
 
 Peer dep: `h3`
 
@@ -50,7 +50,6 @@ Peer dep: `h3`
 - **Foreign tokens.** An incoming token is only a session when it carries the session `typ`
   (`signOptions.protectedHeader.typ` / `encryptOptions.protectedHeader.typ`, default
   `"session+jwt"`, compared as a media type; RFC 8725 §3.11). No `cty` is written or required.
-  Tokens issued before 0.8 carry `typ: "JWT"` and are refused, so every existing session signs out once after the upgrade.
   With `maxAge` set it must also carry `exp`. That `exp` alone bounds
   its life (no `maxTokenAge`), so a token issued with `update(data, { maxAge })` keeps its own
   lifetime past the config's `maxAge`. Anything else is `ERR_SESSION_TOKEN_INVALID`, whose
@@ -60,13 +59,13 @@ Peer dep: `h3`
   cookie carries no token. The header carries the bare token or `Bearer <token>` (scheme
   case-insensitive); any other value — blank, another scheme such as `Basic …`, a `Bearer` with
   no token — carries none, so it never hides the cookie nor reaches `onError`. A `sessionHeader`
-  that is not a header name (RFC 7230 token) throws `ERR_SESSION_CONFIG_INVALID` where the
-  session is bound. `cookie: false` plus
-  `sessionHeader: false` throws `ERR_SESSION_CONFIG_INVALID` on first use of a session manager
-  and from `clearJWSSession` / `clearJWESession`;
-  `signJWSSession` / `sealJWESession` accept it and issue a one-off token (fresh `jti`, no cookie).
-  Once `clear()` has written its deletion, `getJWSSessionToken` / `getJWESessionToken` return
-  `undefined` for the rest of the request, header token included.
+  that is not a header name (RFC 7230 token) throws `ERR_SESSION_CONFIG_INVALID` when the
+  session is opened. `sessionHeader: true` names `x-<name>-session`; left unset, a session with
+  cookies still reads that header, and so does one with `cookie: false`. `cookie: false` plus
+  `sessionHeader: false` is a token-only session: `use()` and `token()` throw
+  `ERR_SESSION_CONFIG_INVALID`, while `issue()` and `open()` work (magic links, email
+  verification). Once `clear()` has written its deletion, `token(event)` returns `undefined` for
+  the rest of the request, header token included.
 - **Cookie lifetime.** A session with a lifetime (config `maxAge` or `update(data, { maxAge })`)
   sets the cookie's `expires` to the token's `exp` and drops a configured `cookie.maxAge`
   (`Max-Age` beats `Expires`, RFC 6265 §5.3). Without a lifetime, `cookie.expires` /
@@ -76,7 +75,7 @@ Peer dep: `h3`
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`): every adapter reads the first cookie
   of a name, so a sibling subdomain could otherwise plant one that shadows the session; the
   defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix, and the prefix rules are
-  enforced at bind time on every adapter: a `__Host-` name with `domain`, a `path` other than
+  enforced when the session is opened, on every adapter: a `__Host-` name with `domain`, a `path` other than
   `/` or `secure: false`, or a `__Secure-` name with `secure: false`, throws
   `ERR_SESSION_CONFIG_INVALID` (RFC 6265bis §4.1.3). The default session header
   drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and
@@ -123,7 +122,7 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement, hooks, `Bearer `
   prefix on the session header, JWS cookies default `httpOnly: false`.
 - **`clear()` is final for the request.** The context slot is left holding an empty session,
-  so a later `useSession`/`getSession` on the same event does not restore the request cookie.
+  so a later `use(event)` on the same event does not restore the request cookie.
 - **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
   (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless
   an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
@@ -135,14 +134,36 @@ Forked from h3's `useSession`, then deliberately diverged:
   token reaches `onExpire` without its cookie being dropped and `rolling` does not reissue;
   the next request, carrying the same token, does both.
 
-Both h3 adapters and the Elysia one run the same session core (`src/adapters/_session-core.ts`)
-over a JWS/JWE codec and a per-framework port (`session/_shared.ts`), so the lifecycle, hook
-order and error codes are the same everywhere; only cookie writing, context storage and the
-`res.errHeaders` staging differ per framework.
+Both h3 adapters, the Elysia one and `unjwt/session` run the same session core
+(`src/adapters/_session-core.ts`) over a JWS/JWE codec and a per-framework driver
+(`session/_shared.ts`), so the lifecycle, hook order and error codes are the same everywhere;
+only cookie writing, per-request state and the `res.errHeaders` staging differ per framework.
+
+## WebSockets
+
+Nitro hands crossws hooks a request without a response. h3 v1 (crossws 0.3): `upgrade(request)`
+gets a request-like `{ url, headers, context }`, passed as is to `use(request)`; `message(peer)`
+uses `use({ headers: peer.request.headers, context: peer.context })`. h3 v2 (crossws 0.4):
+`upgrade(request)` gets the `Request`, passed as `use({ req: request })`; `message(peer)` uses
+`use({ req: peer.request })`.
+
+- The upgrade object is read-only: `update()` / `clear()` throw `ERR_SESSION_READONLY_EVENT`.
+  A hook that writes gates on `isEvent(event)` from `h3` (both majors), e.g. `onRead`
+  revocation: `if (isEvent(event)) await session.clear(); else throw new Error("revoked")`.
+- `upgrade` wraps `use()` in `try/catch` and returns `new Response(…, { status: 401 })` itself
+  (also when `!session.id`): crossws rethrows anything that is not a `Response`.
+- `message` is a cache hit on the upgrade's read (`onRead` does not fire again): on v1
+  `peer.context` is the upgrade's context (pass `context: {}` to re-read per message); on v2
+  `peer.request` is the upgrade's `Request`. The v2 `defineWebSocketHandler((event) => hooks)`
+  factory hands the upgrade a full `H3Event`.
+- A `cookie: false, sessionHeader: false` session is not read by `use()`; over a socket exchange
+  its tokens with `open()` / `issue()` in `message`, no event involved.
+- `clear()` expires the cookie, it does not invalidate the token: a copy stays valid until `exp`.
+  Revocation is `onRead` plus your own store.
 
 ## SessionManager Interface
 
-Both `useJWESession` and `useJWSSession` return a `SessionManager`:
+`definition.use(event)` returns a `SessionManager`:
 
 ```ts
 interface SessionManager<
@@ -211,18 +232,72 @@ interface SessionJWE<
 }
 ```
 
-> The `TEvent` generic differs by h3 version. The blocks above (and below) show the v2 bound `TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event`. For h3v1 the bound is `TEvent extends CompatEvent | H3Event = CompatEvent | H3Event`.
+> `TEvent` is the event `use()` accepts and every hook receives. It defaults to its bound, `HTTPEvent` on v2 and `CompatEvent | H3Event` on v1 (signatures below show v2), because a definition is written once and cannot know which handlers call `use()`. Narrow it to `H3Event` (third generic) only in a project that never passes anything else; a Nuxt project narrows instead in a `useSession(event: H3Event)` wrapper around `definition.use(event)`.
 
 **Key behavior:** Sessions are lazy — `id` is `undefined` until `session.update()` is called.
 
-## useJWESession / useJWSSession
+## defineJWESession / defineJWSSession
 
-High-level session helpers. Use these for most cases.
+Define a session once, at module scope, from its config; nothing is validated or read until a
+member runs. `use(event)` serves every request.
 
 ```ts
-const session = await useJWESession<MyData>(event, config);
-const session = await useJWSSession<MyData>(event, config);
+const useSession = defineJWESession<MyData>(config); // or defineJWSSession
+
+app.get("/me", async (event) => {
+  const session = await useSession.use(event);
+  return session.data;
+});
 ```
+
+### SessionDefinition
+
+```ts
+function defineJWSSession<
+  T extends Record<string, any> = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<TEvent, T, MaxAge>;
+// defineJWESession: same shape over SessionConfigJWE
+
+interface SessionDefinition<TContext, T, MaxAge> {
+  /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
+  use: (context: TContext) => Promise<SessionManager<T, MaxAge>>;
+  /** The token the request carries (this response's own write first), unopened. */
+  token: (context: TContext) => string | undefined;
+  /** Mints a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it); reads and writes nothing. */
+  issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;
+  /** Opens a token into session state, checking `typ`, pinned algorithms, `jti`/`iat` and `exp` when `maxAge` is set; the key-lookup hook receives no request. */
+  open: (token: string) => Promise<OpenedSessionState<T, MaxAge>>;
+}
+
+/** What `open()` resolves to: `id` and `createdAt` always set, `expiresAt` a number with `maxAge`. */
+type OpenedSessionState<T, MaxAge> = {
+  id: string;
+  createdAt: number;
+  expiresAt: MaxAge extends ExpiresIn ? number : number | undefined;
+  data: SessionData<T>;
+};
+```
+
+| Member                  | Reads request | Writes cookie                                     | Hooks                                                |
+| ----------------------- | ------------- | ------------------------------------------------- | ---------------------------------------------------- |
+| `use(event)`            | once          | on `update()`/`clear()`, `rolling`, expired token | `onRead`/`onExpire`/`onError`, `onUpdate`, `onClear` |
+| `token(event)`          | yes           | no                                                | none                                                 |
+| `issue(data, options?)` | no            | no                                                | none                                                 |
+| `open(token)`           | no            | no                                                | key lookup only, without `event`                     |
+
+- `use(event)`: two calls on one request (same family and `name`) share one state, whatever
+  definition they come from.
+- `token(event)`: cookie this response wrote, then request cookie (chunks joined), then the
+  session header; `undefined` without one; checks nothing.
+- `issue(data, { maxAge })`: no request needed, works on a token-only config; reserved claims
+  `jti`/`iat`/`exp`/`nbf` are stripped from `data`, a `__proto__`/`constructor`/`prototype` key
+  throws `ERR_INVALID_OPTION`; writes no cookie, fires no hook.
+- `open(token)`: same checks as reading a cookie; resolves to `{ id, createdAt, expiresAt, data }`;
+  throws `ERR_SESSION_TOKEN_INVALID` (`cause` the failure) or `ERR_JWT_EXPIRED`;
+  `onVerifyKeyLookup` / `onUnsealKeyLookup` get the header and the config, no `event`. Writes
+  nothing.
 
 ### SessionConfigJWE
 
@@ -230,7 +305,7 @@ const session = await useJWSSession<MyData>(event, config);
 interface SessionConfigJWE<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
+  TEvent extends HTTPEvent = HTTPEvent,
 > {
   key:
     | CryptoKey // requires jwe.encryptOptions.alg + enc
@@ -242,7 +317,7 @@ interface SessionConfigJWE<
   rolling?: true | ExpiresIn;
   name?: string; // cookie name (default: "h3-jwe")
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
-  sessionHeader?: false | string; // header to read token from
+  sessionHeader?: boolean | string; // header to read token from; true = x-<name>-session
   generateId?: () => string; // default: crypto.randomUUID()
   jwe?: {
     // Options passed through to `encrypt()`; `exp` comes from `maxAge` and a
@@ -251,7 +326,7 @@ interface SessionConfigJWE<
     // session `typ` (default "session+jwt") that incoming tokens must carry.
     encryptOptions?: SessionEncryptOptions;
     // JWEDecryptOptions minus the fields the adapter owns: algorithms,
-    // encryptionAlgorithms, typ, validateClaims, forceUint8Array. So
+    // encryptionAlgorithms, typ, maxTokenAge, validateClaims, payload. So
     // minIterations / maxIterations / clockTolerance / issuer / audience are
     // settable. When the session is PBES2 — a pinned PBES2 `alg`, or a
     // configured `key` carrying one, whatever an `onUnsealKeyLookup` hook
@@ -268,7 +343,7 @@ interface SessionConfigJWE<
 interface SessionConfigJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
+  TEvent extends HTTPEvent = HTTPEvent,
 > {
   key:
     | CryptoKey // requires jws.signOptions.alg
@@ -282,7 +357,7 @@ interface SessionConfigJWS<
   rolling?: true | ExpiresIn;
   name?: string; // default: "h3-jws"
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
-  sessionHeader?: false | string;
+  sessionHeader?: boolean | string;
   generateId?: () => string;
   jws?: {
     // Options passed through to `sign()`; `exp` comes from `maxAge` and a
@@ -305,7 +380,7 @@ interface SessionConfigJWS<
 interface SessionHooksJWS<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
+  TEvent extends HTTPEvent = HTTPEvent,
 > {
   /** Fires once per request, when the session is read from a valid token. `session` is the manager. */
   onRead?: (args: {
@@ -353,18 +428,18 @@ interface SessionHooksJWS<
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
 
-  /** Override key lookup during verification (e.g. for key rotation). */
+  /** Override key lookup during verification (e.g. for key rotation); a throw fails the token. */
   onVerifyKeyLookup?: (args: {
-    header: JWSHeaderParameters;
-    event: TEvent;
+    header: JWKLookupFunctionHeader;
+    event?: TEvent; // only when the token came through use(); open() passes none
     config: SessionConfigJWS<T, MaxAge, TEvent>;
-  }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;
+  }) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
 }
 
 interface SessionHooksJWE<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent extends HTTPEvent | H3Event = HTTPEvent | H3Event,
+  TEvent extends HTTPEvent = HTTPEvent,
 > {
   onRead?: (args: {
     session: SessionManager<T, MaxAge> & { id: string; token: string };
@@ -399,16 +474,16 @@ interface SessionHooksJWE<
   }) => void | Promise<void>;
 
   onError?: (args: {
-    session: SessionJWE<T, MaxAge>;
+    session: SessionManager<T, MaxAge>;
     event: TEvent;
     error: any;
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => void | Promise<void>;
 
-  /** Override key lookup during decryption. */
+  /** Override key lookup during decryption; a throw fails the token. */
   onUnsealKeyLookup?: (args: {
     header: JWEHeaderParameters;
-    event: TEvent;
+    event?: TEvent; // only when the token came through use(); open() passes none
     config: SessionConfigJWE<T, MaxAge, TEvent>;
   }) => JWK_Symmetric | JWK_Private | Promise<JWK_Symmetric | JWK_Private>;
 }
@@ -424,46 +499,20 @@ interface SessionHooksJWE<
 | `onExpire` | Token's `exp` claim is in the past                                                                                                                                                                                                                                                                                                       | `onRead`, `onClear`     |
 | `onError`  | A read-path failure other than expiry, and a write-path sign/seal failure — the read-path `error` is always an `ERR_SESSION_TOKEN_INVALID` `JWTError` whose `cause` is the underlying failure, while the write-path `error` is the issue failure itself (e.g. `ERR_INVALID_OPTION`) and `session` is rolled back to its pre-update state | `onRead` (read path)    |
 
-Every hook is dispatched with the session state already settled, so a hook may read the same session again — through `useJWSSession`/`getJWSSession` with the same config — and gets the same session without `onRead` firing again. `session` in `onRead`, `onUpdate` and `onError` is the manager, so `session.update()` / `session.clear()` work in place.
+Every hook is dispatched with the session state already settled, so a hook may read the same session again — through `definition.use(event)` — and gets the same session without `onRead` firing again. `session` in `onRead`, `onUpdate` and `onError` is the manager, so `session.update()` / `session.clear()` work in place.
 
-Key material is configuration rather than token content: a `key` the config cannot resolve into a signing and a verification key throws `ERR_SESSION_KEY_INVALID` out of `useJWSSession` / `getJWSSession` itself, and never reaches `onError` as an unreadable token. A session `name` outside the RFC 6265 cookie-name characters is `ERR_SESSION_CONFIG_INVALID`, raised where the session is bound. So is a `name` a different family already holds on the same request: a name spells one cookie and one cookie carries one token, so a JWS and a JWE session under one name would write over each other (`'[unjwt/h3] Session name "app" is already used by a JWS session on this request; …'`). Reading the same family and name again is the same session and is always allowed.
+Key material is configuration rather than token content: a `key` the config cannot resolve into a signing and a verification key throws `ERR_SESSION_KEY_INVALID` out of `use(event)` itself, and never reaches `onError` as an unreadable token. A session `name` outside the RFC 6265 cookie-name characters is `ERR_SESSION_CONFIG_INVALID`, raised when the session is opened. So is a `name` a different family already holds on the same request: a name spells one cookie and one cookie carries one token, so a JWS and a JWE session under one name would write over each other (`'[unjwt/h3] Session name "app" is already used by a JWS session on this request; …'`). Reading the same family and name again is the same session and is always allowed.
 
-**Important:** `onExpire` deletes the session cookie inline and resets `session.token` to `undefined` — it does **not** call the `clearSession` function, so `onClear` is **never** triggered by natural token expiry. These two hooks are semantically distinct: `onExpire` = lifetime ended by clock; `onClear` = explicit user/system termination.
+**Important:** `onExpire` deletes the session cookie inline and resets `session.token` to `undefined` — it does **not** go through `clear()`, so `onClear` is **never** triggered by natural token expiry. These two hooks are semantically distinct: `onExpire` = lifetime ended by clock; `onClear` = explicit user/system termination.
 
 `onExpire`'s `session.id` is populated with the `jti` from the expired token (via `JWTError.cause`) when the token was cryptographically valid but past its `exp`. Use this to look up and invalidate revocation-list entries.
-
-## Lower-Level Functions
-
-For advanced control over the session lifecycle:
-
-### JWE
-
-| Function                                             | Purpose                                            |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| `getJWESession(event, config)`                       | Read/initialize session from cookie/header         |
-| `getJWESessionToken(event, config)`                  | Get raw token string from cookie/header            |
-| `updateJWESession(event, config, update?, options?)` | Update data, re-encrypt, set cookie                |
-| `sealJWESession(event, config)`                      | Encrypt current session to JWE token string        |
-| `unsealJWESession(event, config, token)`             | Decrypt a JWE token to session data                |
-| `clearJWESession(event, config)`                     | Empty the session in context and expire the cookie |
-
-### JWS
-
-| Function                                             | Purpose                                            |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| `getJWSSession(event, config)`                       | Read/initialize session from cookie/header         |
-| `getJWSSessionToken(event, config)`                  | Get raw token string from cookie/header            |
-| `updateJWSSession(event, config, update?, options?)` | Update data, re-sign, set cookie                   |
-| `signJWSSession(event, config)`                      | Sign current session to JWS token string           |
-| `verifyJWSSession(event, config, token)`             | Verify a JWS token to session data                 |
-| `clearJWSSession(event, config)`                     | Empty the session in context and expire the cookie |
 
 ## Examples
 
 ### Basic JWE session (encrypted)
 
 ```ts
-import { useJWESession, deriveJWKFromPassword } from "unjwt/adapters/h3v2";
+import { defineJWESession, deriveJWKFromPassword } from "unjwt/adapters/h3v2";
 
 // Derive once at boot — the adapters never take a password.
 const key = await deriveJWKFromPassword(process.env.SESSION_SECRET!, {
@@ -472,11 +521,10 @@ const key = await deriveJWKFromPassword(process.env.SESSION_SECRET!, {
   iterations: 600_000,
 });
 
+const useSession = defineJWESession({ key, maxAge: "7D" });
+
 app.get("/", async (event) => {
-  const session = await useJWESession(event, {
-    key,
-    maxAge: "7D",
-  });
+  const session = await useSession.use(event);
 
   if (!session.id) {
     await session.update({ userId: "123" });
@@ -489,15 +537,14 @@ app.get("/", async (event) => {
 ### JWS session with asymmetric keys
 
 ```ts
-import { useJWSSession, generateJWK } from "unjwt/adapters/h3v2";
+import { defineJWSSession, generateJWK } from "unjwt/adapters/h3v2";
 
 const keys = await generateJWK("RS256");
 
+const useSession = defineJWSSession({ key: keys, maxAge: "1h" });
+
 app.get("/", async (event) => {
-  const session = await useJWSSession(event, {
-    key: keys,
-    maxAge: "1h",
-  });
+  const session = await useSession.use(event);
   return { data: session.data };
 });
 ```
@@ -507,22 +554,26 @@ app.get("/", async (event) => {
 The cookie wins when it carries a token; the header is the fallback.
 
 ```ts
-const session = await useJWESession(event, {
+const apiSession = defineJWESession({
   key,
   sessionHeader: "Authorization", // "Bearer <token>" or the bare token
   cookie: false, // header-only
 });
+
+const session = await apiSession.use(event);
 ```
 
 ### Key rotation via hooks
 
 ```ts
-const session = await useJWESession(event, {
+const useSession = defineJWESession({
   key: currentKey,
   hooks: {
     onUnsealKeyLookup({ header }) {
-      // Try old keys for decryption based on kid
-      return keyStore.get(header.kid) ?? currentKey;
+      const key = header.kid === undefined ? undefined : keyStore.get(header.kid);
+      // an unknown kid fails the token: onError (ERR_SESSION_TOKEN_INVALID) on use(), a throw from open()
+      if (!key) throw new Error(`No session key with kid ${JSON.stringify(header.kid)}`);
+      return key;
     },
   },
 });
@@ -541,7 +592,7 @@ await session.update({ step: "mfa" }, { maxAge: "5m" });
 ### Revocation tracking via onExpire
 
 ```ts
-const session = await useJWSSession(event, {
+const useSession = defineJWSSession({
   key: keys,
   maxAge: "1h",
   hooks: {
@@ -557,16 +608,22 @@ const session = await useJWSSession(event, {
 });
 ```
 
+### Magic link (token-only session)
+
+```ts
+const magicLink = defineJWSSession({ key, maxAge: "15m", cookie: false, sessionHeader: false });
+
+const token = await magicLink.issue({ email }); // no request needed
+// later, in the login handler:
+const { data } = await magicLink.open(token); // throws on a bad or expired token
+```
+
 ### Refresh token pattern
 
 ```ts
 import {
-  type SessionConfigJWE,
-  type SessionConfigJWS,
-  useJWESession,
-  useJWSSession,
-  getJWESession,
-  updateJWSSession,
+  defineJWESession,
+  defineJWSSession,
   generateJWK,
   deriveJWKFromPassword,
 } from "unjwt/adapters/h3v2";
@@ -579,25 +636,26 @@ const refreshKey = await deriveJWKFromPassword(process.env.REFRESH_SECRET!, {
   iterations: 600_000,
 });
 
-const refreshConfig = {
+const refreshSession = defineJWESession({
   key: refreshKey,
   name: "refresh_token",
-} satisfies SessionConfigJWE;
+});
 
-const accessConfig = {
+const accessSession = defineJWSSession({
   key: atKeys,
   name: "access_token",
   maxAge: "15m",
   hooks: {
-    async onExpire({ event, config }) {
-      const refresh = await getJWESession(event, refreshConfig);
+    async onExpire({ event }) {
+      const refresh = await refreshSession.use(event);
       if (refresh.data.sub) {
-        await updateJWSSession(event, config, {
+        const access = await accessSession.use(event);
+        await access.update({
           sub: refresh.data.sub,
           scope: refresh.data.scope,
         });
       }
     },
   },
-} satisfies SessionConfigJWS;
+});
 ```
