@@ -1,6 +1,8 @@
 export type {
+  OpenedSessionState,
   SessionClaims,
   SessionData,
+  SessionDefinition,
   SessionIssueOptions,
   SessionManager,
   SessionUpdate,
@@ -13,6 +15,7 @@ export {
   type SessionHooksJWE,
   type SessionJWE,
   clearJWESession,
+  defineJWESession,
   getJWESession,
   getJWESessionToken,
   sealJWESession,
@@ -25,6 +28,7 @@ export {
   type SessionHooksJWS,
   type SessionJWS,
   clearJWSSession,
+  defineJWSSession,
   getJWSSession,
   getJWSSessionToken,
   signJWSSession,
@@ -33,6 +37,7 @@ export {
   verifyJWSSession,
 } from "./session/jws.ts";
 export type { SessionSignOptions, SessionVerifyOptions } from "./session/jws.ts";
+export type { CompatEvent } from "./session/_shared.ts";
 
 export type * from "../../core/types/index.ts";
 export {

@@ -65,8 +65,11 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   rolling?: true | ExpiresIn;
   /** Drives the cookie name and default header; prefer `__Host-`; a trailing `.<digits>` is refused. */
   name?: string;
-  /** Header carrying a bare or `Bearer` token, or `false`. Default `x-<name>-session` (cookie prefix stripped). */
-  sessionHeader?: false | string;
+  /**
+   * Header carrying a bare or `Bearer` token: a header name, `true` for `x-<name>-session` (cookie prefix stripped), or `false` for none.
+   * Left unset, a session with cookies still reads `x-<name>-session`, and so does one with `cookie: false`.
+   */
+  sessionHeader?: boolean | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
   generateId?: () => string;
 }
@@ -75,19 +78,14 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
  * Lifecycle hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per incoming token.
  * `session` is the live manager, so a hook can `update()` or `clear()` in place; `oldSession` is a snapshot.
  */
-export interface SessionHooks<
-  TSession,
-  TManager,
-  TCarrier extends Record<string, unknown>,
-  TConfig,
-> {
+export interface SessionHooks<TSession, TManager, TArgs extends Record<string, unknown>, TConfig> {
   /** Fires once per request, when the session is read from its token. */
   onRead?: (
-    args: TCarrier & { session: TManager & { id: string; token: string }; config: TConfig },
+    args: TArgs & { session: TManager & { id: string; token: string }; config: TConfig },
   ) => void | Promise<void>;
   /** Fires after a token is issued and its cookie written, by `update()` or by `rolling`; a throw rejects without rollback. */
   onUpdate?: (
-    args: TCarrier & {
+    args: TArgs & {
       session: TManager & { id: string; token: string };
       /** Deep-copied snapshot of the session before the update. */
       oldSession: TSession;
@@ -97,14 +95,14 @@ export interface SessionHooks<
   ) => void | Promise<void>;
   /** Fires when the session is cleared. */
   onClear?: (
-    args: TCarrier & {
+    args: TArgs & {
       oldSession: TSession | undefined;
       config: TConfig;
     },
   ) => void | Promise<void>;
   /** Fires when the incoming token is expired. Receives the expired token's decoded claims. */
   onExpire?: (
-    args: TCarrier & {
+    args: TArgs & {
       session: {
         id: string | undefined;
         createdAt: number | undefined;
@@ -117,7 +115,7 @@ export interface SessionHooks<
   ) => void | Promise<void>;
   /** Fires on read-path failures other than expiry, and on write-path issue failures. */
   onError?: (
-    args: TCarrier & {
+    args: TArgs & {
       session: TManager;
       // oxlint-disable-next-line typescript/no-explicit-any -- a write-path failure is whatever the cookie write or token issue threw
       error: any;

@@ -109,7 +109,7 @@ describe("elysia JWS session core", () => {
   });
 
   it("reads the token from the session header (Bearer stripped) and fires onRead", async () => {
-    const cfg: SessionConfigJWS = { key: hsKey };
+    const cfg: SessionConfigJWS = { key: hsKey, sessionHeader: true };
     const minted = await createJWSSession(makeContext().context, cfg);
     await minted.update({ user: "carol" });
 

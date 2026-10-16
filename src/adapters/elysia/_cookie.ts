@@ -4,19 +4,10 @@ import {
   writeChunked,
   removeChunked,
 } from "../_chunked-cookie";
+import type { CookieAttributes } from "../_cookie-attributes";
 import { invalidConfigError } from "../_session";
 
-export interface CookieAttributes {
-  domain?: string;
-  expires?: Date;
-  httpOnly?: boolean;
-  maxAge?: number;
-  path?: string;
-  priority?: "low" | "medium" | "high";
-  sameSite?: boolean | "lax" | "strict" | "none";
-  secure?: boolean;
-  partitioned?: boolean;
-}
+export type { CookieAttributes };
 
 export interface ChunkableCookie {
   value: unknown;
@@ -30,7 +21,7 @@ export type WriteChunkedCookieOptions = CookieAttributes & { chunkMaxLength?: nu
 const PREFIX = "[unjwt/elysia]";
 
 export function readChunkedCookie(jar: ChunkableCookieJar, name: string): string | undefined {
-  return readChunked(cookieStore(jar), name);
+  return readChunked(reactiveCookieJar(jar), name);
 }
 
 export function writeChunkedCookie(
@@ -40,7 +31,7 @@ export function writeChunkedCookie(
   options: WriteChunkedCookieOptions = {},
 ): void {
   const { chunkMaxLength, ...attrs } = options;
-  writeChunked(cookieStore(jar), name, value, { attrs, chunkMaxLength, prefix: PREFIX });
+  writeChunked(reactiveCookieJar(jar), name, value, { attrs, chunkMaxLength, prefix: PREFIX });
 }
 
 export function removeChunkedCookie(
@@ -48,10 +39,11 @@ export function removeChunkedCookie(
   name: string,
   attrs: CookieAttributes = {},
 ): void {
-  removeChunked(cookieStore(jar), name, { attrs });
+  removeChunked(reactiveCookieJar(jar), name, { attrs });
 }
 
-function cookieStore(jar: ChunkableCookieJar): ChunkedCookieStore<CookieAttributes> {
+/** Elysia's reactive cookie jar, whose values already reflect this response's writes. */
+export function reactiveCookieJar(jar: ChunkableCookieJar): ChunkedCookieStore<CookieAttributes> {
   return {
     read: (name) => {
       const value = jar[name]?.value;

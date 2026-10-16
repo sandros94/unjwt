@@ -3,14 +3,16 @@
 The `h3` adapter bundles session helpers that store data inside signed or encrypted JWTs.
 
 > [!WARNING]
-> While these adapters try to be compatible with h3's `useSession` API, the key difference is that new sessions are not automatically created when calling `useJWESession` or `useJWSSession`, marking their `id` as `undefined` until you explicitly call `session.update()`. This is to comply with various specs that do integrate JWT one (such as OAuth) where sessions are only created upon valid operations (like user authorization).
+> While these adapters try to be compatible with h3's `useSession` API, the key difference is that new sessions are not automatically created when calling `use(event)`, marking their `id` as `undefined` until you explicitly call `session.update()`. This is to comply with various specs that do integrate JWT one (such as OAuth) where sessions are only created upon valid operations (like user authorization).
 
-For an in-depth guide on using these adapters, please refer to the [H3 sessions guide](../../../docs/99.Adapters/1.h3-sessions.md).
+For an in-depth guide on using these adapters, please refer to the [H3 sessions guide](../../../docs/5.adapters/2.h3/0.index.md).
 
-- `useJWESession(event, config)` encrypts the session payload with `config.key` (a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`). Use this when session data must remain confidential. (cookie's `httpOnly: true` by default)
-- `useJWSSession(event, config)` signs, but does not encrypt, the session payload with `config.key`. Use this when clients may read the session content but you still need tamper protection. (cookie's `httpOnly: false` by default)
+A session is defined once, at module scope, and opened on each request with `use(event)`:
 
-Both helpers expose the same API: read `session.id` / `session.data`, call `session.update()` to patch values, and `session.clear()` to invalidate the cookie. `jti`, `iat`, `exp` and `nbf` belong to the adapter — they are stripped from update payloads, and the lifetime comes from `maxAge` (on the config, or on a single `session.update(data, { maxAge })`). They also support a number of `hooks` in the config for custom logic (e.g. logging, refreshing, etc).
+- `defineJWESession(config)` encrypts the session payload with `config.key` (a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`). Use this when session data must remain confidential. (cookie's `httpOnly: true` by default)
+- `defineJWSSession(config)` signs, but does not encrypt, the session payload with `config.key`. Use this when clients may read the session content but you still need tamper protection. (cookie's `httpOnly: false` by default)
+
+Both definitions expose the same API: `use(event)` returns the session manager, `token(event)` the raw token, `issue(data)` mints a token without a request (magic links, email verification) and `open(token)` opens one by hand. On the manager, read `session.id` / `session.data`, call `session.update()` to patch values, and `session.clear()` to invalidate the cookie. `jti`, `iat`, `exp` and `nbf` belong to the adapter — they are stripped from update payloads, and the lifetime comes from `maxAge` (on the config, or on a single `session.update(data, { maxAge })`). They also support a number of `hooks` in the config for custom logic (e.g. logging, refreshing, etc).
 
 Keys are key material, never passwords: turn a secret into a JWK once with `deriveJWKFromPassword()`.
 
@@ -18,12 +20,8 @@ Keys are key material, never passwords: turn a secret into a JWK once with `deri
 import { H3, HTTPError, serve } from "h3";
 
 import {
-  type SessionConfigJWE,
-  type SessionConfigJWS,
-  useJWESession,
-  useJWSSession,
-  getJWESession,
-  updateJWSSession,
+  defineJWESession,
+  defineJWSSession,
   generateJWK,
   deriveJWKFromPassword,
 } from "unjwt/adapters/h3v2";
@@ -35,18 +33,18 @@ const rtJwk = await deriveJWKFromPassword(process.env.REFRESH_SECRET!, {
   iterations: 600_000,
 });
 
-const jweOptions = {
+const refreshToken = defineJWESession({
   key: rtJwk,
   name: "refresh_token",
-} satisfies SessionConfigJWE;
+});
 
-const jwsOptions = {
+const accessToken = defineJWSSession({
   key: atJwk,
   name: "access_token",
   maxAge: 15 * 60, // 15 minutes
   hooks: {
-    async onExpire({ event, config }) {
-      const refreshSession = await getJWESession(event, jweOptions);
+    async onExpire({ event }) {
+      const refreshSession = await refreshToken.use(event);
       if (!refreshSession.data.sub) {
         // no valid refresh session, nothing to do
         return;
@@ -55,19 +53,20 @@ const jwsOptions = {
       console.log("Access token expired, refreshing...");
 
       // refresh the access token
-      await updateJWSSession(event, config, {
+      const accessSession = await accessToken.use(event);
+      await accessSession.update({
         sub: refreshSession.data.sub,
         scope: refreshSession.data.scope,
       });
     },
   },
-} satisfies SessionConfigJWS;
+});
 
 const app = new H3();
 
 app.post("/login", async (event) => {
-  const refreshSession = await useJWESession(event, jweOptions);
-  const accessSession = await useJWSSession(event, jwsOptions);
+  const refreshSession = await refreshToken.use(event);
+  const accessSession = await accessToken.use(event);
 
   if (accessSession.data.sub) {
     // user already logged in, return existing info

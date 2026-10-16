@@ -108,7 +108,7 @@ describe("elysia JWE session core", () => {
   });
 
   it("reads the token from the session header (Bearer stripped) and fires onRead", async () => {
-    const cfg: SessionConfigJWE = { key: jweKey };
+    const cfg: SessionConfigJWE = { key: jweKey, sessionHeader: true };
     const minted = await createJWESession(makeContext().context, cfg);
     await minted.update({ user: "carol" });
 

@@ -1,10 +1,8 @@
 import { H3, HTTPError, serve } from "h3";
 
 import {
-  useJWESession,
-  useJWSSession,
-  getJWESession,
-  updateJWSSession,
+  defineJWESession,
+  defineJWSSession,
   generateJWK,
   deriveJWKFromPassword,
 } from "unjwt/adapters/h3v2";
@@ -16,19 +14,19 @@ const rtJwk = await deriveJWKFromPassword("refresh_token_secret", {
   iterations: 600_000,
 });
 
-const jweOptions = {
+const refreshToken = defineJWESession({
   key: rtJwk,
   name: "refresh_token",
   maxAge: 7 * 24 * 60 * 60, // 7 days
-};
+});
 
-const jwsOptions = {
+const accessToken = defineJWSSession({
   key: atJwk,
   name: "access_token",
   maxAge: 15 * 60, // 15 minutes
   hooks: {
-    async onExpire({ event, config }) {
-      const refreshSession = await getJWESession(event, jweOptions);
+    async onExpire({ event }) {
+      const refreshSession = await refreshToken.use(event);
       if (!refreshSession.data.sub) {
         // no valid refresh session, nothing to do
         return;
@@ -37,19 +35,20 @@ const jwsOptions = {
       console.log("Access token expired, refreshing...");
 
       // refresh the access token
-      await updateJWSSession(event, config, {
+      const accessSession = await accessToken.use(event);
+      await accessSession.update({
         sub: refreshSession.data.sub,
         scope: refreshSession.data.scope,
       });
     },
   },
-};
+});
 
 const app = new H3();
 
 app.post("/login", async (event) => {
-  const refreshSession = await useJWESession(event, jweOptions);
-  const accessSession = await useJWSSession(event, jwsOptions);
+  const refreshSession = await refreshToken.use(event);
+  const accessSession = await accessToken.use(event);
 
   if (accessSession.data.sub) {
     // user already logged in, return existing info

@@ -32,7 +32,7 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   openOptions: (config: Config) => { clockTolerance?: number | Duration } | undefined;
   issueKey: (config: Config) => IssueKey;
   openKey: (config: Config) => OpenKey;
-  lookup: (config: Config, carrier: Record<string, unknown>) => OpenKey | undefined;
+  lookup: (config: Config, args: Record<string, unknown>) => OpenKey | undefined;
   /** The JWKs of an open key to import up front. */
   importable?: (key: OpenKey) => readonly unknown[];
   issue: (config: Config, payload: Record<string, unknown>, key: IssueKey) => Promise<string>;
@@ -46,8 +46,8 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
   const { prefix } = spec;
   const alg = (config: Config) => spec.issueOptions(config)?.alg;
 
-  const keyFor = (config: Config, carrier: Record<string, unknown>): OpenKey =>
-    spec.lookup(config, carrier) ?? spec.openKey(config);
+  const keyFor = (config: Config, args: Record<string, unknown>): OpenKey =>
+    spec.lookup(config, args) ?? spec.openKey(config);
 
   const now = (config: Config) => spec.issueOptions(config)?.currentDate?.getTime() ?? Date.now();
 
@@ -89,14 +89,14 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
       if (!isSymmetricJWK(key)) await assertOpenKey(config);
     },
 
-    opener: (config, carrier) => {
-      const key = keyFor(config, carrier);
+    opener: (config, args) => {
+      const key = keyFor(config, args);
       return (token) => openWith(config, token, key);
     },
 
-    open: async (config, token, carrier) => {
+    open: async (config, token, args) => {
       await assertOpenKey(config);
-      return openWith(config, token, keyFor(config, carrier));
+      return openWith(config, token, keyFor(config, args));
     },
   };
 }

@@ -268,8 +268,8 @@ describe("adapter h3 v2", () => {
     });
 
     it("update throws on a non-writable event when cookies are enabled", async () => {
-      // Read-only event (e.g. WebSocket upgrade) has no `.res`, so
-      // `hasWritableResponse()` returns false and cookie-enabled updates must throw.
+      // Read-only event (e.g. WebSocket upgrade) has no `.res`, so its cookie
+      // jar cannot write and cookie-enabled updates must throw.
       const roConfig: SessionConfigJWE = {
         ...sessionConfig,
         name: "h3-jwe-test-no-res",
@@ -508,8 +508,8 @@ describe("adapter h3 v2", () => {
     });
 
     it("update throws on a non-writable event when cookies are enabled", async () => {
-      // Read-only event (e.g. WebSocket upgrade) has no `.res`, so
-      // `hasWritableResponse()` returns false and cookie-enabled updates must throw.
+      // Read-only event (e.g. WebSocket upgrade) has no `.res`, so its cookie
+      // jar cannot write and cookie-enabled updates must throw.
       const roConfig: SessionConfigJWS = {
         ...sessionConfig,
         name: "h3-jws-test-no-res",

@@ -8,3 +8,5 @@ export type {
   SessionUpdate,
   SessionUpdateTrigger,
 } from "../../_session-types";
+export type { SessionDefinition } from "../../_session-definition";
+export type { OpenedSessionState } from "../../_session-core";
