@@ -97,9 +97,8 @@ Verifies a JWS token and returns its payload.
   - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls (an HMAC key-rotation set), never for one fetched from a `jwks_uri`
   - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the payload must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWS_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The signed content never decides its own shape, and `typ`/`cty` never pick it — both are signer-controlled. Under RFC 7797 `b64: false` the unencoded segment is the content and the same modes apply
   - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
-  - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
   - `limits?: { keyCandidates?: number }` — how many JWK Set candidates one token may be tried against after `kid`/`alg`/`use` filtering. Default `8` (`DEFAULT_JOSE_LIMITS.keyCandidates`); a wider set throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. Must be a positive integer, else `ERR_INVALID_OPTION`
-  - `allowSymmetricJWKSet`, `payload`, `validateClaims` and `forceUint8Array` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
+  - `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
   - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a verifier that configures none; configure `audience` to enforce RFC 7519 §4.1.3
   - Every option is checked before the token is read, and a configured check is never skipped for being empty: `audience: ""` (or a list with an empty entry), `issuer: ""`, `subject: ""`, `typ: ""` or a non-string `typ`, `maxTokenAge: 0`, an `options` that is not an object, `limits` that is not an object, and an `algorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings each throw `ERR_INVALID_OPTION` (`'"algorithms" must be an array of strings.'`). An empty list (`audience: []`, `algorithms: []`) is a check no token passes
@@ -113,7 +112,6 @@ Verifies a JWS token and returns its payload.
 - no `payload` or `payload: "json"` → `T`, the claims — `JWTClaims` unless given: `verify<MyClaims>(token, key)`
 - `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array<ArrayBuffer>`
 - a `payload` that is not a literal (a `JOSEPayloadMode` variable, a `JWSVerifyOptions` object) → the union of what its modes return
-- the deprecated `forceUint8Array: true` → `Uint8Array<ArrayBuffer>`
 - a claims type together with `payload: "string"` / `"bytes"` is a type error
 
 **Header validation (before any key work):**
@@ -399,8 +397,6 @@ interface JWSVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "keyCandidates">;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
   issuer?: string | string[];
@@ -471,8 +467,6 @@ interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> 
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
   issuer?: string | string[];
@@ -491,8 +485,6 @@ interface JWSMultiVerifyAllOptions<Mode extends JOSEPayloadMode = JOSEPayloadMod
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
   issuer?: string | string[];

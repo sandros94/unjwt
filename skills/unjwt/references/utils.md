@@ -32,10 +32,6 @@ base64UrlParse("SGVsbG8="); // throws UnsecureError MALFORMED
 
 Standard base64 per RFC 4648 §4: `+/` alphabet, **`=` padding required**. Same options as the URL-safe pair.
 
-### Deprecated aliases (removed in v0.9)
-
-`base64UrlEncode` → `base64UrlStringify`, `base64UrlDecode` → `base64UrlParse`, `base64Encode` → `base64Stringify`, `base64Decode` → `base64Parse`. Same behaviour, same signatures.
-
 ### `secureRandomBytes(length)`
 
 Returns a cryptographically secure `Uint8Array<ArrayBuffer>` of the specified length via `crypto.getRandomValues`.
@@ -173,14 +169,6 @@ Import: `import { ... } from "unjwt/internal"`
   registered header parameter.
 - `expiredClaimMessage(exp)` — the `ERR_JWT_EXPIRED` message for an `exp` (NumericDate, seconds)
   that has passed; the session adapters raise the same text for an in-memory expiry.
-
-### Deprecated aliases in `unjwt/utils` (removed in v0.9)
-
-`applyTypDefault`, `decodePayloadFromBytes` → `parsePayloadBytes`,
-`decodePayloadFromB64UrlSegment` → `parsePayloadSegment`, `getPlaintextBytes`,
-`computeJwtTimeClaims`, `validateCriticalHeadersJWS`, `validateCriticalHeadersJWE`,
-`assertCritShape`, and the types `DecodePayloadOptions` → `ParsePayloadOptions`,
-`ComputeJwtTimeClaimsOptions`. Same bindings; import them from `unjwt/internal`.
 
 ## Utility Types
 

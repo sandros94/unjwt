@@ -117,13 +117,12 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
 - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the plaintext must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWE_INVALID` (`"Invalid JWE: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWE_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The decrypted content never decides its own shape, and `typ`/`cty` never pick it
 - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
-- `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
 - `returnCek?: boolean` — include raw `cek` and `aad` in result. A CEK that cannot leave Web Crypto — a non-extractable `CryptoKey` under `dir`, or one unwrapped under `extractable: false` — throws `ERR_INVALID_OPTION` (`'"returnCek" requires an extractable content encryption key.'`)
 - `extractable?: boolean` — whether the unwrapped CEK `CryptoKey` is extractable; defaults to `true`, and `false` is honoured
 - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
 - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `600_000` — the `p2c` a producer mints by default — to cap PBKDF2 DoS potential; raise it to open a token minted at a higher cost. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
 - `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `2_400_000` — four attempts at the `600_000` `p2c` a producer mints by default, so an envelope written entirely at the defaults is still openable by its fourth PBES2 recipient — and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` falls outside `minIterations`/`maxIterations` throws that bound, and one that no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 2400000 exhausted."`); either spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
-- `allowSymmetricJWKSet`, `payload`, `validateClaims` and `forceUint8Array` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
+- `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
 - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 - Options are checked before the token is read, as on `verify`: an empty `audience` / `issuer` / `subject` / `typ`, a non-string `typ`, `maxTokenAge: 0`, non-object `options` or `limits`, and an `algorithms` / `encryptionAlgorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings throw `ERR_INVALID_OPTION`
@@ -135,7 +134,6 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - no `payload` or `payload: "json"` → `T`, the claims — `JWTClaims` unless given: `decrypt<MyClaims>(token, key)`
 - `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array<ArrayBuffer>`
 - a `payload` that is not a literal (a `JOSEPayloadMode` variable, a `JWEDecryptOptions` object) → the union of what its modes return
-- the deprecated `forceUint8Array: true` → `Uint8Array<ArrayBuffer>`
 - a claims type together with `payload: "string"` / `"bytes"` is a type error
 
 **Header and segment validation.** Everything the protected header alone decides is settled before a key is resolved or imported, so a malformed token never reaches key management:
@@ -440,8 +438,6 @@ interface JWEDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   keyUsage?: KeyUsage[];
   extractable?: boolean;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   returnCek?: boolean;
   minIterations?: number; // default: 1000
@@ -581,8 +577,6 @@ interface JWEMultiDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode>
   keyUsage?: KeyUsage[];
   extractable?: boolean;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   returnCek?: boolean;
   minIterations?: number;
