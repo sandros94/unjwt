@@ -132,7 +132,7 @@ async function fireRead<TContext, Config extends SessionCoreConfig>(
   });
 }
 
-/** Reissues the session just read when `rolling` asks, unless a hook replaced it; a sealed response leaves it to the next request. */
+/** Reissues the session just read when `rolling` asks, unless a hook replaced it; a context without a cookie or a sealed response leaves it to the next request. */
 async function rollSession<TContext, Config extends SessionCoreConfig>(
   binding: SessionBinding<TContext, Config>,
   session: StoredSession,
@@ -145,7 +145,7 @@ async function rollSession<TContext, Config extends SessionCoreConfig>(
     const remaining = session.expiresAt - codec.now(config);
     if (remaining >= computeDurationInSeconds(rolling) * 1000) return;
   }
-  if (!transport.writable()) return;
+  if (transport.readonly || !transport.writable()) return;
   await binding.actions.roll(binding);
 }
 

@@ -27,11 +27,13 @@ export interface SessionCookie {
 export interface SessionTransport {
   /** The token this response wrote, else the request cookie's, else the session header's; absent without a token source. */
   read?: () => string | undefined;
-  /** Present while the session keeps its token in a cookie. */
+  /** Present while the session keeps its token in a cookie the context can write. */
   write?: (token: string, cookie: SessionCookie) => void;
-  /** Present while the session keeps its token in a cookie. */
+  /** Present while the session keeps its token in a cookie the context can write. */
   drop?: (cookie: SessionCookie) => void;
-  /** Whether the response still takes the cookie; `true` when there is none to write. */
+  /** The session keeps its token in a cookie, but the context cannot take one (a headers-only event). */
+  readonly: boolean;
+  /** Platform signal that the response can still change; `false` once it was sent. */
   writable: () => boolean;
 }
 
@@ -42,17 +44,17 @@ export function resolveTransport<TContext>(
   options: { config: SessionTokenSource; name: string },
 ): SessionTransport {
   const handed = driver.handed?.(context);
-  if (handed) return { read: () => handed.token, writable: () => true };
+  if (handed) return { read: () => handed.token, readonly: false, writable: () => true };
 
   const { config, name } = options;
   const header = headerReader(driver, context, options);
   if (config.cookie === false) {
-    return { read: header, writable: () => true };
+    return { read: header, readonly: false, writable: () => true };
   }
 
   const jar = driver.cookies(context);
-  const store = responseStore(jar, driver.prefix);
-  return {
+  const store = responseStore(jar);
+  const transport: SessionTransport = {
     read: () => {
       const written = jar.written
         ? readChunked({ read: (key) => jar.written?.(key) }, name)
@@ -60,14 +62,18 @@ export function resolveTransport<TContext>(
       if (written === "") return undefined;
       return (written ?? readChunked(jar, name)) || header?.() || undefined;
     },
-    write: (token, { attrs, chunkMaxLength }) => {
-      writeChunked(store, name, token, { attrs, chunkMaxLength, prefix: driver.prefix });
-    },
-    drop: ({ attrs }) => {
-      removeChunked(store, name, { attrs });
-    },
-    writable: () => jar.write !== undefined && (driver.writable?.(context) ?? true),
+    readonly: !store,
+    writable: () => driver.writable?.(context) ?? true,
   };
+  if (!store) return transport;
+
+  transport.write = (token, { attrs, chunkMaxLength }) => {
+    writeChunked(store, name, token, { attrs, chunkMaxLength, prefix: driver.prefix });
+  };
+  transport.drop = ({ attrs }) => {
+    removeChunked(store, name, { attrs });
+  };
+  return transport;
 }
 
 /** A transport without a reader has no token source: reading or clearing it is a config failure. */
@@ -78,6 +84,22 @@ export function assertTokenSource(
   if (!transport.read) {
     throw invalidConfigError(
       `${options.prefix} Session has no token source: "cookie" and "sessionHeader" are both disabled.`,
+    );
+  }
+}
+
+/** No update where the context takes no cookie the session keeps its token in; no update or clear once the response was sent. */
+export function assertWritable(
+  transport: SessionTransport,
+  options: { operation: "update" | "clear"; prefix: string },
+): void {
+  const { operation, prefix } = options;
+  if (operation === "update" && transport.readonly) {
+    throw readOnlyEventError(`${prefix} Cannot update session on read-only event.`);
+  }
+  if (!transport.writable()) {
+    throw readOnlyEventError(
+      `${prefix} Cannot update/clear session: the response was already sent.`,
     );
   }
 }
@@ -123,18 +145,9 @@ function headerReader<TContext>(
   return () => headerToken(driver.header(context, header));
 }
 
-/** The jar as the chunked layer writes it: this response's value first, then the request's. */
-function responseStore(
-  jar: CookieJar,
-  prefix: string,
-): ChunkedCookieStore<ExpirableCookieAttributes> {
-  return {
-    read: (name) => jar.written?.(name) ?? jar.read(name),
-    write: (name, value, attrs) => {
-      if (!jar.write) {
-        throw readOnlyEventError(`${prefix} Cannot write a session cookie on read-only event.`);
-      }
-      jar.write(name, value, attrs);
-    },
-  };
+/** The jar as the chunked layer writes it, this response's value first; absent when it takes no cookie. */
+function responseStore(jar: CookieJar): ChunkedCookieStore<ExpirableCookieAttributes> | undefined {
+  const write = jar.write?.bind(jar);
+  if (!write) return undefined;
+  return { read: (name) => jar.written?.(name) ?? jar.read(name), write };
 }

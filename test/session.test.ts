@@ -117,8 +117,11 @@ describe("unjwt/session over a Web request", () => {
     const manager = await session.use({ request: get({ cookie: `web=${token}` }) });
 
     expect(manager.data).toEqual({ user: "ada" });
-    expect(isJWTError(await caught(manager.update({})), "ERR_SESSION_READONLY_EVENT")).toBe(true);
-    expect(isJWTError(await caught(manager.clear()), "ERR_SESSION_READONLY_EVENT")).toBe(true);
+    const update = await caught(manager.update({}));
+    expect(isJWTError(update, "ERR_SESSION_READONLY_EVENT")).toBe(true);
+    expect((update as Error).message).toBe(
+      "[unjwt/session] Cannot update session on read-only event.",
+    );
 
     const headerOnly = define({ cookie: false });
     const reissued = await headerOnly.use({ request: get({ "x-web-session": token }) });
@@ -127,6 +130,54 @@ describe("unjwt/session over a Web request", () => {
     expect(reissued.token).not.toBe(token);
     expect((await headerOnly.open(String(reissued.token))).data).toEqual({ user: "grace" });
   });
+
+  it.each(FAMILIES)(
+    "$family: clear() without response headers empties the session for the request",
+    async ({ family, define }) => {
+      const onClear = vi.fn();
+      const lookup = vi.fn(() => (family === "jws" ? jwsKey : jweKey));
+      const session = define({
+        hooks: {
+          onClear,
+          ...(family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup }),
+        },
+      });
+      const request = get({ cookie: `web=${await session.issue({ user: "ada" })}` });
+      const manager = await session.use({ request });
+      const id = manager.id;
+
+      expect(await caught(manager.clear())).toBeUndefined();
+      expect(onClear).toHaveBeenCalledOnce();
+      expect(onClear.mock.calls[0]?.[0]).toMatchObject({ oldSession: { id } });
+      expect(manager.id).toBeUndefined();
+
+      const again = await session.use({ request });
+      expect(again.id).toBeUndefined();
+      expect(again.data).toEqual({});
+      expect(lookup).toHaveBeenCalledOnce();
+      expect(isJWTError(await caught(again.update({})), "ERR_SESSION_READONLY_EVENT")).toBe(true);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: an onRead hook clears a revoked session without response headers",
+    async ({ define }) => {
+      const revoked = new Set<string | undefined>();
+      const session = define({
+        hooks: {
+          onRead: async ({ session: current }: { session: SessionManager }) => {
+            if (revoked.has(current.id)) await current.clear();
+          },
+        },
+      });
+      const token = await session.issue({ user: "ada" });
+      revoked.add((await session.open(token)).id);
+
+      const manager = await session.use({ request: get({ cookie: `web=${token}` }) });
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+    },
+  );
 
   it.each(FAMILIES)("$family: reads the configured session header", async ({ define }) => {
     const token = await define().issue({ user: "ada" });

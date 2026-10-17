@@ -59,7 +59,7 @@ export type KnownJWTErrorCode =
   | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
   // Session adapters
   | "ERR_SESSION_TOKEN_INVALID" // an incoming session token failed verification or decryption
-  | "ERR_SESSION_READONLY_EVENT" // update / clear on an event without a writable response
+  | "ERR_SESSION_READONLY_EVENT" // update on a context that takes no cookie, update / clear once the response was sent
   | "ERR_SESSION_KEY_INVALID" // session key missing, of the wrong shape, or a password string
   | "ERR_SESSION_CONFIG_INVALID" // a session config combination that cannot work
   // Caller input that is not token or key material

@@ -79,7 +79,7 @@ import type {
   SessionCoreConfig,
 } from "../src/adapters/_session-core";
 import { bindSession } from "../src/adapters/_session-bind";
-import type { SessionDriver } from "../src/adapters/_driver";
+import type { CookieJar, SessionDriver } from "../src/adapters/_driver";
 import { loadSession } from "../src/adapters/_session-read";
 import { dropSession, issueSession, sessionActions } from "../src/adapters/_session-write";
 import type { SessionManager } from "../src/adapters/_session-types";
@@ -805,8 +805,8 @@ describe("session adapters — shared contract", () => {
         const update = await caught(() => session.update({ user: "mallory" }));
         const clear = await caught(() => session.clear());
         settle({
-          update: isJWTError(update, "ERR_SESSION_READONLY_EVENT"),
-          clear: isJWTError(clear, "ERR_SESSION_READONLY_EVENT"),
+          update: alreadySent(update),
+          clear: alreadySent(clear),
           id: session.id,
           user: session.data.user,
         });
@@ -2383,7 +2383,7 @@ describe("session adapters — shared contract", () => {
 
   // #region writes once the response is sent
   describe("writes once the response is sent", () => {
-    it("h3 v2 under Node: an update after the response was sent is refused and rolled back", async () => {
+    it("h3 v2 under Node: an update or clear after the response was sent is refused, state untouched", async () => {
       let settle!: (outcome: Record<string, unknown>) => void;
       const outcome = new Promise<Record<string, unknown>>((resolve) => {
         settle = resolve;
@@ -2396,9 +2396,11 @@ describe("session adapters — shared contract", () => {
         await session.update({ user: "alice" });
         const before = { id: session.id, token: session.token };
         event.runtime!.node!.res!.once("finish", async () => {
-          const error = await caught(() => session.update({ late: true }));
+          const update = await caught(() => session.update({ late: true }));
+          const clear = await caught(() => session.clear());
           settle({
-            readonly: isJWTError(error, "ERR_SESSION_READONLY_EVENT"),
+            update: alreadySent(update),
+            clear: alreadySent(clear),
             unchanged: session.id === before.id && session.token === before.token,
             late: "late" in session.data,
           });
@@ -2411,7 +2413,7 @@ describe("session adapters — shared contract", () => {
 
       expect(response.body).toEqual({ ok: true });
       expect(cookies.some((cookie) => cookie.startsWith("late-jws="))).toBe(true);
-      expect(await outcome).toEqual({ readonly: true, unchanged: true, late: false });
+      expect(await outcome).toEqual({ update: true, clear: true, unchanged: true, late: false });
     });
   });
   // #endregion
@@ -3568,59 +3570,132 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    const HEADERS_ONLY_EVENTS = {
-      "h3 v1 request-like event": (headers: Record<string, string>) => ({
-        request: new Request("http://localhost/", { headers }),
-        context: {},
-      }),
-      "h3 v1 headers-only event": (headers: Record<string, string>) => ({
-        headers: new Headers(headers),
-        context: {},
-      }),
-      "h3 v2 headers-only event": (headers: Record<string, string>) => ({
-        req: new Request("http://localhost/", { headers }),
-        context: {},
-      }),
+    const READ_ONLY_CONTEXTS = {
+      "h3 v1 request-like event": {
+        port: "h3 v1",
+        context: (headers: Record<string, string>) => ({
+          request: new Request("http://localhost/", { headers }),
+          context: {},
+        }),
+      },
+      "h3 v1 headers-only event": {
+        port: "h3 v1",
+        context: (headers: Record<string, string>) => ({
+          headers: new Headers(headers),
+          context: {},
+        }),
+      },
+      "h3 v2 headers-only event": {
+        port: "h3 v2",
+        context: (headers: Record<string, string>) => ({
+          req: new Request("http://localhost/", { headers }),
+          context: {},
+        }),
+      },
+      "web request without headers": {
+        port: "web",
+        context: (headers: Record<string, string>) => ({
+          request: new Request("http://localhost/", { headers }),
+        }),
+      },
     } as const;
 
-    const headersOnlyCases = (
-      Object.keys(HEADERS_ONLY_EVENTS) as (keyof typeof HEADERS_ONLY_EVENTS)[]
-    )
+    const readOnlyCases = (Object.keys(READ_ONLY_CONTEXTS) as (keyof typeof READ_ONLY_CONTEXTS)[])
       .flatMap((kind) => (["jws", "jwe"] as const).map((family) => ({ kind, family })))
       .map((entry) => ({ ...entry, label: `${entry.kind} ${entry.family}` }));
 
-    it.each(headersOnlyCases)(
-      "$label: a cookie session cannot be updated or cleared",
-      async ({ kind, family }) => {
-        const open = OPENERS[kind.startsWith("h3 v2") ? "h3 v2" : "h3 v1"][family];
-        const config = {
-          name: `contract-${family}`,
-          key: family === "jws" ? jwsKey : jweKey,
-          cookie: { secure: false },
-        };
-        const session = (await open(
-          HEADERS_ONLY_EVENTS[kind]({}) as never,
-          config as never,
-        )) as SessionManager;
+    /** A cookie session on a read-only context, counting the key lookups its reads make. */
+    function readOnlySession(
+      entry: { kind: keyof typeof READ_ONLY_CONTEXTS; family: Family },
+      options: { cookie: string; hooks?: Record<string, unknown> },
+    ) {
+      const { port, context } = READ_ONLY_CONTEXTS[entry.kind];
+      const name = `contract-${entry.family}`;
+      const key = entry.family === "jws" ? jwsKey : jweKey;
+      const lookup = vi.fn(() => key);
+      const config = {
+        name,
+        key,
+        cookie: { secure: false },
+        hooks: {
+          ...options.hooks,
+          ...(entry.family === "jws"
+            ? { onVerifyKeyLookup: lookup }
+            : { onUnsealKeyLookup: lookup }),
+        },
+      };
+      const carrier = context({ cookie: `${name}=${options.cookie}` });
+      const open = () =>
+        OPENERS[port][entry.family](carrier as never, config as never) as Promise<SessionManager>;
+      return { open, lookup };
+    }
 
-        const update = await caught(() => session.update({ user: "alice" }));
-        const clear = await caught(() => session.clear());
+    const readOnlyError = (error: unknown) =>
+      isJWTError(error, "ERR_SESSION_READONLY_EVENT") &&
+      error.message.includes("Cannot update session on read-only event.");
 
-        expect(isJWTError(update, "ERR_SESSION_READONLY_EVENT")).toBe(true);
-        expect(isJWTError(clear, "ERR_SESSION_READONLY_EVENT")).toBe(true);
+    it.each(readOnlyCases)(
+      "$label: a cookie session refuses update, and clear empties it for the rest of the context",
+      async (entry) => {
+        const onClear = vi.fn();
+        const token = await foreignToken(entry.family, { jti: "read-only", iat: nowSeconds() });
+        const { open, lookup } = readOnlySession(entry, { cookie: token, hooks: { onClear } });
+
+        const session = await open();
+        expect(session.id).toBe("read-only");
+        expect(readOnlyError(await caught(() => session.update({ user: "alice" })))).toBe(true);
+        expect(session.id).toBe("read-only");
+
+        expect(await caught(() => session.clear())).toBeUndefined();
+        expect(onClear).toHaveBeenCalledOnce();
+        expect(onClear.mock.calls[0]?.[0]).toMatchObject({ oldSession: { id: "read-only" } });
         expect(session.id).toBeUndefined();
+        expect(session.token).toBeUndefined();
+
+        const again = await open();
+        expect(again.id).toBeUndefined();
+        expect(again.token).toBeUndefined();
+        expect(lookup).toHaveBeenCalledOnce();
+        expect(readOnlyError(await caught(() => again.update({ user: "alice" })))).toBe(true);
       },
     );
 
-    it.each(headersOnlyCases)(
+    it.each(readOnlyCases)(
+      "$label: an onRead hook that clears a revoked session leaves it empty",
+      async (entry) => {
+        const revoked = new Set(["revoked"]);
+        const onClear = vi.fn();
+        const token = await foreignToken(entry.family, { jti: "revoked", iat: nowSeconds() });
+        const { open } = readOnlySession(entry, {
+          cookie: token,
+          hooks: {
+            onClear,
+            onRead: async ({ session }: { session: SessionManager }) => {
+              if (revoked.has(session.id!)) await session.clear();
+            },
+          },
+        });
+
+        const session = await open();
+
+        expect(session.id).toBeUndefined();
+        expect(session.token).toBeUndefined();
+        expect(onClear).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each(readOnlyCases)(
       "$label: a header-only session re-mints its token in place",
       async ({ kind, family }) => {
-        const open = OPENERS[kind.startsWith("h3 v2") ? "h3 v2" : "h3 v1"][family];
+        const { port, context } = READ_ONLY_CONTEXTS[kind];
         const name = `contract-${family}`;
         const config = { name, key: family === "jws" ? jwsKey : jweKey, cookie: false };
         const token = await foreignToken(family, { jti: "headers-only", iat: nowSeconds() });
-        const event = HEADERS_ONLY_EVENTS[kind]({ [`x-${name}-session`]: token });
-        const session = (await open(event as never, config as never)) as SessionManager;
+        const carrier = context({ [`x-${name}-session`]: token });
+        const session = (await OPENERS[port][family](
+          carrier as never,
+          config as never,
+        )) as SessionManager;
         expect(session.token).toBe(token);
 
         await session.update({ user: "alice" });
@@ -3847,6 +3922,53 @@ describe("session adapters — shared contract", () => {
         } finally {
           warn.mockRestore();
         }
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a jar that cannot take a cookie clears without a write and refuses an update",
+      async (family) => {
+        const onClear = vi.fn();
+        const claims = { jti: "read-only", iat: nowSeconds() };
+        const recorder = recordingDriver({
+          token: await foreignToken(family, claims),
+          write: false,
+        });
+        const binding = coreBinding(family, recorder.driver, { hooks: { onClear } });
+
+        expect((await loadSession(binding)).id).toBe("read-only");
+        const update = await caught(() => issueSession(binding, { user: "alice" }));
+        expect(isJWTError(update, "ERR_SESSION_READONLY_EVENT")).toBe(true);
+        expect((update as Error).message).toBe("[test] Cannot update session on read-only event.");
+
+        expect(await caught(() => dropSession(binding))).toBeUndefined();
+        expect(onClear).toHaveBeenCalledOnce();
+        expect((await loadSession(binding)).id).toBeUndefined();
+        expect(recorder.writes).toEqual([]);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a response already sent refuses a clear and keeps the session",
+      async (family) => {
+        const onClear = vi.fn();
+        const claims = { jti: "too-late", iat: nowSeconds() };
+        const recorder = recordingDriver({
+          token: await foreignToken(family, claims),
+          writable: false,
+        });
+        const binding = coreBinding(family, recorder.driver, { hooks: { onClear } });
+
+        expect((await loadSession(binding)).id).toBe("too-late");
+        const update = await caught(() => issueSession(binding, { user: "alice" }));
+        const clear = await caught(() => dropSession(binding));
+
+        expect(alreadySent(update)).toBe(true);
+        expect(alreadySent(clear)).toBe(true);
+        expect((clear as Error).message.startsWith("[test] ")).toBe(true);
+        expect(onClear).not.toHaveBeenCalled();
+        expect((await loadSession(binding)).id).toBe("too-late");
+        expect(recorder.writes).toEqual([]);
       },
     );
   });
@@ -4670,32 +4792,46 @@ function expiredSetCookie(setCookies: string[], name: string): string | undefine
   );
 }
 
+/** The refusal an update or clear meets once the response was sent. */
+function alreadySent(error: unknown): boolean {
+  return (
+    isJWTError(error, "ERR_SESSION_READONLY_EVENT") &&
+    error.message.includes("Cannot update/clear session: the response was already sent.")
+  );
+}
+
 interface RecordedWrite {
   name: string;
   value: string;
   attrs: Record<string, unknown>;
 }
 
-/** A session driver over a plain object, recording every cookie write the core asks of its jar. */
-function recordingDriver(options: { token?: string; writable?: boolean }): {
+/**
+ * A session driver over a plain object, recording every cookie write the core asks of its jar.
+ * `write: false` hands a jar that cannot take a cookie; `writable: false` a response already sent.
+ */
+function recordingDriver(options: { token?: string; write?: boolean; writable?: boolean }): {
   driver: SessionDriver<object>;
   writes: RecordedWrite[];
 } {
   const writes: RecordedWrite[] = [];
   const written = new Map<string, string>();
   const record: Record<string, unknown> = Object.create(null);
+  const jar: CookieJar = {
+    read: (name) => (name.includes(".") ? undefined : options.token),
+    written: (name) => written.get(name),
+  };
+  if (options.write !== false) {
+    jar.write = (name, value, attrs) => {
+      written.set(name, value);
+      writes.push({ name, value, attrs: { ...attrs } });
+    };
+  }
   const driver: SessionDriver<object> = {
     prefix: "[test]",
     state: () => record,
     header: () => undefined,
-    cookies: () => ({
-      read: (name) => (name.includes(".") ? undefined : options.token),
-      written: (name) => written.get(name),
-      write: (name, value, attrs) => {
-        written.set(name, value);
-        writes.push({ name, value, attrs: { ...attrs } });
-      },
-    }),
+    cookies: () => jar,
     writable: () => options.writable ?? true,
   };
   return { driver, writes };
