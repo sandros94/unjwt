@@ -9,12 +9,10 @@ import type { ExpiresIn } from "../core/types";
 import {
   type SessionIssueOptions,
   RESERVED_CLAIMS,
-  assertTokenSource,
-  hasTokenSource,
-  readOnlyEventError,
   resolveExpiresAt,
   sanitizeSessionUpdate,
 } from "./_session";
+import { sessionCookie, sessionToken } from "./_session-bind";
 import {
   type SessionActions,
   type SessionBinding,
@@ -24,9 +22,7 @@ import {
   emptySession,
   kSessionPending,
   mintSessionId,
-  sessionCookie,
   sessionInstant,
-  sessionToken,
   storedSession,
 } from "./_session-core";
 import { loadSession } from "./_session-read";
@@ -36,17 +32,17 @@ import type {
   SessionUpdate,
   SessionUpdateTrigger,
 } from "./_session-types";
+import { assertTokenSource, assertWritable } from "./_transport";
 
 /** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */
-export async function encodeSession<TCarrier, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TCarrier, Config>,
+export async function encodeSession<TContext, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TContext, Config>,
 ): Promise<string> {
-  const { config, codec, store } = binding;
+  const { config, codec, store, transport } = binding;
   await codec.assertKeys(config);
   const issue = codec.issuer(config);
   const session =
-    storedSession(store) ||
-    (hasTokenSource(config) ? await loadSession(binding) : emptySession(binding));
+    storedSession(store) || (transport.read ? await loadSession(binding) : emptySession(binding));
   return issue(session.id === undefined ? { ...session, id: mintSessionId(config) } : session);
 }
 
@@ -54,26 +50,26 @@ export async function encodeSession<TCarrier, Config extends SessionCoreConfig>(
 export async function issueSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TCarrier,
+  TContext,
   Config extends SessionCoreConfig,
 >(
-  binding: SessionBinding<TCarrier, Config>,
+  binding: SessionBinding<TContext, Config>,
   update?: SessionUpdate<T>,
   options?: SessionIssueOptions,
   trigger: SessionUpdateTrigger = "update",
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
-  const { config, port, store, args } = binding;
+  const { config, driver, store, args, transport } = binding;
 
-  assertWritable(binding, "update");
+  assertWritable(transport, { operation: "update", prefix: driver.prefix });
 
   const session =
-    storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TCarrier, Config>(binding));
+    storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TContext, Config>(binding));
 
   const oldSession = snapshotSession(session);
 
   const resolved = typeof update === "function" ? update(session.data) : update;
   if (resolved) {
-    Object.assign(session.data, sanitizeSessionUpdate(resolved, { prefix: port.prefix }));
+    Object.assign(session.data, sanitizeSessionUpdate(resolved, { prefix: driver.prefix }));
   }
   for (const claim of RESERVED_CLAIMS) delete session.data[claim];
 
@@ -89,14 +85,7 @@ export async function issueSession<
   let issued: SessionState<T, MaxAge> & { id: string; token: string };
   try {
     const token = await encodeSession(binding);
-    if (config.cookie !== false) {
-      port.setCookie(
-        binding.carrier,
-        binding.name,
-        token,
-        sessionCookie(binding, { expiresAt: session.expiresAt }),
-      );
-    }
+    transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
     issued = Object.assign(session, { id, token });
   } catch (error_) {
     Object.assign(session, {
@@ -126,14 +115,14 @@ export async function issueSession<
   return issued;
 }
 
-/** Drop the session cookie and leave an empty session for the rest of the request. */
-export async function dropSession<TCarrier, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TCarrier, Config>,
+/** Drop the session cookie, where the context takes one, and leave an empty session for the rest of the request. */
+export async function dropSession<TContext, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TContext, Config>,
 ): Promise<void> {
-  const { config, port, store, args } = binding;
+  const { config, driver, store, args, transport } = binding;
 
-  assertTokenSource(config, { prefix: port.prefix });
-  assertWritable(binding, "clear");
+  assertTokenSource(transport, { prefix: driver.prefix });
+  assertWritable(transport, { operation: "clear", prefix: driver.prefix });
 
   let session = storedSession(store);
   if (session && session[kSessionPending]) {
@@ -146,9 +135,7 @@ export async function dropSession<TCarrier, Config extends SessionCoreConfig>(
 
   store.set(emptySession(binding));
 
-  if (config.cookie !== false) {
-    port.deleteCookie(binding.carrier, binding.name, sessionCookie(binding));
-  }
+  transport.drop?.(sessionCookie(binding));
 
   await config.hooks?.onClear?.({ oldSession, ...args, config });
 }
@@ -157,9 +144,9 @@ export async function dropSession<TCarrier, Config extends SessionCoreConfig>(
 export function sessionManager<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TCarrier,
+  TContext,
   Config extends SessionCoreConfig,
->(binding: SessionBinding<TCarrier, Config>): SessionManager<T, MaxAge> {
+>(binding: SessionBinding<TContext, Config>): SessionManager<T, MaxAge> {
   const { store } = binding;
   const state = () => storedSession<T, MaxAge>(store);
 
@@ -181,7 +168,7 @@ export function sessionManager<
       return session ? session.token : sessionToken(binding);
     },
     update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
-      await issueSession<T, MaxAge, TCarrier, Config>(binding, update, options);
+      await issueSession<T, MaxAge, TContext, Config>(binding, update, options);
       return manager;
     },
     clear: async () => {
@@ -193,9 +180,9 @@ export function sessionManager<
   return manager;
 }
 
-/** What a binding needs from this module; passed to `bindSession` by every port. */
-export function sessionActions<TCarrier, Config extends SessionCoreConfig>(): SessionActions<
-  TCarrier,
+/** What a binding needs from this module; passed to `bindSession` by every adapter. */
+export function sessionActions<TContext, Config extends SessionCoreConfig>(): SessionActions<
+  TContext,
   Config
 > {
   return {
@@ -204,17 +191,6 @@ export function sessionActions<TCarrier, Config extends SessionCoreConfig>(): Se
       await issueSession(binding, undefined, undefined, "rolling");
     },
   };
-}
-
-/** A session that writes a cookie cannot be updated or cleared once the response takes none. */
-function assertWritable<TCarrier, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TCarrier, Config>,
-  operation: "update" | "clear",
-): void {
-  const { config, port, carrier } = binding;
-  if (config.cookie !== false && !port.writable(carrier)) {
-    throw readOnlyEventError(`${port.prefix} Cannot ${operation} session on read-only event.`);
-  }
 }
 
 /** A session with a deep copy of its data, unaffected by later changes to the live one. */

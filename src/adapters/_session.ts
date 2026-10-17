@@ -20,13 +20,6 @@ export interface SessionIssueOptions {
   maxAge?: ExpiresIn;
 }
 
-export interface SessionTokenSource {
-  /** Request header to read the token from, or `false` for cookies only. */
-  sessionHeader?: false | string;
-  /** Cookie options, or `false` for header only. */
-  cookie?: false | object;
-}
-
 export function invalidKeyError(
   message: string,
   cause?: unknown,
@@ -75,7 +68,7 @@ const TOKEN = /^[!#$%&'*+\-.^_`|~\w]+$/;
 const CHUNK_SUFFIX = /\.\d+$/;
 
 export function assertSessionName(name: string, options: { prefix: string }): void {
-  if (typeof name !== "string" || !TOKEN.test(name)) {
+  if (!isToken(name)) {
     throw invalidConfigError(
       `${options.prefix} Session "name" must be a cookie name (RFC 6265 §4.1.1): letters, digits and !#$%&'*+-.^_\`|~ only. Got ${quoteTokenValue(name)}.`,
     );
@@ -85,6 +78,10 @@ export function assertSessionName(name: string, options: { prefix: string }): vo
       `${options.prefix} Session "name" cannot end in a dot and digits: ${quoteTokenValue(name)} is the cookie holding a chunk of the session named ${quoteTokenValue(name.replace(CHUNK_SUFFIX, ""))}.`,
     );
   }
+}
+
+export function isToken(value: unknown): value is string {
+  return typeof value === "string" && TOKEN.test(value);
 }
 
 /** A `__Host-` cookie must be Secure, carry `Path=/` and no `Domain`; a `__Secure-` cookie must be Secure (RFC 6265bis §4.1.3). */
@@ -109,15 +106,6 @@ export function assertCookiePrefix(
   }
 }
 
-/** Reject a `sessionHeader` that is not a header name (RFC 7230 §3.2). */
-export function assertSessionHeader(header: unknown, options: { prefix: string }): void {
-  if (header === undefined || header === false) return;
-  if (typeof header === "string" && TOKEN.test(header)) return;
-  throw invalidConfigError(
-    `${options.prefix} Session "sessionHeader" must be false or a header name: letters, digits and !#$%&'*+-.^_\`|~ only. Got ${quoteTokenValue(header)}.`,
-  );
-}
-
 /** `rolling` extends a session's `exp` on read, so it needs a `maxAge`, as `true` or as the remaining time that triggers it. */
 export function assertRolling(
   config: { rolling?: unknown; maxAge?: ExpiresIn },
@@ -136,18 +124,6 @@ export function assertRolling(
     );
   }
   computeDurationInSeconds(rolling);
-}
-
-export function hasTokenSource(source: SessionTokenSource): boolean {
-  return source.cookie !== false || source.sessionHeader !== false;
-}
-
-export function assertTokenSource(source: SessionTokenSource, options: { prefix: string }): void {
-  if (!hasTokenSource(source)) {
-    throw invalidConfigError(
-      `${options.prefix} Session has no token source: "cookie" and "sessionHeader" are both disabled.`,
-    );
-  }
 }
 
 export function assertKeyMaterial(key: unknown, options: { prefix: string }): void {
@@ -194,51 +170,6 @@ export async function assertImportableKey(
 /** The configured `typ`, else `"session+jwt"` (RFC 8725 §3.11 explicit typing). */
 export function sessionTyp(configured: unknown): string {
   return typeof configured === "string" && configured ? configured : SESSION_TYP;
-}
-
-/** The configured header, else `x-<name>-session` without a `__Host-`/`__Secure-` prefix. */
-export function sessionHeaderName(
-  sessionName: string,
-  configured: false | string | undefined,
-): string {
-  if (typeof configured === "string") return configured.toLowerCase();
-  // RFC 6265bis §4.1.3 — cookie prefixes are matched case-insensitively.
-  const bare = sessionName.replace(/^__(?:host|secure)-/i, "");
-  return `x-${bare.toLowerCase()}-session`;
-}
-
-/** A bare token or `Bearer <token>` (RFC 7235 §2.1, case-insensitive); anything else is `undefined`. */
-export function headerToken(value: string | null | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const words = value.trim().split(/\s+/);
-  const [first = "", second] = words;
-  if (/^bearer$/i.test(first)) return words.length === 2 ? second : undefined;
-  return words.length === 1 && first ? first : undefined;
-}
-
-/** Cookie first (this response's own write wins; a written deletion means no token), then the header. */
-export function resolveSessionToken(
-  source: SessionTokenSource,
-  sessionName: string,
-  read: {
-    written?: (name: string) => string | undefined;
-    cookie: (name: string) => string | undefined;
-    header: (name: string) => string | null | undefined;
-  },
-): string | undefined {
-  let cookieValue: string | undefined;
-  if (source.cookie !== false) {
-    const written = read.written?.(sessionName);
-    if (written === "") return undefined;
-    cookieValue = written ?? read.cookie(sessionName);
-  }
-
-  const headerValue =
-    source.sessionHeader === false
-      ? undefined
-      : headerToken(read.header(sessionHeaderName(sessionName, source.sessionHeader)));
-
-  return cookieValue || headerValue || undefined;
 }
 
 /** `exp` in ms for a session issued at `createdAt`, or `undefined` for no expiry. */

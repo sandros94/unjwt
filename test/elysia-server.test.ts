@@ -71,7 +71,10 @@ describe("elysia session — running server via app.handle", () => {
   it("JWS: reads the session from the x-<name>-session header", async () => {
     const app = new Elysia()
       .resolve(async ({ cookie, request }) => ({
-        session: await createJWSSession({ cookie, request }, { key: jwsKey, maxAge: "1h" }),
+        session: await createJWSSession(
+          { cookie, request },
+          { key: jwsKey, maxAge: "1h", sessionHeader: true },
+        ),
       }))
       .post(
         "/login",

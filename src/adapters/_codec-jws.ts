@@ -72,12 +72,12 @@ export interface JWSSessionConfig<
 export interface JWSSessionHooks<
   TSession,
   TManager,
-  TCarrier extends Record<string, unknown>,
+  TArgs extends Record<string, unknown>,
   TConfig,
-> extends SessionHooks<TSession, TManager, TCarrier, TConfig> {
+> extends SessionHooks<TSession, TManager, TArgs, TConfig> {
   /** Resolve the verification key(s) for the incoming token from its protected header (e.g. by `kid`). */
   onVerifyKeyLookup?: (
-    args: TCarrier & { header: JWKLookupFunctionHeader; config: TConfig },
+    args: Partial<TArgs> & { header: JWKLookupFunctionHeader; config: TConfig },
   ) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
 }
 
@@ -88,7 +88,7 @@ export interface JWSCodecConfig extends SessionCoreConfig {
     onVerifyKeyLookup?(args: {
       header: JWKLookupFunctionHeader;
       config: unknown;
-      [carrier: string]: unknown;
+      [arg: string]: unknown;
     }): JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
   };
 }
@@ -119,11 +119,11 @@ export function createJWSCodec(options: {
     openOptions: (config) => config.jws?.verifyOptions,
     issueKey: (config) => getSignKey(config, prefix),
     openKey: (config) => getVerifyKey(config, prefix),
-    lookup: (config, carrier) => {
+    lookup: (config, args) => {
       const hooks = config.hooks;
       if (!hooks?.onVerifyKeyLookup) return undefined;
       return (header: JWKLookupFunctionHeader) =>
-        hooks.onVerifyKeyLookup?.({ header, ...carrier, config });
+        hooks.onVerifyKeyLookup?.({ header, ...args, config });
     },
     importable: (key) => (isJWKSet(key) ? key.keys : [key]),
 
