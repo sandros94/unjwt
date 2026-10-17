@@ -79,9 +79,11 @@ export default {
 
 ## Read-only: `{ request }` alone
 
-Reads work. On a cookie session `update()`/`clear()` throw `ERR_SESSION_READONLY_EVENT`; an
-expired token fires `onExpire` without dropping the cookie; `rolling` does not reissue. With
-`cookie: false`, `update()` re-mints onto `session.token`.
+Reads work. On a cookie session `update()` throws `ERR_SESSION_READONLY_EVENT`
+(`Cannot update session on read-only event.`); `clear()` empties the session for the rest of the
+request, fires `onClear` and resolves, writing nothing (an `onRead` revocation clears with no
+gate); an expired token fires `onExpire` without dropping the cookie; `rolling` does not reissue.
+With `cookie: false`, `update()` re-mints onto `session.token`.
 
 ## Token in hand: `{ token }`
 
@@ -119,7 +121,7 @@ interface SessionDriver<TContext> {
   /** A request header by lowercase name. */
   header(context: TContext, name: string): string | null | undefined;
   cookies(context: TContext): CookieJar;
-  /** `false` once the response can no longer take a Set-Cookie; absent = the jar's `write` decides. */
+  /** `false` once the response was sent: `update()`/`clear()` throw; absent = always open. */
   writable?(context: TContext): boolean;
   /** `{ token }` when the context carries the token: no cookie or header is consulted. */
   handed?(context: TContext): { token: string | undefined } | undefined;
@@ -130,7 +132,7 @@ interface CookieJar<A = { expires?: Date; maxAge?: number }> {
   read(name: string): string | undefined;
   /** This response's value for `name` (`""` once deleted); only when `read` does not see writes. */
   written?(name: string): string | undefined;
-  /** Sets a cookie, replacing an earlier write of the same cookie; absent = read-only. */
+  /** Sets a cookie, replacing an earlier write of the same cookie; absent = no cookie: `update()` throws, `clear()` empties state. */
   write?(name: string, value: string, attrs: A): void;
 }
 
@@ -175,7 +177,7 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ERR_SESSION_KEY_INVALID`    | `key` missing, a password string, wrong shape, or not importable.                                                                                                       |
 | `ERR_SESSION_CONFIG_INVALID` | Bad `name`/`sessionHeader`, `__Host-`/`__Secure-` violation, `use({ request })` with no token source, unpinned `CryptoKey`, over 16 chunks, JWS + JWE under one `name`. |
-| `ERR_SESSION_READONLY_EVENT` | `update()`/`clear()` on a cookie session opened without `headers`.                                                                                                      |
+| `ERR_SESSION_READONLY_EVENT` | `update()` on a cookie session opened without `headers`; `update()`/`clear()` once a driver's `writable()` is `false`.                                                  |
 | `ERR_INVALID_OPTION`         | `update()` data not a plain object, or a `__proto__`-like key.                                                                                                          |
 
 An unreadable incoming token goes to `onError` as `ERR_SESSION_TOKEN_INVALID`; an expired one to

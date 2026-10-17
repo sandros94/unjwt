@@ -98,14 +98,14 @@ request expires the chunks it no longer uses.
 
 Every error the adapters throw is a `JWTError`:
 
-| Code                         | Raised when                                                               |
-| ---------------------------- | ------------------------------------------------------------------------- |
-| `ERR_SESSION_TOKEN_INVALID`  | incoming token failed verification/decryption; `cause` is the original    |
-| `ERR_SESSION_READONLY_EVENT` | `update()` / `clear()` on an event with no response, or sent (h3 v1)      |
-| `ERR_SESSION_KEY_INVALID`    | `key` missing, a password string, the wrong shape, or not importable      |
-| `ERR_SESSION_CONFIG_INVALID` | config combination that cannot work (no token source, unpinned CryptoKey) |
-| `ERR_INVALID_OPTION`         | `update()` data not a plain object, or a `__proto__`-like key in it       |
-| `ERR_JWT_EXPIRED`            | the token's `exp` has passed — surfaced through `onExpire`                |
+| Code                         | Raised when                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `ERR_SESSION_TOKEN_INVALID`  | incoming token failed verification/decryption; `cause` is the original                               |
+| `ERR_SESSION_READONLY_EVENT` | `update()` on an event that takes no cookie; `update()`/`clear()` once the response was sent (h3 v1) |
+| `ERR_SESSION_KEY_INVALID`    | `key` missing, a password string, the wrong shape, or not importable                                 |
+| `ERR_SESSION_CONFIG_INVALID` | config combination that cannot work (no token source, unpinned CryptoKey)                            |
+| `ERR_INVALID_OPTION`         | `update()` data not a plain object, or a `__proto__`-like key in it                                  |
+| `ERR_JWT_EXPIRED`            | the token's `exp` has passed — surfaced through `onExpire`                                           |
 
 ## Drift from h3 core sessions
 
@@ -126,11 +126,13 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
   (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless
   an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
-- **Events without a response**: `update()` and `clear()` throw `ERR_SESSION_READONLY_EVENT`
-  and leave the session as it was. The guard is each major's own: h3 v1 `isEvent(event) &&
-  !event.handled`, h3 v2 `event.res`, as upstream `useSession`. Neither adapter probes the
-  runtime, so on h3 v2 a write made after the handler returned is accepted but never sent:
-  write inside the handler, before it returns. A read there only observes: an expired
+- **Events without a response, and after it was sent**: `update()` throws
+  `ERR_SESSION_READONLY_EVENT` on an event that takes no cookie; `clear()` only empties the
+  request's session there. On h3 v1 a handled response (`isEvent(event) && !event.handled`,
+  h3's own getter) refuses both (`Cannot update/clear session: the response was already
+  sent.`) and leaves the session as it was. h3 v2 guards on `event.res` only, as upstream, and
+  never probes the runtime, so a write made after the handler returned is accepted but never
+  sent: write inside the handler, before it returns. A read there only observes: an expired
   token reaches `onExpire` without its cookie being dropped and `rolling` does not reissue;
   the next request, carrying the same token, does both.
 
@@ -147,9 +149,10 @@ uses `use({ headers: peer.request.headers, context: peer.context })`. h3 v2 (cro
 `upgrade(request)` gets the `Request`, passed as `use({ req: request })`; `message(peer)` uses
 `use({ req: peer.request })`.
 
-- The upgrade object is read-only: `update()` / `clear()` throw `ERR_SESSION_READONLY_EVENT`.
-  A hook that writes gates on `isEvent(event)` from `h3` (both majors), e.g. `onRead`
-  revocation: `if (isEvent(event)) await session.clear(); else throw new Error("revoked")`.
+- The upgrade object takes no cookie: `update()` throws `ERR_SESSION_READONLY_EVENT`, while
+  `clear()` empties the session for the rest of the connection and leaves the cookie to the next
+  HTTP request. `onRead` revocation needs no gate: `if (await revoked.has(session.id)) await
+  session.clear();`. A hook that needs `event.node`/`event.res` gates on `isEvent(event)` from `h3`.
 - `upgrade` wraps `use()` in `try/catch` and returns `new Response(…, { status: 401 })` itself
   (also when `!session.id`): crossws rethrows anything that is not a `Response`.
 - `message` is a cache hit on the upgrade's read (`onRead` does not fire again): on v1

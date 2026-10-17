@@ -278,7 +278,8 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
   interchangeable. Cleanup of a previous set is bounded by the same limit.
 - **Errors.** Every adapter error is a `JWTError`: `ERR_SESSION_TOKEN_INVALID` (with the original
   failure as `cause`), `ERR_SESSION_KEY_INVALID`, `ERR_SESSION_CONFIG_INVALID`,
-  `ERR_SESSION_READONLY_EVENT`, `ERR_INVALID_OPTION`.
+  `ERR_INVALID_OPTION`. `ERR_SESSION_READONLY_EVENT` never comes from Elysia: its cookie jar always
+  takes a write and it exposes no response-sent signal.
 
 ## Lifecycle Hooks
 

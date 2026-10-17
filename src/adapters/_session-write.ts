@@ -9,7 +9,6 @@ import type { ExpiresIn } from "../core/types";
 import {
   type SessionIssueOptions,
   RESERVED_CLAIMS,
-  readOnlyEventError,
   resolveExpiresAt,
   sanitizeSessionUpdate,
 } from "./_session";
@@ -33,7 +32,7 @@ import type {
   SessionUpdate,
   SessionUpdateTrigger,
 } from "./_session-types";
-import { assertTokenSource } from "./_transport";
+import { assertTokenSource, assertWritable } from "./_transport";
 
 /** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */
 export async function encodeSession<TContext, Config extends SessionCoreConfig>(
@@ -59,9 +58,9 @@ export async function issueSession<
   options?: SessionIssueOptions,
   trigger: SessionUpdateTrigger = "update",
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
-  const { config, driver, store, args } = binding;
+  const { config, driver, store, args, transport } = binding;
 
-  assertWritable(binding, "update");
+  assertWritable(transport, { operation: "update", prefix: driver.prefix });
 
   const session =
     storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TContext, Config>(binding));
@@ -86,7 +85,7 @@ export async function issueSession<
   let issued: SessionState<T, MaxAge> & { id: string; token: string };
   try {
     const token = await encodeSession(binding);
-    binding.transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
+    transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
     issued = Object.assign(session, { id, token });
   } catch (error_) {
     Object.assign(session, {
@@ -116,14 +115,14 @@ export async function issueSession<
   return issued;
 }
 
-/** Drop the session cookie and leave an empty session for the rest of the request. */
+/** Drop the session cookie, where the context takes one, and leave an empty session for the rest of the request. */
 export async function dropSession<TContext, Config extends SessionCoreConfig>(
   binding: SessionBinding<TContext, Config>,
 ): Promise<void> {
   const { config, driver, store, args, transport } = binding;
 
   assertTokenSource(transport, { prefix: driver.prefix });
-  assertWritable(binding, "clear");
+  assertWritable(transport, { operation: "clear", prefix: driver.prefix });
 
   let session = storedSession(store);
   if (session && session[kSessionPending]) {
@@ -192,18 +191,6 @@ export function sessionActions<TContext, Config extends SessionCoreConfig>(): Se
       await issueSession(binding, undefined, undefined, "rolling");
     },
   };
-}
-
-/** A session that writes a cookie cannot be updated or cleared once the response takes none. */
-function assertWritable<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
-  operation: "update" | "clear",
-): void {
-  if (!binding.transport.writable()) {
-    throw readOnlyEventError(
-      `${binding.driver.prefix} Cannot ${operation} session on read-only event.`,
-    );
-  }
 }
 
 /** A session with a deep copy of its data, unaffected by later changes to the live one. */
