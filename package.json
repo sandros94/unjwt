@@ -68,7 +68,7 @@
   },
   "scripts": {
     "build": "obuild",
-    "dev": "bun --watch ./playground/main.ts",
+    "dev": "pnpm --dir playgrounds/h3 dev",
     "dev:prepare": "obuild --stub && pnpm simple-git-hooks",
     "lint": "oxlint --deny-warnings . && oxfmt --check .",
     "fmt": "automd && oxlint --fix . && oxfmt .",
@@ -110,9 +110,6 @@
     "h3": {
       "optional": true
     }
-  },
-  "resolutions": {
-    "unjwt": "link:."
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm build --stub && pnpm lint && pnpm typecheck"

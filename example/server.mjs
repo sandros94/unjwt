@@ -5,14 +5,16 @@ import {
   defineJWSSession,
   generateJWK,
   deriveJWKFromPassword,
-} from "unjwt/adapters/h3v2";
+} from "unjwt/adapters/h3";
 
-const atJwk = await generateJWK("RS256");
-const rtJwk = await deriveJWKFromPassword("refresh_token_secret", {
-  alg: "PBES2-HS256+A128KW",
-  salt: "playground-salt",
-  iterations: 600_000,
-});
+const [atJwk, rtJwk] = await Promise.all([
+  generateJWK("RS256"),
+  deriveJWKFromPassword("refresh_token_secret", {
+    alg: "PBES2-HS256+A128KW",
+    salt: "playground-salt",
+    iterations: 600_000,
+  }),
+]);
 
 const refreshToken = defineJWESession({
   key: rtJwk,

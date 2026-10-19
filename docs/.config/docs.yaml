@@ -41,7 +41,7 @@ landing:
     playOnline:
       label: "Try Online"
       icon: "i-simple-icons-stackblitz"
-      to: "https://stackblitz.com/github/sandros94/unjwt/tree/main/playground?file=server.mjs"
+      to: "https://stackblitz.com/github/sandros94/unjwt/tree/main/example?file=server.mjs"
   heroCode:
     lang: "ts"
     title: "app.ts"
