@@ -9,16 +9,25 @@ import {
   decodeSegment,
   resolvePasswordKey,
   stringKeyError,
+  assertJWEEncSupported,
 } from "./_internal";
 
 import type {
   JWK,
   JWKSet,
   JWK_oct,
+  JWK_Public,
+  JWK_Private,
   JWK_EC_Public,
   JWK_EC_Private,
   JWK_ECDH_ES,
+  JWK_Asymmetric_Algorithm,
+  JWK_RSA_ENC,
+  JWK_AES_GCM_KW,
   JWKPEMAlgorithm,
+  JWKAlgorithm,
+  ImportedPEMJWK,
+  PEMType,
   JWKMetadata,
   JWKCacheAdapter,
   GenerateKeyAlgorithm,
@@ -29,9 +38,9 @@ import type {
   ImportedKey,
   DeriveKeyOptions,
   DeriveKeyReturn,
+  JWK_PBES2,
   DeriveJWKOptions,
   DeriveJWKReturn,
-  JWK_PBES2,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
   WrapKeyOptions,
@@ -41,11 +50,12 @@ import type {
   UnwrapKeyResult,
   UnwrappingKeyFor,
 } from "./types";
-import { assertPlainObject, isCryptoKey, isJWK, isJWKSet } from "./utils/guards";
+import { assertPlainObject, isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./utils/guards";
 import {
   PBES2_ALGORITHMS,
   isContentEncryptionAlgorithm,
   isEd25519Signature,
+  isECDHESAlgorithm,
 } from "./utils/algorithms";
 import { JWTError } from "./error";
 import {
@@ -123,7 +133,7 @@ export async function generateKey<
   options?: GenerateKeyOptions<ToJWK, Kid>,
 ): Promise<GenerateKeyReturn<TAlg, GenerateKeyOptions<ToJWK, Kid>>>;
 export async function generateKey(
-  alg: string,
+  alg: GenerateKeyAlgorithm,
   options: GenerateKeyOptions = {},
 ): Promise<
   CryptoKey | CryptoKeyPair | Uint8Array<ArrayBuffer> | JWK | { privateKey: JWK; publicKey: JWK }
@@ -159,15 +169,21 @@ export async function generateKey(
   const key = await crypto.subtle.generateKey(algorithm, defaultExtractable, keyUsages);
 
   if (exportToJWK) {
-    if (key instanceof CryptoKey) {
-      // Force `alg`: Web Crypto's JWK export drops the `KW` suffix on AES-GCM key wrap algs.
-      return withGeneratedKid(kid, { ...(await exportKey(key)), alg });
-    } else {
-      const [pub, priv] = await Promise.all([exportKey(key.publicKey), exportKey(key.privateKey)]);
-      const publicKey = await withGeneratedKid(kid, { ...pub, alg });
+    // Force `alg`: Web Crypto's JWK export drops the `KW` suffix on AES-GCM key wrap algs.
+    if (isCryptoKeyPair(key)) {
+      const pairAlg = generatedPairAlgorithm(alg);
+      const [pub, priv] = await Promise.all([
+        exportKey<JWK_Public>(key.publicKey),
+        exportKey<JWK_Private>(key.privateKey),
+      ]);
+      const publicKey = await withGeneratedKid(kid, withAlg(pub, pairAlg));
       const named = publicKey.kid === undefined ? undefined : { kid: publicKey.kid };
-      return { privateKey: { ...priv, alg, ...named }, publicKey };
+      return { privateKey: { ...withAlg(priv, pairAlg), ...named }, publicKey };
     }
+    return withGeneratedKid(
+      kid,
+      withAlg(await exportKey<JWK_oct>(key), generatedSecretAlgorithm(alg)),
+    );
   }
 
   return key;
@@ -342,11 +358,11 @@ export async function deriveJWKFromPassword(
 export class WeakMapJWKCache implements JWKCacheAdapter {
   private readonly _map = new WeakMap<object, Record<string, CryptoKey>>();
 
-  get(jwk: JWK, alg: string): CryptoKey | undefined {
+  get(jwk: JWK, alg: JWKAlgorithm): CryptoKey | undefined {
     return this._map.get(jwk)?.[alg];
   }
 
-  set(jwk: JWK, alg: string, key: CryptoKey): void {
+  set(jwk: JWK, alg: JWKAlgorithm, key: CryptoKey): void {
     let entry = this._map.get(jwk);
     if (!entry) {
       this._map.set(jwk, { [alg]: key });
@@ -367,7 +383,7 @@ let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
  *
  * @example
  * ```ts
- * const cacheKey = async (jwk: JWK, alg: string) =>
+ * const cacheKey = async (jwk: JWK, alg: JWKAlgorithm) =>
  *   `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
  * const map = new Map<string, CryptoKey>();
  * configureJWKCache({
@@ -412,10 +428,10 @@ export async function importKey(
 export async function importKey<K extends CryptoKey | JWK | Uint8Array<ArrayBuffer>>(
   key: K,
   options?:
-    | string
+    | JWKAlgorithm
     | {
         /** Algorithm hint. Required when `key.alg` is absent on an asymmetric JWK. */
-        alg?: string;
+        alg?: JWKAlgorithm;
         /** Reject on shape mismatch instead of silently importing. */
         expect?: "public" | "private";
         /** Defaults to `false` for private, `true` for public material; JWK `ext: false` wins. */
@@ -425,13 +441,13 @@ export async function importKey<K extends CryptoKey | JWK | Uint8Array<ArrayBuff
 export async function importKey(
   key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
   algOrOptions?:
-    | string
+    | JWKAlgorithm
     | {
         asCryptoKey?: true;
         algorithm?: Parameters<typeof crypto.subtle.importKey>[2];
         usage?: KeyUsage[];
         extractable?: boolean;
-        alg?: string;
+        alg?: JWKAlgorithm;
         expect?: "public" | "private";
       },
 ): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
@@ -504,7 +520,7 @@ export async function importKey(
         const cached = await cache.get(key, effectiveAlg);
         if (cached) return cached;
       }
-      const cryptoKey = await jwkTokey(key.alg ? key : { ...key, alg }, { extractable });
+      const cryptoKey = await jwkTokey(key, { extractable, alg });
       if (cache) await cache.set(key, effectiveAlg, cryptoKey);
       return cryptoKey;
     }
@@ -514,7 +530,7 @@ export async function importKey(
 }
 
 /** RFC 7517 §4.4: a JWK's `alg` is authoritative, except an `oct` CEK consumed by `dir`. */
-function assertJWKAlgAuthority(jwk: JWK, alg: string | undefined): void {
+function assertJWKAlgAuthority(jwk: JWK, alg: JWKAlgorithm | undefined): void {
   if (!alg || !jwk.alg || jwk.alg === alg) return;
   if (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg)) return;
   if (isEd25519Signature(jwk.alg) && isEd25519Signature(alg)) return;
@@ -673,6 +689,7 @@ export async function wrapKey(
     case "ECDH-ES+A256KW": {
       assertCryptoKeyFor(alg, importedWrappingKey, "wrapping");
       const enc = options.ecdh?.enc;
+      if (enc !== undefined) assertJWEEncSupported(enc);
       if (alg === "ECDH-ES" && !enc) {
         throw new JWTError(
           "ECDH-ES direct key agreement requires options.ecdh.enc (the target content encryption algorithm)",
@@ -860,6 +877,7 @@ export async function unwrapKey(
       assertPartyInfoLength("apu", apuBytes);
       assertPartyInfoLength("apv", apvBytes);
 
+      if (options.enc !== undefined) assertJWEEncSupported(options.enc);
       const infoAlg = alg === "ECDH-ES" ? options.enc : alg;
 
       if (!infoAlg) {
@@ -869,7 +887,7 @@ export async function unwrapKey(
         );
       }
 
-      const keyLength = ecdhDerivedBits(alg, infoAlg);
+      const keyLength = ecdhDerivedBits(alg, options.enc);
 
       const sharedSecret = await unwrapping(
         deriveECDHESKey(
@@ -927,24 +945,19 @@ export async function unwrapKey(
  *   `ERR_JWK_UNSUPPORTED` for an unknown `pemType`; `ERR_INVALID_OPTION` if `jwkParams` sets
  *   `alg`, `kty`, `key_ops`, `ext` or a key-material member.
  */
-export async function importPEM<T extends JWK>(
+export async function importPEM<
+  A extends JWKPEMAlgorithm,
+  Type extends PEMType | undefined = undefined,
+>(
   pem: string,
-  alg: JWKPEMAlgorithm,
+  alg: A,
   options?: {
-    /** PEM type. Inferred from the PEM label when omitted. */
-    pemType?: "pkcs8" | "spki" | "x509";
+    /** PEM type. Inferred from the PEM label when omitted, which leaves the result public or private. */
+    pemType?: Type;
     /** Additional JWK properties merged into the exported key (e.g. `kid`). */
     jwkParams?: JWKMetadata;
   },
-): Promise<T>;
-export async function importPEM(
-  pem: string,
-  alg: JWKPEMAlgorithm,
-  options?: {
-    pemType?: "pkcs8" | "spki" | "x509";
-    jwkParams?: JWKMetadata;
-  },
-): Promise<JWK> {
+): Promise<ImportedPEMJWK<A, Type>> {
   if (typeof pem !== "string") {
     throw new JWTError(
       `"pem" must be a PEM-encoded string, got ${pem === null ? "null" : typeof pem}.`,
@@ -981,7 +994,7 @@ export async function importPEM(
     }
   }
 
-  const jwk = await exportKey(cryptoKey, options?.jwkParams);
+  const jwk = await exportKey<ImportedPEMJWK<A, Type>>(cryptoKey, options?.jwkParams);
   return { ...jwk, alg };
 }
 
@@ -1093,12 +1106,13 @@ export async function deriveSharedSecret(
 ): Promise<Uint8Array<ArrayBuffer>> {
   assertPlainObject(options, "options");
   const { enc: alg, keyLength: requestedKeyLength, partyUInfo, partyVInfo } = options;
+  if (!isECDHESAlgorithm(alg)) assertJWEEncSupported(alg);
   if (requestedKeyLength !== undefined) {
     assertDerivedKeyLength(requestedKeyLength);
   }
 
   // RFC 7517 §4.4: import under the `ECDH-ES*` alg a JWK may declare.
-  const importAlg = (alg as string).startsWith("ECDH-ES") ? (alg as string) : "ECDH-ES";
+  const importAlg: JWK_ECDH_ES = isECDHESAlgorithm(alg) ? alg : "ECDH-ES";
   const pubCryptoKey = isCryptoKey(publicKey)
     ? publicKey
     : await importKey(publicKey, { alg: importAlg, expect: "public" });
@@ -1114,8 +1128,8 @@ export async function deriveSharedSecret(
       'deriveSharedSecret with enc "ECDH-ES" requires an explicit keyLength in options',
       "ERR_JWK_INVALID",
     );
-  } else if ((alg as string).startsWith("ECDH-ES+")) {
-    keyLength = Number.parseInt((alg as string).slice(-5, -2), 10);
+  } else if (isECDHESAlgorithm(alg)) {
+    keyLength = aesBitsOf(innerKeyWrapAlg(alg));
   } else {
     keyLength = bitLengthCEK(alg);
   }
@@ -1145,7 +1159,7 @@ export function getJWKsFromSet(jwkSet: JWKSet, filter?: (jwk: JWK) => boolean): 
 }
 
 function getGenerateKeyParams(
-  alg: string,
+  alg: GenerateKeyAlgorithm,
   options?: Omit<GenerateKeyOptions, "toJWK">,
 ): {
   algorithm: AlgorithmIdentifier | RsaHashedKeyGenParams | EcKeyGenParams;
@@ -1356,7 +1370,11 @@ function assertNoReservedJWKParams(jwkParams: object): void {
 }
 
 /** A `namedCurve` contradicting the curve `alg` fixes is refused, not ignored. */
-function assertNamedCurve(requested: string | undefined, expected: string, alg: string): void {
+function assertNamedCurve(
+  requested: string | undefined,
+  expected: string,
+  alg: GenerateKeyAlgorithm,
+): void {
   if (requested === undefined || requested === expected) return;
   throw new JWTError(
     `"namedCurve" ${requested} contradicts ${alg}, which is defined over ${expected}.`,
@@ -1388,7 +1406,7 @@ const CONTENT_ENCRYPTION_USAGES: readonly KeyUsage[] = ["encrypt", "decrypt"];
 /** The caller's `keyUsage` when given (each entry one `alg` admits), else the default. */
 function resolveKeyUsage(
   requested: KeyUsage[] | undefined,
-  options: { allowed: readonly KeyUsage[]; fallback: KeyUsage[]; alg: string },
+  options: { allowed: readonly KeyUsage[]; fallback: KeyUsage[]; alg: JWKAlgorithm },
 ): KeyUsage[] {
   const { allowed, fallback, alg } = options;
   if (requested === undefined) return fallback;
@@ -1418,7 +1436,7 @@ const PUBLIC_KEY_USAGES: readonly KeyUsage[] = ["verify", "encrypt", "wrapKey"];
 /** Each pair half the default populates must keep a usage; ECDH public keys carry none. */
 function assertPairUsages(
   usages: KeyUsage[],
-  options: { fallback: KeyUsage[]; alg: string },
+  options: { fallback: KeyUsage[]; alg: JWKAlgorithm },
 ): KeyUsage[] {
   const { fallback, alg } = options;
   for (const [half, side] of [
@@ -1476,7 +1494,7 @@ const PEM_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set(
 );
 
 /** RFC 3394 §2: AES Key Wrap needs a CEK of two or more whole 64-bit blocks. */
-function assertWrappableCEK(cek: Uint8Array<ArrayBuffer>, alg: string): void {
+function assertWrappableCEK(cek: Uint8Array<ArrayBuffer>, alg: KeyManagementAlgorithm): void {
   if (cek.length >= 16 && cek.length % 8 === 0) return;
   throw new JWTError(
     `${alg} wraps a key of 16 or more bytes in whole 8-byte blocks (got ${cek.length}).`,
@@ -1535,7 +1553,7 @@ function assertKeyWrapSegmentLength(
   name: "iv" | "tag",
   bytes: Uint8Array<ArrayBuffer>,
   expected: number,
-  alg: string,
+  alg: JWK_AES_GCM_KW,
 ): void {
   if (bytes.length !== expected) {
     throw new JWTError(
@@ -1556,7 +1574,7 @@ function assertDerivedKeyLength(keyLength: number): void {
 
 /** RSA-OAEP and ECDH-ES run on an asymmetric `CryptoKey`; raw bytes name no key pair. */
 function assertCryptoKeyFor(
-  alg: string,
+  alg: JWK_RSA_ENC | JWK_ECDH_ES,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   role: "wrapping" | "unwrapping",
 ): asserts key is CryptoKey {
@@ -1575,4 +1593,25 @@ function segmentBytes(
   return typeof value === "string"
     ? decodeSegment(value, { family: "JWE", what: `"${name}"` })
     : value;
+}
+
+/** The JWK with `alg` set to the algorithm it was produced for; `A` must be one its family serves. */
+function withAlg<J extends JWK, A extends NonNullable<J["alg"]>>(jwk: J, alg: A): J & { alg: A } {
+  return { ...jwk, alg };
+}
+
+/** Web Crypto returned a key pair, so `alg` is one of the asymmetric algorithms `generateKey` admits. */
+function generatedPairAlgorithm(
+  alg: GenerateKeyAlgorithm,
+): Extract<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the pair shape fixes the family; `getGenerateKeyParams` maps each `alg` to one
+  return alg as Extract<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm>;
+}
+
+/** Web Crypto returned a single key, so `alg` is one of the symmetric algorithms `generateKey` admits. */
+function generatedSecretAlgorithm(
+  alg: GenerateKeyAlgorithm,
+): Exclude<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the secret-key shape fixes the family; `getGenerateKeyParams` maps each `alg` to one
+  return alg as Exclude<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm>;
 }

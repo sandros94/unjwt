@@ -10,7 +10,7 @@ import type {
   JWEAsymmetricPrivateJWK,
   JWEEncryptOptions,
   JWEHeaderParameters,
-  JWKLookupFunction,
+  JWEKeyLookup,
 } from "../core/types";
 import type { StrictOmit } from "../core/utils/types";
 import { assertKeyMaterial, invalidKeyError } from "./_session";
@@ -97,7 +97,7 @@ export interface JWECodecConfig extends SessionCoreConfig {
   };
 }
 
-type JWEOpenKey = JWEDecryptJWK | CryptoKey | JWKLookupFunction<JWEDecryptJWK>;
+type JWEOpenKey = JWEDecryptJWK | CryptoKey | JWEKeyLookup<JWEDecryptJWK>;
 
 export const JWE_DEFAULT_COOKIE = {
   path: "/",

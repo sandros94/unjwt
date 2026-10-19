@@ -4,6 +4,9 @@ import { quoteTokenValue } from "../utils/_text";
 import { cryptoKeyCurve, innerKeyWrapAlg } from "./_key-algorithm";
 
 import type {
+  ContentEncryptionAlgorithm,
+  KeyManagementAlgorithm,
+  JWK_ECDH_ES,
   JWEKeyManagementHeaderParameters,
   JWEHeaderParameters,
   JWK,
@@ -25,8 +28,8 @@ import {
 import { pbes2Wrap } from "./_pbes2";
 
 export async function encryptKey(
-  alg: string,
-  enc: string,
+  alg: KeyManagementAlgorithm,
+  enc: ContentEncryptionAlgorithm,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   providedCek?: Uint8Array<ArrayBuffer>,
   providedParameters: JWEKeyManagementHeaderParameters = {},
@@ -105,9 +108,9 @@ export async function encryptKey(
 
 /** RFC 7518 §4.6 — ECDH-ES: the derived key is the CEK (direct) or wraps it (`+A*KW`). */
 export async function ecdhesWrap(
-  alg: string,
+  alg: JWK_ECDH_ES,
   options: {
-    enc: string | undefined;
+    enc: ContentEncryptionAlgorithm | undefined;
     recipientKey: CryptoKey;
     cek: Uint8Array<ArrayBuffer> | undefined;
     parameters: Pick<JWEKeyManagementHeaderParameters, "apu" | "apv" | "epk" | "epkPrivateKey">;
@@ -145,7 +148,7 @@ export async function ecdhesWrap(
     recipientKey,
     ephemeralPrivateKey,
     kdfAlg,
-    ecdhDerivedBits(alg, kdfAlg),
+    ecdhDerivedBits(alg, enc),
     apu,
     apv,
   );
@@ -163,8 +166,9 @@ export async function ecdhesWrap(
 /** Import a wire-supplied `epk` (RFC 7518 §4.6.1.1) from its public members, on the recipient's curve. */
 export async function normalizeEpk(
   epk: JWK_EC_Public | JWK_OKP_Public | CryptoKey,
-  options: { alg: string; recipientKey: CryptoKey },
+  options: { alg: JWK_ECDH_ES; recipientKey: CryptoKey },
 ): Promise<CryptoKey> {
+  const { alg } = options;
   const recipientCurve = cryptoKeyCurve(options.recipientKey);
 
   if (isCryptoKey(epk)) {
@@ -195,8 +199,8 @@ export async function normalizeEpk(
 
   const publicJwk =
     epk.kty === "EC" && typeof y === "string"
-      ? { kty: "EC" as const, crv, x, y, alg: options.alg }
-      : { kty: "OKP" as const, crv, x, alg: options.alg };
+      ? { kty: "EC" as const, crv, x, y, alg }
+      : { kty: "OKP" as const, crv, x, alg };
 
   return jwkTokey(publicJwk);
 }
@@ -205,7 +209,7 @@ const EC_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["P-256", "P
 const OKP_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["X25519"]);
 
 /** RFC 7518 §4.6.2 — direct ECDH-ES agrees on a key for one content encryption algorithm. */
-function contentAlgorithm(enc: string | undefined): string {
+function contentAlgorithm(enc: ContentEncryptionAlgorithm | undefined): ContentEncryptionAlgorithm {
   if (enc) return enc;
   throw new JWTError(
     'ECDH-ES requires "enc", the content encryption algorithm the key is agreed for.',
@@ -269,12 +273,10 @@ function toPublicEpkJwk(jwk: JWK): JWK_EC_Public | JWK_OKP_Public {
 }
 
 async function ensurePrivateKey(
-  alg: string,
+  alg: JWK_ECDH_ES,
   value: CryptoKey | JWK_EC | JWK_OKP,
 ): Promise<CryptoKey> {
-  const normalized = isCryptoKey(value)
-    ? value
-    : await jwkTokey(value.alg ? value : { ...value, alg });
+  const normalized = isCryptoKey(value) ? value : await jwkTokey(value, { alg });
   if (normalized.type !== "private") {
     throw new JWTError(
       'ECDH-ES ephemeral private key must have type "private".',

@@ -78,10 +78,10 @@ Verifies a JWS token and returns its payload.
 **Parameters:**
 
 - `jws` — `string` — the JWS compact token
-- `key` — `CryptoKey | JWSVerifyJWK | JWKSet | Uint8Array | JWKLookupFunction`
+- `key` — `CryptoKey | JWSVerifyJWK | JWKSet | Uint8Array | JWSKeyLookup`
   - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`. The key is imported with `expect: "public"`, so an asymmetric JWK still carrying `d` throws `ERR_JWK_INVALID` instead of being imported; `sign` mirrors this with `expect: "private"`.
   - `JWKSet` stays fully permissive (`JWK[]`) because JWKS from the wire are heterogeneous; runtime filters candidates per header.
-  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
+  - `JWSKeyLookup`: `(header: JWSHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg` is already validated
   - `JWKSet`: multi-key selection with automatic retry. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
     - Token has no `kid` — every candidate is tried in order; the first to verify successfully wins
@@ -520,17 +520,10 @@ type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
       signerHeader?: JWSHeaderParameters;
     };
 
-// JWKLookupFunction is shared with JWE decrypt — imported from unjwt/jwk or unjwt
-// Optional `TReturn` generic narrows the return type; defaults fully permissive.
-type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
-  header: {
-    kid?: string;
-    alg?: string;
-    enc?: string;
-    typ?: string;
-    crit?: string[];
-    [key: string]: unknown;
-  },
+// JWSKeyLookup = JWKLookupFunction<TReturn, JWSHeaderParameters> — from unjwt/jws or unjwt.
+// The header is the decoded protected header after the alg check, so `alg` is a `JWSAlgorithm`.
+type JWSKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
+  header: JWSHeaderParameters,
   token: string,
-) => TReturn | Promise<TReturn>;
+) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
 ```

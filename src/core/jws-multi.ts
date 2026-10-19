@@ -5,7 +5,7 @@ import { base64UrlStringify } from "./utils/base64";
 import type {
   JWKSet,
   JWSVerifyJWK,
-  JWKLookupFunction,
+  JWSKeyLookup,
   JWSAlgorithm,
   JWSHeaderParameters,
   JOSEPayload,
@@ -151,23 +151,23 @@ export async function signMulti(
  */
 export async function verifyMulti<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSMultiVerifyOptions<"json"> & { forceUint8Array?: false },
 ): Promise<JWSMultiVerifyResult<T>>;
 /** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function verifyMulti(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSMultiVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSMultiVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verifyMulti<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSMultiVerifyOptions<Mode>,
 ): Promise<JWSMultiVerifyResult<PayloadOf<Mode>>>;
 export async function verifyMulti(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSMultiVerifyOptions = {},
 ): Promise<JWSMultiVerifyResult> {
   assertConsumerOptions(options);
@@ -298,23 +298,23 @@ export async function verifyMulti(
  */
 export async function verifyMultiAll<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options?: JWSMultiVerifyAllOptions<"json"> & { forceUint8Array?: false },
 ): Promise<JWSMultiVerifyOutcome<T>[]>;
 /** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function verifyMultiAll(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options: JWSMultiVerifyAllOptions & { forceUint8Array: true },
 ): Promise<JWSMultiVerifyOutcome<Uint8Array<ArrayBuffer>>[]>;
 export async function verifyMultiAll<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options?: JWSMultiVerifyAllOptions<Mode>,
 ): Promise<JWSMultiVerifyOutcome<PayloadOf<Mode>>[]>;
 export async function verifyMultiAll(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options: JWSMultiVerifyAllOptions = {},
 ): Promise<JWSMultiVerifyOutcome[]> {
   assertConsumerOptions(options);
@@ -601,7 +601,7 @@ async function _verifyOneSignature(
   payload: string,
   entry: JWSGeneralSignature,
   index: number,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   context: {
     options: JWSMultiVerifyAllOptions;
     payloadMode: JOSEPayloadMode;
@@ -638,7 +638,7 @@ async function _verifyOneSignature(
   });
   if (typError) return fail(typError, protectedHeader, unprotectedHeader);
 
-  let rawKeyMaterial: ResolvedKeyInput<JWKLookupFunction>;
+  let rawKeyMaterial: ResolvedKeyInput<JWSKeyLookup>;
   try {
     rawKeyMaterial = await resolveKeyInput(keyResolver, {
       header: effective,

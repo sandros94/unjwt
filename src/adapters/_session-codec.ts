@@ -1,4 +1,4 @@
-import type { ExpiresIn, JWTClaims, Duration } from "../core/types";
+import type { ExpiresIn, JWTClaims, Duration, JWKAlgorithm } from "../core/types";
 import { computeDurationInSeconds } from "../core/utils/jwt";
 import { isCryptoKey, isPrivateJWK, isSymmetricJWK } from "../core/utils/guards";
 import {
@@ -27,7 +27,7 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   defaultName: string;
   defaultCookie: Record<string, unknown>;
   /** Supplies the pinned `alg` and the `currentDate` the session runs on. */
-  issueOptions: (config: Config) => { alg?: string; currentDate?: Date } | undefined;
+  issueOptions: (config: Config) => { alg?: JWKAlgorithm; currentDate?: Date } | undefined;
   /** Supplies the `clockTolerance` an incoming token is read with. */
   openOptions: (config: Config) => { clockTolerance?: number | Duration } | undefined;
   issueKey: (config: Config) => IssueKey;

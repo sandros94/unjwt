@@ -201,6 +201,7 @@ describe("encrypt key inference", () => {
 
 describe("key management errors", () => {
   it("importKey rejects a JWK whose alg the library does not implement", async () => {
+    // @ts-expect-error an alg outside the union, as wire data could carry
     await expectCode(() => importKey({ ...rsa.jwk.public, alg: "RS257" }), "ERR_JWK_INVALID");
   });
 

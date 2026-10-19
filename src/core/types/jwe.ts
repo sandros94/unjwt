@@ -7,6 +7,7 @@ import type {
   JWTTimeClaimOptions,
 } from "./jwt";
 import type {
+  JWK,
   JWK_oct,
   JWK_EC_Public,
   JWK_EC_Private,
@@ -53,9 +54,9 @@ export type JWEDecryptJWK = JWK_oct<_JWEOctAlg> | JWEAsymmetricPrivateJWK;
 /** Recognized JWE Header Parameters; other members may also be present. */
 export interface JWEHeaderParameters extends JoseHeaderParameters {
   /** Key Management Algorithm. */
-  alg?: KeyManagementAlgorithm | (string & {});
+  alg?: KeyManagementAlgorithm;
   /** Content Encryption Algorithm. */
-  enc?: ContentEncryptionAlgorithm | (string & {});
+  enc?: ContentEncryptionAlgorithm;
   /** PBES2 Count. */
   p2c?: number;
   /** PBES2 Salt, base64url. */
@@ -220,6 +221,10 @@ export interface JWEMultiEncryptOptions extends StrictOmit<
   aad?: Uint8Array<ArrayBuffer> | string;
 }
 
+/** A key lookup for `decrypt`: it receives the validated JWE header. */
+export type JWEKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> =
+  JWKLookupFunction<TReturn, JWEHeaderParameters>;
+
 /** Key material `decryptMulti` accepts, or a function resolving it from the recipient's header. */
 export type JWEMultiDecryptKey =
   | CryptoKey
@@ -227,7 +232,7 @@ export type JWEMultiDecryptKey =
   | JWEDecryptJWK
   | string
   | Uint8Array<ArrayBuffer>
-  | JWKLookupFunction;
+  | JWEKeyLookup;
 
 /** Options for `decryptMulti`. */
 export interface JWEMultiDecryptOptions<

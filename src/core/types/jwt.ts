@@ -1,3 +1,6 @@
+import type { JWSAlgorithm } from "./jws";
+import type { KeyManagementAlgorithm } from "./jwk";
+
 import type { JWK_Public } from "./jwk";
 import type { Duration, ExpiresIn, MaxTokenAge } from ".";
 
@@ -71,7 +74,7 @@ export interface JWTClaims {
 export interface JWT<T = JWTClaims> {
   header: JoseHeaderParameters & {
     /** "alg" (Algorithm) Header Parameter */
-    alg: string;
+    alg: JWSAlgorithm | KeyManagementAlgorithm;
   };
   claims: T;
 }

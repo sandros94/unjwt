@@ -45,6 +45,8 @@ import type {
   JWK_OKP_Private,
   JWK_OKP_Public,
   JWKPEMAlgorithm,
+  JWK_OKP_SIGN,
+  JWK_ECDH_ES,
   GenerateKeyAlgorithm,
   GenerateKeyOptions,
   GenerateKeyReturn,
@@ -1457,14 +1459,14 @@ describe.concurrent("JWK Utilities", () => {
   describe("PEM <-> JWK Conversion", () => {
     describe("importPEM", () => {
       it("should import PKCS#8 PEM to JWK (RSA)", async () => {
-        const jwk = await importPEM<JWK_RSA_Private>(rsa.pem.pkcs8, "RS256");
+        const jwk = await importPEM(rsa.pem.pkcs8, "RS256", { pemType: "pkcs8" });
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         expect(jwk.d).toBeDefined();
       });
 
       it("should import SPKI PEM to JWK (RSA)", async () => {
-        const jwk = await importPEM<JWK_RSA_Public>(rsa.pem.spki, "RS256");
+        const jwk = await importPEM(rsa.pem.spki, "RS256", { pemType: "spki" });
         expect(jwk.kty).toBe("RSA");
         expect(jwk.alg).toBe("RS256");
         // @ts-expect-error d should not be on public key
@@ -1488,7 +1490,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import PKCS#8 PEM to JWK (EC)", async () => {
-        const jwk = await importPEM<JWK_EC_Private>(ec.pem.pkcs8, "ES256");
+        const jwk = await importPEM(ec.pem.pkcs8, "ES256", { pemType: "pkcs8" });
         expect(jwk.kty).toBe("EC");
         expect(jwk.alg).toBe("ES256");
         expect(jwk.crv).toBe("P-256");
@@ -1496,7 +1498,7 @@ describe.concurrent("JWK Utilities", () => {
       });
 
       it("should import SPKI PEM to JWK (EC)", async () => {
-        const jwk = await importPEM<JWK_EC_Public>(ec.pem.spki, "ES256");
+        const jwk = await importPEM(ec.pem.spki, "ES256", { pemType: "spki" });
         expect(jwk.kty).toBe("EC");
         expect(jwk.alg).toBe("ES256");
 
@@ -1910,7 +1912,7 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("accepts text before the block (RFC 7468 §2, e.g. openssl attribute dumps)", async () => {
-      const jwk = await importPEM<JWK_RSA_Public>(
+      const jwk = await importPEM(
         `Bag Attributes\n    friendlyName: test\nsubject=CN=test\n${rsa.pem.spki}`,
         "RS256",
       );
@@ -1918,7 +1920,7 @@ describe.concurrent("JWK Utilities", () => {
     });
 
     it("still accepts surrounding whitespace", async () => {
-      const jwk = await importPEM<JWK_RSA_Public>(`\n\n  ${rsa.pem.spki}  \n`, "RS256");
+      const jwk = await importPEM(`\n\n  ${rsa.pem.spki}  \n`, "RS256");
       expect(jwk.kty).toBe("RSA");
     });
 
@@ -1953,8 +1955,8 @@ describe.concurrent("JWK Utilities", () => {
       const { privateKey, publicKey } = await okpJWKPair(crv, alg);
       const [pkcs8, spki] = await Promise.all([exportPEM(privateKey), exportPEM(publicKey)]);
       const [priv, pub] = await Promise.all([
-        importPEM<JWK_OKP_Private>(pkcs8, alg),
-        importPEM<JWK_OKP_Public>(spki, alg),
+        importPEM(pkcs8, alg, { pemType: "pkcs8" }),
+        importPEM(spki, alg, { pemType: "spki" }),
       ]);
       expect(priv.crv).toBe(crv);
       expect(pub.crv).toBe(crv);
@@ -2203,7 +2205,7 @@ describe.concurrent("JWK Utilities", () => {
  */
 async function okpJWKPair(
   crv: "Ed25519" | "X25519",
-  alg: string,
+  alg: JWK_OKP_SIGN | JWK_ECDH_ES,
 ): Promise<{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }> {
   const { privateKey, publicKey } = (await crypto.subtle.generateKey(
     { name: crv },

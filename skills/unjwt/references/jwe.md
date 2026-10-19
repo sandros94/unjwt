@@ -97,7 +97,7 @@ Decrypts a JWE token.
 **Parameters:**
 
 - `jwe` — `string` — the JWE compact token
-- `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWKLookupFunction`
+- `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWEKeyLookup`
   - `JWEDecryptJWK` is the private-side counterpart of `JWEEncryptJWK`. The key is imported with `expect: "private"`, so a public asymmetric JWK throws `ERR_JWK_INVALID`; `encrypt` mirrors this with `expect: "public"` and refuses one that still carries `d`.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
@@ -107,7 +107,7 @@ Decrypts a JWE token.
     - Token has no `kid` — every candidate is tried in order; first to succeed wins
     - A candidate that cannot open the token — unusable key material as much as a failed unwrap — only means "try the next one"; when none succeeds, `ERR_JWE_DECRYPTION_FAILED` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
-  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
+  - `JWEKeyLookup`: `(header: JWEHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg`/`enc` are already validated
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata. A raw `Uint8Array` is such a key: it declares nothing, so `decrypt(jwe, rawBytes, { algorithms: ["A256KW"] })` names the `alg` the matching `encrypt` call was given. A password `string` still infers the PBES2 family alone
   - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls, never for one fetched from a `jwks_uri`
@@ -328,8 +328,8 @@ interface JWEHeaderParameters {
   cty?: string;
   crit?: string[];
   // JWE-specific header parameters
-  alg?: KeyManagementAlgorithm | (string & {});
-  enc?: ContentEncryptionAlgorithm | (string & {});
+  alg?: KeyManagementAlgorithm;
+  enc?: ContentEncryptionAlgorithm;
   p2c?: number;
   p2s?: string;
   iv?: string;
@@ -596,17 +596,10 @@ interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> {
   recipientIndex: number;
 }
 
-// JWKLookupFunction is shared with JWS verify — imported from unjwt/jwk or unjwt
-// Optional `TReturn` generic narrows the return type; defaults fully permissive.
-type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
-  header: {
-    kid?: string;
-    alg?: string;
-    enc?: string;
-    typ?: string;
-    crit?: string[];
-    [key: string]: unknown;
-  },
+// JWEKeyLookup = JWKLookupFunction<TReturn, JWEHeaderParameters> — from unjwt/jwe or unjwt.
+// The header is the decoded protected header after the alg/enc checks, so both are closed unions.
+type JWEKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
+  header: JWEHeaderParameters,
   token: string,
-) => TReturn | Promise<TReturn>;
+) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
 ```

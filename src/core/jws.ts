@@ -7,7 +7,7 @@ import type {
   JWSVerifyJWK,
   JWSAlgorithm,
   JWSSignOptions,
-  JWKLookupFunction,
+  JWSKeyLookup,
   JWSVerifyOptions,
   JWSVerifyResult,
   JOSEPayload,
@@ -31,7 +31,7 @@ import {
   assertCompactToken,
   assertConsumerOptions,
   checkAlgAllowed,
-  checkJWSAlgSupported,
+  assertJWSAlgSupported,
   checkJWSB64,
   assertNotStringKey,
   decodeJWSPayload,
@@ -96,8 +96,7 @@ export async function sign(
     }
   }
 
-  const algSupportError = checkJWSAlgSupported(alg);
-  if (algSupportError) throw algSupportError;
+  assertJWSAlgSupported(alg);
 
   let signingKey: CryptoKey;
   try {
@@ -154,23 +153,23 @@ export async function sign(
  */
 export async function verify<T extends object = JWTClaims>(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSVerifyOptions<"json"> & { forceUint8Array?: false },
 ): Promise<JWSVerifyResult<T>>;
 /** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function verify(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verify<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSVerifyOptions<Mode>,
 ): Promise<JWSVerifyResult<PayloadOf<Mode>>>;
 export async function verify(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult> {
   assertCompactToken(jws, "JWS");
@@ -199,8 +198,7 @@ export async function verify(
 
   const alg = protectedHeader.alg;
 
-  const algSupportError = checkJWSAlgSupported(alg);
-  if (algSupportError) throw algSupportError;
+  assertJWSAlgSupported(alg);
 
   const headerError =
     checkJWSB64(protectedHeader) ??

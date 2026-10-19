@@ -15,10 +15,12 @@ import type {
   JWTClaimValidationOptions,
   JWTClaims,
   JWSAlgorithm,
+  JWKAlgorithm,
+  JWK_RSA_SIGN,
+  JWK_RSA_PSS,
   JOSEPayloadMode,
   JWEHeaderParameters,
   JWSProtectedHeader,
-  JWKLookupFunctionHeader,
   PayloadOf,
   KeyManagementAlgorithm,
   UnwrapKeyOptions,
@@ -30,7 +32,11 @@ import {
   inferJWEAllowedAlgorithms,
   inferJWSAllowedAlgorithms,
   isContentEncryptionAlgorithm,
+  isECDHESAlgorithm,
   isEd25519Signature,
+  isJWSAlgorithm,
+  isKeyManagementAlgorithm,
+  isPBES2Algorithm,
 } from "./utils/algorithms";
 import { quoteTokenValue } from "./utils/_text";
 import {
@@ -272,7 +278,7 @@ const JWK_SET_KEY_OPS: Readonly<Record<JWKSetOperation, readonly string[]>> =
 
 /** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; `oct` entries only with `allowSymmetric`. */
 export function buildJWKSetFilter(
-  header: { kid?: string; alg?: string } | undefined,
+  header: { kid?: string; alg?: JWKAlgorithm } | undefined,
   options: { op: JWKSetOperation; allowSymmetric?: boolean },
 ): (k: JWK) => boolean {
   const kid = header?.kid;
@@ -368,12 +374,12 @@ export function buildECDHAgreementParams(
 
 /** Bytes become an HMAC key (`HS*` only); RSA needs `modulusLength ≥ 2048` (RFC 7518 §3.3 / §3.5). */
 export async function resolveSigningKey(
-  alg: string,
+  alg: JWSAlgorithm,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   usage: "sign" | "verify",
 ): Promise<CryptoKey> {
   if (key instanceof Uint8Array) {
-    if (!alg.startsWith("HS")) {
+    if (alg !== "HS256" && alg !== "HS384" && alg !== "HS512") {
       throw new JWTError(
         `Raw key bytes are HMAC secrets; ${alg} needs an asymmetric key. Pass a JWK or a CryptoKey.`,
         "ERR_JWK_INVALID",
@@ -384,7 +390,7 @@ export async function resolveSigningKey(
       usage,
     ]);
   }
-  if (alg.startsWith("RS") || alg.startsWith("PS")) {
+  if (RSA_SIGNATURE_ALGORITHMS.has(alg)) {
     const modulusLength = modulusLengthOf(key.algorithm);
     if (typeof modulusLength !== "number" || modulusLength < 2048) {
       throw new JWTError(
@@ -456,14 +462,20 @@ export function assertNotStringKey<K>(key: K): asserts key is Exclude<K, string>
 }
 
 /** RFC 7518 §4.8.1 — a string key is a UTF-8 PBES2 password, refused under any other `alg`. */
-export function resolvePasswordKey<K>(alg: string, key: K | string): K | Uint8Array<ArrayBuffer> {
+export function resolvePasswordKey<K>(
+  alg: KeyManagementAlgorithm,
+  key: K | string,
+): K | Uint8Array<ArrayBuffer> {
   if (typeof key !== "string") return key;
-  if (!alg.startsWith("PBES2")) throw stringKeyError();
+  if (!isPBES2Algorithm(alg)) throw stringKeyError();
   return textEncoder.encode(key);
 }
 
 export interface AlgCheckContext {
-  infer: (key: unknown, options?: { allowSymmetric?: boolean }) => string[] | undefined;
+  infer: (
+    key: unknown,
+    options?: { allowSymmetric?: boolean },
+  ) => readonly JWKAlgorithm[] | undefined;
   /** An `oct` JWK's `alg` names a role, not the header `alg` (JWE). */
   octRoles: boolean;
   errorCode: "ERR_JWS_ALG_NOT_ALLOWED" | "ERR_JWE_ALG_NOT_ALLOWED";
@@ -488,12 +500,12 @@ export const JWE_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
 });
 
 /** Check the header `alg` against the allowlist, else the JWK's own `alg`, else the key-shape inference. */
-export function checkAlgAllowed(
-  alg: string,
+export function checkAlgAllowed<A extends JWKAlgorithm>(
+  alg: A,
   key: unknown,
   options: {
     ctx: AlgCheckContext;
-    algorithms?: readonly string[];
+    algorithms?: readonly A[];
     allowSymmetric?: boolean;
   },
 ): JWTError | undefined {
@@ -515,13 +527,13 @@ export function checkAlgAllowed(
   return inferred.includes(alg) ? undefined : notAllowed(alg, ctx);
 }
 
-function notAllowed(alg: string, ctx: AlgCheckContext): JWTError {
+function notAllowed(alg: JWKAlgorithm, ctx: AlgCheckContext): JWTError {
   return new JWTError(`${ctx.label} not allowed: ${alg}`, ctx.errorCode);
 }
 
 /** Whether key material could be the one the header was produced for (RFC 7515 §4.1.4 / RFC 7516 §4.1.6 `kid` hint). */
 export function keyMatchesHeader(
-  header: { alg?: string; kid?: string; epk?: { crv?: string } },
+  header: { alg?: JWKAlgorithm; kid?: string; epk?: { crv?: string } },
   keyMaterial: unknown,
   options: { ctx: AlgCheckContext; allowSymmetric?: boolean },
 ): boolean {
@@ -537,29 +549,15 @@ export function keyMatchesHeader(
   return true;
 }
 
-const JWS_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
-  Object.keys({
-    HS256: true,
-    HS384: true,
-    HS512: true,
-    RS256: true,
-    RS384: true,
-    RS512: true,
-    PS256: true,
-    PS384: true,
-    PS512: true,
-    ES256: true,
-    ES384: true,
-    ES512: true,
-    Ed25519: true,
-    EdDSA: true,
-  } satisfies Record<JWSAlgorithm, true>),
-);
-
 /** Reject `"none"` (RFC 7518 §3.6) and any `alg` outside `JWSAlgorithm`. */
+export function assertJWSAlgSupported(alg: string): asserts alg is JWSAlgorithm {
+  const error = checkJWSAlgSupported(alg);
+  if (error) throw error;
+}
+
 export function checkJWSAlgSupported(alg: string): JWTError | undefined {
   return checkAlgSupported(alg, {
-    supported: JWS_ALGORITHM_SET,
+    supported: isJWSAlgorithm,
     code: "ERR_JWS_ALG_NOT_ALLOWED",
     label: "Algorithm",
     role: "signing algorithm",
@@ -676,11 +674,11 @@ export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R
 /** Run a key-lookup function; a throw or no key is `ERR_JWK_KEY_NOT_FOUND`. */
 export async function resolveKeyInput<K>(
   key: K,
-  options: { header: JWKLookupFunctionHeader; token: string; what: string },
+  options: { header: unknown; token: string; what: string },
 ): Promise<ResolvedKeyInput<K>>;
 export async function resolveKeyInput(
   key: unknown,
-  options: { header: JWKLookupFunctionHeader; token: string; what: string },
+  options: { header: unknown; token: string; what: string },
 ): Promise<unknown> {
   if (typeof key !== "function") return key;
   const { header, token, what } = options;
@@ -696,32 +694,9 @@ export async function resolveKeyInput(
   return resolved;
 }
 
-export function asKeyUsageError(error: unknown, alg: string): JWTError {
+export function asKeyUsageError(error: unknown, alg: JWKAlgorithm): JWTError {
   return asJWTError(error, { code: "ERR_JWK_INVALID", message: `Key is not usable for ${alg}.` });
 }
-
-const JWE_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(
-  Object.keys({
-    "dir": true,
-    "A128KW": true,
-    "A192KW": true,
-    "A256KW": true,
-    "A128GCMKW": true,
-    "A192GCMKW": true,
-    "A256GCMKW": true,
-    "PBES2-HS256+A128KW": true,
-    "PBES2-HS384+A192KW": true,
-    "PBES2-HS512+A256KW": true,
-    "RSA-OAEP": true,
-    "RSA-OAEP-256": true,
-    "RSA-OAEP-384": true,
-    "RSA-OAEP-512": true,
-    "ECDH-ES": true,
-    "ECDH-ES+A128KW": true,
-    "ECDH-ES+A192KW": true,
-    "ECDH-ES+A256KW": true,
-  } satisfies Partial<Record<KeyManagementAlgorithm, true>>),
-);
 
 const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
   "A128GCM": "cryptokey",
@@ -733,7 +708,10 @@ const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
 } satisfies Record<ContentEncryptionAlgorithm, "cryptokey" | "raw">);
 
 /** RFC 7518 §4.5 — a `dir` JWK's `alg` is `dir` or the token's `enc`. */
-export function assertDirectKeyRole(key: unknown, enc: string | undefined): void {
+export function assertDirectKeyRole(
+  key: unknown,
+  enc: ContentEncryptionAlgorithm | undefined,
+): void {
   if (!isJWK(key) || typeof key.alg !== "string" || key.alg === "dir") return;
   if (enc !== undefined && key.alg === enc) return;
   throw new JWTError(
@@ -748,7 +726,7 @@ export const JWE_DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["di
 /** Reject `"none"` and any key management `alg` outside the implemented set. */
 export function checkJWEAlgSupported(alg: string): JWTError | undefined {
   return checkAlgSupported(alg, {
-    supported: JWE_ALGORITHM_SET,
+    supported: isKeyManagementAlgorithm,
     code: "ERR_JWE_ALG_NOT_ALLOWED",
     label: "Key management algorithm",
     role: "key management algorithm",
@@ -761,7 +739,7 @@ export function checkJWEEncSupported(enc: unknown): JWTError | undefined {
 }
 
 export function isJWEAlgSupported(alg: string): alg is KeyManagementAlgorithm {
-  return JWE_ALGORITHM_SET.has(alg);
+  return isKeyManagementAlgorithm(alg);
 }
 
 export function assertJWEAlgSupported(alg: string): asserts alg is KeyManagementAlgorithm {
@@ -775,8 +753,8 @@ export function assertJWEEncSupported(enc: unknown): asserts enc is ContentEncry
 }
 
 export function checkJWEEncAllowed(
-  enc: string,
-  encryptionAlgorithms: readonly string[] | undefined,
+  enc: ContentEncryptionAlgorithm,
+  encryptionAlgorithms: readonly ContentEncryptionAlgorithm[] | undefined,
 ): JWTError | undefined {
   if (encryptionAlgorithms === undefined || encryptionAlgorithms.includes(enc)) return undefined;
   return new JWTError(
@@ -837,7 +815,7 @@ export function buildUnwrapKeyOptions(
 
 /** RFC 7516 §5.2 step 6 — direct key agreement carries an empty encrypted key. */
 export function checkJWEDirectEncryptedKey(
-  alg: string,
+  alg: KeyManagementAlgorithm,
   encryptedKey: string | undefined,
 ): JWTError | undefined {
   if (!JWE_DIRECT_ALGS.has(alg) || !encryptedKey) return undefined;
@@ -1003,7 +981,7 @@ export function decodeJWEPayload(
 function checkAlgSupported(
   alg: string,
   options: {
-    supported: ReadonlySet<string>;
+    supported: (alg: string) => boolean;
     code: "ERR_JWS_ALG_NOT_ALLOWED" | "ERR_JWE_ALG_NOT_ALLOWED";
     label: string;
     role: string;
@@ -1011,14 +989,14 @@ function checkAlgSupported(
 ): JWTError | undefined {
   const { supported, code, label, role } = options;
   if (alg === "none") return new JWTError(`"none" is not a valid ${role}`, code);
-  if (!supported.has(alg)) {
+  if (!supported(alg)) {
     return new JWTError(`${label} not supported: ${quoteTokenValue(alg)}`, code);
   }
   return undefined;
 }
 
 function keyServesHeaderAlg(
-  header: { alg?: string; epk?: { crv?: string } },
+  header: { alg?: JWKAlgorithm; epk?: { crv?: string } },
   key: JWK | CryptoKey,
   ctx: AlgCheckContext,
 ): boolean {
@@ -1026,8 +1004,13 @@ function keyServesHeaderAlg(
   if (!alg) return false;
   const inferred = ctx.infer(key);
   if (inferred && !inferred.includes(alg)) return false;
-  if (!alg.startsWith("ECDH-ES")) return true;
+  if (!isECDHESAlgorithm(alg)) return true;
   const epkCurve = header.epk?.crv;
   const keyCurve = isCryptoKey(key) ? cryptoKeyCurve(key) : "crv" in key ? key.crv : undefined;
   return !epkCurve || !keyCurve || epkCurve === keyCurve;
 }
+
+/** RFC 7518 §3.3 / §3.5 — the signature algorithms bound to an RSA modulus. */
+const RSA_SIGNATURE_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set<
+  JWK_RSA_SIGN | JWK_RSA_PSS
+>(["RS256", "RS384", "RS512", "PS256", "PS384", "PS512"]);

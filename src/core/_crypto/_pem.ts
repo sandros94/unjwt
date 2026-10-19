@@ -2,6 +2,7 @@ import { base64Stringify, base64Parse } from "../utils/base64";
 
 import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
+import type { JWKPEMAlgorithm } from "../types";
 import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm";
 
 export interface KeyImportOptions {
@@ -37,7 +38,7 @@ export const fromX509: PEMImportFunction = (pem, alg, options?) => {
 
 type PEMImportFunction = (
   pem: string,
-  alg: string,
+  alg: JWKPEMAlgorithm,
   options?: KeyImportOptions,
 ) => Promise<CryptoKey>;
 
@@ -105,7 +106,7 @@ const genericImport = async (
   descriptor: "PRIVATE KEY" | "PUBLIC KEY",
   keyFormat: "spki" | "pkcs8",
   pem: string,
-  alg: string,
+  alg: JWKPEMAlgorithm,
   options?: KeyImportOptions,
 ) => {
   let algorithm: RsaHashedImportParams | EcKeyAlgorithm | Algorithm;

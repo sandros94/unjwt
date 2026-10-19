@@ -4,7 +4,7 @@ JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key ge
 
 Import: `import { generateKey, generateJWK, thumbprint, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
 
-Key lookup types (also from `unjwt/jwk`): `JWKLookupFunction`, `JWKLookupFunctionHeader` — or `from "unjwt"`
+Key lookup types: `JWKLookupFunction<TReturn, THeader>` and `JWKLookupFunctionHeader` from `unjwt/jwk`; the family aliases `JWSKeyLookup` (`unjwt/jws`) and `JWEKeyLookup` (`unjwt/jwe`) fix `THeader` to `JWSHeaderParameters` / `JWEHeaderParameters` — all also `from "unjwt"`
 
 ## Key Generation
 
@@ -108,6 +108,8 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
 - Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`; `{ extractable?: boolean }` overrides
   the default of non-extractable for private key material, extractable for public)
+- `algOrOptions` is a `JWKAlgorithm` (the shorthand) or `{ alg?: JWKAlgorithm; expect?; extractable? }`;
+  an `alg` outside the union is a type error, not a runtime surprise
 
 **Return types follow the input.** `importKey(key)` returns `ImportedKey<typeof key>`, an entry of
 `ImportedKeyMap` keyed by input kind: `bytes` and `oct` → `Uint8Array<ArrayBuffer>`, `cryptoKey` and
@@ -316,14 +318,17 @@ for (const recipient of recipients) {
 
 ## PEM Conversion
 
-### `importPEM(pem, alg, options?)`
+### `importPEM<Alg, Type>(pem, alg, options?)`
 
 Imports a PEM-encoded key and returns it as a JWK. The PEM type is inferred from the
 `-----BEGIN <X>-----` label (`PRIVATE KEY` → `pkcs8`, `PUBLIC KEY` → `spki`, `CERTIFICATE` → `x509`).
+The result is `ImportedPEMJWK<Alg, Type>`: the family `alg` names (RSA / EC / OKP) with `alg` as a
+literal, private for `pemType: "pkcs8"`, public for `"spki"` / `"x509"`, their union when the type
+is read from the label (`importPEM(pkcs8, "ES256", { pemType: "pkcs8" })` is `JWK_EC_Private<"ES256">`).
 
-- `alg: JWKPEMAlgorithm`
+- `alg: Alg extends JWKPEMAlgorithm`
 - `options?`
-  - `pemType?: "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
+  - `pemType?: Type extends "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
   - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`); the
     reserved members listed under `exportKey` throw `ERR_INVALID_OPTION`
 
@@ -396,28 +401,29 @@ const jwk = await deriveJWKFromPassword("my-password", {
 
 ## Key Lookup Function
 
-`JWKLookupFunction` and `JWKLookupFunctionHeader` are defined in `unjwt/jwk` and shared by both `verify` (JWS) and `decrypt` (JWE). Using a single unified type avoids the former `JWSKeyLookupFunction` / `JWEKeyLookupFunction` split.
+`JWKLookupFunction<TReturn, THeader>` is defined in `unjwt/jwk`. `verify` takes a `JWSKeyLookup`
+(`THeader = JWSHeaderParameters`, from `unjwt/jws`) and `decrypt` a `JWEKeyLookup`
+(`THeader = JWEHeaderParameters`, from `unjwt/jwe`); a function written against the generic
+`JWKLookupFunctionHeader` is accepted by both. The header a lookup receives has already passed the
+algorithm checks, so its `alg` / `enc` are the closed unions, never a bare string.
 
 ```ts
 type JWKLookupFunctionHeader = {
   kid?: string;
-  alg?: string;
-  enc?: string; // only present on JWE tokens
+  alg?: JWSAlgorithm | KeyManagementAlgorithm;
+  enc?: ContentEncryptionAlgorithm; // only present on JWE tokens
   typ?: string;
   crit?: string[];
   [propName: string]: unknown; // epk, p2s, p2c, apu, apv, ...
 };
 
-type JWKLookupFunction = (
-  header: JWKLookupFunctionHeader,
-  token: string,
-) =>
-  | CryptoKey
-  | JWK
-  | JWKSet
-  | string
-  | Uint8Array<ArrayBuffer>
-  | Promise<CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>>;
+type JWKLookupFunction<
+  TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>,
+  THeader = JWKLookupFunctionHeader,
+> = (header: THeader, token: string) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
+
+type JWSKeyLookup<TReturn = …> = JWKLookupFunction<TReturn, JWSHeaderParameters>;
+type JWEKeyLookup<TReturn = …> = JWKLookupFunction<TReturn, JWEHeaderParameters>;
 ```
 
 When a `JWKLookupFunction` returns a `JWKSet`, the same multi-key retry logic applies as when passing a `JWKSet` directly — see `jws.md` / `jwe.md` for the candidate rules.
@@ -452,7 +458,7 @@ import { configureJWKCache, thumbprint } from "unjwt/jwk";
 import type { JWK } from "unjwt/jwk";
 
 // A shared cache keyed on the key material itself, the half of the pair, and the alg
-const cacheKey = async (jwk: JWK, alg: string) =>
+const cacheKey = async (jwk: JWK, alg: JWKAlgorithm) =>
   `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
 const map = new Map<string, CryptoKey>();
 configureJWKCache({
@@ -476,8 +482,8 @@ The default cache implementation. Uses `WeakMap<JWK, Record<string, CryptoKey>>`
 
 ```ts
 interface JWKCacheAdapter {
-  get(jwk: JWK, alg: string): CryptoKey | undefined | Promise<CryptoKey | undefined>;
-  set(jwk: JWK, alg: string, key: CryptoKey): void | Promise<void>;
+  get(jwk: JWK, alg: JWKAlgorithm): CryptoKey | undefined | Promise<CryptoKey | undefined>;
+  set(jwk: JWK, alg: JWKAlgorithm, key: CryptoKey): void | Promise<void>;
 }
 ```
 
@@ -503,15 +509,17 @@ if (isJWTError(error, "ERR_JWK_INVALID") && isUnsecureError(error.cause, "MALFOR
 
 ## JWK Types
 
-Every concrete JWK interface takes an optional `Alg` type parameter that constrains the JWK's
-`alg` field to the algorithm family legal for that key type — `(string & {})` preserves
-autocomplete without blocking custom / forward-compat algorithm names. The default `string`
-keeps existing `JWK_oct`, `JWK_RSA_Public`, etc. usages unchanged. Sign/verify/encrypt/decrypt
-accept the narrowed union aliases (`JWSSignJWK`, `JWEEncryptJWK`, …) — see the JWS/JWE
-references for those.
+Every concrete JWK interface takes an `Alg` type parameter bounded to, and defaulting to, the
+algorithm family legal for that key type: an `oct` JWK cannot carry `"RS256"`, an RSA JWK cannot
+carry `"HS256"`. There is no open-string escape: the unions are exactly the algorithms this
+version implements, which is also what the runtime accepts (anything else throws), so a wider
+type would only move a compile-time error to a runtime one. The umbrella types (`JWK<Alg>`,
+`JWK_Public<Alg>`, `JWK_Private<Alg>`, `JWK_Asymmetric<Alg>`) distribute by family, so
+`JWK<"RS256">` is the two RSA shapes and nothing else. Sign/verify/encrypt/decrypt accept the
+narrowed union aliases (`JWSSignJWK`, `JWEEncryptJWK`, …) — see the JWS/JWE references for those.
 
 ```ts
-interface JWKParameters<Alg extends string = string> {
+interface JWKParameters<Alg extends JWKAlgorithm = JWKAlgorithm> {
   "kty": string;
   "alg"?: Alg;
   "key_ops"?: KeyUsage[];
@@ -534,8 +542,7 @@ interface JWK_oct<
     | JWK_AES_GCM_KW
     | JWK_AES_CBC_HMAC
     | JWK_PBES2
-    | "dir"
-    | (string & {}) = string,
+    | "dir" = JWK_HMAC | JWK_AES_KW | JWK_AES_GCM | JWK_AES_GCM_KW | JWK_AES_CBC_HMAC | JWK_PBES2 | "dir",
 > extends JWKParameters<Alg> {
   kty: "oct";
   k: string;
@@ -545,7 +552,7 @@ type JWK_Symmetric<Alg extends string = string> = JWK_oct<Alg>;
 
 // EC — ECDSA (sign) or ECDH-ES (encrypt)
 interface JWK_EC_Public<
-  Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string,
+  Alg extends JWK_ECDSA | JWK_ECDH_ES = JWK_ECDSA | JWK_ECDH_ES,
 > extends JWKParameters<Alg> {
   kty: "EC";
   crv: string;
@@ -554,18 +561,18 @@ interface JWK_EC_Public<
 }
 
 interface JWK_EC_Private<
-  Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string,
+  Alg extends JWK_ECDSA | JWK_ECDH_ES = JWK_ECDSA | JWK_ECDH_ES,
 > extends JWK_EC_Public<Alg> {
   d: string;
 }
 
-type JWK_EC<Alg extends JWK_ECDSA | JWK_ECDH_ES | (string & {}) = string> =
+type JWK_EC<Alg extends JWK_ECDSA | JWK_ECDH_ES = JWK_ECDSA | JWK_ECDH_ES> =
   | JWK_EC_Public<Alg>
   | JWK_EC_Private<Alg>;
 
 // RSA — RS*, PS*, RSA-OAEP*
 interface JWK_RSA_Public<
-  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
+  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC = JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC,
 > extends JWKParameters<Alg> {
   kty: "RSA";
   e: string;
@@ -574,7 +581,7 @@ interface JWK_RSA_Public<
 }
 
 interface JWK_RSA_Private<
-  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string,
+  Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC = JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC,
 > extends JWK_RSA_Public<Alg> {
   d: string;
   dp: string;
@@ -584,13 +591,13 @@ interface JWK_RSA_Private<
   qi: string;
 }
 
-type JWK_RSA<Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC | (string & {}) = string> =
+type JWK_RSA<Alg extends JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC = JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC> =
   | JWK_RSA_Public<Alg>
   | JWK_RSA_Private<Alg>;
 
 // OKP — Ed signing or ECDH-ES (X25519)
 interface JWK_OKP_Public<
-  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
+  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES = JWK_OKP_SIGN | JWK_ECDH_ES,
 > extends JWKParameters<Alg> {
   kty: "OKP";
   crv: string;
@@ -598,26 +605,21 @@ interface JWK_OKP_Public<
 }
 
 interface JWK_OKP_Private<
-  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string,
+  Alg extends JWK_OKP_SIGN | JWK_ECDH_ES = JWK_OKP_SIGN | JWK_ECDH_ES,
 > extends JWK_OKP_Public<Alg> {
   d: string;
 }
 
-type JWK_OKP<Alg extends JWK_OKP_SIGN | JWK_ECDH_ES | (string & {}) = string> =
+type JWK_OKP<Alg extends JWK_OKP_SIGN | JWK_ECDH_ES = JWK_OKP_SIGN | JWK_ECDH_ES> =
   | JWK_OKP_Public<Alg>
   | JWK_OKP_Private<Alg>;
 
 // Unions
-type JWK_Public<Alg extends string = string> =
-  | JWK_RSA_Public<Alg>
-  | JWK_EC_Public<Alg>
-  | JWK_OKP_Public<Alg>;
-type JWK_Private<Alg extends string = string> =
-  | JWK_RSA_Private<Alg>
-  | JWK_EC_Private<Alg>
-  | JWK_OKP_Private<Alg>;
-type JWK_Asymmetric<Alg extends string = string> = JWK_RSA<Alg> | JWK_EC<Alg> | JWK_OKP<Alg>;
-type JWK<Alg extends string = string> = JWK_oct<Alg> | JWK_RSA<Alg> | JWK_EC<Alg> | JWK_OKP<Alg>;
+// Each umbrella keeps only the families `Alg` has a member of: JWK<"ES256"> is JWK_EC<"ES256">.
+type JWK_Public<Alg extends JWK_Asymmetric_Algorithm = JWK_Asymmetric_Algorithm> = /* RSA | EC | OKP public shapes for Alg */;
+type JWK_Private<Alg extends JWK_Asymmetric_Algorithm = JWK_Asymmetric_Algorithm> = /* RSA | EC | OKP private shapes for Alg */;
+type JWK_Asymmetric<Alg extends JWK_Asymmetric_Algorithm = JWK_Asymmetric_Algorithm> = /* both halves */;
+type JWK<Alg extends JWKAlgorithm = JWKAlgorithm> = /* JWK_oct<…> | JWK_Asymmetric<…> for Alg */;
 
 // Narrowed by `Alg` when that uniquely identifies the family:
 //   JWK_Pair<"RS256">           → RSA pair only
@@ -650,25 +652,25 @@ interface JWKSet<T extends readonly JWK[] = JWK[]> {
 }
 
 interface JWKCacheAdapter {
-  get(jwk: JWK, alg: string): CryptoKey | undefined | Promise<CryptoKey | undefined>;
-  set(jwk: JWK, alg: string, key: CryptoKey): void | Promise<void>;
+  get(jwk: JWK, alg: JWKAlgorithm): CryptoKey | undefined | Promise<CryptoKey | undefined>;
+  set(jwk: JWK, alg: JWKAlgorithm, key: CryptoKey): void | Promise<void>;
 }
 
 type JWKLookupFunctionHeader = {
   kid?: string;
-  alg?: string;
-  enc?: string;
+  alg?: JWSAlgorithm | KeyManagementAlgorithm;
+  enc?: ContentEncryptionAlgorithm;
   typ?: string;
   crit?: string[];
   [propName: string]: unknown;
 };
 
-// Optional TReturn lets callers who always hand back a specific shape
-// preserve narrowing; the default stays fully permissive.
-type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
-  header: JWKLookupFunctionHeader,
-  token: string,
-) => TReturn | Promise<TReturn>;
+// `TReturn` narrows what the lookup hands back; `THeader` is the family's header
+// (`JWSKeyLookup` / `JWEKeyLookup`), else this generic one.
+type JWKLookupFunction<
+  TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>,
+  THeader = JWKLookupFunctionHeader,
+> = (header: THeader, token: string) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
 ```
 
 ### Algorithm mapped types

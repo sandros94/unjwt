@@ -117,7 +117,7 @@ interface JWTClaimValidationOptions {
 
 ### `inferJWSAllowedAlgorithms(key)`
 
-Returns the set of JWS signing algorithms a given key can unambiguously produce, or `undefined` when inference is not possible. Used by `verify()` as the default allowlist when `options.algorithms` is omitted. Returns `undefined` for raw `Uint8Array` keys, JWKs without `alg`, lookup functions, or an HMAC/RSA `CryptoKey` whose hash is not SHA-256/384/512 — callers with those shapes must pass `algorithms` explicitly.
+Returns the set of JWS signing algorithms a given key can unambiguously produce, or `undefined` when inference is not possible. Used by `verify()` as the default allowlist when `options.algorithms` is omitted. Returns `undefined` for raw `Uint8Array` keys, JWKs without `alg` or whose `alg` is not a JWS algorithm, lookup functions, or an HMAC/RSA `CryptoKey` whose hash is not SHA-256/384/512 — callers with those shapes must pass `algorithms` explicitly.
 
 ### `inferJWEAllowedAlgorithms(key)`
 
@@ -125,7 +125,7 @@ Returns the set of JWE key-management algorithms a given key can unambiguously h
 
 - A password `string` infers the three PBES2 variants.
 - A raw `Uint8Array` infers nothing — bytes carry no role, so the caller names the algorithm.
-- An `oct` JWK infers its own `alg` alone, except that an `alg` naming a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is a CEK and infers `"dir"`.
+- An `oct` JWK infers its own `alg` alone, except that an `alg` naming a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is a CEK and infers `"dir"`; an `alg` that is not a key management algorithm (an `HS*` key) infers nothing.
 - An EC or OKP JWK without an `alg` infers the four ECDH-ES variants from its `crv`.
 
 ## Helper Functions

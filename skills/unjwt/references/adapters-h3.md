@@ -354,7 +354,7 @@ interface SessionHooksJWS<
 
   /** Override key lookup during verification (e.g. for key rotation). */
   onVerifyKeyLookup?: (args: {
-    header: JWKLookupFunctionHeader;
+    header: JWSHeaderParameters;
     event: TEvent;
     config: SessionConfigJWS<T, MaxAge, TEvent>;
   }) => JWKSet | JWK_Symmetric | JWK_Public | Promise<JWKSet | JWK_Symmetric | JWK_Public>;

@@ -1,6 +1,8 @@
 import type {
   ContentEncryptionAlgorithm,
   JWK,
+  JWK_ECDH_ES,
+  JWK_PBES2,
   JWSAlgorithm,
   KeyManagementAlgorithm,
 } from "../types";
@@ -8,19 +10,83 @@ import { hashNameOf, lengthOf, namedCurveOf } from "../_crypto/_key-algorithm";
 import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards";
 
 /** RFC 7518 §4.8 — the password-based key management algorithms. */
-export const PBES2_ALGORITHMS: readonly KeyManagementAlgorithm[] = [
+export const PBES2_ALGORITHMS: readonly JWK_PBES2[] = [
   "PBES2-HS256+A128KW",
   "PBES2-HS384+A192KW",
   "PBES2-HS512+A256KW",
 ];
 
+const PBES2_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(PBES2_ALGORITHMS);
+
+export function isPBES2Algorithm(alg: string): alg is JWK_PBES2 {
+  return PBES2_ALGORITHM_SET.has(alg);
+}
+
+/** RFC 7518 §3.1 — every JWS `alg` this library implements; `satisfies` keeps the set in lockstep with the union. */
+const JWS_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set(
+  Object.keys({
+    HS256: true,
+    HS384: true,
+    HS512: true,
+    RS256: true,
+    RS384: true,
+    RS512: true,
+    PS256: true,
+    PS384: true,
+    PS512: true,
+    ES256: true,
+    ES384: true,
+    ES512: true,
+    Ed25519: true,
+    EdDSA: true,
+  } satisfies Record<JWSAlgorithm, true>),
+);
+
+export function isJWSAlgorithm(alg: string): alg is JWSAlgorithm {
+  return JWS_ALGORITHMS.has(alg);
+}
+
+/** RFC 7518 §4.1 — every JWE `alg` this library accepts on the wire; the `A*GCM` members of the union are an `oct` JWK shorthand, never a header value. */
+const KEY_MANAGEMENT_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set(
+  Object.keys({
+    "dir": true,
+    "A128KW": true,
+    "A192KW": true,
+    "A256KW": true,
+    "A128GCMKW": true,
+    "A192GCMKW": true,
+    "A256GCMKW": true,
+    "PBES2-HS256+A128KW": true,
+    "PBES2-HS384+A192KW": true,
+    "PBES2-HS512+A256KW": true,
+    "RSA-OAEP": true,
+    "RSA-OAEP-256": true,
+    "RSA-OAEP-384": true,
+    "RSA-OAEP-512": true,
+    "ECDH-ES": true,
+    "ECDH-ES+A128KW": true,
+    "ECDH-ES+A192KW": true,
+    "ECDH-ES+A256KW": true,
+  } satisfies Partial<Record<KeyManagementAlgorithm, true>>),
+);
+
+export function isKeyManagementAlgorithm(alg: string): alg is KeyManagementAlgorithm {
+  return KEY_MANAGEMENT_ALGORITHMS.has(alg);
+}
+
 /** RFC 7518 §4.6 — the key agreement algorithms. */
-const ECDH_ES_ALGORITHMS: readonly KeyManagementAlgorithm[] = [
+const ECDH_ES_ALGORITHMS: readonly JWK_ECDH_ES[] = [
   "ECDH-ES",
   "ECDH-ES+A128KW",
   "ECDH-ES+A192KW",
   "ECDH-ES+A256KW",
 ];
+
+const ECDH_ES_ALGORITHM_SET: ReadonlySet<string> = /* @__PURE__ */ new Set(ECDH_ES_ALGORITHMS);
+
+export function isECDHESAlgorithm(alg: string): alg is JWK_ECDH_ES {
+  return ECDH_ES_ALGORITHM_SET.has(alg);
+}
 
 /** How a JWK Set's entries are read during algorithm inference. */
 export interface InferAlgorithmsOptions {
@@ -95,7 +161,7 @@ export function isEd25519Signature(alg: string): boolean {
 
 function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
   if (jwk.alg && isEd25519Signature(jwk.alg)) return ["EdDSA", "Ed25519"];
-  if (jwk.alg) return declaredAlgorithm<JWSAlgorithm>(jwk.alg);
+  if (jwk.alg) return isJWSAlgorithm(jwk.alg) ? [jwk.alg] : undefined;
   // WebCrypto exports omit `alg` for EC/OKP JWKs; the curve alone identifies the signature alg.
   if (jwk.kty === "EC") {
     const crv = jwk.crv;
@@ -113,7 +179,7 @@ function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
 
 function jweAlgsFromJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   if (jwk.kty === "oct") return jweAlgsFromOctJWK(jwk);
-  if (jwk.alg) return declaredAlgorithm<KeyManagementAlgorithm>(jwk.alg);
+  if (jwk.alg) return isKeyManagementAlgorithm(jwk.alg) ? [jwk.alg] : undefined;
   if (jwk.kty === "EC") {
     const crv = jwk.crv;
     if (crv === "P-256" || crv === "P-384" || crv === "P-521") {
@@ -134,7 +200,7 @@ function jweAlgsFromOctJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   const alg = jwk.alg;
   if (!alg) return undefined;
   if (isContentEncryptionAlgorithm(alg)) return ["dir"];
-  return declaredAlgorithm<KeyManagementAlgorithm>(alg);
+  return isKeyManagementAlgorithm(alg) ? [alg] : undefined;
 }
 
 /** Whether `alg` is an `enc` value RFC 7518 §5 defines. */
@@ -215,9 +281,4 @@ function jwsHashBits(hashName: string | undefined): "256" | "384" | "512" | unde
   if (hashName === "SHA-384") return "384";
   if (hashName === "SHA-512") return "512";
   return undefined;
-}
-
-function declaredAlgorithm<T extends string>(alg: string): T[] {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a key's self-declared algorithm is an open string
-  return [alg as T];
 }

@@ -4,83 +4,93 @@ import { concatUint8Arrays, uint32be } from "../utils/array";
 import { isCryptoKey } from "../utils/guards";
 import { JWTError } from "../error";
 import { quoteTokenValue } from "../utils/_text";
-import { aesBitsOf, checkKeyUsage, isAlgorithm, lengthOf, unusableKey } from "./_key-algorithm";
+import type {
+  ContentEncryptionAlgorithm,
+  JWK_AES_CBC_HMAC,
+  JWK_AES_GCM,
+  JWK_AES_GCM_KW,
+  JWK_AES_KW,
+  JWKAlgorithm,
+} from "../types";
+import {
+  aesBitsOf,
+  checkKeyUsage,
+  isAlgorithm,
+  jwsHashOf,
+  lengthOf,
+  shaBitsOf,
+  unusableKey,
+} from "./_key-algorithm";
 
-const IV_BIT_LENGTHS: Record<string, number> = {
-  "A128GCM": 96,
-  "A128GCMKW": 96,
-  "A192GCM": 96,
-  "A192GCMKW": 96,
-  "A256GCM": 96,
-  "A256GCMKW": 96,
-  "A128CBC-HS256": 128,
-  "A192CBC-HS384": 128,
-  "A256CBC-HS512": 128,
-};
+/** Algorithms with an IV and a tag: the content encryption ones and AES-GCM key wrapping. */
+type AuthenticatedAlgorithm = ContentEncryptionAlgorithm | JWK_AES_GCM_KW;
 
-const CEK_BIT_LENGTHS: Record<string, number> = {
-  "A128GCM": 128,
-  "A192GCM": 192,
-  "A256GCM": 256,
-  "A128CBC-HS256": 256,
-  "A192CBC-HS384": 384,
-  "A256CBC-HS512": 512,
-};
+const IV_BIT_LENGTHS: Readonly<Record<AuthenticatedAlgorithm, 96 | 128>> =
+  /* @__PURE__ */ Object.freeze({
+    "A128GCM": 96,
+    "A128GCMKW": 96,
+    "A192GCM": 96,
+    "A192GCMKW": 96,
+    "A256GCM": 96,
+    "A256GCMKW": 96,
+    "A128CBC-HS256": 128,
+    "A192CBC-HS384": 128,
+    "A256CBC-HS512": 128,
+  });
 
-export function bitLengthIV(alg: string): number {
-  const length = IV_BIT_LENGTHS[alg];
-  if (length === undefined) {
-    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
-  }
-  return length;
+const CEK_BIT_LENGTHS: Readonly<Record<ContentEncryptionAlgorithm, 128 | 192 | 256 | 384 | 512>> =
+  /* @__PURE__ */ Object.freeze({
+    "A128GCM": 128,
+    "A192GCM": 192,
+    "A256GCM": 256,
+    "A128CBC-HS256": 256,
+    "A192CBC-HS384": 384,
+    "A256CBC-HS512": 512,
+  });
+
+export function bitLengthIV(alg: AuthenticatedAlgorithm): number {
+  return IV_BIT_LENGTHS[alg];
 }
 
-export function generateIV(alg: string): Uint8Array<ArrayBuffer> {
+export function generateIV(alg: AuthenticatedAlgorithm): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(bitLengthIV(alg) >> 3));
 }
 
-export function checkIvLength(enc: string, iv: Uint8Array<ArrayBuffer>): void {
+export function checkIvLength(enc: AuthenticatedAlgorithm, iv: Uint8Array<ArrayBuffer>): void {
   if (iv.length << 3 !== bitLengthIV(enc)) {
     throw new JWTError("Invalid Initialization Vector length", "ERR_JWE_INVALID");
   }
 }
 
 // RFC 7518 §5.2.2.1 / §5.3: GCM tags are 128 bits; CBC-HMAC tags are half the CEK size.
-const TAG_BIT_LENGTHS: Record<string, number> = {
-  "A128GCM": 128,
-  "A128GCMKW": 128,
-  "A192GCM": 128,
-  "A192GCMKW": 128,
-  "A256GCM": 128,
-  "A256GCMKW": 128,
-  "A128CBC-HS256": 128,
-  "A192CBC-HS384": 192,
-  "A256CBC-HS512": 256,
-};
+const TAG_BIT_LENGTHS: Readonly<Record<AuthenticatedAlgorithm, 128 | 192 | 256>> =
+  /* @__PURE__ */ Object.freeze({
+    "A128GCM": 128,
+    "A128GCMKW": 128,
+    "A192GCM": 128,
+    "A192GCMKW": 128,
+    "A256GCM": 128,
+    "A256GCMKW": 128,
+    "A128CBC-HS256": 128,
+    "A192CBC-HS384": 192,
+    "A256CBC-HS512": 256,
+  });
 
-export function bitLengthTag(alg: string): number {
-  const length = TAG_BIT_LENGTHS[alg];
-  if (length === undefined) {
-    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
-  }
-  return length;
+export function bitLengthTag(alg: AuthenticatedAlgorithm): number {
+  return TAG_BIT_LENGTHS[alg];
 }
 
-export function checkTagLength(enc: string, tag: Uint8Array<ArrayBuffer>): void {
+export function checkTagLength(enc: AuthenticatedAlgorithm, tag: Uint8Array<ArrayBuffer>): void {
   if (tag.length << 3 !== bitLengthTag(enc)) {
     throw new JWTError("Invalid Authentication Tag length", "ERR_JWE_INVALID");
   }
 }
 
-export function bitLengthCEK(alg: string): number {
-  const length = CEK_BIT_LENGTHS[alg];
-  if (length === undefined) {
-    throw new JWTError(`Unsupported JWE Algorithm: ${quoteTokenValue(alg)}`, "ERR_JWE_INVALID");
-  }
-  return length;
+export function bitLengthCEK(enc: ContentEncryptionAlgorithm): number {
+  return CEK_BIT_LENGTHS[enc];
 }
 
-export function generateCEK(alg: string): Uint8Array<ArrayBuffer> {
+export function generateCEK(alg: ContentEncryptionAlgorithm): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(bitLengthCEK(alg) >> 3));
 }
 
@@ -95,10 +105,10 @@ export function checkCEKLength(cek: Uint8Array<ArrayBuffer>, expected: number): 
 }
 
 // RFC 7518 §3.2: HMAC keys are at least the hash size; AES keys have an exact size.
-export function assertOctKeyLength(bytes: Uint8Array, alg: string | undefined): void {
+export function assertOctKeyLength(bytes: Uint8Array, alg: JWKAlgorithm | undefined): void {
   if (!alg) return;
   if (alg === "HS256" || alg === "HS384" || alg === "HS512") {
-    const minBytes = Number.parseInt(alg.slice(2), 10) >> 3;
+    const minBytes = shaBitsOf(jwsHashOf(alg)) >> 3;
     if (bytes.length < minBytes) {
       throw new JWTError(
         `${alg} requires a key of at least ${minBytes} bytes (got ${bytes.length})`,
@@ -107,7 +117,11 @@ export function assertOctKeyLength(bytes: Uint8Array, alg: string | undefined): 
     }
     return;
   }
-  const exactBits = /^A(128|192|256)(GCM)?KW$/.test(alg) ? aesBitsOf(alg) : CEK_BIT_LENGTHS[alg];
+  const exactBits = isKeyWrapAlgorithm(alg)
+    ? aesBitsOf(alg)
+    : isContentEncryption(alg)
+      ? CEK_BIT_LENGTHS[alg]
+      : undefined;
   if (exactBits !== undefined && bytes.length << 3 !== exactBits) {
     throw new JWTError(
       `${alg} requires a key of exactly ${exactBits >> 3} bytes (got ${bytes.length})`,
@@ -116,29 +130,20 @@ export function assertOctKeyLength(bytes: Uint8Array, alg: string | undefined): 
   }
 }
 
-export function checkAESCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
-  switch (alg) {
-    case "A128GCM":
-    case "A192GCM":
-    case "A256GCM":
-    case "A128KW":
-    case "A192KW":
-    case "A256KW": {
-      const name = alg.endsWith("KW") ? "AES-KW" : "AES-GCM";
-      if (!isAlgorithm(key.algorithm, name)) throw unusableKey(name);
-      const expected = aesBitsOf(alg);
-      if (key.algorithm.length !== expected) throw unusableKey(expected, "algorithm.length");
-      break;
-    }
-    default: {
-      throw new JWTError("CryptoKey does not support this operation", "ERR_JWK_INVALID");
-    }
-  }
+export function checkAESCryptoKey(
+  key: CryptoKey,
+  alg: JWK_AES_KW | JWK_AES_GCM,
+  usage?: KeyUsage,
+): void {
+  const name = alg.endsWith("KW") ? "AES-KW" : "AES-GCM";
+  if (!isAlgorithm(key.algorithm, name)) throw unusableKey(name);
+  const expected = aesBitsOf(alg);
+  if (key.algorithm.length !== expected) throw unusableKey(expected, "algorithm.length");
   checkKeyUsage(key, usage);
 }
 
 export async function aesKwWrap(
-  alg: string,
+  alg: JWK_AES_KW,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   cek: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -157,7 +162,7 @@ export async function aesKwWrap(
 }
 
 export async function aesKwUnwrap(
-  alg: string,
+  alg: JWK_AES_KW,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   encryptedKey: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -178,13 +183,12 @@ export async function aesKwUnwrap(
 }
 
 export async function gcmkwEncrypt(
-  alg: string,
+  alg: JWK_AES_GCM_KW,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   plaintext: Uint8Array<ArrayBuffer>,
   iv?: Uint8Array<ArrayBuffer>,
 ): Promise<{ encryptedKey: Uint8Array<ArrayBuffer>; iv: string; tag: string }> {
-  const jweAlgorithm = alg.slice(0, 7);
-  const wrapped = await encrypt(jweAlgorithm, plaintext, key, iv, new Uint8Array(0));
+  const wrapped = await encrypt(gcmOf(alg), plaintext, key, iv, new Uint8Array(0));
 
   return {
     encryptedKey: wrapped.ciphertext,
@@ -194,18 +198,17 @@ export async function gcmkwEncrypt(
 }
 
 export async function gcmkwDecrypt(
-  alg: string,
+  alg: JWK_AES_GCM_KW,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   ciphertext: Uint8Array<ArrayBuffer>,
   iv: Uint8Array<ArrayBuffer>,
   tag: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  const jweAlgorithm = alg.slice(0, 7);
-  return decrypt(jweAlgorithm, key, ciphertext, iv, tag, new Uint8Array(0));
+  return decrypt(gcmOf(alg), key, ciphertext, iv, tag, new Uint8Array(0));
 }
 
 export async function encrypt(
-  enc: string,
+  enc: ContentEncryptionAlgorithm,
   plaintext: Uint8Array<ArrayBuffer>,
   cek: Uint8Array<ArrayBuffer> | CryptoKey,
   iv: Uint8Array<ArrayBuffer> | undefined,
@@ -229,25 +232,23 @@ export async function encrypt(
     case "A128CBC-HS256":
     case "A192CBC-HS384":
     case "A256CBC-HS512": {
-      if (cek instanceof Uint8Array) {
-        checkCEKLength(cek, Number.parseInt(enc.slice(-3), 10));
-      }
+      if (cek instanceof Uint8Array) checkCEKLength(cek, bitLengthCEK(enc));
       return cbcEncrypt(enc, plaintext, cek, iv, aad);
     }
     case "A128GCM":
     case "A192GCM":
     case "A256GCM": {
-      if (cek instanceof Uint8Array) checkCEKLength(cek, aesBitsOf(enc));
+      if (cek instanceof Uint8Array) checkCEKLength(cek, bitLengthCEK(enc));
       return gcmEncrypt(enc, plaintext, cek, iv, aad);
     }
     default: {
-      throw new JWTError("Unsupported JWE Content Encryption Algorithm", "ERR_JWE_INVALID");
+      return unsupportedContentEncryption(enc);
     }
   }
 }
 
 export async function decrypt(
-  enc: string,
+  enc: ContentEncryptionAlgorithm,
   cek: Uint8Array<ArrayBuffer> | CryptoKey,
   ciphertext: Uint8Array<ArrayBuffer>,
   iv: Uint8Array<ArrayBuffer> | undefined,
@@ -272,24 +273,24 @@ export async function decrypt(
     case "A128CBC-HS256":
     case "A192CBC-HS384":
     case "A256CBC-HS512": {
-      if (cek instanceof Uint8Array) checkCEKLength(cek, Number.parseInt(enc.slice(-3), 10));
+      if (cek instanceof Uint8Array) checkCEKLength(cek, bitLengthCEK(enc));
       return cbcDecrypt(enc, cek, ciphertext, iv, tag, aad);
     }
     case "A128GCM":
     case "A192GCM":
     case "A256GCM": {
-      if (cek instanceof Uint8Array) checkCEKLength(cek, aesBitsOf(enc));
+      if (cek instanceof Uint8Array) checkCEKLength(cek, bitLengthCEK(enc));
       return gcmDecrypt(enc, cek, ciphertext, iv, tag, aad);
     }
     default: {
-      throw new JWTError("Unsupported JWE Content Encryption Algorithm", "ERR_JWE_INVALID");
+      return unsupportedContentEncryption(enc);
     }
   }
 }
 
 async function getAESKWCryptoKey(
   key: CryptoKey | Uint8Array<ArrayBuffer>,
-  alg: string,
+  alg: JWK_AES_KW,
   options: { usage?: KeyUsage; extractable?: boolean } = {},
 ): Promise<CryptoKey> {
   const { extractable = true, usage } = options;
@@ -300,13 +301,13 @@ async function getAESKWCryptoKey(
   return key;
 }
 
-function checkAESKWKeySize(key: CryptoKey, alg: string): void {
+function checkAESKWKeySize(key: CryptoKey, alg: JWK_AES_KW): void {
   if (lengthOf(key.algorithm) !== aesBitsOf(alg)) {
     throw new JWTError(`Invalid key size for alg: ${alg}`, "ERR_JWK_INVALID");
   }
 }
 
-async function importCBCKeys(enc: string, cek: Uint8Array<ArrayBuffer>, usage: KeyUsage) {
+async function importCBCKeys(enc: JWK_AES_CBC_HMAC, cek: Uint8Array<ArrayBuffer>, usage: KeyUsage) {
   const keySize = aesBitsOf(enc);
   const [encKey, macKey] = await Promise.all([
     crypto.subtle.importKey("raw", cek.subarray(keySize >> 3), "AES-CBC", false, [usage]),
@@ -330,7 +331,7 @@ function cbcMacData(
 }
 
 async function cbcEncrypt(
-  enc: string,
+  enc: JWK_AES_CBC_HMAC,
   plaintext: Uint8Array<ArrayBuffer>,
   cek: Uint8Array<ArrayBuffer> | CryptoKey,
   iv: Uint8Array<ArrayBuffer>,
@@ -354,7 +355,7 @@ async function cbcEncrypt(
 }
 
 async function gcmEncrypt(
-  enc: string,
+  enc: JWK_AES_GCM,
   plaintext: Uint8Array<ArrayBuffer>,
   cek: Uint8Array<ArrayBuffer> | CryptoKey,
   iv: Uint8Array<ArrayBuffer>,
@@ -383,7 +384,7 @@ async function gcmEncrypt(
 }
 
 async function cbcDecrypt(
-  enc: string,
+  enc: JWK_AES_CBC_HMAC,
   cek: Uint8Array<ArrayBuffer> | CryptoKey,
   ciphertext: Uint8Array<ArrayBuffer>,
   iv: Uint8Array<ArrayBuffer>,
@@ -426,7 +427,7 @@ async function cbcDecrypt(
 }
 
 async function gcmDecrypt(
-  enc: string,
+  enc: JWK_AES_GCM,
   cek: Uint8Array<ArrayBuffer> | CryptoKey,
   ciphertext: Uint8Array<ArrayBuffer>,
   iv: Uint8Array<ArrayBuffer>,
@@ -490,4 +491,27 @@ async function timingSafeEqual(
 
 function uint64be(value: number): Uint8Array<ArrayBuffer> {
   return concatUint8Arrays(uint32be(Math.floor(value / 2 ** 32)), uint32be(value % 2 ** 32));
+}
+
+/** The content encryption algorithm an `A*GCMKW` wraps with: the name without its `KW`. */
+function gcmOf(alg: JWK_AES_GCM_KW): JWK_AES_GCM {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- every `JWK_AES_GCM_KW` is a `JWK_AES_GCM` plus `KW`; `slice` cannot carry it
+  return alg.slice(0, 7) as JWK_AES_GCM;
+}
+
+/** Of the closed `JWKAlgorithm` union, only `A*KW` and `A*GCMKW` start with `A` and end with `KW`. */
+function isKeyWrapAlgorithm(alg: JWKAlgorithm): alg is JWK_AES_KW | JWK_AES_GCM_KW {
+  return alg.startsWith("A") && alg.endsWith("KW");
+}
+
+function isContentEncryption(alg: string): alg is ContentEncryptionAlgorithm {
+  return Object.hasOwn(CEK_BIT_LENGTHS, alg);
+}
+
+/** Reached only by a caller outside the type system; `never` keeps the switches above exhaustive. */
+function unsupportedContentEncryption(enc: never): never {
+  throw new JWTError(
+    `Unsupported JWE Content Encryption Algorithm: ${quoteTokenValue(String(enc))}`,
+    "ERR_JWE_INVALID",
+  );
 }

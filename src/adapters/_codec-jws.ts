@@ -11,8 +11,8 @@ import type {
   JWSAsymmetricPublicJWK,
   JWSSignOptions,
   JWSVerifyOptions,
-  JWKLookupFunction,
-  JWKLookupFunctionHeader,
+  JWSKeyLookup,
+  JWSHeaderParameters,
 } from "../core/types";
 import type { StrictOmit } from "../core/utils/types";
 import { assertKeyMaterial, invalidKeyError } from "./_session";
@@ -77,7 +77,7 @@ export interface JWSSessionHooks<
 > extends SessionHooks<TSession, TManager, TCarrier, TConfig> {
   /** Resolve the verification key(s) for the incoming token from its protected header (e.g. by `kid`). */
   onVerifyKeyLookup?: (
-    args: TCarrier & { header: JWKLookupFunctionHeader; config: TConfig },
+    args: TCarrier & { header: JWSHeaderParameters; config: TConfig },
   ) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
 }
 
@@ -86,14 +86,14 @@ export interface JWSCodecConfig extends SessionCoreConfig {
   jws?: JWSSessionOptions;
   hooks?: SessionCoreHooks & {
     onVerifyKeyLookup?(args: {
-      header: JWKLookupFunctionHeader;
+      header: JWSHeaderParameters;
       config: unknown;
       [carrier: string]: unknown;
     }): JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
   };
 }
 
-type JWSOpenKey = JWSVerifyJWK | JWKSet | CryptoKey | JWKLookupFunction<JWKSet | JWSVerifyJWK>;
+type JWSOpenKey = JWSVerifyJWK | JWKSet | CryptoKey | JWSKeyLookup<JWKSet | JWSVerifyJWK>;
 
 export const JWS_DEFAULT_COOKIE = {
   path: "/",
@@ -122,7 +122,7 @@ export function createJWSCodec(options: {
     lookup: (config, carrier) => {
       const hooks = config.hooks;
       if (!hooks?.onVerifyKeyLookup) return undefined;
-      return (header: JWKLookupFunctionHeader) =>
+      return (header: JWSHeaderParameters) =>
         hooks.onVerifyKeyLookup?.({ header, ...carrier, config });
     },
     importable: (key) => (isJWKSet(key) ? key.keys : [key]),

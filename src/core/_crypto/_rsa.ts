@@ -1,14 +1,17 @@
 import { JWTError } from "../error";
+import type { JWK_RSA_ENC, JWK_RSA_PSS, JWK_RSA_SIGN } from "../types";
 import {
   checkKeyUsage,
   hashBitsOf,
   isAlgorithm,
   modulusLengthOf,
+  rsaOaepHashOf,
+  shaBitsOf,
   unusableKey,
 } from "./_key-algorithm";
 
 export async function encryptRSAES(
-  alg: string,
+  alg: JWK_RSA_ENC,
   key: CryptoKey,
   cek: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -19,7 +22,7 @@ export async function encryptRSAES(
 }
 
 export async function decryptRSAES(
-  alg: string,
+  alg: JWK_RSA_ENC,
   key: CryptoKey,
   encryptedKey: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -29,24 +32,25 @@ export async function decryptRSAES(
   return new Uint8Array(await crypto.subtle.decrypt("RSA-OAEP", key, encryptedKey));
 }
 
-export function checkRSACryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
+export function checkRSACryptoKey(key: CryptoKey, alg: JWK_RSA_ENC, usage?: KeyUsage): void {
   if (!isAlgorithm(key.algorithm, "RSA-OAEP")) {
     throw unusableKey("RSA-OAEP");
   }
-  const expected = Number.parseInt(alg.slice(9), 10) || 1;
+  const expected = shaBitsOf(rsaOaepHashOf(alg));
   const actual = hashBitsOf(key.algorithm.hash);
   if (actual !== expected) throw unusableKey(`SHA-${expected}`, "algorithm.hash");
   checkKeyUsage(key, usage);
 }
 
-export function checkRSAModulusLength(alg: string, key: CryptoKey): void {
-  if (alg.startsWith("RS") || alg.startsWith("PS") || alg.startsWith("RSA")) {
-    const modulusLength = modulusLengthOf(key.algorithm);
-    if (typeof modulusLength !== "number" || modulusLength < 2048) {
-      throw new JWTError(
-        `${alg} requires key modulusLength to be 2048 bits or larger`,
-        "ERR_JWK_INVALID",
-      );
-    }
+export function checkRSAModulusLength(
+  alg: JWK_RSA_SIGN | JWK_RSA_PSS | JWK_RSA_ENC,
+  key: CryptoKey,
+): void {
+  const modulusLength = modulusLengthOf(key.algorithm);
+  if (typeof modulusLength !== "number" || modulusLength < 2048) {
+    throw new JWTError(
+      `${alg} requires key modulusLength to be 2048 bits or larger`,
+      "ERR_JWK_INVALID",
+    );
   }
 }

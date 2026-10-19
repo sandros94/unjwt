@@ -3,7 +3,7 @@ import { importKey } from "../core/jwk";
 import { computeDurationInSeconds, expiredClaimMessage } from "../core/utils/jwt";
 import { isJWK, isPlainObject } from "../core/utils/guards";
 import { quoteTokenValue } from "../core/utils/_text";
-import type { ExpiresIn } from "../core/types";
+import type { ExpiresIn, JWKAlgorithm } from "../core/types";
 
 /** Adapter-owned claims: minted on every issue, stripped from `update()` payloads and `session.data`. */
 export const RESERVED_CLAIMS: readonly string[] = ["jti", "iat", "exp", "nbf"];
@@ -167,7 +167,7 @@ export function assertKeyMaterial(key: unknown, options: { prefix: string }): vo
  */
 export async function assertImportableKey(
   key: unknown,
-  options: { alg: string | undefined; prefix: string },
+  options: { alg: JWKAlgorithm | undefined; prefix: string },
 ): Promise<void> {
   if (!isJWK(key)) return;
   const alg = key.alg ?? options.alg;
