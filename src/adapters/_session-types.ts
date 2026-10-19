@@ -48,7 +48,20 @@ export interface SessionManager<
 export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined> {
   /** Sets `exp = iat + maxAge`, requires `exp` on incoming tokens, drives cookie expiry; unset never expires. */
   maxAge?: MaxAge;
-  /** Reissues a session on read, so `exp` slides: `true` on every read, a duration once less than that remains. Needs `maxAge`. */
+  /**
+   * Reissue the session when it is read, needs `maxAge`.
+   *
+   * - `true`: every read reissues.
+   * - a duration: a read reissues once the token is at least that old, so an active session is
+   *   re-signed at most once per duration. With `maxAge: "1h"` and `rolling: "15m"`, reads in the
+   *   first 15 minutes change nothing; the first read after that issues a fresh hour. Must be
+   *   shorter than `maxAge`.
+   *
+   * A read that cannot write (a read-only context, a response already sent) does not reissue;
+   * the next request, carrying the same token, does.
+   *
+   * @default undefined — the session expires at `iat + maxAge` however often it is read.
+   */
   rolling?: true | ExpiresIn;
   /** Drives the cookie name and default header; prefer `__Host-`; a trailing `.<digits>` is refused. */
   name?: string;

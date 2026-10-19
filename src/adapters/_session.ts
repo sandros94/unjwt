@@ -118,7 +118,7 @@ export function assertSessionHeader(header: unknown, options: { prefix: string }
   );
 }
 
-/** `rolling` extends a session's `exp` on read, so it needs a `maxAge`, as `true` or as the remaining time that triggers it. */
+/** `rolling` extends a session's `exp` on read, so it needs a `maxAge`: `true`, or the age a token must reach first, shorter than `maxAge`. */
 export function assertRolling(
   config: { rolling?: unknown; maxAge?: ExpiresIn },
   options: { prefix: string },
@@ -135,7 +135,11 @@ export function assertRolling(
       "ERR_INVALID_OPTION",
     );
   }
-  computeDurationInSeconds(rolling);
+  if (computeDurationInSeconds(rolling) >= computeDurationInSeconds(config.maxAge)) {
+    throw invalidConfigError(
+      `${options.prefix} "rolling" must be shorter than "maxAge": the session would expire before it rolls.`,
+    );
+  }
 }
 
 export function hasTokenSource(source: SessionTokenSource): boolean {

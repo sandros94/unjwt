@@ -3302,18 +3302,24 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(portFamilyCases())(
-      "$label: a rolling duration reissues only when less than that remains",
+      "$label: a rolling duration reissues only once the token is that old",
       async (port) => {
         const config = { ...expiringConfig(port), rolling: "15m" };
         const fresh = await mintToken(port, config, { user: "alice" });
-        const ending = await mintToken(port, config, { user: "alice" }, { maxAge: "5m" });
+        const issuedAt = nowSeconds() - 20 * 60;
+        const aged = await foreignToken(port.family, {
+          jti: "aged",
+          iat: issuedAt,
+          exp: issuedAt + 3600,
+          user: "alice",
+        });
 
         const kept = await port.serve(config, opened, { cookies: { [port.name]: fresh } });
         expect(kept.body.token).toBe(fresh);
         expect(kept.cookies).toEqual([]);
 
-        const rolled = await port.serve(config, opened, { cookies: { [port.name]: ending } });
-        expect(rolled.body.token).not.toBe(ending);
+        const rolled = await port.serve(config, opened, { cookies: { [port.name]: aged } });
+        expect(rolled.body.token).not.toBe(aged);
         expect(rolled.cookies.length).toBeGreaterThan(0);
       },
     );
@@ -3365,6 +3371,9 @@ describe("session adapters — shared contract", () => {
           "ERR_INVALID_OPTION",
         );
         expect(await codeOf({ ...expiringConfig(port), rolling: 0 })).toBe("ERR_INVALID_OPTION");
+        expect(await codeOf({ ...expiringConfig(port), rolling: "1h" })).toBe(
+          "ERR_SESSION_CONFIG_INVALID",
+        );
       },
     );
   });

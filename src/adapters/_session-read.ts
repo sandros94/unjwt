@@ -141,8 +141,8 @@ async function rollSession<TCarrier, Config extends SessionCoreConfig>(
   if (rolling === undefined || store.get() !== session) return;
   if (session.token === undefined || session.expiresAt === undefined) return;
   if (rolling !== true) {
-    const remaining = session.expiresAt - codec.now(config);
-    if (remaining >= computeDurationInSeconds(rolling) * 1000) return;
+    const age = codec.now(config) - session.createdAt;
+    if (age < computeDurationInSeconds(rolling) * 1000) return;
   }
   if (config.cookie !== false && !port.writable(carrier)) return;
   await binding.actions.roll(binding);

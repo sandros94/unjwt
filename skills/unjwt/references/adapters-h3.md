@@ -118,7 +118,8 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **`maxAge` counts from the latest issue**, not first creation. Lineage across rotations is
   the application's job (e.g. record the previous `jti` in `onUpdate`).
 - **No `idleTimeout` / `lastSeenAt`.** Sliding expiration = `rolling: true` (reissue on every
-  read) or `rolling: "15m"` (reissue once less than that remains); needs `maxAge`.
+  read) or `rolling: "15m"` (reissue once the token is at least that old, so at most one
+  re-sign per 15 minutes); needs `maxAge`, and the duration must be shorter than it.
 - **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement, hooks, `Bearer `
   prefix on the session header, JWS cookies default `httpOnly: false`.
 - **`clear()` is final for the request.** The context slot is left holding an empty session,
@@ -237,7 +238,7 @@ interface SessionConfigJWE<
     // each half must be key material of its own side, else ERR_SESSION_KEY_INVALID
     | { privateKey: JWK_Private | CryptoKey; publicKey: JWK_Public | CryptoKey };
   maxAge?: MaxAge;
-  /** Reissue on read so `exp` slides: `true` every request, a duration once less than that remains. Needs `maxAge`. */
+  /** Reissue on read so `exp` slides: `true` every request, a duration once the token is that old (shorter than `maxAge`). Needs `maxAge`. */
   rolling?: true | ExpiresIn;
   name?: string; // cookie name (default: "h3-jwe")
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
@@ -277,7 +278,7 @@ interface SessionConfigJWS<
         publicKey: JWK_Public | JWK_Public[] | JWKSet | CryptoKey;
       };
   maxAge?: MaxAge;
-  /** Reissue on read so `exp` slides: `true` every request, a duration once less than that remains. Needs `maxAge`. */
+  /** Reissue on read so `exp` slides: `true` every request, a duration once the token is that old (shorter than `maxAge`). Needs `maxAge`. */
   rolling?: true | ExpiresIn;
   name?: string; // default: "h3-jws"
   cookie?: false | (CookieSerializeOptions & { chunkMaxLength?: number });
