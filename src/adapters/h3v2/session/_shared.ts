@@ -69,11 +69,9 @@ export function hasResponse(event: HTTPEvent): event is H3Event {
   return "res" in event && Boolean(event.res);
 }
 
-/** Whether the response can still take a `Set-Cookie`; only the Node runtime exposes that signal. */
+/** Whether the response can take a `Set-Cookie`. */
 export function hasWritableResponse(event: HTTPEvent): event is H3Event {
-  if (!hasResponse(event)) return false;
-  const res = event.runtime?.node?.res;
-  return !res || (!res.headersSent && !res.writableEnded);
+  return hasResponse(event);
 }
 
 /** Read the session token: a cookie just set on the response, the request cookie, then the session header. */

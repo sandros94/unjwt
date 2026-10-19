@@ -639,7 +639,7 @@ describe("base64 tooling", () => {
 
     it("rejects padding, the standard alphabet, whitespace and stray bits", () => {
       for (const bad of ["aGVsbG8=", "+__+", "aGVs bG8", "aGVsbG9", "aGVsb"]) {
-        expect(() => base64UrlParse(bad)).toThrowError(
+        expect(() => base64UrlParse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }
@@ -661,7 +661,7 @@ describe("base64 tooling", () => {
       expect(base64Parse("aGVsbG8=")).toBe("hello");
       expect(base64Parse("+//+", { returnAs: "uint8array" })).toEqual(bytes);
       for (const bad of ["aGVsbG8", "-__-", "aGVsbG8=="]) {
-        expect(() => base64Parse(bad)).toThrowError(
+        expect(() => base64Parse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }

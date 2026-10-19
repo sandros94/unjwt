@@ -1,4 +1,4 @@
-import { type H3Event, getCookie, setCookie } from "h3v1";
+import { type H3Event, getCookie, getResponseHeader, setCookie } from "h3v1";
 import { type ChunkedCookieStore, responseCookieStore } from "../_chunked-cookie";
 
 export type CookieSerializeOptions = NonNullable<Parameters<typeof setCookie>[3]>;
@@ -14,7 +14,7 @@ export function eventCookieStore(event: H3Event): ChunkedCookieStore<CookieSeria
 
 /** The `Set-Cookie` headers the response carries so far. */
 export function responseSetCookies(event: H3Event): string[] {
-  const value = event.node.res.getHeader("set-cookie");
+  const value = getResponseHeader(event, "set-cookie");
   if (Array.isArray(value)) return value;
   return typeof value === "string" ? [value] : [];
 }

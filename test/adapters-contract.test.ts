@@ -1,6 +1,6 @@
 import supertest from "supertest";
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
-import { H3, toNodeHandler } from "h3v2";
+import { H3 } from "h3v2";
 import {
   createApp,
   createRouter,
@@ -18,7 +18,7 @@ import { generateJWK } from "../src/core/jwk";
 import { sign, verify } from "../src/core/jws";
 import { encrypt, decrypt } from "../src/core/jwe";
 import type { ExpiresIn } from "../src/core/types";
-import { base64UrlDecode } from "../src/core/utils";
+import { base64UrlParse } from "../src/core/utils";
 import {
   useJWSSession as useJWSSessionV2,
   useJWESession as useJWESessionV2,
@@ -624,6 +624,49 @@ describe("session adapters — shared contract", () => {
       expect(error.message).toBe(coreError.message);
     });
 
+    it("refuses to write a session once the response has been sent", async () => {
+      const issued = await supertest(
+        toNodeListener(
+          h3v1App(async (event) => {
+            const session = await useJWSSessionV1(event, jwsConfig);
+            await session.update({ user: "alice" });
+            return { id: session.id };
+          }),
+        ),
+      ).get("/");
+      const cookie = (issued.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
+
+      const onError = vi.fn();
+      let settle!: (outcome: Record<string, unknown>) => void;
+      const outcome = new Promise<Record<string, unknown>>((resolve) => {
+        settle = resolve;
+      });
+      const app = h3v1App(async (event) => {
+        const session = await useJWSSessionV1(event, { ...jwsConfig, hooks: { onError } });
+        event.node.res.end("sent");
+        const update = await caught(() => session.update({ user: "mallory" }));
+        const clear = await caught(() => session.clear());
+        settle({
+          update: isJWTError(update, "ERR_SESSION_READONLY_EVENT"),
+          clear: isJWTError(clear, "ERR_SESSION_READONLY_EVENT"),
+          id: session.id,
+          user: session.data.user,
+        });
+      });
+
+      const response = await supertest(toNodeListener(app)).get("/").set("cookie", cookie);
+
+      expect(response.text).toBe("sent");
+      expect(response.headers["set-cookie"]).toBeUndefined();
+      expect(await within(outcome, "h3 v1 write after send")).toEqual({
+        update: true,
+        clear: true,
+        id: issued.body.id,
+        user: "alice",
+      });
+      expect(onError).not.toHaveBeenCalled();
+    });
+
     it("refuses a JWE session under a name a JWS session already holds", async () => {
       const app = new H3({ debug: true });
       app.get("/", async (event) => {
@@ -761,47 +804,141 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(error, "ERR_SESSION_READONLY_EVENT")).toBe(true);
     });
 
-    it("refuses to write a session once the response has been sent", async () => {
-      const issued = await supertest(
+    it("refuses a JWE session under a name a JWS session already holds", async () => {
+      const app = new H3({ debug: true });
+      app.get("/", async (event) => {
+        const jws = await useJWSSessionV2(event, { name: "shared", key: jwsKey });
+        await jws.update({ family: "jws" });
+        const error = await caught(() => useJWESessionV2(event, { name: "shared", key: jweKey }));
+        return {
+          config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
+          message: (error as Error).message,
+          jws: (jws.data as Record<string, unknown>).family,
+        };
+      });
+
+      const body = (await (await app.request("/")).json()) as Record<string, unknown>;
+      expect(body.config).toBe(true);
+      expect(body.message).toContain('"shared"');
+      expect(body.message).toContain("already used by a JWS session");
+      expect(body.jws).toBe("jws");
+    });
+  });
+  // #endregion
+
+  // #region h3 v1
+  describe("h3 v1", () => {
+    const jwsConfig = { name: "contract-jws", key: jwsKey } as const;
+
+    it("keeps the session cookie on an error response", async () => {
+      const app = h3v1App(async (event) => {
+        const session = await useJWSSessionV1(event, jwsConfig);
+        await session.update({ user: "alice" });
+        throw createError({ statusCode: 418 });
+      });
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
+        cookie.startsWith("contract-jws="),
+      );
+
+      expect(response.status).toBe(418);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^contract-jws=[\w-]+\.[\w-]+\.[\w-]+;/);
+    });
+
+    it("keeps the cookie deletion on an error response after clear()", async () => {
+      const app = h3v1App(async (event) => {
+        const session = await useJWSSessionV1(event, jwsConfig);
+        await session.update({ user: "alice" });
+        await session.clear();
+        throw createError({ statusCode: 500 });
+      });
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
+        cookie.startsWith("contract-jws="),
+      );
+
+      expect(response.status).toBe(500);
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0]).toMatch(/^contract-jws=;/);
+    });
+
+    it("writes a lax session cookie", async () => {
+      const app = h3v1App(async (event) => {
+        const session = await useJWSSessionV1(event, jwsConfig);
+        await session.update({ user: "alice" });
+        return { ok: true };
+      });
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      expect(response.headers["set-cookie"][0]).toMatch(/SameSite=Lax/i);
+    });
+
+    it("splits a long session across chunk cookies and reads them back", async () => {
+      const chunked = { ...jwsConfig, cookie: { chunkMaxLength: 24 } };
+      const app = h3v1App(async (event) => {
+        const session = await useJWSSessionV1(event, chunked);
+        if (!session.id) await session.update({ user: "alice" });
+        return { user: (session.data as Record<string, unknown>).user ?? null };
+      });
+
+      const request = supertest(toNodeListener(app));
+      const minted = await request.get("/");
+      const cookies = (minted.headers["set-cookie"] as unknown as string[]).map(
+        (cookie) => cookie.split(";")[0],
+      );
+
+      expect(cookies.length).toBeGreaterThan(2);
+      expect(cookies[0]).toMatch(/^contract-jws=__chunked__\d+$/);
+      expect(cookies[1]).toMatch(/^contract-jws\.1=/);
+
+      const replayed = await request.get("/").set("cookie", cookies.join("; "));
+      expect(replayed.body).toEqual({ user: "alice" });
+    });
+
+    it("does not restore a cleared session from the request cookie", async () => {
+      const minted = await supertest(
         toNodeListener(
           h3v1App(async (event) => {
             const session = await useJWSSessionV1(event, jwsConfig);
             await session.update({ user: "alice" });
-            return { id: session.id };
+            return { ok: true };
           }),
         ),
       ).get("/");
-      const cookie = (issued.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
+      const cookie = (minted.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
 
-      const onError = vi.fn();
-      let settle!: (outcome: Record<string, unknown>) => void;
-      const outcome = new Promise<Record<string, unknown>>((resolve) => {
-        settle = resolve;
-      });
       const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, { ...jwsConfig, hooks: { onError } });
-        event.node.res.end("sent");
-        const update = await caught(() => session.update({ user: "mallory" }));
-        const clear = await caught(() => session.clear());
-        settle({
-          update: isJWTError(update, "ERR_SESSION_READONLY_EVENT"),
-          clear: isJWTError(clear, "ERR_SESSION_READONLY_EVENT"),
-          id: session.id,
-          user: session.data.user,
-        });
+        const session = await useJWSSessionV1(event, jwsConfig);
+        await session.clear();
+        const again = await useJWSSessionV1(event, jwsConfig);
+        return { id: again.id ?? null, token: again.token ?? null };
       });
 
       const response = await supertest(toNodeListener(app)).get("/").set("cookie", cookie);
+      expect(response.body).toEqual({ id: null, token: null });
+    });
 
-      expect(response.text).toBe("sent");
-      expect(response.headers["set-cookie"]).toBeUndefined();
-      expect(await within(outcome, "h3 v1 write after send")).toEqual({
-        update: true,
-        clear: true,
-        id: issued.body.id,
-        user: "alice",
+    it("rejects a password string where key material is required", async () => {
+      const app = h3v1App(async (event) => {
+        const error = await caught(() =>
+          useJWESessionV1(event, { name: "contract-jwe-str", key: "a password" as never }),
+        );
+        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
       });
-      expect(onError).not.toHaveBeenCalled();
+
+      const response = await supertest(toNodeListener(app)).get("/");
+      expect(response.body).toEqual({ key: true });
+    });
+
+    it("refuses to write a session on an event with no writable response", async () => {
+      const readOnlyEvent = { request: new Request("http://localhost/"), context: {} };
+      const session = await useJWSSessionV1(readOnlyEvent, jwsConfig);
+      const error = await caught(() => session.update({ user: "alice" }));
+
+      expect(isJWTError(error, "ERR_SESSION_READONLY_EVENT")).toBe(true);
     });
 
     it("refuses a JWE session under a name a JWS session already holds", async () => {
@@ -2351,41 +2488,6 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
-  // #region writes once the response is sent
-  describe("writes once the response is sent", () => {
-    it("h3 v2 under Node: an update after the response was sent is refused and rolled back", async () => {
-      let settle!: (outcome: Record<string, unknown>) => void;
-      const outcome = new Promise<Record<string, unknown>>((resolve) => {
-        settle = resolve;
-      });
-      const config = { name: "late-jws", key: jwsKey, cookie: { secure: false } } as const;
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, config);
-        await session.update({ user: "alice" });
-        const before = { id: session.id, token: session.token };
-        event.runtime!.node!.res!.once("finish", async () => {
-          const error = await caught(() => session.update({ late: true }));
-          settle({
-            readonly: isJWTError(error, "ERR_SESSION_READONLY_EVENT"),
-            unchanged: session.id === before.id && session.token === before.token,
-            late: "late" in session.data,
-          });
-        });
-        return { ok: true };
-      });
-
-      const response = await supertest(toNodeHandler(app)).get("/");
-      const cookies = (response.headers["set-cookie"] as unknown as string[] | undefined) ?? [];
-
-      expect(response.body).toEqual({ ok: true });
-      expect(cookies.some((cookie) => cookie.startsWith("late-jws="))).toBe(true);
-      expect(await outcome).toEqual({ readonly: true, unchanged: true, late: false });
-    });
-  });
-  // #endregion
-
   // #region one clock
   describe("one clock per session", () => {
     it.each(portFamilyCases())(
@@ -3793,7 +3895,7 @@ function foreignPlainToken(family: Family, claims: Record<string, unknown>): Pro
 
 /** The protected header of a compact token. */
 function protectedHeaderOf(token: string): Record<string, unknown> {
-  return JSON.parse(base64UrlDecode(token.split(".")[0])) as Record<string, unknown>;
+  return JSON.parse(base64UrlParse(token.split(".")[0])) as Record<string, unknown>;
 }
 
 /** The claims a session token carries, opened with the session key. */

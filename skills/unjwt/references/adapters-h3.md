@@ -102,7 +102,7 @@ Every error the adapters throw is a `JWTError`:
 | Code                         | Raised when                                                               |
 | ---------------------------- | ------------------------------------------------------------------------- |
 | `ERR_SESSION_TOKEN_INVALID`  | incoming token failed verification/decryption; `cause` is the original    |
-| `ERR_SESSION_READONLY_EVENT` | `update()` / `clear()` once the response cannot take a `Set-Cookie`       |
+| `ERR_SESSION_READONLY_EVENT` | `update()` / `clear()` on an event with no response, or sent (h3 v1)      |
 | `ERR_SESSION_KEY_INVALID`    | `key` missing, a password string, the wrong shape, or not importable      |
 | `ERR_SESSION_CONFIG_INVALID` | config combination that cannot work (no token source, unpinned CryptoKey) |
 | `ERR_INVALID_OPTION`         | `update()` data not a plain object, or a `__proto__`-like key in it       |
@@ -126,11 +126,11 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
   (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless
   an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
-- **After the response is sent** (`res.headersSent` / `res.writableEnded`): `update()` and
-  `clear()` throw `ERR_SESSION_READONLY_EVENT` and leave the session as it was — on h3 v1, and
-  on h3 v2 under Node (`event.runtime.node.res`). Other h3 v2 runtimes expose no such signal, so
-  a write made after the response was built is accepted but never sent: write inside the
-  handler, before it returns. A read after the response was sent only observes: an expired
+- **Events without a response**: `update()` and `clear()` throw `ERR_SESSION_READONLY_EVENT`
+  and leave the session as it was. The guard is each major's own: h3 v1 `isEvent(event) &&
+  !event.handled`, h3 v2 `event.res`, as upstream `useSession`. Neither adapter probes the
+  runtime, so on h3 v2 a write made after the handler returned is accepted but never sent:
+  write inside the handler, before it returns. A read there only observes: an expired
   token reaches `onExpire` without its cookie being dropped and `rolling` does not reissue;
   the next request, carrying the same token, does both.
 

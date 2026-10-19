@@ -36,7 +36,5 @@ export {
   configureJWKCache,
   clearJWKCache,
 } from "./core/jwk";
-// The whole `unjwt/utils` surface — base64url codecs, type guards, claim
-// validation, algorithm inference — is re-exported as named exports, so the
-// root entry point carries no less than the subpath it mirrors.
+
 export * from "./core/utils";
