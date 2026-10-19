@@ -36,7 +36,7 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
   - `publicExponent?: Uint8Array` — RSA only, the exponent's big-endian bytes, default `0x010001`. Anything that is not a non-empty `Uint8Array` throws `ERR_INVALID_OPTION`
   - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519"`. `ES256` / `ES384` / `ES512` are defined over `P-256` / `P-384` / `P-521` and `Ed25519` over its own curve, so a `namedCurve` contradicting them throws `ERR_INVALID_OPTION`; `EdDSA` accepts `Ed25519` alone (anything else, `Ed448` included, is `ERR_JWK_UNSUPPORTED`) and `ECDH-ES*` (`P-256` default) chooses among `P-256` / `P-384` / `P-521` / `X25519`. `Ed448` / `X448` are not supported anywhere in the library
 
-PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriveJWKFromPassword`.
+PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriveJWKFromPassword`. `deriveJWKFromPassword(password, { alg, salt, iterations, kid? })` returns `JWK_oct<"A128KW" | "A192KW" | "A256KW">` typed by the PBES2 `alg` passed, with `kid: string` (the thumbprint, or the one given) unless `kid: false`; it is assignable to `JWEEncryptJWK` and to a session `key` without a cast.
 
 To return JWK with extra parameters (e.g. `use`, `x5c`), use `generateJWK()` instead of `toJWK: true`.
 

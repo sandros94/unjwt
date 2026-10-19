@@ -135,6 +135,18 @@ export type DeriveKeyReturn<
     ? JWK_oct<DerivedJWKAlg<TAlg>>
     : CryptoKey;
 
+/** Options of `deriveJWKFromPassword`: PBES2 derivation without `toJWK`/`extractable`, plus `kid` (`false` for none). */
+export type DeriveJWKOptions<
+  TAlg extends JWK_PBES2 = JWK_PBES2,
+  Kid extends string | false = string,
+> = Omit<DeriveKeyOptions, "alg" | "toJWK" | "extractable"> & { alg: TAlg; kid?: Kid };
+
+/** `deriveJWKFromPassword` return type: the AES-KW `oct` JWK for `TAlg`, with `kid` unless `Kid` is `false`. */
+export type DeriveJWKReturn<TAlg extends JWK_PBES2, Kid extends string | false = string> = JWK_oct<
+  DerivedJWKAlg<TAlg>
+> &
+  GeneratedJWKMembers<DerivedJWKAlg<TAlg>, Kid>;
+
 export type KeyManagementAlgorithm =
   | JWK_RSA_ENC
   | JWK_AES_KW

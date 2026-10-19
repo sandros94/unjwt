@@ -29,6 +29,9 @@ import type {
   ImportedKey,
   DeriveKeyOptions,
   DeriveKeyReturn,
+  DeriveJWKOptions,
+  DeriveJWKReturn,
+  JWK_PBES2,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
   WrapKeyOptions,
@@ -298,10 +301,16 @@ export async function deriveKeyFromPassword(
  *   - JWK metadata (`use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the result;
  *     `alg`, `kty`, `key_ops`, `ext` and key-material members are reserved (`ERR_INVALID_OPTION`).
  */
+export async function deriveJWKFromPassword<
+  TAlg extends JWK_PBES2,
+  Kid extends string | false = string,
+>(
+  password: string | Uint8Array<ArrayBuffer>,
+  options: DeriveJWKOptions<TAlg, Kid> & Omit<JWKMetadata, "kid">,
+): Promise<DeriveJWKReturn<TAlg, Kid>>;
 export async function deriveJWKFromPassword(
   password: string | Uint8Array<ArrayBuffer>,
-  options: Omit<DeriveKeyOptions, "toJWK" | "extractable"> &
-    Omit<JWKMetadata, "kid"> & { kid?: string | false },
+  options: DeriveJWKOptions & Omit<JWKMetadata, "kid">,
 ): Promise<JWK_oct> {
   assertPlainObject(options, "options");
   const {

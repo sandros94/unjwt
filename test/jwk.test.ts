@@ -34,6 +34,7 @@ import { sign, verify } from "../src/core/jws";
 import { encrypt, decrypt } from "../src/core/jwe";
 import { isCryptoKey, isCryptoKeyPair } from "../src/core/utils";
 import type {
+  JWEEncryptJWK,
   JWK,
   JWKSet,
   JWK_oct,
@@ -301,6 +302,25 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.kid).toBe(kid);
       expect(typeof jwk.k).toBe("string");
       expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(16); // 128 bits
+      expectTypeOf(jwk.alg).toEqualTypeOf<"A128KW">();
+      expectTypeOf(jwk.kid).toEqualTypeOf<string>();
+      expectTypeOf(jwk).toExtend<JWEEncryptJWK>();
+    });
+
+    it("types the derived JWK by its PBES2 alg, without `kid` when `kid: false`", async () => {
+      const jwk = await deriveJWKFromPassword(password, {
+        alg: "PBES2-HS512+A256KW",
+        salt,
+        iterations,
+        kid: false,
+      });
+      expect(jwk.alg).toBe("A256KW");
+      expect(jwk.kid).toBeUndefined();
+      expectTypeOf(jwk.alg).toEqualTypeOf<"A256KW">();
+      expectTypeOf(jwk.kid).toEqualTypeOf<string | undefined>();
+      expectTypeOf(() =>
+        deriveJWKFromPassword(password, { alg: "PBES2-HS384+A192KW", salt, iterations }),
+      ).returns.resolves.toExtend<{ kty: "oct"; alg: "A192KW"; kid: string }>();
     });
 
     it("should respect extractable and keyUsage options", async () => {
