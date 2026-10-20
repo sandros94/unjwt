@@ -55,6 +55,11 @@ export function expiredSessionError(options: {
   return new JWTError(expiredClaimMessage(exp), "ERR_JWT_EXPIRED", { jti: id, exp });
 }
 
+/** Whether a read failure is the token's own: everything but a key lookup that threw, which says nothing about the token. */
+export function isTokenFailure(error: JWTError<"ERR_SESSION_TOKEN_INVALID">): boolean {
+  return !(isJWTError(error.cause, "ERR_JWK_KEY_NOT_FOUND") && error.cause.cause !== undefined);
+}
+
 /** Passes `ERR_JWT_EXPIRED` through; anything else becomes `ERR_SESSION_TOKEN_INVALID`. */
 export function rethrowAsInvalidToken(error: unknown, options: { prefix: string }): never {
   if (isJWTError(error, "ERR_JWT_EXPIRED")) throw error;

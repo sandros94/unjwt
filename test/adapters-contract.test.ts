@@ -1776,6 +1776,56 @@ describe("session adapters — shared contract", () => {
       expect(body).toEqual({ code: true });
     });
 
+    it.each(portFamilyCases())(
+      "$label: drops the cookie of a token that does not open, as an expired one's",
+      async (port) => {
+        const onError = vi.fn();
+        const response = await port.serve(
+          { name: port.name, key: port.key, cookie: { secure: false }, hooks: { onError } },
+          async (open) => ({ id: (await open()).id ?? null }),
+          { cookies: { [port.name]: "not.a.token" } },
+        );
+
+        expect(response.body).toEqual({ id: null });
+        expect(onError).toHaveBeenCalledOnce();
+        expect(response.cookies).toEqual([
+          expect.stringMatching(new RegExp(`^${port.name}=; .*Max-Age=0`)),
+        ]);
+      },
+    );
+
+    it.each(portFamilyCases())(
+      "$label: keeps the cookie when the key lookup threw, which says nothing about the token",
+      async (port) => {
+        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+        const onError = vi.fn();
+        const lookup = () => {
+          throw new Error("key store unavailable");
+        };
+        const response = await port.serve(
+          {
+            name: port.name,
+            key: port.key,
+            cookie: { secure: false },
+            hooks: {
+              onError,
+              ...(port.family === "jws"
+                ? { onVerifyKeyLookup: lookup }
+                : { onUnsealKeyLookup: lookup }),
+            },
+          },
+          async (open) => ({ id: (await open()).id ?? null }),
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(response.body).toEqual({ id: null });
+        expect(isJWTError(onError.mock.calls[0]?.[0]?.error.cause, "ERR_JWK_KEY_NOT_FOUND")).toBe(
+          true,
+        );
+        expect(response.cookies).toEqual([]);
+      },
+    );
+
     it.each(portFamilyCases())("$label: a missing key fails the read", async (port) => {
       const body = await port.run(
         { name: port.name, key: undefined, cookie: { secure: false } },
@@ -2624,7 +2674,9 @@ describe("session adapters — shared contract", () => {
           );
 
           expect(response.body).toEqual({ id: null });
-          expect(response.cookies).toEqual([]);
+          expect(response.cookies).toEqual([
+            expect.stringMatching(new RegExp(`^${port.name}=; .*Max-Age=0`)),
+          ]);
           expect(onExpire).not.toHaveBeenCalled();
           const error = onError.mock.calls[0][0].error;
           expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);

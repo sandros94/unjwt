@@ -119,7 +119,8 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **No `idleTimeout` / `lastSeenAt`.** Sliding expiration = `rolling: true` (reissue on every
   read) or `rolling: "15m"` (reissue once the token is at least that old, so at most one
   re-sign per 15 minutes); needs `maxAge`, and the duration must be shorter than it.
-- **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement, hooks, `Bearer `
+- **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement (both drop the
+  cookie; a key lookup that threw keeps it), hooks, `Bearer `
   prefix on the session header, JWS cookies default `httpOnly: false`.
 - **`clear()` is final for the request.** The context slot is left holding an empty session,
   so a later `use(event)` on the same event does not restore the request cookie.
@@ -133,7 +134,7 @@ Forked from h3's `useSession`, then deliberately diverged:
   sent.`) and leaves the session as it was. h3 v2 guards on `event.res` only, as upstream, and
   never probes the runtime, so a write made after the handler returned is accepted but never
   sent: write inside the handler, before it returns. A read there only observes: an expired
-  token reaches `onExpire` without its cookie being dropped and `rolling` does not reissue;
+  or unreadable token reaches `onExpire`/`onError` without its cookie being dropped and `rolling` does not reissue;
   the next request, carrying the same token, does both.
 
 Both h3 adapters, the Elysia one and `unjwt/session` run the same session core

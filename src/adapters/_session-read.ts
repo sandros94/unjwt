@@ -7,7 +7,7 @@
 import { isJWTError } from "../core/error.ts";
 import type { ExpiresIn } from "../core/types/index.ts";
 import { computeDurationInSeconds } from "../core/utils/jwt.ts";
-import { expiredSessionError } from "./_session.ts";
+import { expiredSessionError, isTokenFailure } from "./_session.ts";
 import { dropSessionCookie } from "./_session-bind.ts";
 import {
   type SessionBinding,
@@ -105,6 +105,10 @@ export async function loadSession<
         error: failure.error,
       });
     } else {
+      // A token that cannot be read is dropped like an expired one; a lookup that threw keeps it.
+      if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID") && isTokenFailure(failure.error)) {
+        dropSessionCookie(binding);
+      }
       await config.hooks?.onError?.({
         session: binding.actions.manager(binding),
         ...args,

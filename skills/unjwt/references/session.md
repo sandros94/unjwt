@@ -197,5 +197,6 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 | `ERR_SESSION_READONLY_EVENT` | `update()` on a cookie session opened without a `res`; `update()`/`clear()` once a driver's `writable()` is `false`.                                                                                                                                 |
 | `ERR_INVALID_OPTION`         | `update()` data not a plain object, or a `__proto__`-like key.                                                                                                                                                                                       |
 
-An unreadable incoming token goes to `onError` as `ERR_SESSION_TOKEN_INVALID`; an expired one to
+An unreadable incoming token goes to `onError` as `ERR_SESSION_TOKEN_INVALID` and its cookie is
+dropped (kept only when a key lookup hook threw); an expired one, cookie dropped too, to
 `onExpire`. Neither throws from `use()`.
