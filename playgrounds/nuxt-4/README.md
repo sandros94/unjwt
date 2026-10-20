@@ -56,11 +56,6 @@ async function define(): Promise<Definition> {
     name: "unjwt-session",
     maxAge: "1h",
     rolling: "15m",
-    hooks: {
-      async onError({ session }) {
-        await session.clear();
-      },
-    },
   });
 }
 
@@ -73,7 +68,7 @@ Nuxt v4.6 reads `NUXT_APP_SECRET` (or `runtimeConfig.appSecret`) and generates a
 
 `useAppSession` takes `SessionContext`, not only `RequestEvent`: the same util serves a route's event, a WebSocket upgrade request, and `{ token }` when a token arrives some other way.
 
-`rolling: "15m"` reissues a token older than 15 minutes on the first read that sees it, over HTTP and at a WebSocket upgrade alike, so an active user never expires. The `onError` hook clears a session whose token cannot be opened, so a tampered or foreign cookie is dropped by the response instead of being sent back on every request.
+`rolling: "15m"` reissues a token older than 15 minutes on the first read that sees it, over HTTP and at a WebSocket upgrade alike, so an active user never expires. A cookie whose token cannot be opened is dropped by the read itself, so a tampered or foreign cookie is not sent back on every request; `onError` only reports it.
 
 ## Routes
 

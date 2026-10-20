@@ -20,11 +20,6 @@ async function define(): Promise<Definition> {
     name: "unjwt-session",
     maxAge: "1h",
     rolling: "15m",
-    hooks: {
-      async onError({ session }) {
-        await session.clear();
-      },
-    },
   });
 }
 

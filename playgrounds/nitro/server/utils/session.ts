@@ -18,11 +18,6 @@ const definition = defineJWESession<SessionData, "1h">({
   name: "unjwt-session",
   maxAge: "1h",
   rolling: "15m",
-  hooks: {
-    async onError({ session }) {
-      await session.clear();
-    },
-  },
 });
 
 export function useAppSession(event: SessionContext) {
