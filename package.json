@@ -69,7 +69,9 @@
   "scripts": {
     "build": "obuild",
     "dev": "pnpm --dir playgrounds/h3 dev",
-    "dev:prepare": "obuild --stub && pnpm simple-git-hooks",
+    "dev:nuxt": "pnpm --dir playgrounds/nuxt-4 dev",
+    "dev:nitro": "pnpm --dir playgrounds/nitro dev",
+    "dev:prepare": "obuild --stub && pnpm --dir playgrounds/nuxt-4 prepare && pnpm simple-git-hooks",
     "lint": "oxlint --deny-warnings . && oxfmt --check .",
     "fmt": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",

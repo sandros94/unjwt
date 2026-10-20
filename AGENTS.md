@@ -29,7 +29,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
 - **Example:** `pnpm dev` runs the h3 playground
-- **Playgrounds:** `playgrounds/h3/`, a workspace package on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must be built); `pnpm --filter unjwt-playground-h3 check` runs login → me → logout against h3's own `useSession` and unjwt's. Its `h3` peer would resolve from the root, where only the `h3v1`/`h3v2` aliases live, so `scripts/h3-from-playground.mjs` is a Node resolve hook that re-anchors `h3` to the playground's copy.
+- **Playgrounds:** `playgrounds/{h3,nuxt-4}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must be built). Its `h3` peer would resolve from the root, where only the `h3v1` alias and the root's own `h3` live: Nuxt aliases `h3` to its own copy in `nuxt.config.ts`, the h3 playground does it with a Node resolve hook (`scripts/h3-from-playground.mjs`). `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1, `appSecret`-derived key, WebSockets). They are usage examples, not tests: `test/` covers behaviour.
 
 ## Architecture
 
