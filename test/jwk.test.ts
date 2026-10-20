@@ -7,7 +7,7 @@ import {
   base64UrlParse,
   base64Stringify,
   base64Parse,
-} from "../src/core/utils/base64";
+} from "../src/core/utils/base64.ts";
 import * as jose from "jose";
 import {
   generateKey,
@@ -29,10 +29,10 @@ import {
   JWTError,
   isJWTError,
   isUnsecureError,
-} from "../src/core/jwk";
-import { sign, verify } from "../src/core/jws";
-import { encrypt, decrypt } from "../src/core/jwe";
-import { isCryptoKey, isCryptoKeyPair } from "../src/core/utils";
+} from "../src/core/jwk.ts";
+import { sign, verify } from "../src/core/jws.ts";
+import { encrypt, decrypt } from "../src/core/jwe.ts";
+import { isCryptoKey, isCryptoKeyPair } from "../src/core/utils/index.ts";
 import type {
   JWEEncryptJWK,
   JWK,
@@ -55,12 +55,12 @@ import type {
   GeneratedJWKMap,
   ImportedKey,
   ImportedKeyMap,
-} from "../src/core/types";
-import { rsa, ec } from "./keys";
+} from "../src/core/types/index.ts";
+import { rsa, ec } from "./keys.ts";
 
 const STRING_KEY_MESSAGE =
   "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
-import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/core/_crypto";
+import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/core/_crypto/index.ts";
 
 describe.concurrent("JWK Utilities", () => {
   describe("generateKey", () => {

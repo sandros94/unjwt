@@ -1,9 +1,9 @@
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "../utils/base64";
+import { base64UrlStringify } from "../utils/base64.ts";
 
-import { concatUint8Arrays } from "../utils/array";
-import { JWTError } from "../error";
-import type { JWK_PBES2 } from "../types";
+import { concatUint8Arrays } from "../utils/array.ts";
+import { JWTError } from "../error.ts";
+import type { JWK_PBES2 } from "../types/index.ts";
 import {
   aesBitsOf,
   checkKeyUsage,
@@ -11,8 +11,8 @@ import {
   isAlgorithm,
   pbes2HashOf,
   unusableKey,
-} from "./_key-algorithm";
-import { aesKwWrap, aesKwUnwrap } from "./_aes";
+} from "./_key-algorithm.ts";
+import { aesKwWrap, aesKwUnwrap } from "./_aes.ts";
 
 /** RFC 7518 §4.8.1.2 — the floor every PBES2 `p2c` is held to. */
 export const DEFAULT_PBES2_MIN_ITERATIONS = 1000;

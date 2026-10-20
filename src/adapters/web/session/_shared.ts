@@ -1,8 +1,8 @@
-import { isPlainObject } from "../../../core/utils/guards";
-import type { SessionDriver } from "../../_driver";
-import { invalidConfigError } from "../../_session";
-import { webCookieJar } from "../_cookie";
-import type { SessionContext, SessionRequestEvent, SessionRequestHeaders } from "./types";
+import { isPlainObject } from "../../../core/utils/guards.ts";
+import type { SessionDriver } from "../../_driver.ts";
+import { invalidConfigError } from "../../_session.ts";
+import { webCookieJar } from "../_cookie.ts";
+import type { SessionContext, SessionRequestEvent, SessionRequestHeaders } from "./types.ts";
 
 /** Message prefix for every error the Web session entry emits. */
 export const PREFIX = "[unjwt/session]";

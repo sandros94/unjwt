@@ -5,9 +5,9 @@ import type {
   JWK_PBES2,
   JWSAlgorithm,
   KeyManagementAlgorithm,
-} from "../types";
-import { hashNameOf, lengthOf, namedCurveOf } from "../_crypto/_key-algorithm";
-import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards";
+} from "../types/index.ts";
+import { hashNameOf, lengthOf, namedCurveOf } from "../_crypto/_key-algorithm.ts";
+import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
 
 /** RFC 7518 §4.8 — the password-based key management algorithms. */
 export const PBES2_ALGORITHMS: readonly JWK_PBES2[] = [

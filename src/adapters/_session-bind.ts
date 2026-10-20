@@ -1,23 +1,23 @@
-import type { SessionDriver } from "./_driver";
+import type { SessionDriver } from "./_driver.ts";
 import {
   assertCookiePrefix,
   assertRolling,
   assertSessionName,
   invalidConfigError,
-} from "./_session";
+} from "./_session.ts";
 import type {
   SessionActions,
   SessionBinding,
   SessionCodec,
   SessionCoreConfig,
   SessionStore,
-} from "./_session-core";
+} from "./_session-core.ts";
 import {
   type SessionCookie,
   assertSessionHeader,
   assertTokenSource,
   resolveTransport,
-} from "./_transport";
+} from "./_transport.ts";
 
 /** The session names bound on one request, in a slot of its state record. */
 const kSessionNames: unique symbol = Symbol("unjwt_session_names");

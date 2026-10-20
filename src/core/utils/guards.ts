@@ -10,8 +10,8 @@ import type {
   JWK_OKP_Private,
   JWK_RSA_Public,
   JWK_RSA_Private,
-} from "../types";
-import { JWTError } from "../error";
+} from "../types/index.ts";
+import { JWTError } from "../error.ts";
 
 /** Whether `key` is a JWK whose `kty` this library models (`oct`, `RSA`, `EC`, `OKP`). */
 export function isJWK(key: unknown): key is JWK {

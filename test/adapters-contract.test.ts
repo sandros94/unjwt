@@ -14,12 +14,12 @@ import {
 } from "h3v1";
 import { Elysia } from "elysia";
 
-import { isJWTError } from "../src/core/error";
-import { generateJWK } from "../src/core/jwk";
-import { sign, verify } from "../src/core/jws";
-import { encrypt, decrypt } from "../src/core/jwe";
-import type { ExpiresIn } from "../src/core/types";
-import { base64UrlParse } from "../src/core/utils";
+import { isJWTError } from "../src/core/error.ts";
+import { generateJWK } from "../src/core/jwk.ts";
+import { sign, verify } from "../src/core/jws.ts";
+import { encrypt, decrypt } from "../src/core/jwe.ts";
+import type { ExpiresIn } from "../src/core/types/index.ts";
+import { base64UrlParse } from "../src/core/utils/index.ts";
 import {
   useJWSSession as useJWSSessionV2,
   useJWESession as useJWESessionV2,
@@ -40,7 +40,7 @@ import {
   type OpenedSessionState,
   type SessionDecryptOptions,
   type SessionVerifyOptions,
-} from "../src/adapters/h3";
+} from "../src/adapters/h3/index.ts";
 import {
   useJWSSession as useJWSSessionV1,
   useJWESession as useJWESessionV1,
@@ -58,30 +58,38 @@ import {
   defineJWESession as defineJWESessionV1,
   type CompatEvent,
   type OpenedSessionState as OpenedSessionStateV1,
-} from "../src/adapters/h3v1";
-import { MAX_CHUNK_COUNT, parseChunkCount, readChunked } from "../src/adapters/_chunked-cookie";
-import { createJWSSession, defineJWSSession, jwsSession } from "../src/adapters/elysia/session/jws";
-import { createJWESession, defineJWESession, jweSession } from "../src/adapters/elysia/session/jwe";
-import type { SessionPlugin } from "../src/adapters/elysia/_plugin";
-import type { SessionContext } from "../src/adapters/elysia/session/types";
+} from "../src/adapters/h3v1/index.ts";
+import { MAX_CHUNK_COUNT, parseChunkCount, readChunked } from "../src/adapters/_chunked-cookie.ts";
+import {
+  createJWSSession,
+  defineJWSSession,
+  jwsSession,
+} from "../src/adapters/elysia/session/jws.ts";
+import {
+  createJWESession,
+  defineJWESession,
+  jweSession,
+} from "../src/adapters/elysia/session/jwe.ts";
+import type { SessionPlugin } from "../src/adapters/elysia/_plugin.ts";
+import type { SessionContext } from "../src/adapters/elysia/session/types.ts";
 import {
   defineJWSSession as defineJWSSessionWeb,
   defineJWESession as defineJWESessionWeb,
   type SessionContext as WebSessionContext,
-} from "../src/adapters/web";
-import type { CookieAttributes } from "../src/adapters/elysia/_cookie";
-import { createJWSCodec } from "../src/adapters/_codec-jws";
-import { createJWECodec } from "../src/adapters/_codec-jwe";
+} from "../src/adapters/web/index.ts";
+import type { CookieAttributes } from "../src/adapters/elysia/_cookie.ts";
+import { createJWSCodec } from "../src/adapters/_codec-jws.ts";
+import { createJWECodec } from "../src/adapters/_codec-jwe.ts";
 import type {
   SessionBinding,
   SessionCodec,
   SessionCoreConfig,
-} from "../src/adapters/_session-core";
-import { bindSession } from "../src/adapters/_session-bind";
-import type { CookieJar, SessionDriver } from "../src/adapters/_driver";
-import { loadSession } from "../src/adapters/_session-read";
-import { dropSession, issueSession, sessionActions } from "../src/adapters/_session-write";
-import type { SessionManager } from "../src/adapters/_session-types";
+} from "../src/adapters/_session-core.ts";
+import { bindSession } from "../src/adapters/_session-bind.ts";
+import type { CookieJar, SessionDriver } from "../src/adapters/_driver.ts";
+import { loadSession } from "../src/adapters/_session-read.ts";
+import { dropSession, issueSession, sessionActions } from "../src/adapters/_session-write.ts";
+import type { SessionManager } from "../src/adapters/_session-types.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
 // PBES2 derives its key from the JWK's bytes, so the JWK declares the PBES2 alg itself.

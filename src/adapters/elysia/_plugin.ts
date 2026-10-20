@@ -1,9 +1,9 @@
 import { Elysia } from "elysia";
 
-import type { ExpiresIn } from "../../core/types";
-import type { SessionDefinition } from "../_session-definition";
-import type { SessionClaims, SessionManager, SessionRecord } from "../_session-types";
-import type { SessionContext } from "./session/types";
+import type { ExpiresIn } from "../../core/types/index.ts";
+import type { SessionDefinition } from "../_session-definition.ts";
+import type { SessionClaims, SessionManager, SessionRecord } from "../_session-types.ts";
+import type { SessionContext } from "./session/types.ts";
 
 /**
  * Explicit return type for the `jwsSession` / `jweSession` plugin factories.

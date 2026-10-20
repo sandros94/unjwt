@@ -1,6 +1,6 @@
-import type { JWTClaims, JWTClaimValidationOptions, Duration } from "../types";
-import { maybeArray } from "./array";
-import { JWTError } from "../error";
+import type { JWTClaims, JWTClaimValidationOptions, Duration } from "../types/index.ts";
+import { maybeArray } from "./array.ts";
+import { JWTError } from "../error.ts";
 
 /** Whether headers declare JSON content: a string `typ` naming JWT, or a JSON `cty`. */
 export function isJWTContent(header: { typ?: string; cty?: string } | undefined): boolean {

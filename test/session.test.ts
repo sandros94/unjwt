@@ -1,9 +1,9 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
 
-import { isJWTError } from "../src/core/error";
-import { generateJWK } from "../src/core/jwk";
-import { sign } from "../src/core/jws";
-import { encrypt } from "../src/core/jwe";
+import { isJWTError } from "../src/core/error.ts";
+import { generateJWK } from "../src/core/jwk.ts";
+import { sign } from "../src/core/jws.ts";
+import { encrypt } from "../src/core/jwe.ts";
 import {
   type CookieJar,
   type SessionContext,
@@ -13,7 +13,7 @@ import {
   defineJWESession,
   defineJWSSession,
   defineSessionDriver,
-} from "../src/adapters/web";
+} from "../src/adapters/web/index.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
 

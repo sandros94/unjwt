@@ -1,20 +1,20 @@
-import type { ExpiresIn } from "../../../core/types";
+import type { ExpiresIn } from "../../../core/types/index.ts";
 import {
   type JWECodecConfig,
   type JWESessionConfig,
   type JWESessionHooks,
   createJWECodec,
-} from "../../_codec-jwe";
-import type { SessionState } from "../../_session-core";
-import { type SessionDefinition, defineSession } from "../../_session-definition";
-import type { SessionRecord } from "../../_session-types";
-import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin";
-import type { CookieAttributes } from "../_cookie";
-import type { SessionClaims, SessionManager, SessionContext } from "./types";
-import { PREFIX, elysiaSessionDriver } from "./_shared";
+} from "../../_codec-jwe.ts";
+import type { SessionState } from "../../_session-core.ts";
+import { type SessionDefinition, defineSession } from "../../_session-definition.ts";
+import type { SessionRecord } from "../../_session-types.ts";
+import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin.ts";
+import type { CookieAttributes } from "../_cookie.ts";
+import type { SessionClaims, SessionManager, SessionContext } from "./types.ts";
+import { PREFIX, elysiaSessionDriver } from "./_shared.ts";
 
 export type { SessionContext };
-export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe";
+export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe.ts";
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "elysia-jwe" });
 

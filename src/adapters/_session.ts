@@ -1,9 +1,9 @@
-import { JWTError, isJWTError } from "../core/error";
-import { importKey } from "../core/jwk";
-import { computeDurationInSeconds, expiredClaimMessage } from "../core/utils/jwt";
-import { isJWK, isPlainObject } from "../core/utils/guards";
-import { quoteTokenValue } from "../core/utils/_text";
-import type { ExpiresIn, JWKAlgorithm } from "../core/types";
+import { JWTError, isJWTError } from "../core/error.ts";
+import { importKey } from "../core/jwk.ts";
+import { computeDurationInSeconds, expiredClaimMessage } from "../core/utils/jwt.ts";
+import { isJWK, isPlainObject } from "../core/utils/guards.ts";
+import { quoteTokenValue } from "../core/utils/_text.ts";
+import type { ExpiresIn, JWKAlgorithm } from "../core/types/index.ts";
 
 /** Adapter-owned claims: minted on every issue, stripped from `update()` payloads and `session.data`. */
 export const RESERVED_CLAIMS: readonly string[] = ["jti", "iat", "exp", "nbf"];

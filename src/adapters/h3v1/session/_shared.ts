@@ -7,9 +7,9 @@ import {
   setCookie,
 } from "h3v1";
 import { parse as parseCookies } from "cookie-es";
-import { setCookieValues } from "../../_chunked-cookie";
-import type { CookieJar, SessionDriver } from "../../_driver";
-import { type CookieSerializeOptions, responseSetCookies } from "../_cookie";
+import { setCookieValues } from "../../_chunked-cookie.ts";
+import type { CookieJar, SessionDriver } from "../../_driver.ts";
+import { type CookieSerializeOptions, responseSetCookies } from "../_cookie.ts";
 
 /** Message prefix for every error the h3 adapters emit. */
 export const PREFIX = "[unjwt/h3]";

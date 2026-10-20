@@ -1,17 +1,17 @@
 import * as jose from "jose";
 import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
 
-import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws";
+import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws.ts";
 import type {
   JOSEPayloadMode,
   JOSEPayloadTypeMap,
   JWSVerifyOptions,
   JWSVerifyResult,
   PayloadOf,
-} from "../src/core/jws";
-import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
+} from "../src/core/jws.ts";
+import { generateKey, generateJWK, exportKey } from "../src/core/jwk.ts";
 import type {
   JWTClaims,
   JWK,
@@ -20,7 +20,7 @@ import type {
   JWK_RSA_Private,
   JWKSet,
   JWSVerifyJWK,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {

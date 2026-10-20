@@ -1,6 +1,6 @@
-import type { JWTClaims, ExpiresIn } from "../core/types";
-import type { StrictOmit } from "../core/utils/types";
-import type { SessionIssueOptions } from "./_session";
+import type { JWTClaims, ExpiresIn } from "../core/types/index.ts";
+import type { StrictOmit } from "../core/utils/types.ts";
+import type { SessionIssueOptions } from "./_session.ts";
 
 /** Session data shape; `any` values let an `interface` (no index signature) satisfy it. */
 // oxlint-disable-next-line typescript/no-explicit-any -- an interface has no implicit index signature

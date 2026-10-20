@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { textEncoder } from "unsecure/utils";
 
-import { sign, verify } from "../src/core/_crypto/_sign-verify";
+import { sign, verify } from "../src/core/_crypto/_sign-verify.ts";
 import {
   encrypt,
   decrypt,
@@ -13,14 +13,14 @@ import {
   aesKwUnwrap,
   gcmkwEncrypt,
   gcmkwDecrypt,
-} from "../src/core/_crypto/_aes";
-import { encryptRSAES, decryptRSAES } from "../src/core/_crypto/_rsa";
-import { deriveECDHESKey } from "../src/core/_crypto/_ecdh";
-import { deriveKey as deriveKeyPBES2 } from "../src/core/_crypto/_pbes2";
-import { jwkTokey, keyToJWK } from "../src/core/_crypto/_key-codec";
-import { fromSPKI, fromPKCS8, toPKCS8, toSPKI } from "../src/core/_crypto/_pem";
-import { rsa, ec } from "./keys";
-import { isJWTError } from "../src/core/error";
+} from "../src/core/_crypto/_aes.ts";
+import { encryptRSAES, decryptRSAES } from "../src/core/_crypto/_rsa.ts";
+import { deriveECDHESKey } from "../src/core/_crypto/_ecdh.ts";
+import { deriveKey as deriveKeyPBES2 } from "../src/core/_crypto/_pbes2.ts";
+import { jwkTokey, keyToJWK } from "../src/core/_crypto/_key-codec.ts";
+import { fromSPKI, fromPKCS8, toPKCS8, toSPKI } from "../src/core/_crypto/_pem.ts";
+import { rsa, ec } from "./keys.ts";
+import { isJWTError } from "../src/core/error.ts";
 
 describe.concurrent("_crypto primitives", () => {
   describe("_sign-verify", () => {

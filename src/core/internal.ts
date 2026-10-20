@@ -11,5 +11,5 @@ export {
   validateCriticalHeadersJWS,
   validateCriticalHeadersJWE,
   assertCritShape,
-} from "./_jwt-internal";
-export { expiredClaimMessage } from "./utils/jwt";
+} from "./_jwt-internal.ts";
+export { expiredClaimMessage } from "./utils/jwt.ts";

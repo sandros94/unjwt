@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { Elysia, t } from "elysia";
-import { generateJWK } from "../src/core/jwk";
-import type { JWK_oct, JWK_HMAC, JWEEncryptJWK } from "../src/core/types";
-import { createJWSSession, jwsSession } from "../src/adapters/elysia/session/jws";
-import { createJWESession, jweSession } from "../src/adapters/elysia/session/jwe";
+import { generateJWK } from "../src/core/jwk.ts";
+import type { JWK_oct, JWK_HMAC, JWEEncryptJWK } from "../src/core/types/index.ts";
+import { createJWSSession, jwsSession } from "../src/adapters/elysia/session/jws.ts";
+import { createJWESession, jweSession } from "../src/adapters/elysia/session/jwe.ts";
 
 function cookieHeader(setCookies: string[]): string {
   return setCookies

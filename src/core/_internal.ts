@@ -1,6 +1,6 @@
 import { safeJsonParse } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlParse } from "./utils/base64";
+import { base64UrlParse } from "./utils/base64.ts";
 
 import type {
   JWK,
@@ -24,10 +24,10 @@ import type {
   PayloadOf,
   KeyManagementAlgorithm,
   UnwrapKeyOptions,
-} from "./types";
-import type { JWTErrorCode } from "./error";
-import { JWTError } from "./error";
-import { cryptoKeyCurve, jwsHashOf, modulusLengthOf } from "./_crypto/_key-algorithm";
+} from "./types/index.ts";
+import type { JWTErrorCode } from "./error.ts";
+import { JWTError } from "./error.ts";
+import { cryptoKeyCurve, jwsHashOf, modulusLengthOf } from "./_crypto/_key-algorithm.ts";
 import {
   inferJWEAllowedAlgorithms,
   inferJWSAllowedAlgorithms,
@@ -37,8 +37,8 @@ import {
   isJWSAlgorithm,
   isKeyManagementAlgorithm,
   isPBES2Algorithm,
-} from "./utils/algorithms";
-import { quoteTokenValue } from "./utils/_text";
+} from "./utils/algorithms.ts";
+import { quoteTokenValue } from "./utils/_text.ts";
 import {
   assertPlainObject,
   isCryptoKey,
@@ -46,9 +46,9 @@ import {
   isJWK,
   isJWKSet,
   isPlainObject,
-} from "./utils/guards";
-import { assertCritShape, parsePayloadBytes, parsePayloadSegment } from "./_jwt-internal";
-import { assertClaimValidationOptions, assertStringList, validateJwtClaims } from "./utils/jwt";
+} from "./utils/guards.ts";
+import { assertCritShape, parsePayloadBytes, parsePayloadSegment } from "./_jwt-internal.ts";
+import { assertClaimValidationOptions, assertStringList, validateJwtClaims } from "./utils/jwt.ts";
 import {
   DEFAULT_PBES2_ITERATIONS,
   assertOctKeyLength,
@@ -56,7 +56,7 @@ import {
   bitLengthCEK,
   bitLengthIV,
   bitLengthTag,
-} from "./_crypto";
+} from "./_crypto/index.ts";
 
 /** RFC 7518 §4.6.1.2 / §4.6.1.3 — size bound on `apu` / `apv`. */
 export const MAX_PARTY_INFO_BYTES = 1024;

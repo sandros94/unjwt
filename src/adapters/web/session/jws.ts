@@ -1,19 +1,19 @@
-import type { ExpiresIn } from "../../../core/types";
+import type { ExpiresIn } from "../../../core/types/index.ts";
 import {
   type JWSCodecConfig,
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "../../_codec-jws";
-import type { CookieAttributes } from "../../_cookie-attributes";
-import type { SessionDriver } from "../../_driver";
-import type { SessionState } from "../../_session-core";
-import { type SessionDefinition, defineSession } from "../../_session-definition";
-import type { SessionRecord } from "../../_session-types";
-import type { SessionClaims, SessionContext, SessionManager } from "./types";
-import { webSessionDriver } from "./_shared";
+} from "../../_codec-jws.ts";
+import type { CookieAttributes } from "../../_cookie-attributes.ts";
+import type { SessionDriver } from "../../_driver.ts";
+import type { SessionState } from "../../_session-core.ts";
+import { type SessionDefinition, defineSession } from "../../_session-definition.ts";
+import type { SessionRecord } from "../../_session-types.ts";
+import type { SessionClaims, SessionContext, SessionManager } from "./types.ts";
+import { webSessionDriver } from "./_shared.ts";
 
-export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws";
+export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws.ts";
 
 /** Session state for the current request, mirroring the claims of its JWS token. */
 export interface SessionJWS<

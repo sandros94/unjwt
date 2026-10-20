@@ -7,12 +7,12 @@ import type {
   JOSEPayloadMode,
   JWTTimeClaimOptions,
   PayloadOf,
-} from "./types";
-import type { JWTErrorCode } from "./error";
-import { JWTError } from "./error";
-import { base64UrlParse } from "./utils/base64";
-import { isPlainObject } from "./utils/guards";
-import { computeDurationInSeconds, parseDurationSeconds } from "./utils/jwt";
+} from "./types/index.ts";
+import type { JWTErrorCode } from "./error.ts";
+import { JWTError } from "./error.ts";
+import { base64UrlParse } from "./utils/base64.ts";
+import { isPlainObject } from "./utils/guards.ts";
+import { computeDurationInSeconds, parseDurationSeconds } from "./utils/jwt.ts";
 
 /** Set `typ: "JWT"` on a header without `typ` when the payload is an object (not a `Uint8Array`). */
 export function applyTypDefault<T extends { typ?: string }>(header: T, payload: unknown): T {

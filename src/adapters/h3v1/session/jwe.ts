@@ -1,24 +1,24 @@
 import type { H3Event } from "h3v1";
 
-import type { ExpiresIn } from "../../../core/types";
-import type { SessionIssueOptions } from "../../_session";
+import type { ExpiresIn } from "../../../core/types/index.ts";
+import type { SessionIssueOptions } from "../../_session.ts";
 import {
   type JWECodecConfig,
   type JWESessionConfig,
   type JWESessionHooks,
   createJWECodec,
-} from "../../_codec-jwe";
-import { bindSession } from "../../_session-bind";
-import { type SessionBinding, type SessionState, openSessionToken } from "../../_session-core";
-import { type SessionDefinition, defineSession } from "../../_session-definition";
-import { loadSession } from "../../_session-read";
-import { dropSession, encodeSession, issueSession, sessionActions } from "../../_session-write";
-import type { SessionRecord } from "../../_session-types";
-import type { CookieSerializeOptions } from "../_cookie";
-import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
-import { type CompatEvent, PREFIX, h3SessionDriver } from "./_shared";
+} from "../../_codec-jwe.ts";
+import { bindSession } from "../../_session-bind.ts";
+import { type SessionBinding, type SessionState, openSessionToken } from "../../_session-core.ts";
+import { type SessionDefinition, defineSession } from "../../_session-definition.ts";
+import { loadSession } from "../../_session-read.ts";
+import { dropSession, encodeSession, issueSession, sessionActions } from "../../_session-write.ts";
+import type { SessionRecord } from "../../_session-types.ts";
+import type { CookieSerializeOptions } from "../_cookie.ts";
+import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
+import { type CompatEvent, PREFIX, h3SessionDriver } from "./_shared.ts";
 
-export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe";
+export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe.ts";
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "h3-jwe" });
 const hookArgs = (event: CompatEvent | H3Event) => ({ event });

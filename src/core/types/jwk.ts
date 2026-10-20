@@ -1,4 +1,4 @@
-import type { JWSAlgorithm } from "./jws";
+import type { JWSAlgorithm } from "./jws.ts";
 
 /** Decoded protected header a `JWKLookupFunction` receives, its algorithms already checked against the ones this version implements; `enc` is present on JWE only. */
 export type JWKLookupFunctionHeader = {

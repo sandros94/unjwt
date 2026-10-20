@@ -1,6 +1,6 @@
-import type { SessionDriver } from "../../_driver";
-import { reactiveCookieJar } from "../_cookie";
-import type { SessionContext } from "./types";
+import type { SessionDriver } from "../../_driver.ts";
+import { reactiveCookieJar } from "../_cookie.ts";
+import type { SessionContext } from "./types.ts";
 
 /** Message prefix for every error the Elysia adapter emits. */
 export const PREFIX = "[unjwt/elysia]";

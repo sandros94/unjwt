@@ -1,6 +1,6 @@
-import { encrypt, decrypt } from "../core/jwe";
-import { DEFAULT_PBES2_ITERATIONS } from "../core/_internal";
-import { isCryptoKey, isJWK, isSymmetricJWK, isPublicJWK } from "../core/utils/guards";
+import { encrypt, decrypt } from "../core/jwe.ts";
+import { DEFAULT_PBES2_ITERATIONS } from "../core/_internal.ts";
+import { isCryptoKey, isJWK, isSymmetricJWK, isPublicJWK } from "../core/utils/guards.ts";
 import type {
   ExpiresIn,
   JWEEncryptJWK,
@@ -11,9 +11,9 @@ import type {
   JWEEncryptOptions,
   JWEHeaderParameters,
   JWEKeyLookup,
-} from "../core/types";
-import type { StrictOmit } from "../core/utils/types";
-import { assertKeyMaterial, invalidKeyError } from "./_session";
+} from "../core/types/index.ts";
+import type { StrictOmit } from "../core/utils/types.ts";
+import { assertKeyMaterial, invalidKeyError } from "./_session.ts";
 import {
   type SessionPayload,
   assertKeyPair,
@@ -22,9 +22,9 @@ import {
   isKeyPair,
   sessionIssueOptions,
   sessionOpenOptions,
-} from "./_session-codec";
-import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_session-core";
-import type { SessionBaseConfig, SessionHooks } from "./_session-types";
+} from "./_session-codec.ts";
+import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_session-core.ts";
+import type { SessionBaseConfig, SessionHooks } from "./_session-types.ts";
 
 /** Symmetric JWK, `CryptoKey` (requires pinned `alg` and `enc`), or a pair: public seals, private unseals. */
 export type JWESessionKey =

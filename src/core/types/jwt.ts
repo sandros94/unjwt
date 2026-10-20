@@ -1,7 +1,7 @@
-import type { JWSAlgorithm } from "./jws";
-import type { KeyManagementAlgorithm } from "./jwk";
+import type { JWSAlgorithm } from "./jws.ts";
+import type { KeyManagementAlgorithm } from "./jwk.ts";
 
-import type { JWK_Public } from "./jwk";
+import type { JWK_Public } from "./jwk.ts";
 import type { Duration, ExpiresIn, MaxTokenAge } from ".";
 
 /** Header Parameters common to JWE and JWS. */

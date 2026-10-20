@@ -1,4 +1,4 @@
-import type { JWTError } from "../error";
+import type { JWTError } from "../error.ts";
 import type {
   JoseHeaderParameters,
   JOSELimits,
@@ -6,7 +6,7 @@ import type {
   JOSEConsumerOptions,
   JOSEPayloadMode,
   JWTTimeClaimOptions,
-} from "./jwt";
+} from "./jwt.ts";
 import type {
   JWK_oct,
   JWK_EC_Public,
@@ -23,8 +23,8 @@ import type {
   JWK,
   JWKSet,
   JWKLookupFunction,
-} from "./jwk";
-import type { StrictOmit } from "../utils/types";
+} from "./jwk.ts";
+import type { StrictOmit } from "../utils/types.ts";
 
 /** JWS Signing Algorithm Identifier. */
 export type JWSAlgorithm = JWK_HMAC | JWK_RSA_SIGN | JWK_RSA_PSS | JWK_ECDSA | JWK_OKP_SIGN;

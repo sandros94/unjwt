@@ -8,9 +8,9 @@ import {
   updateJWESession,
   updateJWSSession,
   generateJWK,
-} from "../src/adapters/h3";
-import { encrypt } from "../src/core/jwe";
-import { sign } from "../src/core/jws";
+} from "../src/adapters/h3/index.ts";
+import { encrypt } from "../src/core/jwe.ts";
+import { sign } from "../src/core/jws.ts";
 
 // Pre-generate every JWK once per file. Keygen (especially RSA) and PBES2
 // password-based key derivation (600k PBKDF2 iterations) dominate the test

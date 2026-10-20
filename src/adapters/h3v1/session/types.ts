@@ -1,4 +1,4 @@
-import type { SessionIssueOptions } from "../../_session";
+import type { SessionIssueOptions } from "../../_session.ts";
 
 export type { SessionIssueOptions };
 export type {
@@ -7,6 +7,6 @@ export type {
   SessionManager,
   SessionUpdate,
   SessionUpdateTrigger,
-} from "../../_session-types";
-export type { SessionDefinition } from "../../_session-definition";
-export type { OpenedSessionState } from "../../_session-core";
+} from "../../_session-types.ts";
+export type { SessionDefinition } from "../../_session-definition.ts";
+export type { OpenedSessionState } from "../../_session-core.ts";

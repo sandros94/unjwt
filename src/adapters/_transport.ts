@@ -1,13 +1,13 @@
-import { quoteTokenValue } from "../core/utils/_text";
+import { quoteTokenValue } from "../core/utils/_text.ts";
 import {
   type ChunkedCookieStore,
   type ExpirableCookieAttributes,
   readChunked,
   removeChunked,
   writeChunked,
-} from "./_chunked-cookie";
-import type { CookieJar, SessionDriver } from "./_driver";
-import { invalidConfigError, isToken, readOnlyEventError } from "./_session";
+} from "./_chunked-cookie.ts";
+import type { CookieJar, SessionDriver } from "./_driver.ts";
+import { invalidConfigError, isToken, readOnlyEventError } from "./_session.ts";
 
 /** Where a session's token can travel. */
 export interface SessionTokenSource {

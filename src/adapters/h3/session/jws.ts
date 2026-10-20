@@ -1,23 +1,23 @@
 import type { HTTPEvent } from "h3";
 
-import type { ExpiresIn } from "../../../core/types";
-import type { SessionIssueOptions } from "../../_session";
+import type { ExpiresIn } from "../../../core/types/index.ts";
+import type { SessionIssueOptions } from "../../_session.ts";
 import {
   type JWSCodecConfig,
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "../../_codec-jws";
-export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws";
-import { bindSession } from "../../_session-bind";
-import { type SessionBinding, type SessionState, openSessionToken } from "../../_session-core";
-import { type SessionDefinition, defineSession } from "../../_session-definition";
-import { loadSession } from "../../_session-read";
-import { dropSession, encodeSession, issueSession, sessionActions } from "../../_session-write";
-import type { SessionRecord } from "../../_session-types";
-import type { CookieSerializeOptions } from "../_cookie";
-import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
-import { PREFIX, h3SessionDriver } from "./_shared";
+} from "../../_codec-jws.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws.ts";
+import { bindSession } from "../../_session-bind.ts";
+import { type SessionBinding, type SessionState, openSessionToken } from "../../_session-core.ts";
+import { type SessionDefinition, defineSession } from "../../_session-definition.ts";
+import { loadSession } from "../../_session-read.ts";
+import { dropSession, encodeSession, issueSession, sessionActions } from "../../_session-write.ts";
+import type { SessionRecord } from "../../_session-types.ts";
+import type { CookieSerializeOptions } from "../_cookie.ts";
+import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
+import { PREFIX, h3SessionDriver } from "./_shared.ts";
 
 const codec = createJWSCodec({ prefix: PREFIX, defaultName: "h3-jws" });
 const hookArgs = (event: HTTPEvent) => ({ event });

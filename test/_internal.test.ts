@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { textDecoder, textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "../src/core/utils/base64";
+import { base64UrlStringify } from "../src/core/utils/base64.ts";
 
 import {
   JWS_ALG_CTX,
@@ -14,9 +14,9 @@ import {
   resolveSigningKey,
   validateClaimsIfJson,
   resolvePayloadMode,
-} from "../src/core/_internal";
-import { generateKey, generateJWK } from "../src/core/jwk";
-import { isJWTError, JWTError } from "../src/core/error";
+} from "../src/core/_internal.ts";
+import { generateKey, generateJWK } from "../src/core/jwk.ts";
+import { isJWTError, JWTError } from "../src/core/error.ts";
 import type {
   JWK,
   JWK_EC_Private,
@@ -25,8 +25,8 @@ import type {
   JWK_RSA_Public,
   JWK_Symmetric,
   JWTClaims,
-} from "../src/core/types";
-import type { JWTErrorCode, KnownJWTErrorCode } from "../src/core/error";
+} from "../src/core/types/index.ts";
+import type { JWTErrorCode, KnownJWTErrorCode } from "../src/core/error.ts";
 
 /** Assert that `fn` throws a `JWTError` with the given `code`. */
 function expectThrowsJWTError(fn: () => unknown, code: KnownJWTErrorCode): void {

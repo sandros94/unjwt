@@ -3,9 +3,9 @@ import {
   readChunked,
   writeChunked,
   removeChunked,
-} from "../_chunked-cookie";
-import type { CookieAttributes } from "../_cookie-attributes";
-import { invalidConfigError } from "../_session";
+} from "../_chunked-cookie.ts";
+import type { CookieAttributes } from "../_cookie-attributes.ts";
+import { invalidConfigError } from "../_session.ts";
 
 export type { CookieAttributes };
 

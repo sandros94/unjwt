@@ -1,5 +1,5 @@
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64.ts";
 
 import type {
   JWKSet,
@@ -14,17 +14,17 @@ import type {
   JOSEPayloadMode,
   JWTClaims,
   PayloadOf,
-} from "./types";
-import { importKey } from "./jwk";
-import { sign as joseSign } from "./_crypto";
-import { JWTError } from "./error";
-import { isJWK } from "./utils/guards";
+} from "./types/index.ts";
+import { importKey } from "./jwk.ts";
+import { sign as joseSign } from "./_crypto/index.ts";
+import { JWTError } from "./error.ts";
+import { isJWK } from "./utils/guards.ts";
 import {
   computeJwtTimeClaims,
   getPlaintextBytes,
   parsePayloadText,
   validateCriticalHeadersJWS,
-} from "./_jwt-internal";
+} from "./_jwt-internal.ts";
 import {
   JWS_ALG_CTX,
   asKeyUsageError,
@@ -45,11 +45,11 @@ import {
   assertOptionEntry,
   validateClaimsIfJson,
   decodeSegment,
-} from "./_internal";
-import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal";
+} from "./_internal.ts";
+import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal.ts";
 
-export type * from "./types/jws";
-export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt";
+export type * from "./types/jws.ts";
+export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt.ts";
 export {
   type JWTErrorCode,
   type KnownJWTErrorCode,
@@ -59,9 +59,9 @@ export {
   isJWTError,
   UnsecureError,
   isUnsecureError,
-} from "./error";
-export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi";
-export { DEFAULT_JOSE_LIMITS } from "./_internal";
+} from "./error.ts";
+export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi.ts";
+export { DEFAULT_JOSE_LIMITS } from "./_internal.ts";
 
 /** Creates a JWS Compact Serialization; an object payload is JSON-serialized, `alg` is required unless the JWK carries one. */
 export async function sign(

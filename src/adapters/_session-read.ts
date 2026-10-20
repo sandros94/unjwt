@@ -4,11 +4,11 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
-import { isJWTError } from "../core/error";
-import type { ExpiresIn } from "../core/types";
-import { computeDurationInSeconds } from "../core/utils/jwt";
-import { expiredSessionError } from "./_session";
-import { dropSessionCookie } from "./_session-bind";
+import { isJWTError } from "../core/error.ts";
+import type { ExpiresIn } from "../core/types/index.ts";
+import { computeDurationInSeconds } from "../core/utils/jwt.ts";
+import { expiredSessionError } from "./_session.ts";
+import { dropSessionCookie } from "./_session-bind.ts";
 import {
   type SessionBinding,
   type SessionCoreConfig,
@@ -17,9 +17,9 @@ import {
   emptySession,
   kSessionPending,
   storedSession,
-} from "./_session-core";
-import type { SessionRecord } from "./_session-types";
-import { assertTokenSource } from "./_transport";
+} from "./_session-core.ts";
+import type { SessionRecord } from "./_session-types.ts";
+import { assertTokenSource } from "./_transport.ts";
 
 /** Get (and lazily initialize) the session for the current request. */
 export async function loadSession<

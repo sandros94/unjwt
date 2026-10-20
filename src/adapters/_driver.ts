@@ -1,4 +1,4 @@
-import type { ExpirableCookieAttributes } from "./_chunked-cookie";
+import type { ExpirableCookieAttributes } from "./_chunked-cookie.ts";
 
 /** The cookies of one request and its response, as a framework exposes them. */
 export interface CookieJar<A extends ExpirableCookieAttributes = ExpirableCookieAttributes> {

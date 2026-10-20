@@ -1,4 +1,4 @@
-import { JWTError } from "../error";
+import { JWTError } from "../error.ts";
 
 /** Concatenate multiple `Uint8Array`s into a single contiguous buffer. */
 export function concatUint8Arrays(

@@ -8,6 +8,7 @@ A JWE session on Nuxt v4.6 with `unjwt/session`, keyed from Nuxt's own `appSecre
 - [`app.vue`](./app.vue): one button per route, and a log of what each answered.
 
 ```sh
+pnpm dev:prepare # at the repository root, once: the stub dist runs from src; `pnpm build` works too
 pnpm dev:nuxt    # at the repository root, or `pnpm dev` here; a dev appSecret is generated into .nuxt/app-secret
 
 NUXT_APP_SECRET=$(openssl rand -base64 32) pnpm build && pnpm start

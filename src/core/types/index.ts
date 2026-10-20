@@ -1,7 +1,7 @@
-export * from "./jwk";
-export * from "./jwt";
-export * from "./jws";
-export * from "./jwe";
+export * from "./jwk.ts";
+export * from "./jwt.ts";
+export * from "./jws.ts";
+export * from "./jwe.ts";
 
 /**
  * A time duration, expressed as an integer number of seconds or a human-readable

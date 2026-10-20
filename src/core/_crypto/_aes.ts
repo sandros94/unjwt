@@ -1,9 +1,9 @@
-import { base64UrlStringify } from "../utils/base64";
+import { base64UrlStringify } from "../utils/base64.ts";
 
-import { concatUint8Arrays, uint32be } from "../utils/array";
-import { isCryptoKey } from "../utils/guards";
-import { JWTError } from "../error";
-import { quoteTokenValue } from "../utils/_text";
+import { concatUint8Arrays, uint32be } from "../utils/array.ts";
+import { isCryptoKey } from "../utils/guards.ts";
+import { JWTError } from "../error.ts";
+import { quoteTokenValue } from "../utils/_text.ts";
 import type {
   ContentEncryptionAlgorithm,
   JWK_AES_CBC_HMAC,
@@ -11,7 +11,7 @@ import type {
   JWK_AES_GCM_KW,
   JWK_AES_KW,
   JWKAlgorithm,
-} from "../types";
+} from "../types/index.ts";
 import {
   aesBitsOf,
   checkKeyUsage,
@@ -20,7 +20,7 @@ import {
   lengthOf,
   shaBitsOf,
   unusableKey,
-} from "./_key-algorithm";
+} from "./_key-algorithm.ts";
 
 /** Algorithms with an IV and a tag: the content encryption ones and AES-GCM key wrapping. */
 type AuthenticatedAlgorithm = ContentEncryptionAlgorithm | JWK_AES_GCM_KW;

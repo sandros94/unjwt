@@ -1,18 +1,18 @@
-import type { ExpiresIn } from "../../../core/types";
+import type { ExpiresIn } from "../../../core/types/index.ts";
 import {
   type JWSCodecConfig,
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "../../_codec-jws";
-export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws";
-import type { SessionState } from "../../_session-core";
-import { type SessionDefinition, defineSession } from "../../_session-definition";
-import type { SessionRecord } from "../../_session-types";
-import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin";
-import type { CookieAttributes } from "../_cookie";
-import type { SessionClaims, SessionManager, SessionContext } from "./types";
-import { PREFIX, elysiaSessionDriver } from "./_shared";
+} from "../../_codec-jws.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws.ts";
+import type { SessionState } from "../../_session-core.ts";
+import { type SessionDefinition, defineSession } from "../../_session-definition.ts";
+import type { SessionRecord } from "../../_session-types.ts";
+import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin.ts";
+import type { CookieAttributes } from "../_cookie.ts";
+import type { SessionClaims, SessionManager, SessionContext } from "./types.ts";
+import { PREFIX, elysiaSessionDriver } from "./_shared.ts";
 
 export type { SessionContext };
 

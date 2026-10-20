@@ -1,5 +1,5 @@
-import { sign, verify } from "../core/jws";
-import { isCryptoKey, isJWKSet, isSymmetricJWK, isPublicJWK } from "../core/utils/guards";
+import { sign, verify } from "../core/jws.ts";
+import { isCryptoKey, isJWKSet, isSymmetricJWK, isPublicJWK } from "../core/utils/guards.ts";
 import type {
   ExpiresIn,
   JWKSet,
@@ -13,9 +13,9 @@ import type {
   JWSVerifyOptions,
   JWSKeyLookup,
   JWSHeaderParameters,
-} from "../core/types";
-import type { StrictOmit } from "../core/utils/types";
-import { assertKeyMaterial, invalidKeyError } from "./_session";
+} from "../core/types/index.ts";
+import type { StrictOmit } from "../core/utils/types.ts";
+import { assertKeyMaterial, invalidKeyError } from "./_session.ts";
 import {
   type SessionPayload,
   assertKeyPair,
@@ -24,9 +24,9 @@ import {
   isKeyPair,
   sessionIssueOptions,
   sessionOpenOptions,
-} from "./_session-codec";
-import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_session-core";
-import type { SessionBaseConfig, SessionHooks } from "./_session-types";
+} from "./_session-codec.ts";
+import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_session-core.ts";
+import type { SessionBaseConfig, SessionHooks } from "./_session-types.ts";
 
 /** HS* `oct` JWK, `CryptoKey` (requires pinned `alg`), or a pair: private signs, public JWK/list/set verifies. */
 export type JWSSessionKey =

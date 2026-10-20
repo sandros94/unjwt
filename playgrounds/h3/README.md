@@ -3,7 +3,7 @@
 A session over h3 with `unjwt/adapters/h3`: one `defineJWESession` at module scope, a `useSession(event)` wrapper, and three routes in [`main.ts`](./main.ts).
 
 ```sh
-pnpm build   # at the repository root, once
+pnpm dev:prepare   # at the repository root, once: the stub dist runs from src; `pnpm build` works too
 pnpm dev     # at the repository root, or here: runs main.ts under `node --watch`
 ```
 

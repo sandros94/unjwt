@@ -4,11 +4,11 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
-import type { ExpiresIn } from "../core/types";
-import type { SessionDriver } from "./_driver";
-import { resolveExpiresAt } from "./_session";
-import type { SessionData, SessionRecord } from "./_session-types";
-import type { SessionTokenSource, SessionTransport } from "./_transport";
+import type { ExpiresIn } from "../core/types/index.ts";
+import type { SessionDriver } from "./_driver.ts";
+import { resolveExpiresAt } from "./_session.ts";
+import type { SessionData, SessionRecord } from "./_session-types.ts";
+import type { SessionTokenSource, SessionTransport } from "./_transport.ts";
 
 /** In-flight read of a session, awaited by a second reader on the same request. */
 export const kSessionPending: unique symbol = Symbol("unjwt_session_pending");

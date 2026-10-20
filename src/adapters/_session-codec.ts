@@ -1,6 +1,6 @@
-import type { ExpiresIn, JWTClaims, Duration, JWKAlgorithm } from "../core/types";
-import { computeDurationInSeconds } from "../core/utils/jwt";
-import { isCryptoKey, isPrivateJWK, isSymmetricJWK } from "../core/utils/guards";
+import type { ExpiresIn, JWTClaims, Duration, JWKAlgorithm } from "../core/types/index.ts";
+import { computeDurationInSeconds } from "../core/utils/jwt.ts";
+import { isCryptoKey, isPrivateJWK, isSymmetricJWK } from "../core/utils/guards.ts";
 import {
   RESERVED_CLAIMS,
   assertImportableKey,
@@ -10,13 +10,13 @@ import {
   sessionRequiredClaims,
   sessionTyp,
   invalidTokenError,
-} from "./_session";
+} from "./_session.ts";
 import type {
   OpenedSession,
   SessionCodec,
   SessionCoreConfig,
   StoredSession,
-} from "./_session-core";
+} from "./_session-core.ts";
 
 export type SessionPayload = JWTClaims & { jti: string; iat: number };
 
