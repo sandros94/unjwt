@@ -14,7 +14,10 @@ import { type CookieSerializeOptions, responseSetCookies } from "../_cookie";
 /** Message prefix for every error the h3 adapters emit. */
 export const PREFIX = "[unjwt/h3]";
 
-/** Event shapes the adapter reads from in websockets. */
+/**
+ * Event shapes the adapter reads from in websockets.
+ * @deprecated `unjwt/adapters/h3v1` is removed in 0.9.0. Nuxt 4.6+ runs sessions through `unjwt/session` with handlers from `nuxt/server`; h3 v2, Nuxt 5 and Nitro 3 through `unjwt/adapters/h3`.
+ */
 export type CompatEvent =
   | { request: { headers: Headers }; context: H3EventContext }
   | { headers: Headers; context: H3EventContext };

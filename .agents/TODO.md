@@ -34,5 +34,8 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 | `clearJWESession` (`unjwt/adapters/h3v1`, `h3v2`)                     | `(await defineJWESession(config).use(event)).clear()`  | v0.8.2        | v0.9.0    |
 | `sealJWESession` (`unjwt/adapters/h3v1`, `h3v2`)                      | `defineJWESession(config).issue(data)`                 | v0.8.2        | v0.9.0    |
 | `unsealJWESession` (`unjwt/adapters/h3v1`, `h3v2`)                    | `defineJWESession(config).open(token, event)`          | v0.8.2        | v0.9.0    |
+| `defineJWSSession` (`unjwt/adapters/h3v1`)                            | `defineJWSSession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
+| `defineJWESession` (`unjwt/adapters/h3v1`)                            | `defineJWESession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
+| `CompatEvent` (`unjwt/adapters/h3v1`)                                 | `SessionRequestHeaders` (`unjwt/session`)              | v0.8.2        | v0.9.0    |
 | `createJWSSession` (`unjwt/adapters/elysia`)                          | `defineJWSSession(config).use(context)`                | v0.8.2        | v0.9.0    |
 | `createJWESession` (`unjwt/adapters/elysia`)                          | `defineJWESession(config).use(context)`                | v0.8.2        | v0.9.0    |
