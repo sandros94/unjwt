@@ -1,6 +1,6 @@
 import supertest from "supertest";
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
-import { H3, type HTTPEvent } from "h3v2";
+import { H3, type HTTPEvent } from "h3";
 import {
   createApp,
   createRouter,
@@ -40,7 +40,7 @@ import {
   type OpenedSessionState,
   type SessionDecryptOptions,
   type SessionVerifyOptions,
-} from "../src/adapters/h3v2";
+} from "../src/adapters/h3";
 import {
   useJWSSession as useJWSSessionV1,
   useJWESession as useJWESessionV1,

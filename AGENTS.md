@@ -83,7 +83,7 @@ src/
     h3v1/               # H3 v1 session adapter (defineJWSSession, defineJWESession)
       _cookie.ts        # cookie option type + the Node response's Set-Cookie list
       session/_shared.ts# driver: CompatEvent, context state, request headers/cookies, cookie jar
-    h3v2/               # H3 v2 session adapter (same API, different h3 import)
+    h3/                 # H3 v2 session adapter (`unjwt/adapters/h3`, also served as `h3v2`)
       session/_shared.ts# driver: context state, request headers/cookies, cookie jar with res.errHeaders staging
     elysia/             # Elysia session adapter
       _cookie.ts        # chunked-cookie layer over Elysia's reactive cookie jar
@@ -99,7 +99,7 @@ src/
 
 ### Key design patterns
 
-- **Dual-version peer deps:** H3 v1 and v2 are installed as `h3v1`/`h3v2` aliases in devDependencies. The build config (`build.config.ts`) replaces these aliases with the real package name (`h3`) in dist output. `elysia` has no dual-version aliasing (single major) — it's a plain optional peer dep, marked `external` in the build.
+- **Dual-version peer deps:** `h3` v2 is installed as itself; h3 v1 only as the `h3v1` alias in devDependencies, which `build.config.ts` rewrites to `h3` in dist output for the deprecated `h3v1` adapter until 0.9.0 removes it. `elysia` is a plain optional peer dep, marked `external` in the build.
 - **Single multi-input bundle:** all entry points (core subpaths + every adapter) are `input`s of one `type: "bundle"` in `build.config.ts`, so rolldown code-splits shared core into `dist/_chunks/*` (no per-adapter duplication). Adding an adapter = add its `index` input + any peer dep to `external`; `unjwt/session` (`./src/adapters/web/index`) has no peer dep, so nothing of its own is external. `unsecure` and `cookie-es` stay bundled (inlined → zero runtime deps).
 - **`src/core/_crypto/`** originated as a fork of [`panva/jose`](https://github.com/panva/jose) primitives but is now maintained as part of this codebase — modify and fix it like any other module (bug fixes, lint, type-safety). It is excluded from test coverage; adding tests there is optional, not required.
 - **Bundled `unsecure` dependency:** core imports primitives from [`unsecure`](https://github.com/sandros94/unsecure) (`base64UrlEncode`/`base64UrlDecode`, `secureRandomBytes`, `sanitizeObjectCopy`/`safeJsonParse`). It is a devDependency inlined into dist at build time (not marked external in `build.config.ts`), so the published package keeps zero runtime dependencies.

@@ -11,7 +11,7 @@ import {
   getEventContext,
   getCookie,
   setCookie,
-} from "h3v2";
+} from "h3";
 import { setCookieName, setCookieValues } from "../../_chunked-cookie";
 import type { CookieJar, SessionDriver } from "../../_driver";
 import type { CookieSerializeOptions } from "../_cookie";

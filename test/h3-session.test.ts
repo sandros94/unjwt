@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { H3, HTTPError } from "h3v2";
+import { H3, HTTPError } from "h3";
 import {
   type SessionConfigJWE,
   type SessionConfigJWS,
@@ -8,7 +8,7 @@ import {
   updateJWESession,
   updateJWSSession,
   generateJWK,
-} from "../src/adapters/h3v2";
+} from "../src/adapters/h3";
 import { encrypt } from "../src/core/jwe";
 import { sign } from "../src/core/jws";
 

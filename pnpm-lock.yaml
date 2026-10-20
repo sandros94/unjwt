@@ -165,10 +165,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      h3:
-        specifier: ^1.15.4 || ^2.0.1
-        version: 2.0.5(crossws@0.4.15(srvx@1.0.6))(ocache@0.3.0)
     devDependencies:
       '@types/node':
         specifier: ^24.19.2
@@ -188,12 +184,12 @@ importers:
       elysia:
         specifier: ^1.4.30
         version: 1.4.30(@sinclair/typebox@0.34.52)(exact-mirror@1.2.4)(file-type@22.0.2(supports-color@10.2.2))(openapi-types@12.1.3)(typescript@7.0.2)
+      h3:
+        specifier: ^2.0.5
+        version: 2.0.5(crossws@0.4.15(srvx@1.0.6))(ocache@0.3.0)
       h3v1:
         specifier: npm:h3@^1.15.11
         version: h3@1.15.11
-      h3v2:
-        specifier: npm:h3@^2.0.2
-        version: h3@2.0.5(crossws@0.4.15(srvx@1.0.6))(ocache@0.3.0)
       jose:
         specifier: ^6.2.12
         version: 6.2.12

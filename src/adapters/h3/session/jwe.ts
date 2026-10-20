@@ -1,4 +1,4 @@
-import type { HTTPEvent } from "h3v2";
+import type { HTTPEvent } from "h3";
 
 import type { ExpiresIn } from "../../../core/types";
 import type { SessionIssueOptions } from "../../_session";
