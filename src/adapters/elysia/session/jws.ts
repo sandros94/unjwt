@@ -94,7 +94,7 @@ export function jwsSession<
 
 function define<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
   config: JWSCodecConfig,
-): SessionDefinition<SessionContext, T, MaxAge> {
+): SessionDefinition<T, MaxAge, SessionContext> {
   return defineSession<T, MaxAge, SessionContext, JWSCodecConfig>(config, {
     driver: elysiaSessionDriver,
     hookArgs: (context) => ({ context }),

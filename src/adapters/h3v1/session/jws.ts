@@ -78,7 +78,7 @@ export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
->(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<TEvent, T, MaxAge> {
+>(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent> {
   return defineSession<T, MaxAge, CompatEvent | H3Event, JWSCodecConfig>(config, {
     driver: h3SessionDriver,
     hookArgs,

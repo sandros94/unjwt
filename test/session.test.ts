@@ -1,5 +1,6 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
 
+import type { ExpiresIn } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/core/error.ts";
 import { generateJWK } from "../src/core/jwk.ts";
 import { sign } from "../src/core/jws.ts";
@@ -20,7 +21,7 @@ const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 type Family = "jws" | "jwe";
-type Definition = SessionDefinition<SessionContext, Record<string, unknown>>;
+type Definition = SessionDefinition<Record<string, unknown>, ExpiresIn | undefined, SessionContext>;
 
 interface FamilyCase {
   family: Family;
@@ -273,6 +274,37 @@ describe("unjwt/session over a Web request", () => {
   );
 
   it.each(FAMILIES)(
+    "$family: keeps a context.sessions slot another library created, whatever its prototype",
+    async ({ define }) => {
+      const session = define();
+      const sessions: Record<string, unknown> = Object.create(Object.create(null));
+      sessions.other = { id: "theirs" };
+      const context: Record<string, unknown> = { sessions };
+      const manager = await session.use({ req: get(), res: { headers: new Headers() }, context });
+      await manager.update({ user: "ada" });
+
+      expect(context.sessions).toBe(sessions);
+      expect(sessions.other).toEqual({ id: "theirs" });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a request that also carries a token key is a request, and an empty object is refused",
+    async ({ define }) => {
+      const session = define();
+      const token = await session.issue({ user: "ada" });
+      const request = get({ cookie: `web=${token}` });
+
+      const asRequest = await session.use({ req: request, token: "ignored" });
+      expect(asRequest.data).toEqual({ user: "ada" });
+
+      const error = await caught(session.use({} as never));
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toContain("neither");
+    },
+  );
+
+  it.each(FAMILIES)(
     "$family: refuses a runtime event whose req is not a web Request",
     async ({ define }) => {
       const h3v1Like = { req: { headers: { cookie: "web=x" } }, context: {} };
@@ -453,6 +485,26 @@ describe("unjwt/session types", () => {
     expectTypeOf(session.use({ token: undefined })).toEqualTypeOf<
       Promise<SessionManager<{ userId: string }, "7D">>
     >();
+  });
+
+  it("narrows use() and the hooks to a framework's event through the third generic", () => {
+    interface FrameworkEvent {
+      req: Request;
+      res: { headers: Headers; errHeaders: Headers };
+      context: Record<string, unknown>;
+    }
+    const narrowed = defineJWESession<{ user: string }, "1h", FrameworkEvent>({
+      key: jweKey,
+      maxAge: "1h",
+      hooks: {
+        onUpdate: ({ context }) => {
+          expectTypeOf(context).toEqualTypeOf<FrameworkEvent>();
+        },
+      },
+    });
+    expectTypeOf(narrowed.use).parameter(0).toEqualTypeOf<FrameworkEvent>();
+    // @ts-expect-error a bare Request is no longer accepted once narrowed
+    void narrowed.use(new Request("http://localhost/"));
   });
 
   it("takes a request or a token as its context, never an empty object", () => {

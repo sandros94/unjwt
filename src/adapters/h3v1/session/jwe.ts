@@ -79,7 +79,7 @@ export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
->(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<TEvent, T, MaxAge> {
+>(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent> {
   return defineSession<T, MaxAge, CompatEvent | H3Event, JWECodecConfig>(config, {
     driver: h3SessionDriver,
     hookArgs,

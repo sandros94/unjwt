@@ -67,7 +67,7 @@ export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
->(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<TEvent, T, MaxAge> {
+>(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent> {
   return defineSession<T, MaxAge, HTTPEvent, JWECodecConfig>(config, {
     driver: h3SessionDriver,
     hookArgs,

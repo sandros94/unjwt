@@ -53,7 +53,8 @@ export interface SessionConfigJWE<
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(config: SessionConfigJWE<T, MaxAge>): SessionDefinition<SessionContext, T, MaxAge>;
+  TContext extends SessionContext = SessionContext,
+>(config: SessionConfigJWE<T, MaxAge, TContext>): SessionDefinition<T, MaxAge, TContext>;
 /** Defines a JWE (encrypted) session over a framework driver of your own. */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
@@ -62,11 +63,11 @@ export function defineJWESession<
 >(
   config: SessionConfigJWE<T, MaxAge, TContext>,
   options: { driver: SessionDriver<TContext> },
-): SessionDefinition<TContext, T, MaxAge>;
+): SessionDefinition<T, MaxAge, TContext>;
 export function defineJWESession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
   config: JWECodecConfig,
   options?: { driver?: SessionDriver<unknown> },
-): SessionDefinition<unknown, T, MaxAge> {
+): SessionDefinition<T, MaxAge> {
   const driver = options?.driver ?? webSessionDriver;
   return defineSession<T, MaxAge, unknown, JWECodecConfig>(config, {
     driver,

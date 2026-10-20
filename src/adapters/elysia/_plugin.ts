@@ -43,7 +43,7 @@ export interface SessionPluginDefinition<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   K extends string = "session",
-> extends SessionDefinition<SessionContext, T, MaxAge> {
+> extends SessionDefinition<T, MaxAge, SessionContext> {
   /** Resolves the session onto the context under `contextKey`, with the guard macro answering 401 while no session is established. */
   plugin: () => SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`>;
 }

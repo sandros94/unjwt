@@ -53,7 +53,8 @@ export interface SessionConfigJWS<
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(config: SessionConfigJWS<T, MaxAge>): SessionDefinition<SessionContext, T, MaxAge>;
+  TContext extends SessionContext = SessionContext,
+>(config: SessionConfigJWS<T, MaxAge, TContext>): SessionDefinition<T, MaxAge, TContext>;
 /** Defines a JWS (signed, not encrypted) session over a framework driver of your own. */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
@@ -62,11 +63,11 @@ export function defineJWSSession<
 >(
   config: SessionConfigJWS<T, MaxAge, TContext>,
   options: { driver: SessionDriver<TContext> },
-): SessionDefinition<TContext, T, MaxAge>;
+): SessionDefinition<T, MaxAge, TContext>;
 export function defineJWSSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
   config: JWSCodecConfig,
   options?: { driver?: SessionDriver<unknown> },
-): SessionDefinition<unknown, T, MaxAge> {
+): SessionDefinition<T, MaxAge> {
   const driver = options?.driver ?? webSessionDriver;
   return defineSession<T, MaxAge, unknown, JWSCodecConfig>(config, {
     driver,

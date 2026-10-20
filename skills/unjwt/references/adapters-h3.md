@@ -261,10 +261,10 @@ function defineJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends HTTPEvent = HTTPEvent,
->(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<TEvent, T, MaxAge>;
+>(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 // defineJWESession: same shape over SessionConfigJWE
 
-interface SessionDefinition<TContext, T, MaxAge> {
+interface SessionDefinition<T, MaxAge, TContext> {
   /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
   use: (context: TContext) => Promise<SessionManager<T, MaxAge>>;
   /** The token the request carries (this response's own write first), unopened. */

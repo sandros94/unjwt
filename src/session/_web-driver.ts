@@ -1,8 +1,12 @@
-import { isPlainObject } from "../core/utils/guards.ts";
 import type { SessionDriver } from "./_driver.ts";
 import { invalidConfigError } from "./_contract.ts";
 import { webCookieJar } from "./_cookie.ts";
-import type { SessionContext, SessionRequestEvent, SessionRequestHeaders } from "./types.ts";
+import type {
+  SessionContext,
+  SessionRequestEvent,
+  SessionRequestHeaders,
+  SessionToken,
+} from "./types.ts";
 
 /** Message prefix for every error the Web session entry emits. */
 export const PREFIX = "[unjwt/session]";
@@ -16,21 +20,30 @@ export const webSessionDriver: SessionDriver<SessionContext> = {
 
   /** `context.sessions` when the framework hands a context, so middleware and handler share one state. */
   state: (context) => {
-    if ("token" in context) return sessionsOf(context);
+    if (isHanded(context)) return sessionsOf(context);
     if (context.context) return contextSessions(context.context);
     return sessionsOf("req" in context ? webRequest(context) : context);
   },
 
-  header: (context, name) => ("token" in context ? undefined : requestHeaders(context).get(name)),
+  header: (context, name) => (isHanded(context) ? undefined : requestHeaders(context).get(name)),
 
   /** The Web exposes no response-sent signal: the jar takes writes while there is a `res`. */
   cookies: (context) =>
-    "token" in context
+    isHanded(context)
       ? { read: () => undefined }
       : webCookieJar(requestHeaders(context), context.res?.headers),
 
-  handed: (context) => ("token" in context ? { token: context.token } : undefined),
+  handed: (context) => (isHanded(context) ? { token: context.token } : undefined),
 };
+
+/** A token in hand is the shape with neither `req` nor `headers`, so a request event is never mistaken for one; anything else is refused. */
+function isHanded(context: SessionContext): context is SessionToken {
+  if ("req" in context || "headers" in context) return false;
+  if ("token" in context) return true;
+  throw invalidConfigError(
+    `${PREFIX} use() got neither a request event, a request's headers, nor a token.`,
+  );
+}
 
 function requestHeaders(context: SessionRequestEvent | SessionRequestHeaders): Headers {
   return "req" in context ? webRequest(context).headers : context.headers;
@@ -43,9 +56,13 @@ function webRequest(context: SessionRequestEvent): Request {
   throw invalidConfigError(`${PREFIX} use() got an event whose "req" is not a web Request.`);
 }
 
+/** The slot h3's own `useSession` creates too, whatever object it chose: shared, never replaced. */
 function contextSessions(context: Record<string, unknown>): Record<string, unknown> {
   const existing = context.sessions;
-  if (isPlainObject(existing)) return existing;
+  if (typeof existing === "object" && existing !== null) {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the slot is a record by contract with h3
+    return existing as Record<string, unknown>;
+  }
   const created: Record<string, unknown> = Object.create(null);
   context.sessions = created;
   return created;

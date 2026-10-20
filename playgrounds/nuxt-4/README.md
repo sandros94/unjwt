@@ -44,7 +44,7 @@ import { deriveSecret, createError } from "nuxt/server";
 import { type SessionContext, type SessionDefinition, defineJWESession } from "unjwt/session";
 import { base64UrlStringify } from "unjwt/utils";
 
-type Definition = SessionDefinition<SessionContext, SessionData, "1h">;
+type Definition = SessionDefinition<SessionData, "1h", SessionContext>;
 let definition: Promise<Definition> | undefined;
 
 async function define(): Promise<Definition> {

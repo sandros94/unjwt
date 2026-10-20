@@ -152,9 +152,9 @@ export type OpenedSessionState<
 
 /** One session, defined once from its config and used on any request. */
 export interface SessionDefinition<
-  TContext,
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TContext = unknown,
 > {
   /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
   use: (context: TContext) => Promise<SessionManager<T, MaxAge>>;

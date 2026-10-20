@@ -4546,8 +4546,8 @@ describe("session adapters — shared contract", () => {
       expectTypeOf(jwsV2.issue)
         .parameter(0)
         .toEqualTypeOf<Partial<SessionData<Data>> | undefined>();
-      expectTypeOf(jwsV2).toEqualTypeOf<SessionDefinition<HTTPEvent, Data, 3600>>();
-      expectTypeOf(jwsElysia).toMatchTypeOf<SessionDefinition<SessionContext, Data, 3600>>();
+      expectTypeOf(jwsV2).toEqualTypeOf<SessionDefinition<Data, 3600, HTTPEvent>>();
+      expectTypeOf(jwsElysia).toMatchTypeOf<SessionDefinition<Data, 3600, SessionContext>>();
     });
   });
   // #endregion
@@ -4721,7 +4721,7 @@ const CLEARERS: Record<H3Port, Record<Family, Opener>> = {
   "h3 v1": { jws: clearJWSSessionV1, jwe: clearJWESessionV1 },
 };
 
-type TestDefinition = SessionDefinition<unknown, Record<string, unknown>>;
+type TestDefinition = SessionDefinition<Record<string, unknown>>;
 
 const DEFINERS = {
   "h3 v2": { jws: defineJWSSessionV2, jwe: defineJWESessionV2 },

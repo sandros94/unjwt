@@ -25,7 +25,7 @@ Peer dep: `elysia` (optional). Runs anywhere `app.handle(Request)` does (Bun, No
 | `defineJWSSession(config)` / `defineJWESession(config)` | Session definition (`SessionPluginDefinition<T, MaxAge, K>`): `use`, `token`, `issue`, `open`, plus `plugin()` — exactly what `jwsSession(config)` returns. |
 
 ```ts
-interface SessionDefinition<TContext, T, MaxAge> {
+interface SessionDefinition<T, MaxAge, TContext> {
   use(context: TContext): Promise<SessionManager<T, MaxAge>>; // reads once per request; calls share state
   token(context: TContext): string | undefined; // raw token: this response's write, cookie, then session header
   issue(data?: Partial<SessionData<T>>, options?: SessionIssueOptions): Promise<string>; // fresh jti/iat, exp from maxAge; no request, no cookie
@@ -36,7 +36,7 @@ interface SessionPluginDefinition<
   T,
   MaxAge,
   K extends string = "session",
-> extends SessionDefinition<SessionContext, T, MaxAge> {
+> extends SessionDefinition<T, MaxAge, SessionContext> {
   plugin(): SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`>;
 }
 ```

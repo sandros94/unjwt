@@ -39,7 +39,8 @@ event), else a `WeakMap` keyed on `req`, on the object passed, or on the `{ toke
 function defineJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
->(config: SessionConfigJWS<T, MaxAge>): SessionDefinition<SessionContext, T, MaxAge>;
+  TContext extends SessionContext = SessionContext,
+>(config: SessionConfigJWS<T, MaxAge, TContext>): SessionDefinition<T, MaxAge, TContext>;
 
 function defineJWSSession<
   T extends Record<string, any> = SessionClaims,
@@ -48,11 +49,12 @@ function defineJWSSession<
 >(
   config: SessionConfigJWS<T, MaxAge, TContext>,
   options: { driver: SessionDriver<TContext> },
-): SessionDefinition<TContext, T, MaxAge>;
+): SessionDefinition<T, MaxAge, TContext>;
 // defineJWESession: same two signatures over SessionConfigJWE
 ```
 
-`TContext` is inferred from the driver; without `{ driver }` it is `SessionContext`. Hooks receive
+`TContext` is inferred from the driver; without `{ driver }` it is `SessionContext`, or the third
+generic when given (`defineJWESession<Data, MaxAge, H3Event>(config)`: `use()` then takes that event only). Hooks receive
 `{ context: TContext }` whatever the driver: the entry names the hook argument, not the driver.
 `onVerifyKeyLookup` / `onUnsealKeyLookup` get `context` only from `use()` (typed
 `context?: TContext`); `open()` passes none and resolves to `{ id, createdAt, expiresAt, data }`.
