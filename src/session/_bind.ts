@@ -11,7 +11,7 @@ import type {
   SessionCodec,
   SessionCoreConfig,
   SessionStore,
-} from "./_core.ts";
+} from "./_types.ts";
 import {
   type SessionCookie,
   assertSessionHeader,

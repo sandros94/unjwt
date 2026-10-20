@@ -7,10 +7,15 @@ import {
 } from "./_codec-jws.ts";
 import type { CookieAttributes } from "./_cookie-attributes.ts";
 import type { SessionDriver } from "./_driver.ts";
-import type { SessionState } from "./_core.ts";
-import { type SessionDefinition, defineSession } from "./_definition.ts";
-import type { SessionRecord } from "./_types.ts";
-import type { SessionClaims, SessionContext, SessionManager } from "./types.ts";
+import type {
+  SessionClaims,
+  SessionContext,
+  SessionDefinition,
+  SessionManager,
+  SessionRecord,
+  SessionState,
+} from "./types.ts";
+import { defineSession } from "./_definition.ts";
 import { webSessionDriver } from "./_web-driver.ts";
 
 export type { SessionSignOptions, SessionVerifyOptions } from "./_codec-jws.ts";

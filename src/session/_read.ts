@@ -9,16 +9,9 @@ import type { ExpiresIn } from "../core/types/index.ts";
 import { computeDurationInSeconds } from "../core/utils/jwt.ts";
 import { expiredSessionError, isTokenFailure } from "./_contract.ts";
 import { dropSessionCookie } from "./_bind.ts";
-import {
-  type SessionBinding,
-  type SessionCoreConfig,
-  type SessionState,
-  type StoredSession,
-  emptySession,
-  kSessionPending,
-  storedSession,
-} from "./_core.ts";
-import type { SessionRecord } from "./_types.ts";
+import type { SessionBinding, SessionCoreConfig, StoredSession } from "./_types.ts";
+import type { SessionRecord, SessionState } from "./types.ts";
+import { emptySession, kSessionPending, storedSession } from "./_core.ts";
 import { assertTokenSource } from "./_transport.ts";
 
 /** Get (and lazily initialize) the session for the current request. */

@@ -66,7 +66,8 @@ src/
                         # (_sign-verify, _aes, _ecdh, _pbes2, _rsa, _key-codec, _key-encryption, _pem)
   session/              # `unjwt/session`: the session core, the Web driver, and the public driver API
     index.ts            # the entry: defineJWSSession/defineJWESession (optional `{ driver }`), defineSessionDriver, SessionContext
-    jws.ts, jwe.ts      # the two families' define*Session over the Web driver; types.ts the public types
+    jws.ts, jwe.ts      # the two families' define*Session over the Web driver
+    types.ts            # the public session types (SessionClaims/Data/Update/Manager/Hooks/State/Definition, SessionContext)
     _web-driver.ts      # driver: context.sessions or WeakMap state, request headers/cookies, handed token
     _cookie.ts          # Web cookie jar: cookie-es parse of the Cookie header, Set-Cookie replace on Headers
     _define-driver.ts   # defineSessionDriver(): the typed identity for a third-party driver
@@ -78,7 +79,7 @@ src/
     _definition.ts      # SessionDefinition + defineSession: one config bound to a driver and a codec (use/token/issue/open)
     _driver.ts          # SessionDriver/CookieJar: the primitives a framework supplies (state, header, cookies, writable)
     _transport.ts       # core-owned cookie + header transports over a driver; sessionHeader rules
-    _types.ts           # session types every entry exposes (SessionClaims/Data/Update/Manager/Hooks)
+    _types.ts           # internal contracts only (PendingSession/StoredSession, SessionCodec/Store/Actions/Binding, core config and hooks)
     _codec.ts           # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
     _codec-jws.ts       # JWS half of a session: sign/verify, key resolution, JWS config + cookie defaults
     _codec-jwe.ts       # JWE half of a session: encrypt/decrypt, key resolution, JWE config + cookie defaults

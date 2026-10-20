@@ -1,7 +1,12 @@
 import type { H3Event } from "h3v1";
 
 import type { ExpiresIn } from "../../../core/types/index.ts";
-import type { SessionIssueOptions } from "../../../session/_contract.ts";
+import type {
+  SessionDefinition,
+  SessionIssueOptions,
+  SessionRecord,
+  SessionState,
+} from "../../../session/types.ts";
 import {
   type JWECodecConfig,
   type JWESessionConfig,
@@ -9,12 +14,9 @@ import {
   createJWECodec,
 } from "../../../session/_codec-jwe.ts";
 import { bindSession } from "../../../session/_bind.ts";
-import {
-  type SessionBinding,
-  type SessionState,
-  openSessionToken,
-} from "../../../session/_core.ts";
-import { type SessionDefinition, defineSession } from "../../../session/_definition.ts";
+import type { SessionBinding } from "../../../session/_types.ts";
+import { openSessionToken } from "../../../session/_core.ts";
+import { defineSession } from "../../../session/_definition.ts";
 import { loadSession } from "../../../session/_read.ts";
 import {
   dropSession,
@@ -22,7 +24,6 @@ import {
   issueSession,
   sessionActions,
 } from "../../../session/_write.ts";
-import type { SessionRecord } from "../../../session/_types.ts";
 import type { CookieSerializeOptions } from "../_cookie.ts";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
 import { type CompatEvent, PREFIX, h3SessionDriver } from "./_shared.ts";

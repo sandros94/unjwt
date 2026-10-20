@@ -1,8 +1,8 @@
 import { Elysia } from "elysia";
 
 import type { ExpiresIn } from "../../core/types/index.ts";
-import type { SessionDefinition } from "../../session/_definition.ts";
-import type { SessionClaims, SessionManager, SessionRecord } from "../../session/_types.ts";
+import type { SessionDefinition } from "../../session/types.ts";
+import type { SessionClaims, SessionManager, SessionRecord } from "../../session/types.ts";
 import type { SessionContext } from "./session/types.ts";
 
 /**

@@ -14,12 +14,6 @@ const FORBIDDEN_KEYS: readonly string[] = ["__proto__", "constructor", "prototyp
 
 const importedKeys = /* @__PURE__ */ new WeakMap<object, Map<string, Promise<void>>>();
 
-/** Per-issue overrides for a single `update()` call. */
-export interface SessionIssueOptions {
-  /** Lifetime for this issue only, overriding the config's `maxAge`. */
-  maxAge?: ExpiresIn;
-}
-
 export function invalidKeyError(
   message: string,
   cause?: unknown,

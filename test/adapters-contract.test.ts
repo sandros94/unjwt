@@ -80,12 +80,12 @@ import {
 import type { CookieAttributes } from "../src/adapters/elysia/_cookie.ts";
 import { createJWSCodec } from "../src/session/_codec-jws.ts";
 import { createJWECodec } from "../src/session/_codec-jwe.ts";
-import type { SessionBinding, SessionCodec, SessionCoreConfig } from "../src/session/_core.ts";
+import type { SessionBinding, SessionCodec, SessionCoreConfig } from "../src/session/_types.ts";
 import { bindSession } from "../src/session/_bind.ts";
 import type { CookieJar, SessionDriver } from "../src/session/_driver.ts";
 import { loadSession } from "../src/session/_read.ts";
 import { dropSession, issueSession, sessionActions } from "../src/session/_write.ts";
-import type { SessionManager } from "../src/session/_types.ts";
+import type { SessionManager } from "../src/session/types.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
 // PBES2 derives its key from the JWK's bytes, so the JWK declares the PBES2 alg itself.

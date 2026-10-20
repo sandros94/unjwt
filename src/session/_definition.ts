@@ -1,35 +1,12 @@
 import type { ExpiresIn } from "../core/types/index.ts";
 import type { SessionDriver } from "./_driver.ts";
-import { type SessionIssueOptions, resolveExpiresAt, sanitizeSessionUpdate } from "./_contract.ts";
+import type { SessionDefinition, SessionRecord } from "./types.ts";
+import { resolveExpiresAt, sanitizeSessionUpdate } from "./_contract.ts";
 import { bindSession, sessionToken } from "./_bind.ts";
-import {
-  type SessionActions,
-  type SessionCodec,
-  type SessionCoreConfig,
-  type OpenedSessionState,
-  mintSessionId,
-  openSessionToken,
-  sessionInstant,
-} from "./_core.ts";
+import type { SessionActions, SessionCodec, SessionCoreConfig } from "./_types.ts";
+import { mintSessionId, openSessionToken, sessionInstant } from "./_core.ts";
 import { loadSession } from "./_read.ts";
 import { sessionActions, sessionManager } from "./_write.ts";
-import type { SessionClaims, SessionData, SessionManager, SessionRecord } from "./_types.ts";
-
-/** One session, defined once from its config and used on any request. */
-export interface SessionDefinition<
-  TContext,
-  T extends SessionRecord = SessionClaims,
-  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-> {
-  /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
-  use: (context: TContext) => Promise<SessionManager<T, MaxAge>>;
-  /** The token the request carries (this response's own write first), unopened. */
-  token: (context: TContext) => string | undefined;
-  /** Mints a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it); reads and writes nothing. */
-  issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;
-  /** Opens a token into session state, checking `typ`, pinned algorithms, `jti`/`iat` and `exp` when `maxAge` is set; the key-lookup hook receives no request. */
-  open: (token: string) => Promise<OpenedSessionState<T, MaxAge>>;
-}
 
 /** Binds a config to a framework driver and a codec; nothing is validated or read until a method runs. */
 export function defineSession<

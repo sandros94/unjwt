@@ -6,18 +6,18 @@
 
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import type { ExpiresIn } from "../core/types/index.ts";
-import {
-  type SessionIssueOptions,
-  RESERVED_CLAIMS,
-  resolveExpiresAt,
-  sanitizeSessionUpdate,
-} from "./_contract.ts";
+import type {
+  SessionIssueOptions,
+  SessionManager,
+  SessionRecord,
+  SessionState,
+  SessionUpdate,
+  SessionUpdateTrigger,
+} from "./types.ts";
+import { RESERVED_CLAIMS, resolveExpiresAt, sanitizeSessionUpdate } from "./_contract.ts";
 import { sessionCookie, sessionToken } from "./_bind.ts";
+import type { SessionActions, SessionBinding, SessionCoreConfig } from "./_types.ts";
 import {
-  type SessionActions,
-  type SessionBinding,
-  type SessionCoreConfig,
-  type SessionState,
   blankSession,
   emptySession,
   kSessionPending,
@@ -26,12 +26,6 @@ import {
   storedSession,
 } from "./_core.ts";
 import { loadSession } from "./_read.ts";
-import type {
-  SessionManager,
-  SessionRecord,
-  SessionUpdate,
-  SessionUpdateTrigger,
-} from "./_types.ts";
 import { assertTokenSource, assertWritable } from "./_transport.ts";
 
 /** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */

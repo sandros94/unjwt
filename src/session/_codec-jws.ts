@@ -25,8 +25,8 @@ import {
   sessionIssueOptions,
   sessionOpenOptions,
 } from "./_codec.ts";
-import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_core.ts";
-import type { SessionBaseConfig, SessionHooks } from "./_types.ts";
+import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_types.ts";
+import type { SessionBaseConfig, SessionHooks } from "./types.ts";
 
 /** HS* `oct` JWK, `CryptoKey` (requires pinned `alg`), or a pair: private signs, public JWK/list/set verifies. */
 export type JWSSessionKey =

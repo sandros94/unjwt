@@ -1,125 +1,87 @@
-import type { JWTClaims, ExpiresIn } from "../core/types/index.ts";
-import type { StrictOmit } from "../core/utils/types.ts";
-import type { SessionIssueOptions } from "./_contract.ts";
+import type { ExpiresIn } from "../core/types/index.ts";
+import type { kSessionPending } from "./_core.ts";
+import type { SessionDriver } from "./_driver.ts";
+import type { SessionTokenSource, SessionTransport } from "./_transport.ts";
+import type { SessionRecord, SessionState } from "./types.ts";
 
-/** Session data shape; `any` values let an `interface` (no index signature) satisfy it. */
-// oxlint-disable-next-line typescript/no-explicit-any -- an interface has no implicit index signature
-export type SessionRecord = Record<string, any>;
+/** Session state with the in-flight read a second reader on the same request awaits. */
+export type PendingSession<
+  T extends SessionRecord,
+  MaxAge extends ExpiresIn | undefined,
+> = SessionState<T, MaxAge> & {
+  [kSessionPending]?: Promise<SessionState<T, MaxAge>>;
+};
 
-export interface SessionClaims
-  extends Required<Pick<JWTClaims, "jti" | "iat">>, StrictOmit<JWTClaims, "jti" | "iat"> {}
+export type StoredSession = PendingSession<SessionRecord, ExpiresIn | undefined>;
 
-/** Session data without the adapter-owned `jti`, `iat`, `exp` and `nbf`. */
-export type SessionData<T extends SessionRecord = SessionClaims> = StrictOmit<
-  T,
-  "jti" | "iat" | "exp" | "nbf"
->;
-
-/** Why `onUpdate` fired: an `update()` call, or `rolling` reissuing a session that was read. */
-export type SessionUpdateTrigger = "update" | "rolling";
-
-export type SessionUpdate<T extends SessionRecord = SessionClaims> =
-  | Partial<SessionData<T>>
-  | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
-
-export interface SessionManager<
-  T extends SessionRecord = SessionClaims,
-  ConfigMaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-> {
-  readonly id: string | undefined;
-  readonly createdAt: number;
-  /** Expiry in ms — always a number when the session has a `maxAge`. */
-  readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined;
-  readonly data: SessionData<T>;
-  readonly token: string | undefined;
-  /**
-   * Issues a new token after merging `update`; `options.maxAge` overrides this token's lifetime.
-   * Later reads see the data's JSON round trip. Rolls back if issuing or the cookie write fails;
-   * a throwing `onUpdate` rejects but keeps the new session.
-   */
-  update: (
-    update?: SessionUpdate<T>,
-    options?: SessionIssueOptions,
-  ) => Promise<SessionManager<T, ConfigMaxAge>>;
-  clear: () => Promise<SessionManager<T, ConfigMaxAge>>;
+/** What a codec reads back from a token. */
+export interface OpenedSession {
+  id: string;
+  createdAt: number;
+  expiresAt: number | undefined;
+  data: Record<string, unknown>;
 }
 
-/** The config members every session shares, whether it signs or seals its token. */
-export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined> {
-  /** Sets `exp = iat + maxAge`, requires `exp` on incoming tokens, drives cookie expiry; unset never expires. */
-  maxAge?: MaxAge;
-  /**
-   * Reissue the session when it is read, needs `maxAge`.
-   *
-   * - `true`: every read reissues.
-   * - a duration: a read reissues once the token is at least that old, so an active session is
-   *   re-signed at most once per duration. With `maxAge: "1h"` and `rolling: "15m"`, reads in the
-   *   first 15 minutes change nothing; the first read after that issues a fresh hour. Must be
-   *   shorter than `maxAge`.
-   *
-   * A read that cannot write (a read-only context, a response already sent) does not reissue;
-   * the next request, carrying the same token, does.
-   *
-   * @default undefined — the session expires at `iat + maxAge` however often it is read.
-   */
+/** Declared as methods so a family's hook can take a narrower argument type. */
+export interface SessionCoreHooks {
+  onRead?(args: Record<string, unknown>): void | Promise<void>;
+  onUpdate?(args: Record<string, unknown>): void | Promise<void>;
+  onClear?(args: Record<string, unknown>): void | Promise<void>;
+  onExpire?(args: Record<string, unknown>): void | Promise<void>;
+  onError?(args: Record<string, unknown>): void | Promise<void>;
+}
+
+export interface SessionCoreConfig extends SessionTokenSource {
+  maxAge?: ExpiresIn;
   rolling?: true | ExpiresIn;
-  /** Drives the cookie name and default header; prefer `__Host-`; a trailing `.<digits>` is refused. */
   name?: string;
-  /**
-   * Header carrying a bare or `Bearer` token: a header name, `true` for `x-<name>-session` (cookie prefix stripped), or `false` for none.
-   * Left unset, a session with cookies still reads `x-<name>-session`, and so does one with `cookie: false`.
-   */
-  sessionHeader?: boolean | string;
-  /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */
+  cookie?: false | { chunkMaxLength?: number };
   generateId?: () => string;
+  hooks?: SessionCoreHooks;
 }
 
-/**
- * Lifecycle hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per incoming token.
- * `session` is the live manager, so a hook can `update()` or `clear()` in place; `oldSession` is a snapshot.
- */
-export interface SessionHooks<TSession, TManager, TArgs extends Record<string, unknown>, TConfig> {
-  /** Fires once per request, when the session is read from its token. */
-  onRead?: (
-    args: TArgs & { session: TManager & { id: string; token: string }; config: TConfig },
-  ) => void | Promise<void>;
-  /** Fires after a token is issued and its cookie written, by `update()` or by `rolling`; a throw rejects without rollback. */
-  onUpdate?: (
-    args: TArgs & {
-      session: TManager & { id: string; token: string };
-      /** Deep-copied snapshot of the session before the update. */
-      oldSession: TSession;
-      trigger: SessionUpdateTrigger;
-      config: TConfig;
-    },
-  ) => void | Promise<void>;
-  /** Fires when the session is cleared. */
-  onClear?: (
-    args: TArgs & {
-      oldSession: TSession | undefined;
-      config: TConfig;
-    },
-  ) => void | Promise<void>;
-  /** Fires when the incoming token is expired. Receives the expired token's decoded claims. */
-  onExpire?: (
-    args: TArgs & {
-      session: {
-        id: string | undefined;
-        createdAt: number | undefined;
-        expiresAt: number | undefined;
-        token: string;
-      };
-      error: Error;
-      config: TConfig;
-    },
-  ) => void | Promise<void>;
-  /** Fires on read-path failures other than expiry, and on write-path issue failures. */
-  onError?: (
-    args: TArgs & {
-      session: TManager;
-      // oxlint-disable-next-line typescript/no-explicit-any -- a write-path failure is whatever the cookie write or token issue threw
-      error: any;
-      config: TConfig;
-    },
-  ) => void | Promise<void>;
+/** One session's slot in the state of its request. */
+export interface SessionStore {
+  get: () => unknown;
+  set: (state: object) => void;
+}
+
+/** How a session is issued and read: signed (JWS) or encrypted (JWE). */
+export interface SessionCodec<Config extends SessionCoreConfig> {
+  /** Keeps a JWS and a JWE session that share a `name` apart. */
+  family: "jws" | "jwe";
+  defaultName: string;
+  defaultCookie: Record<string, unknown>;
+  now: (config: Config) => number;
+  /** Resolves the issuing key before any session is read; returns the bound issuer. */
+  issuer: (config: Config) => (state: StoredSession) => Promise<string>;
+  /** Imports every configured key, once per key object; throws `ERR_SESSION_KEY_INVALID` for an unusable one. */
+  assertKeys: (config: Config) => Promise<void>;
+  /** Resolves the opening key before the token is read (a missing key is a config error); returns the bound opener. */
+  opener: (
+    config: Config,
+    args: Record<string, unknown>,
+  ) => (token: string) => Promise<OpenedSession>;
+  open: (config: Config, token: string, args: Record<string, unknown>) => Promise<OpenedSession>;
+}
+
+/** The write side as the read path reaches it: the manager hooks receive, and the reissue `rolling` asks for. */
+export interface SessionActions<TContext, Config extends SessionCoreConfig> {
+  manager: (binding: SessionBinding<TContext, Config>) => object;
+  roll: (binding: SessionBinding<TContext, Config>) => Promise<void>;
+}
+
+/** One session of one request: its config, its framework, its codec, its write side and its token transport. */
+export interface SessionBinding<TContext, Config extends SessionCoreConfig> {
+  context: TContext;
+  config: Config;
+  driver: SessionDriver<TContext>;
+  codec: SessionCodec<Config>;
+  actions: SessionActions<TContext, Config>;
+  /** Session name — drives the cookie name and the default session header. */
+  name: string;
+  /** The hook argument naming the request. */
+  args: Record<string, unknown>;
+  store: SessionStore;
+  transport: SessionTransport;
 }
