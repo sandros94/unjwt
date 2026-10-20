@@ -37,5 +37,10 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 | `defineJWSSession` (`unjwt/adapters/h3v1`)                            | `defineJWSSession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
 | `defineJWESession` (`unjwt/adapters/h3v1`)                            | `defineJWESession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
 | `CompatEvent` (`unjwt/adapters/h3v1`)                                 | `SessionRequestHeaders` (`unjwt/session`)              | v0.8.2        | v0.9.0    |
+| `defineJWSSession` (`unjwt/adapters/h3`, `h3v2`)                      | `defineJWSSession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
+| `defineJWESession` (`unjwt/adapters/h3`, `h3v2`)                      | `defineJWESession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
+| `SessionJWS`, `SessionJWE` (`unjwt/adapters/h3*`)                     | `SessionJWS`, `SessionJWE` (`unjwt/session`)           | v0.8.2        | v0.9.0    |
+| `SessionHooksJWS`, `SessionHooksJWE` (`unjwt/adapters/h3*`)           | the same names on `unjwt/session`                      | v0.8.2        | v0.9.0    |
+| `SessionConfigJWS`, `SessionConfigJWE` (`unjwt/adapters/h3*`)         | the same names on `unjwt/session`                      | v0.8.2        | v0.9.0    |
 | `createJWSSession` (`unjwt/adapters/elysia`)                          | `defineJWSSession(config).use(context)`                | v0.8.2        | v0.9.0    |
 | `createJWESession` (`unjwt/adapters/elysia`)                          | `defineJWESession(config).use(context)`                | v0.8.2        | v0.9.0    |

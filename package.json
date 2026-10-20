@@ -41,6 +41,10 @@
       "types": "./dist/core/utils/index.d.mts",
       "default": "./dist/core/utils/index.mjs"
     },
+    "./session": {
+      "types": "./dist/session/index.d.mts",
+      "default": "./dist/session/index.mjs"
+    },
     "./internal": {
       "types": "./dist/core/internal.d.mts",
       "default": "./dist/core/internal.mjs"
@@ -60,10 +64,6 @@
     "./adapters/elysia": {
       "types": "./dist/adapters/elysia/index.d.mts",
       "default": "./dist/adapters/elysia/index.mjs"
-    },
-    "./session": {
-      "types": "./dist/session/index.d.mts",
-      "default": "./dist/session/index.mjs"
     }
   },
   "scripts": {

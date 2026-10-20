@@ -5,7 +5,7 @@ The `h3` adapter bundles session helpers that store data inside signed or encryp
 > [!WARNING]
 > While these adapters try to be compatible with h3's `useSession` API, the key difference is that new sessions are not automatically created when calling `use(event)`, marking their `id` as `undefined` until you explicitly call `session.update()`. This is to comply with various specs that do integrate JWT one (such as OAuth) where sessions are only created upon valid operations (like user authorization).
 
-For an in-depth guide on using these adapters, please refer to the [H3 sessions guide](../../../docs/5.adapters/2.h3/0.index.md).
+For an in-depth guide on using these adapters, please refer to the [h3 adapters page](../../../docs/5.frameworks/8.adapters/0.index.md).
 
 A session is defined once, at module scope, and opened on each request with `use(event)`:
 

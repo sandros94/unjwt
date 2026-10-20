@@ -32,13 +32,19 @@ import { PREFIX, h3SessionDriver } from "./_shared.ts";
 const codec = createJWSCodec({ prefix: PREFIX, defaultName: "h3-jws" });
 const hookArgs = (event: HTTPEvent) => ({ event });
 
-/** Session state for the current request, mirroring the claims of its JWS token. */
+/**
+ * Session state for the current request, mirroring the claims of its JWS token.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export interface SessionJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
-/** JWS session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
+/**
+ * JWS session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export interface SessionHooksJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -50,7 +56,10 @@ export interface SessionHooksJWS<
   SessionConfigJWS<T, MaxAge, TEvent>
 > {}
 
-/** Configuration for a JWS-backed (signed, not encrypted) session. */
+/**
+ * Configuration for a JWS-backed (signed, not encrypted) session.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export interface SessionConfigJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -61,7 +70,10 @@ export interface SessionConfigJWS<
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 
-/** Defines a JWS (signed, not encrypted) session once, its data readable by clients; `use`, `token`, `issue` and `open` serve every request. */
+/**
+ * Defines a JWS (signed, not encrypted) session once, its data readable by clients; `use`, `token`, `issue` and `open` serve every request.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

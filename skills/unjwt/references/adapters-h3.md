@@ -88,7 +88,7 @@ A token longer than `cookie.chunkMaxLength` (default 4000) is split: the base co
 `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks
 (beyond which the write throws `ERR_SESSION_CONFIG_INVALID`). h3 v1 and h3 v2 write the same
 layout — h3 v2 and h3 v1 each through the adapter's own chunk layer
-(`src/adapters/_chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by
+(`src/session/_chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by
 the others. Cleanup of a previous chunk set is bounded by the same 16-chunk limit, so a
 forged marker cannot inflate the number of `Set-Cookie` headers on a response. The previous
 set is the one the response already wrote, else the request's, so a set that shrinks within one
@@ -138,7 +138,7 @@ Forked from h3's `useSession`, then deliberately diverged:
   the next request, carrying the same token, does both.
 
 Both h3 adapters, the Elysia one and `unjwt/session` run the same session core
-(`src/adapters/_session-core.ts`) over a JWS/JWE codec and a per-framework driver
+(`src/session/_core.ts`) over a JWS/JWE codec and a per-framework driver
 (`session/_shared.ts`), so the lifecycle, hook order and error codes are the same everywhere;
 only cookie writing, per-request state and the `res.errHeaders` staging differ per framework.
 

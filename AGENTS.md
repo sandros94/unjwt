@@ -29,7 +29,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
 - **Example:** `pnpm dev` runs the h3 playground
-- **Playgrounds:** `playgrounds/{h3,nuxt-4,nitro}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must exist: the `pnpm dev:prepare` stub runs from `src`, or `pnpm build`). Its `h3` peer would resolve from the root, where only the `h3v1` alias and the root's own `h3` live: Nuxt aliases `h3` to its own copy in `nuxt.config.ts`, the h3 playground does it with a Node resolve hook (`scripts/h3-from-playground.mjs`). `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1 under `nuxt/server`, `appSecret`-derived key, WebSockets), `pnpm dev:nitro` the Nitro 3 one (same routes on `unjwt/session`, a static `index.html`). They are usage examples, not tests: `test/` covers behaviour.
+- **Playgrounds:** `playgrounds/{h3,nuxt-4,nitro}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must exist: the `pnpm dev:prepare` stub runs from `src`, or `pnpm build`). All three run on `unjwt/session`, so no playground needs the library's `h3` resolved. `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1 under `nuxt/server`, `appSecret`-derived key, WebSockets), `pnpm dev:nitro` the Nitro 3 one (same routes on `unjwt/session`, a static `index.html`). They are usage examples, not tests: `test/` covers behaviour.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
 - `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), `secureRandomBytes`
 - `unjwt/internal` — JOSE plumbing (`parsePayloadBytes`, `computeJwtTimeClaims`, `crit` checks, …) for tests and tooling; no semver guarantee, not re-exported from `unjwt`
-- `unjwt/adapters/h3v1` and `unjwt/adapters/h3v2` — `defineJWSSession()`, `defineJWESession()` session definitions (`use`/`token`/`issue`/`open`) for cookie-based JWT sessions
+- `unjwt/adapters/h3` (= `h3v2`) and `unjwt/adapters/h3v1` — `defineJWSSession()`, `defineJWESession()` session definitions (`use`/`token`/`issue`/`open`) for cookie-based JWT sessions; both deprecated, removed in 0.9.0 in favour of `unjwt/session`
 - `unjwt/adapters/elysia` — `jwsSession()`/`jweSession()` Elysia plugins (ambient `ctx.session`, `requireSession` guard macro) over `defineJWSSession()`/`defineJWESession()` (the definition plus `plugin()`)
 - `unjwt/session` (`src/session/`) — `defineJWSSession()`/`defineJWESession()` over a Web `Request` + response `Headers` or a token in hand, plus `defineSessionDriver()` and the `SessionDriver`/`CookieJar` types for a framework of your own (`{ driver }` option); no peer dependency
 
@@ -67,7 +67,6 @@ src/
   session/              # `unjwt/session`: the session core, the Web driver, and the public driver API
     index.ts            # the entry: defineJWSSession/defineJWESession (optional `{ driver }`), defineSessionDriver, SessionContext
     jws.ts, jwe.ts      # the two families' define*Session over the Web driver
-    types.ts            # the public session types (SessionClaims/Data/Update/Manager/Hooks/State/Definition, SessionContext)
     _web-driver.ts      # driver: context.sessions or WeakMap state, request headers/cookies, handed token
     _cookie.ts          # Web cookie jar: cookie-es parse of the Cookie header, Set-Cookie replace on Headers
     _define-driver.ts   # defineSessionDriver(): the typed identity for a third-party driver
@@ -79,13 +78,14 @@ src/
     _definition.ts      # SessionDefinition + defineSession: one config bound to a driver and a codec (use/token/issue/open)
     _driver.ts          # SessionDriver/CookieJar: the primitives a framework supplies (state, header, cookies, writable)
     _transport.ts       # core-owned cookie + header transports over a driver; sessionHeader rules
+    types.ts            # the public session types (SessionClaims/Data/Update/Manager/Hooks/State/Definition, SessionContext)
     _types.ts           # internal contracts only (PendingSession/StoredSession, SessionCodec/Store/Actions/Binding, core config and hooks)
     _codec.ts           # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
     _codec-jws.ts       # JWS half of a session: sign/verify, key resolution, JWS config + cookie defaults
     _codec-jwe.ts       # JWE half of a session: encrypt/decrypt, key resolution, JWE config + cookie defaults
     _chunked-cookie.ts  # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
     _cookie-attributes.ts # CookieAttributes: the Set-Cookie attribute shape shared by the Elysia and Web entries
-  adapters/             # framework entries over `src/session/`: Elysia (plugin + guard macro) and the h3 ones
+  adapters/             # framework entries over `src/session/`: Elysia (plugin + guard macro), and the deprecated h3 ones
     h3v1/               # H3 v1 session adapter (defineJWSSession, defineJWESession)
       _cookie.ts        # cookie option type + the Node response's Set-Cookie list
       session/_shared.ts# driver: CompatEvent, context state, request headers/cookies, cookie jar

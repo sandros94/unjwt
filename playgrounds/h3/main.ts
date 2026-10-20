@@ -1,7 +1,6 @@
-import type { H3Event } from "h3";
 import { H3, serve, HTTPError } from "h3";
 
-import { defineJWESession, deriveJWKFromPassword } from "unjwt/adapters/h3";
+import { type SessionContext, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
 
 export const password =
   process.env.SESSION_PASSWORD ?? "playground-password-with-at-least-32-characters";
@@ -23,7 +22,7 @@ const session = defineJWESession<SessionData, "1h">({
   rolling: "15m",
 });
 
-function useSession(event: H3Event) {
+function useAppSession(event: SessionContext) {
   return session.use(event);
 }
 
@@ -34,20 +33,20 @@ const app = new H3()
     if (typeof body?.user !== "string")
       throw new HTTPError({ status: 400, message: "user required" });
 
-    const current = await useSession(event);
+    const current = await useAppSession(event);
     await current.update({ user: body.user });
 
     return { id: current.id, user: current.data.user };
   })
   .get("/me", async (event) => {
-    const current = await useSession(event);
+    const current = await useAppSession(event);
 
     if (!current.id) throw new HTTPError({ status: 401 });
 
     return { id: current.id, user: current.data.user };
   })
   .post("/logout", async (event) => {
-    const current = await useSession(event);
+    const current = await useAppSession(event);
     await current.clear();
 
     return { ok: true };

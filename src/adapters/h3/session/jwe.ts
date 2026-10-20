@@ -33,13 +33,19 @@ export type { SessionDecryptOptions, SessionEncryptOptions } from "../../../sess
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "h3-jwe" });
 const hookArgs = (event: HTTPEvent) => ({ event });
 
-/** Session state for the current request, mirroring the claims of its JWE token. */
+/**
+ * Session state for the current request, mirroring the claims of its JWE token.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export interface SessionJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
-/** JWE session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
+/**
+ * JWE session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export interface SessionHooksJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -51,7 +57,10 @@ export interface SessionHooksJWE<
   SessionConfigJWE<T, MaxAge, TEvent>
 > {}
 
-/** Configuration for a JWE-backed (encrypted) session. */
+/**
+ * Configuration for a JWE-backed (encrypted) session.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export interface SessionConfigJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -62,7 +71,10 @@ export interface SessionConfigJWE<
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
 }
 
-/** Defines a JWE (encrypted) session once; its `use`, `token`, `issue` and `open` serve every request. */
+/**
+ * Defines a JWE (encrypted) session once; its `use`, `token`, `issue` and `open` serve every request.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

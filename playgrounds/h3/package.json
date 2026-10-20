@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --import ./scripts/h3-from-playground.mjs --watch main.ts",
-    "start": "node --import ./scripts/h3-from-playground.mjs main.ts"
+    "dev": "node --watch main.ts",
+    "start": "node main.ts"
   },
   "dependencies": {
     "h3": "^2.0.5",

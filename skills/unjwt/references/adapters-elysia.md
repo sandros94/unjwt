@@ -366,7 +366,7 @@ const { id, data, expiresAt } = await magicLink.open(token);
   in `_plugin.ts`) so the package satisfies `isolatedDeclarations`; the factory body is cast
   `as unknown as SessionPlugin<…>` because Elysia's `.macro()` expects literal keys while the guard
   key is computed.
-- The session lifecycle is the shared core in `src/adapters/_session-core.ts`, over the JWS/JWE
+- The session lifecycle is the shared core in `src/session/_core.ts`, over the JWS/JWE
   codec and the Elysia driver in `session/_shared.ts` (reactive-jar cookie writes, token reading),
   so hooks, error codes and claim handling match the h3 adapters exactly.
 - Build: the adapter is an input of the single multi-input bundle (shared core in `dist/_chunks/`,

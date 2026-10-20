@@ -18,7 +18,8 @@ Exports: `defineJWSSession`, `defineJWESession`, `defineSessionDriver`; types `S
 `importPEM`, `exportPEM`, `deriveJWKFromPassword` and every core type.
 
 The session manager, config options, hooks, cookie layout, chunking, lifetime, `typ` and key rules
-are those of the h3 entry: see `adapters-h3.md`. Differences are listed here.
+are shared by every entry (Elysia's `adapters-elysia.md` documents them in full); what is specific
+to this entry is listed here.
 
 ## SessionContext
 
@@ -86,8 +87,7 @@ export default {
 - Hono: pass `c.req.raw` as `req` and return `new Response(body, { headers })`.
 - Nuxt 4.6+: `defineEventHandler` from `nuxt/server` (not h3's auto-import) hands a `RequestEvent`
   that goes to `use(event)` as is, on Nitro 2 and 3; key it from `deriveSecret()` of `nuxt/server`
-  (32 HKDF bytes as hex → `oct` JWK, created lazily since it needs the runtime config). h3 v2,
-  Nuxt 5 and Nitro 3 can use `unjwt/adapters/h3` instead (adds `res.errHeaders` staging).
+  (32 HKDF bytes as hex → `oct` JWK, created lazily since it needs the runtime config).
 
 ## Read-only: a `Request`, `{ req }` without `res`, `{ headers, context? }`
 
@@ -189,6 +189,22 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
   v2 stages cookies in `res.errHeaders`), Elysia (state keyed by `Request`, reactive jar, no
   `written`), `unjwt/session` (state on `context.sessions`, else keyed by `req`, the object passed
   or the `{ token }` object; `handed`).
+
+## Frameworks
+
+- h3 v2 (`new H3()`): the `H3Event` goes to `use()` as is. A thrown handler sends `res.errHeaders`
+  only: keep the cookie with `hooks: { onUpdate: stage, onClear: stage }` where `stage` copies
+  `event.res.headers.getSetCookie()` into `event.res.errHeaders` (`{ context: event }` is the hook
+  arg; `defineJWESession<Data, MaxAge, H3Event>(config)` narrows `context` so it typechecks).
+- Nitro 3: same event; no auto-imports (`defineHandler`, `defineWebSocketHandler`, `HTTPError` from
+  `nitro`, `readBody` from `nitro/h3`); Nitro's error handler drops prepared headers on a throw.
+- Nuxt 4.6+/5: handlers must come from `nuxt/server` (`defineEventHandler`, `readBody`, `createError`),
+  whose `RequestEvent` goes to `use()` as is on Nitro 2 and 3; h3's auto-imported handler passes the
+  h3 v1 event, refused with `ERR_SESSION_CONFIG_INVALID`. Key from `deriveSecret()` (lazy, needs
+  runtime config). WebSockets: `defineWebSocketHandler` is h3's; read once in `upgrade` with
+  `{ headers: request.headers, context: request.context, res: { headers } }`, `return { headers }`
+  (+ `context` on crossws 0.4 / Nitro 3, thrown `Response` to refuse; written onto
+  `request.context`, returned `Response` to refuse on crossws 0.3 / Nitro 2).
 
 ## Error codes
 

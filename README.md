@@ -13,8 +13,7 @@ Low-level JWT toolkit built on the Web Crypto API. Sign, verify, encrypt, decryp
 - **JWS** ([RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515)) — HMAC, RSA, RSA-PSS, ECDSA, EdDSA. Compact + General/Flattened JSON Serialization (multi-signature).
 - **JWE** ([RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516)) — `dir`, AES-KW, AES-GCM-KW, RSA-OAEP, PBES2, ECDH-ES. AES-GCM and AES-CBC-HMAC-SHA2 content encryption. Compact + General/Flattened JSON Serialization (multi-recipient).
 - **JWK** ([RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517)) — generate, import, export, wrap, unwrap. `CryptoKey` ↔ JWK ↔ PEM conversion. ECDH-ES shared-secret derivation. JWK Set lookup and rotation over a set your application fetches.
-- **Framework adapters** — cookie-based JWT sessions for [H3 v1](https://unjwt.s94.dev/frameworks/adapters) (Nuxt v4 / Nitro v2), [H3 v2](https://unjwt.s94.dev/frameworks/adapters) (Nuxt v5 / Nitro v3) and [Elysia](https://unjwt.s94.dev/frameworks/elysia).
-- **Web standard sessions** — [`unjwt/session`](https://unjwt.s94.dev/frameworks/session) runs the same sessions on a `Request` and its response `Headers` (Workers, Bun, Deno, Hono) or on a token in hand, and takes a [driver](https://unjwt.s94.dev/frameworks/drivers) for any other framework.
+- **Sessions** — cookie-based JWT sessions through [`unjwt/session`](https://unjwt.s94.dev/frameworks/session) on [h3 v2](https://unjwt.s94.dev/frameworks/h3), [Nitro 3](https://unjwt.s94.dev/frameworks/nitro), [Nuxt 4.6+](https://unjwt.s94.dev/frameworks/nuxt), Workers, Bun, Deno and Hono, or on a token in hand; an [Elysia](https://unjwt.s94.dev/frameworks/elysia) plugin; a [driver](https://unjwt.s94.dev/frameworks/drivers) for any other framework.
 - **Runtime-agnostic** — Node 22+, Deno, Bun, Cloudflare Workers, browsers. Anywhere Web Crypto runs.
 - **Zero runtime dependencies** for core; optional peer deps for adapters (`h3`, `elysia`).
 

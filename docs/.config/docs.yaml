@@ -36,6 +36,7 @@ redirects:
   /adapters/hooks: /frameworks/hooks
   /adapters/drivers: /frameworks/drivers
   /adapters/lower-level: /frameworks/definition
+  /frameworks/adapters/lower-level: /frameworks/definition
 
 socials:
   bluesky: "https://bsky.app/profile/sandros94.com"
