@@ -1,7 +1,7 @@
-import { isPlainObject } from "../../../core/utils/guards.ts";
-import type { SessionDriver } from "../../_driver.ts";
-import { invalidConfigError } from "../../_session.ts";
-import { webCookieJar } from "../_cookie.ts";
+import { isPlainObject } from "../core/utils/guards.ts";
+import type { SessionDriver } from "./_driver.ts";
+import { invalidConfigError } from "./_contract.ts";
+import { webCookieJar } from "./_cookie.ts";
 import type { SessionContext, SessionRequestEvent, SessionRequestHeaders } from "./types.ts";
 
 /** Message prefix for every error the Web session entry emits. */

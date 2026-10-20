@@ -11,8 +11,8 @@ import {
   RESERVED_CLAIMS,
   resolveExpiresAt,
   sanitizeSessionUpdate,
-} from "./_session.ts";
-import { sessionCookie, sessionToken } from "./_session-bind.ts";
+} from "./_contract.ts";
+import { sessionCookie, sessionToken } from "./_bind.ts";
 import {
   type SessionActions,
   type SessionBinding,
@@ -24,14 +24,14 @@ import {
   mintSessionId,
   sessionInstant,
   storedSession,
-} from "./_session-core.ts";
-import { loadSession } from "./_session-read.ts";
+} from "./_core.ts";
+import { loadSession } from "./_read.ts";
 import type {
   SessionManager,
   SessionRecord,
   SessionUpdate,
   SessionUpdateTrigger,
-} from "./_session-types.ts";
+} from "./_types.ts";
 import { assertTokenSource, assertWritable } from "./_transport.ts";
 
 /** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */

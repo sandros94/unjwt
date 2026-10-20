@@ -15,7 +15,7 @@ import type {
   JWSHeaderParameters,
 } from "../core/types/index.ts";
 import type { StrictOmit } from "../core/utils/types.ts";
-import { assertKeyMaterial, invalidKeyError } from "./_session.ts";
+import { assertKeyMaterial, invalidKeyError } from "./_contract.ts";
 import {
   type SessionPayload,
   assertKeyPair,
@@ -24,9 +24,9 @@ import {
   isKeyPair,
   sessionIssueOptions,
   sessionOpenOptions,
-} from "./_session-codec.ts";
-import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_session-core.ts";
-import type { SessionBaseConfig, SessionHooks } from "./_session-types.ts";
+} from "./_codec.ts";
+import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_core.ts";
+import type { SessionBaseConfig, SessionHooks } from "./_types.ts";
 
 /** HS* `oct` JWK, `CryptoKey` (requires pinned `alg`), or a pair: private signs, public JWK/list/set verifies. */
 export type JWSSessionKey =

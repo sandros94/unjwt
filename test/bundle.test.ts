@@ -115,7 +115,7 @@ const ENTRIES: ReadonlyArray<Entry> = [
   // the Web entry imports no framework, and carries the cookie parser it uses
   {
     name: "defineJWSSession",
-    module: "adapters/web/index.ts",
+    module: "session/index.ts",
     measured: 53694,
     absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
   },

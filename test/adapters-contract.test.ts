@@ -59,7 +59,7 @@ import {
   type CompatEvent,
   type OpenedSessionState as OpenedSessionStateV1,
 } from "../src/adapters/h3v1/index.ts";
-import { MAX_CHUNK_COUNT, parseChunkCount, readChunked } from "../src/adapters/_chunked-cookie.ts";
+import { MAX_CHUNK_COUNT, parseChunkCount, readChunked } from "../src/session/_chunked-cookie.ts";
 import {
   createJWSSession,
   defineJWSSession,
@@ -76,20 +76,16 @@ import {
   defineJWSSession as defineJWSSessionWeb,
   defineJWESession as defineJWESessionWeb,
   type SessionContext as WebSessionContext,
-} from "../src/adapters/web/index.ts";
+} from "../src/session/index.ts";
 import type { CookieAttributes } from "../src/adapters/elysia/_cookie.ts";
-import { createJWSCodec } from "../src/adapters/_codec-jws.ts";
-import { createJWECodec } from "../src/adapters/_codec-jwe.ts";
-import type {
-  SessionBinding,
-  SessionCodec,
-  SessionCoreConfig,
-} from "../src/adapters/_session-core.ts";
-import { bindSession } from "../src/adapters/_session-bind.ts";
-import type { CookieJar, SessionDriver } from "../src/adapters/_driver.ts";
-import { loadSession } from "../src/adapters/_session-read.ts";
-import { dropSession, issueSession, sessionActions } from "../src/adapters/_session-write.ts";
-import type { SessionManager } from "../src/adapters/_session-types.ts";
+import { createJWSCodec } from "../src/session/_codec-jws.ts";
+import { createJWECodec } from "../src/session/_codec-jwe.ts";
+import type { SessionBinding, SessionCodec, SessionCoreConfig } from "../src/session/_core.ts";
+import { bindSession } from "../src/session/_bind.ts";
+import type { CookieJar, SessionDriver } from "../src/session/_driver.ts";
+import { loadSession } from "../src/session/_read.ts";
+import { dropSession, issueSession, sessionActions } from "../src/session/_write.ts";
+import type { SessionManager } from "../src/session/_types.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
 // PBES2 derives its key from the JWK's bytes, so the JWK declares the PBES2 alg itself.

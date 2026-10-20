@@ -4,14 +4,14 @@ import {
   assertRolling,
   assertSessionName,
   invalidConfigError,
-} from "./_session.ts";
+} from "./_contract.ts";
 import type {
   SessionActions,
   SessionBinding,
   SessionCodec,
   SessionCoreConfig,
   SessionStore,
-} from "./_session-core.ts";
+} from "./_core.ts";
 import {
   type SessionCookie,
   assertSessionHeader,

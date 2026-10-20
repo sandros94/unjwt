@@ -7,7 +7,7 @@ import {
   writeChunked,
 } from "./_chunked-cookie.ts";
 import type { CookieJar, SessionDriver } from "./_driver.ts";
-import { invalidConfigError, isToken, readOnlyEventError } from "./_session.ts";
+import { invalidConfigError, isToken, readOnlyEventError } from "./_contract.ts";
 
 /** Where a session's token can travel. */
 export interface SessionTokenSource {

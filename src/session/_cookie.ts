@@ -1,7 +1,7 @@
 import { parse, parseSetCookie, serialize } from "cookie-es";
-import { setCookieName, setCookieValues } from "../_chunked-cookie.ts";
-import type { CookieAttributes } from "../_cookie-attributes.ts";
-import type { CookieJar } from "../_driver.ts";
+import { setCookieName, setCookieValues } from "./_chunked-cookie.ts";
+import type { CookieAttributes } from "./_cookie-attributes.ts";
+import type { CookieJar } from "./_driver.ts";
 
 export type { CookieAttributes };
 

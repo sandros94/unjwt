@@ -1,24 +1,33 @@
 import type { H3Event } from "h3v1";
 
 import type { ExpiresIn } from "../../../core/types/index.ts";
-import type { SessionIssueOptions } from "../../_session.ts";
+import type { SessionIssueOptions } from "../../../session/_contract.ts";
 import {
   type JWECodecConfig,
   type JWESessionConfig,
   type JWESessionHooks,
   createJWECodec,
-} from "../../_codec-jwe.ts";
-import { bindSession } from "../../_session-bind.ts";
-import { type SessionBinding, type SessionState, openSessionToken } from "../../_session-core.ts";
-import { type SessionDefinition, defineSession } from "../../_session-definition.ts";
-import { loadSession } from "../../_session-read.ts";
-import { dropSession, encodeSession, issueSession, sessionActions } from "../../_session-write.ts";
-import type { SessionRecord } from "../../_session-types.ts";
+} from "../../../session/_codec-jwe.ts";
+import { bindSession } from "../../../session/_bind.ts";
+import {
+  type SessionBinding,
+  type SessionState,
+  openSessionToken,
+} from "../../../session/_core.ts";
+import { type SessionDefinition, defineSession } from "../../../session/_definition.ts";
+import { loadSession } from "../../../session/_read.ts";
+import {
+  dropSession,
+  encodeSession,
+  issueSession,
+  sessionActions,
+} from "../../../session/_write.ts";
+import type { SessionRecord } from "../../../session/_types.ts";
 import type { CookieSerializeOptions } from "../_cookie.ts";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
 import { type CompatEvent, PREFIX, h3SessionDriver } from "./_shared.ts";
 
-export type { SessionDecryptOptions, SessionEncryptOptions } from "../../_codec-jwe.ts";
+export type { SessionDecryptOptions, SessionEncryptOptions } from "../../../session/_codec-jwe.ts";
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "h3-jwe" });
 const hookArgs = (event: CompatEvent | H3Event) => ({ event });

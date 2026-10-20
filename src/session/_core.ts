@@ -6,8 +6,8 @@
 
 import type { ExpiresIn } from "../core/types/index.ts";
 import type { SessionDriver } from "./_driver.ts";
-import { resolveExpiresAt } from "./_session.ts";
-import type { SessionData, SessionRecord } from "./_session-types.ts";
+import { resolveExpiresAt } from "./_contract.ts";
+import type { SessionData, SessionRecord } from "./_types.ts";
 import type { SessionTokenSource, SessionTransport } from "./_transport.ts";
 
 /** In-flight read of a session, awaited by a second reader on the same request. */

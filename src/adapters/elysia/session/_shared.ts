@@ -1,4 +1,4 @@
-import type { SessionDriver } from "../../_driver.ts";
+import type { SessionDriver } from "../../../session/_driver.ts";
 import { reactiveCookieJar } from "../_cookie.ts";
 import type { SessionContext } from "./types.ts";
 

@@ -10,13 +10,8 @@ import {
   sessionRequiredClaims,
   sessionTyp,
   invalidTokenError,
-} from "./_session.ts";
-import type {
-  OpenedSession,
-  SessionCodec,
-  SessionCoreConfig,
-  StoredSession,
-} from "./_session-core.ts";
+} from "./_contract.ts";
+import type { OpenedSession, SessionCodec, SessionCoreConfig, StoredSession } from "./_core.ts";
 
 export type SessionPayload = JWTClaims & { jti: string; iat: number };
 

@@ -1,7 +1,7 @@
 import type { ExpiresIn } from "../core/types/index.ts";
 import type { SessionDriver } from "./_driver.ts";
-import { type SessionIssueOptions, resolveExpiresAt, sanitizeSessionUpdate } from "./_session.ts";
-import { bindSession, sessionToken } from "./_session-bind.ts";
+import { type SessionIssueOptions, resolveExpiresAt, sanitizeSessionUpdate } from "./_contract.ts";
+import { bindSession, sessionToken } from "./_bind.ts";
 import {
   type SessionActions,
   type SessionCodec,
@@ -10,15 +10,10 @@ import {
   mintSessionId,
   openSessionToken,
   sessionInstant,
-} from "./_session-core.ts";
-import { loadSession } from "./_session-read.ts";
-import { sessionActions, sessionManager } from "./_session-write.ts";
-import type {
-  SessionClaims,
-  SessionData,
-  SessionManager,
-  SessionRecord,
-} from "./_session-types.ts";
+} from "./_core.ts";
+import { loadSession } from "./_read.ts";
+import { sessionActions, sessionManager } from "./_write.ts";
+import type { SessionClaims, SessionData, SessionManager, SessionRecord } from "./_types.ts";
 
 /** One session, defined once from its config and used on any request. */
 export interface SessionDefinition<

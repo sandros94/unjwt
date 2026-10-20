@@ -1,4 +1,4 @@
-import type { SessionIssueOptions } from "../../_session.ts";
+import type { SessionIssueOptions } from "./_contract.ts";
 
 export type { SessionIssueOptions };
 export type {
@@ -7,9 +7,9 @@ export type {
   SessionManager,
   SessionUpdate,
   SessionUpdateTrigger,
-} from "../../_session-types.ts";
-export type { SessionDefinition } from "../../_session-definition.ts";
-export type { OpenedSessionState } from "../../_session-core.ts";
+} from "./_types.ts";
+export type { SessionDefinition } from "./_definition.ts";
+export type { OpenedSessionState } from "./_core.ts";
 
 /** A web-standard request event: reads, and writes while `res` is there. */
 export interface SessionRequestEvent {

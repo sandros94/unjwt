@@ -1,4 +1,4 @@
-import { invalidConfigError } from "./_session.ts";
+import { invalidConfigError } from "./_contract.ts";
 
 /** Value prefix marking the base cookie of a chunked set, followed by the chunk count. */
 export const CHUNK_MARKER = "__chunked__";

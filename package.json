@@ -62,8 +62,8 @@
       "default": "./dist/adapters/elysia/index.mjs"
     },
     "./session": {
-      "types": "./dist/adapters/web/index.d.mts",
-      "default": "./dist/adapters/web/index.mjs"
+      "types": "./dist/session/index.d.mts",
+      "default": "./dist/session/index.mjs"
     }
   },
   "scripts": {

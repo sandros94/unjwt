@@ -4,11 +4,11 @@ import {
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "../../_codec-jws.ts";
-export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws.ts";
-import type { SessionState } from "../../_session-core.ts";
-import { type SessionDefinition, defineSession } from "../../_session-definition.ts";
-import type { SessionRecord } from "../../_session-types.ts";
+} from "../../../session/_codec-jws.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "../../../session/_codec-jws.ts";
+import type { SessionState } from "../../../session/_core.ts";
+import { type SessionDefinition, defineSession } from "../../../session/_definition.ts";
+import type { SessionRecord } from "../../../session/_types.ts";
 import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin.ts";
 import type { CookieAttributes } from "../_cookie.ts";
 import type { SessionClaims, SessionManager, SessionContext } from "./types.ts";

@@ -13,7 +13,7 @@ import {
   defineJWESession,
   defineJWSSession,
   defineSessionDriver,
-} from "../src/adapters/web/index.ts";
+} from "../src/session/index.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
 

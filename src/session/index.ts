@@ -11,7 +11,7 @@ export type {
   SessionToken,
   SessionUpdate,
   SessionUpdateTrigger,
-} from "./session/types.ts";
+} from "./types.ts";
 export {
   type SessionConfigJWS,
   type SessionHooksJWS,
@@ -19,7 +19,7 @@ export {
   type SessionSignOptions,
   type SessionVerifyOptions,
   defineJWSSession,
-} from "./session/jws.ts";
+} from "./jws.ts";
 export {
   type SessionConfigJWE,
   type SessionDecryptOptions,
@@ -27,16 +27,16 @@ export {
   type SessionHooksJWE,
   type SessionJWE,
   defineJWESession,
-} from "./session/jwe.ts";
+} from "./jwe.ts";
 export { defineSessionDriver } from "./_define-driver.ts";
-export type { CookieJar, SessionDriver } from "../_driver.ts";
-export type { CookieAttributes } from "../_cookie-attributes.ts";
+export type { CookieJar, SessionDriver } from "./_driver.ts";
+export type { CookieAttributes } from "./_cookie-attributes.ts";
 
-export type * from "../../core/types/index.ts";
+export type * from "../core/types/index.ts";
 export {
   generateJWK,
   thumbprint,
   importPEM,
   exportPEM,
   deriveJWKFromPassword,
-} from "../../core/jwk.ts";
+} from "../core/jwk.ts";
