@@ -2,7 +2,7 @@
 name: unjwt
 url: https://unjwt.s94.dev
 shortDescription: Low-level JWT toolkit on the Web Crypto API
-description: Sign, verify, encrypt and decrypt JSON Web Tokens with Web Crypto. JWS, JWE and JWK in one zero-dependency package, with cookie sessions for H3 and Elysia.
+description: Sign, verify, encrypt and decrypt JSON Web Tokens with Web Crypto. JWS, JWE and JWK in one zero-dependency package, with cookie sessions for h3, Nitro, Nuxt, Elysia and any Web standard runtime.
 
 lang: en
 automd: true
@@ -25,9 +25,17 @@ redirects:
   /jwk/password-derivation: /jwk/password
   /jwk/jwk-sets: /jwk/sets
   /utilities: /utils
-  /adapters/h3-sessions: /adapters/h3
-  /adapters/elysia-sessions: /adapters/elysia
-  /adapters/lower-level: /adapters/h3/lower-level
+  /adapters: /frameworks
+  /adapters/h3: /frameworks/adapters
+  /adapters/h3/lower-level: /frameworks/definition
+  /adapters/h3-sessions: /frameworks/adapters
+  /adapters/elysia: /frameworks/elysia
+  /adapters/elysia/lower-level: /frameworks/elysia/lower-level
+  /adapters/elysia-sessions: /frameworks/elysia
+  /adapters/session: /frameworks/session
+  /adapters/hooks: /frameworks/hooks
+  /adapters/drivers: /frameworks/drivers
+  /adapters/lower-level: /frameworks/definition
 
 socials:
   bluesky: "https://bsky.app/profile/sandros94.com"
