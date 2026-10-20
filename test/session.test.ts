@@ -44,7 +44,7 @@ describe("unjwt/session over a Web request", () => {
     async ({ family, define }) => {
       const session = define();
       const headers = new Headers();
-      const written = await session.use({ request: get(), headers });
+      const written = await session.use({ req: get(), res: { headers } });
       await written.update({ user: "ada" });
 
       const [line = ""] = headers.getSetCookie();
@@ -54,7 +54,7 @@ describe("unjwt/session over a Web request", () => {
       expect(line).toContain("SameSite=Lax");
       expect(line.includes("HttpOnly")).toBe(family === "jwe");
 
-      const read = await session.use({ request: get({ cookie: replay(headers) }) });
+      const read = await session.use({ req: get({ cookie: replay(headers) }) });
       expect(read.id).toBe(written.id);
       expect(read.data).toEqual({ user: "ada" });
     },
@@ -66,7 +66,7 @@ describe("unjwt/session over a Web request", () => {
       const session = define();
       const headers = new Headers();
       headers.append("set-cookie", "theme=dark; Path=/");
-      const manager = await session.use({ request: get(), headers });
+      const manager = await session.use({ req: get(), res: { headers } });
 
       await manager.update({ step: 1 });
       const first = manager.token;
@@ -89,7 +89,7 @@ describe("unjwt/session over a Web request", () => {
     async ({ define }) => {
       const session = define({ cookie: { chunkMaxLength: 64 } });
       const headers = new Headers();
-      const manager = await session.use({ request: get(), headers });
+      const manager = await session.use({ req: get(), res: { headers } });
 
       await manager.update({ pad: "x".repeat(400) });
       const count = chunkCount(headers);
@@ -97,7 +97,7 @@ describe("unjwt/session over a Web request", () => {
       for (let index = 1; index <= count; index++) {
         expect(linesOf(headers, `web.${index}`)).toHaveLength(1);
       }
-      const read = await session.use({ request: get({ cookie: replay(headers) }) });
+      const read = await session.use({ req: get({ cookie: replay(headers) }) });
       expect(read.data).toEqual({ pad: "x".repeat(400) });
 
       await manager.update({ pad: "" });
@@ -106,7 +106,7 @@ describe("unjwt/session over a Web request", () => {
       for (let index = shorter + 1; index <= count; index++) {
         expect(linesOf(headers, `web.${index}`)).toEqual([expect.stringContaining("Max-Age=0")]);
       }
-      const reread = await session.use({ request: get({ cookie: replay(headers) }) });
+      const reread = await session.use({ req: get({ cookie: replay(headers) }) });
       expect(reread.data).toEqual({ pad: "" });
     },
   );
@@ -114,7 +114,7 @@ describe("unjwt/session over a Web request", () => {
   it.each(FAMILIES)("$family: is read-only without response headers", async ({ define }) => {
     const session = define();
     const token = await session.issue({ user: "ada" });
-    const manager = await session.use({ request: get({ cookie: `web=${token}` }) });
+    const manager = await session.use({ req: get({ cookie: `web=${token}` }) });
 
     expect(manager.data).toEqual({ user: "ada" });
     const update = await caught(manager.update({}));
@@ -124,7 +124,7 @@ describe("unjwt/session over a Web request", () => {
     );
 
     const headerOnly = define({ cookie: false });
-    const reissued = await headerOnly.use({ request: get({ "x-web-session": token }) });
+    const reissued = await headerOnly.use({ req: get({ "x-web-session": token }) });
     await reissued.update({ user: "grace" });
     expect(reissued.token).toBeTypeOf("string");
     expect(reissued.token).not.toBe(token);
@@ -143,7 +143,7 @@ describe("unjwt/session over a Web request", () => {
         },
       });
       const request = get({ cookie: `web=${await session.issue({ user: "ada" })}` });
-      const manager = await session.use({ request });
+      const manager = await session.use({ req: request });
       const id = manager.id;
 
       expect(await caught(manager.clear())).toBeUndefined();
@@ -151,7 +151,7 @@ describe("unjwt/session over a Web request", () => {
       expect(onClear.mock.calls[0]?.[0]).toMatchObject({ oldSession: { id } });
       expect(manager.id).toBeUndefined();
 
-      const again = await session.use({ request });
+      const again = await session.use({ req: request });
       expect(again.id).toBeUndefined();
       expect(again.data).toEqual({});
       expect(lookup).toHaveBeenCalledOnce();
@@ -173,7 +173,7 @@ describe("unjwt/session over a Web request", () => {
       const token = await session.issue({ user: "ada" });
       revoked.add((await session.open(token)).id);
 
-      const manager = await session.use({ request: get({ cookie: `web=${token}` }) });
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }) });
       expect(manager.id).toBeUndefined();
       expect(manager.data).toEqual({});
     },
@@ -183,13 +183,13 @@ describe("unjwt/session over a Web request", () => {
     const token = await define().issue({ user: "ada" });
 
     const bearer = define({ cookie: false, sessionHeader: "authorization" });
-    const viaBearer = await bearer.use({ request: get({ authorization: `Bearer ${token}` }) });
+    const viaBearer = await bearer.use({ req: get({ authorization: `Bearer ${token}` }) });
     expect(viaBearer.data).toEqual({ user: "ada" });
 
     const named = define({ sessionHeader: true });
     const viaNamed = await named.use({
-      request: get({ "x-web-session": token }),
-      headers: new Headers(),
+      req: get({ "x-web-session": token }),
+      res: { headers: new Headers() },
     });
     expect(viaNamed.data).toEqual({ user: "ada" });
   });
@@ -198,25 +198,98 @@ describe("unjwt/session over a Web request", () => {
     const session = define();
     const request = get();
     const headers = new Headers();
-    const first = await session.use({ request, headers });
+    const first = await session.use({ req: request, res: { headers } });
     await first.update({ user: "ada" });
 
-    const other = await session.use({ request: get(), headers: new Headers() });
+    const other = await session.use({ req: get(), res: { headers: new Headers() } });
     expect(other.id).toBeUndefined();
 
-    const again = await session.use({ request, headers });
+    const again = await session.use({ req: request, res: { headers } });
     expect(again.id).toBe(first.id);
     expect(again.data).toEqual({ user: "ada" });
   });
+
+  it.each(FAMILIES)(
+    "$family: keeps the state on the event's context when it has one",
+    async ({ define }) => {
+      const session = define();
+      const context: Record<string, unknown> = {};
+      const request = get();
+      const headers = new Headers();
+      const first = await session.use({ req: request, res: { headers }, context });
+      await first.update({ user: "ada" });
+      expect(context.sessions).toBeTypeOf("object");
+
+      const again = await session.use({ req: request, context });
+      expect(again.id).toBe(first.id);
+
+      const elsewhere = await session.use({ req: get(), context });
+      expect(elsewhere.id).toBe(first.id);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: reads a bare Request, and a headers-only object with its context",
+    async ({ define }) => {
+      const session = define();
+      const token = await session.issue({ user: "ada" });
+      const request = get({ cookie: `web=${token}` });
+
+      const direct = await session.use(request);
+      expect(direct.data).toEqual({ user: "ada" });
+      expect(isJWTError(await caught(direct.update({})), "ERR_SESSION_READONLY_EVENT")).toBe(true);
+      expect((await session.use(request)).id).toBe(direct.id);
+
+      const context: Record<string, unknown> = {};
+      const upgrade = { headers: request.headers, url: "/ws", context };
+      const atUpgrade = await session.use(upgrade);
+      expect(atUpgrade.id).toBe(direct.id);
+      const peer = await session.use({ headers: request.headers, context });
+      expect(peer.id).toBe(direct.id);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a headers-only request with a res writes, as a WebSocket upgrade returns its headers",
+    async ({ family, define }) => {
+      const session = define({ maxAge: 3600, rolling: "15m" });
+      const issuedAt = nowSeconds() - 20 * 60;
+      const old = await foreignToken(family, {
+        jti: "old",
+        iat: issuedAt,
+        exp: issuedAt + 3600,
+        user: "ada",
+      });
+      const headers = new Headers();
+      const upgrade = { headers: new Headers({ cookie: `web=${old}` }), url: "/ws", context: {} };
+      const rolled = await session.use({ ...upgrade, res: { headers } });
+      expect(rolled.data).toEqual({ user: "ada" });
+      expect(rolled.token).not.toBe(old);
+      expect(linesOf(headers, "web")).toEqual([expect.stringContaining(`web=${rolled.token}`)]);
+
+      await rolled.clear();
+      expect(linesOf(headers, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: refuses a runtime event whose req is not a web Request",
+    async ({ define }) => {
+      const h3v1Like = { req: { headers: { cookie: "web=x" } }, context: {} };
+      const error = await caught(define().use(h3v1Like as never));
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toContain('got an event whose "req" is not a web Request');
+    },
+  );
 
   it("refuses a JWS and a JWE under one name on one Request, and allows them on two", async () => {
     const jws = defineJWSSession({ name: "web", key: jwsKey });
     const jwe = defineJWESession({ name: "web", key: jweKey });
     const request = get();
-    await jws.use({ request });
-    const error = await caught(jwe.use({ request }));
+    await jws.use({ req: request });
+    const error = await caught(jwe.use({ req: request }));
     expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-    expect((await jwe.use({ request: get() })).id).toBeUndefined();
+    expect((await jwe.use({ req: get() })).id).toBeUndefined();
   });
 });
 
@@ -383,8 +456,8 @@ describe("unjwt/session types", () => {
   });
 
   it("takes a request or a token as its context, never an empty object", () => {
-    expectTypeOf<{ request: Request }>().toExtend<SessionContext>();
-    expectTypeOf<{ request: Request; headers: Headers }>().toExtend<SessionContext>();
+    expectTypeOf<{ req: Request }>().toExtend<SessionContext>();
+    expectTypeOf<{ req: Request; headers: Headers }>().toExtend<SessionContext>();
     expectTypeOf<{ token: string }>().toExtend<SessionContext>();
     expectTypeOf<{ token: undefined }>().toExtend<SessionContext>();
     expectTypeOf<{}>().not.toExtend<SessionContext>();

@@ -6,6 +6,9 @@ export type {
   SessionDefinition,
   SessionIssueOptions,
   SessionManager,
+  SessionRequestEvent,
+  SessionRequestHeaders,
+  SessionToken,
   SessionUpdate,
   SessionUpdateTrigger,
 } from "./session/types.ts";

@@ -5,8 +5,8 @@ import type { CookieJar } from "../_driver";
 
 export type { CookieAttributes };
 
-/** The cookies of a Web `Request`, and of the `Headers` its response is sent with when there are any. */
-export function webCookieJar(request: Request, headers?: Headers): CookieJar<CookieAttributes> {
+/** The cookies a request's `Headers` carry, and those of the response's `Headers` when there are any. */
+export function webCookieJar(request: Headers, headers?: Headers): CookieJar<CookieAttributes> {
   let cookies: Record<string, string | undefined> | undefined;
   const jar: CookieJar<CookieAttributes> = {
     read: (name) => (cookies ||= requestCookies(request))[name],
@@ -20,8 +20,8 @@ export function webCookieJar(request: Request, headers?: Headers): CookieJar<Coo
   return jar;
 }
 
-function requestCookies(request: Request): Record<string, string | undefined> {
-  const header = request.headers.get("cookie");
+function requestCookies(request: Headers): Record<string, string | undefined> {
+  const header = request.get("cookie");
   return header ? parse(header) : Object.create(null);
 }
 

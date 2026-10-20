@@ -2466,8 +2466,8 @@ describe("session adapters — shared contract", () => {
 
       const headers = new Headers();
       const web = await defineJWSSessionWeb(config).use({
-        request: new Request("http://localhost/"),
-        headers,
+        req: new Request("http://localhost/"),
+        res: { headers },
       });
       await web.update({ user: "alice" });
       const webCookie = headers.getSetCookie()[0];
@@ -3700,10 +3700,10 @@ describe("session adapters — shared contract", () => {
           context: {},
         }),
       },
-      "web request without headers": {
+      "web request without a response": {
         port: "web",
         context: (headers: Record<string, string>) => ({
-          request: new Request("http://localhost/", { headers }),
+          req: new Request("http://localhost/", { headers }),
         }),
       },
     } as const;
@@ -4761,7 +4761,7 @@ async function serveOn(port: Port, handler: Handler, options?: ServeOptions): Pr
     const headers = new Headers();
     const request = new Request("http://localhost/", requestInit(options));
     try {
-      const out = await handler({ request, headers });
+      const out = await handler({ req: request, res: { headers } });
       if (out === UNAUTHORIZED) return served(401, "Unauthorized", headers.getSetCookie());
       return served(200, JSON.stringify(out), headers.getSetCookie());
     } catch (error) {
