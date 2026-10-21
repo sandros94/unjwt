@@ -55,7 +55,9 @@ export async function keyToJWK<T extends JWK>(
         "ERR_JWK_INVALID",
       );
     }
-    jwk = await crypto.subtle.exportKey("jwk", key);
+    // `ext` and `key_ops` describe the CryptoKey, not required by JWK.
+    const { ext: _ext, key_ops: _keyOps, ...exported } = await crypto.subtle.exportKey("jwk", key);
+    jwk = exported;
   }
 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- WebCrypto exports a complete JWK of the key's own kty

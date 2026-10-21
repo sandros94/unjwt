@@ -23,6 +23,7 @@ export {
   generateJWK,
   thumbprint,
   importKey,
+  exportJWK,
   exportKey,
   wrapKey,
   unwrapKey,

@@ -19,7 +19,7 @@ import {
 import {
   deriveJWKFromPassword,
   deriveSharedSecret,
-  exportKey,
+  exportJWK,
   exportPEM,
   generateJWK,
   generateKey,
@@ -225,16 +225,16 @@ describe("key management errors", () => {
     );
   });
 
-  it("exportKey rejects a non-extractable CryptoKey", async () => {
+  it("exportJWK rejects a non-extractable CryptoKey", async () => {
     const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, [
       "sign",
       "verify",
     ]);
-    await expectCode(() => exportKey(key), "ERR_JWK_INVALID");
+    await expectCode(() => exportJWK(key), "ERR_JWK_INVALID");
   });
 
-  it("exportKey rejects anything that is not a CryptoKey", async () => {
-    await expectCode(() => exportKey(hs256 as unknown as CryptoKey), "ERR_INVALID_OPTION");
+  it("exportJWK rejects anything that is not a CryptoKey", async () => {
+    await expectCode(() => exportJWK(hs256 as unknown as CryptoKey), "ERR_INVALID_OPTION");
   });
 
   it("exportPEM rejects an algorithm the library does not implement", async () => {
@@ -538,10 +538,12 @@ describe("JWE producer option errors", () => {
 });
 
 describe("key generation", () => {
-  it("stamps alg, ext and key_ops on an AES-CBC+HMAC JWK", async () => {
+  it("stamps alg on an AES-CBC+HMAC JWK and no CryptoKey members", async () => {
     expect(cbcCek.alg).toBe("A256CBC-HS512");
-    expect(cbcCek.ext).toBe(true);
-    expect(cbcCek.key_ops).toEqual(["encrypt", "decrypt"]);
+    expect(cbcCek).not.toHaveProperty("ext");
+    expect(cbcCek).not.toHaveProperty("key_ops");
+    const narrowed = await generateJWK("A256CBC-HS512", { keyUsage: ["encrypt"] });
+    expect(narrowed.key_ops).toEqual(["encrypt"]);
   });
 
   it("gives every generateKey JWK the thumbprint kid generateJWK promises", async () => {

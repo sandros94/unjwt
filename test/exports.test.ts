@@ -25,6 +25,7 @@ describe("root barrel (unjwt)", () => {
     "generateJWK",
     "thumbprint",
     "importKey",
+    "exportJWK",
     "exportKey",
     "wrapKey",
     "unwrapKey",

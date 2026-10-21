@@ -11,7 +11,7 @@ import type {
   JWSVerifyResult,
   PayloadOf,
 } from "../src/core/jws.ts";
-import { generateKey, generateJWK, exportKey } from "../src/core/jwk.ts";
+import { generateKey, generateJWK, exportJWK } from "../src/core/jwk.ts";
 import type {
   JWTClaims,
   JWK,
@@ -506,10 +506,10 @@ describe.concurrent("JWS Utilities", () => {
 
       jwkSet = {
         keys: await Promise.all([
-          exportKey(hs256Key, { kid: "key2" }),
-          exportKey(rs256KeyPair.publicKey, { kid: "key1" }),
-          exportKey(es256KeyPair.publicKey, { kid: "key66" }),
-          exportKey(ps256KeyPair.publicKey, { kid: "key69" }),
+          exportJWK(hs256Key, { kid: "key2" }),
+          exportJWK(rs256KeyPair.publicKey, { kid: "key1" }),
+          exportJWK(es256KeyPair.publicKey, { kid: "key66" }),
+          exportJWK(ps256KeyPair.publicKey, { kid: "key69" }),
         ]),
       };
 
@@ -622,7 +622,7 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should verify with JWK known in the keyset", async () => {
-      const rsPrKey = await exportKey<JWK_RSA_Private<"RS256">>(rs256KeyPair.privateKey, {
+      const rsPrKey = await exportJWK<JWK_RSA_Private<"RS256">>(rs256KeyPair.privateKey, {
         kid: "key1",
       });
       const jws = await sign(payloadObj, rsPrKey);
@@ -694,7 +694,7 @@ describe.concurrent("JWS Utilities", () => {
     it("should verify with JWKSet by trying multiple keys when no kid is present", async () => {
       // Two HMAC keys without kid — sign with key2, set has key1 first so retry is exercised
       const [raw1, raw2] = await Promise.all([generateKey("HS256"), generateKey("HS256")]);
-      const [jwk1, jwk2] = await Promise.all([exportKey(raw1), exportKey(raw2)]);
+      const [jwk1, jwk2] = await Promise.all([exportJWK(raw1), exportJWK(raw2)]);
       const jws = await sign(payloadObj, raw2, { alg: "HS256" });
       const set: JWKSet = { keys: [jwk1, jwk2] };
       const { payload } = await verify(jws, set, { allowSymmetricJWKSet: true });
@@ -1411,7 +1411,7 @@ describe.concurrent("JWS Utilities", () => {
         "signature verification failed",
       );
 
-      const otherJoseKey = await jose.importJWK(await exportKey(otherKey));
+      const otherJoseKey = await jose.importJWK(await exportJWK(otherKey));
       await expect(jose.compactVerify(jws, otherJoseKey)).rejects.toThrow(
         "signature verification failed",
       );

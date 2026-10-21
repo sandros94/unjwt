@@ -158,18 +158,16 @@ export async function generateKey(
     const keyBytes = secureRandomBytes(keyLength >> 3);
 
     if (exportToJWK) {
-      // WebCrypto never exports these bytes, so the members its JWK export would write are set.
       const jwk = await keyToJWK<JWK_oct>(keyBytes);
-      return withGeneratedKid(kid, {
-        ...jwk,
-        alg,
-        ext: true,
-        key_ops: resolveKeyUsage(options.keyUsage, {
-          allowed: CONTENT_ENCRYPTION_USAGES,
-          fallback: ["encrypt", "decrypt"],
-          alg,
-        }),
-      });
+      const keyOps =
+        options.keyUsage === undefined
+          ? undefined
+          : resolveKeyUsage(options.keyUsage, {
+              allowed: CONTENT_ENCRYPTION_USAGES,
+              fallback: ["encrypt", "decrypt"],
+              alg,
+            });
+      return withGeneratedKid(kid, withKeyOps({ ...jwk, alg }, keyOps));
     }
     return keyBytes;
   }
@@ -183,16 +181,28 @@ export async function generateKey(
     if (isCryptoKeyPair(key)) {
       const pairAlg = generatedPairAlgorithm(alg);
       const [pub, priv] = await Promise.all([
-        exportKey<JWK_Public>(key.publicKey),
-        exportKey<JWK_Private>(key.privateKey),
+        exportJWK<JWK_Public>(key.publicKey),
+        exportJWK<JWK_Private>(key.privateKey),
       ]);
-      const publicKey = await withGeneratedKid(kid, withAlg(pub, pairAlg));
+      const publicKey = await withGeneratedKid(
+        kid,
+        withKeyOps(withAlg(pub, pairAlg), requestedKeyOps(options, key.publicKey)),
+      );
       const named = publicKey.kid === undefined ? undefined : { kid: publicKey.kid };
-      return { privateKey: { ...withAlg(priv, pairAlg), ...named }, publicKey };
+      return {
+        privateKey: {
+          ...withKeyOps(withAlg(priv, pairAlg), requestedKeyOps(options, key.privateKey)),
+          ...named,
+        },
+        publicKey,
+      };
     }
     return withGeneratedKid(
       kid,
-      withAlg(await exportKey<JWK_oct>(key), generatedSecretAlgorithm(alg)),
+      withKeyOps(
+        withAlg(await exportJWK<JWK_oct>(key), generatedSecretAlgorithm(alg)),
+        requestedKeyOps(options, key),
+      ),
     );
   }
 
@@ -308,7 +318,10 @@ export async function deriveKeyFromPassword(
 
   if (exportToJWK) {
     const jwk = await keyToJWK<JWK_oct>(derivedKey);
-    return { ...jwk, alg: wrappingAlg, kty: "oct" };
+    return withKeyOps(
+      { ...jwk, alg: wrappingAlg, kty: "oct" },
+      requestedKeyOps(options, derivedKey),
+    );
   }
 
   return derivedKey;
@@ -586,13 +599,13 @@ function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | 
  * @throws `ERR_INVALID_OPTION` if `key` is not a `CryptoKey` or `jwkParams` sets a reserved member
  *   (`alg`, `kty`, `key_ops`, `ext`, key material); `ERR_JWK_INVALID` for a non-extractable key.
  */
-export async function exportKey<T extends JWK = JWK>(
+export async function exportJWK<T extends JWK = JWK>(
   key: CryptoKey,
   jwkParams?: JWKMetadata,
 ): Promise<T> {
   if (!isCryptoKey(key)) {
     throw new JWTError(
-      `exportKey expects a CryptoKey, got ${key === null ? "null" : typeof key}.`,
+      `exportJWK expects a CryptoKey, got ${key === null ? "null" : typeof key}.`,
       "ERR_INVALID_OPTION",
     );
   }
@@ -609,6 +622,14 @@ export async function exportKey<T extends JWK = JWK>(
     return { ...exportedJwk, ...extraParams };
   }
   return exportedJwk;
+}
+
+/** @deprecated Use `exportJWK`; removed in 0.9.0. */
+export async function exportKey<T extends JWK = JWK>(
+  key: CryptoKey,
+  jwkParams?: JWKMetadata,
+): Promise<T> {
+  return exportJWK<T>(key, jwkParams);
 }
 
 /**
@@ -1039,7 +1060,7 @@ export async function importPEM<
     }
   }
 
-  const jwk = await exportKey<ImportedPEMJWK<A, Type>>(cryptoKey, options?.jwkParams);
+  const jwk = await exportJWK<ImportedPEMJWK<A, Type>>(cryptoKey, options?.jwkParams);
   return { ...jwk, alg };
 }
 
@@ -1679,4 +1700,16 @@ function publicKeyOps(keyOps: unknown): KeyUsage[] {
     if (publicOp !== undefined && !ops.includes(publicOp)) ops.push(publicOp);
   }
   return ops;
+}
+
+/** The usages a caller's `keyUsage` left on the key, to travel as `key_ops`; none when the option was not given. */
+function requestedKeyOps(
+  options: { keyUsage?: KeyUsage[] },
+  key: CryptoKey,
+): KeyUsage[] | undefined {
+  return options.keyUsage === undefined ? undefined : [...key.usages];
+}
+
+function withKeyOps<J extends JWK>(jwk: J, keyOps: KeyUsage[] | undefined): J {
+  return keyOps === undefined ? jwk : { ...jwk, key_ops: keyOps };
 }
