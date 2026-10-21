@@ -56,16 +56,17 @@ Creates a JWS Compact Serialization token.
 - When a JWK with a `kid` is used, the `kid` is added to the header as a fallback — an explicit `protectedHeader.kid` always takes precedence
 
 ```ts
-import { sign } from "unjwt/jws";
+import { sign, verify } from "unjwt/jws";
 import { generateJWK } from "unjwt/jwk";
 
-// Symmetric (HMAC)
+// Symmetric (HMAC): one key signs and verifies
 const hmacKey = await generateJWK("HS256");
 const token = await sign({ sub: "user123" }, hmacKey);
 
-// Asymmetric (RSA)
-const rsaKeys = await generateJWK("RS256");
-const token2 = await sign({ sub: "user123" }, rsaKeys.privateKey);
+// Asymmetric (RSA): a pair is two keys — the private half signs, the public half verifies
+const { privateKey, publicKey } = await generateJWK("RS256");
+const token2 = await sign({ sub: "user123" }, privateKey);
+const { payload } = await verify(token2, publicKey);
 
 // With expiration
 const token3 = await sign({ sub: "user123" }, hmacKey, { expiresIn: "1h" });

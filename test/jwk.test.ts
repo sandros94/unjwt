@@ -23,6 +23,7 @@ import {
   exportPEM,
   getJWKsFromSet,
   thumbprint,
+  toPublicJWK,
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
@@ -258,6 +259,98 @@ describe.concurrent("JWK Utilities", () => {
       expect(jwk.alg).toBe("HS256");
       expect(typeof jwk.k).toBe("string");
       expect(base64UrlParse(jwk.k, { returnAs: "uint8array" }).length).toBe(64);
+    });
+  });
+
+  describe("toPublicJWK", () => {
+    const pairAlgorithms = [
+      "RS256",
+      "PS256",
+      "RSA-OAEP-256",
+      "ES256",
+      "ES512",
+      "Ed25519",
+      "ECDH-ES",
+      "ECDH-ES+A128KW",
+    ] as const;
+
+    it.each(pairAlgorithms)("equals the generated public half for %s", async (alg) => {
+      const pair = await generateJWK(alg, { use: "sig", x5u: "https://example.com/k" });
+      const derived = toPublicJWK(pair.privateKey);
+      expect(derived).toEqual(pair.publicKey);
+      expect(derived).not.toBe(pair.privateKey);
+      expect(derived).not.toHaveProperty(["d", "p", "q", "dp", "dq", "qi", "oth"]);
+    });
+
+    it("equals the generated public half for X25519", async () => {
+      const pair = await generateJWK("ECDH-ES", { namedCurve: "X25519" });
+      const derived = toPublicJWK(pair.privateKey);
+      expect(derived).toEqual(pair.publicKey);
+      expect(derived).not.toBe(pair.privateKey);
+    });
+
+    it("verifies and encrypts with the derived half", async () => {
+      const signer = await generateJWK("ES256");
+      const token = await sign({ sub: "u1" }, signer.privateKey);
+      const { payload } = await verify(token, toPublicJWK(signer.privateKey));
+      expect(payload).toEqual({ sub: "u1" });
+
+      const recipient = await generateJWK("RSA-OAEP-256");
+      const jwe = await encrypt({ secret: 1 }, toPublicJWK(recipient.privateKey), {
+        enc: "A256GCM",
+      });
+      expect((await decrypt(jwe, recipient.privateKey)).payload).toEqual({ secret: 1 });
+    });
+
+    it("returns an equal copy of a public JWK", async () => {
+      const { publicKey } = await generateJWK("ES256");
+      const copy = toPublicJWK(publicKey);
+      expect(copy).toEqual(publicKey);
+      expect(copy).not.toBe(publicKey);
+    });
+
+    it("leaves key_ops absent when the input has none and ignores unknown operations", () => {
+      const { key_ops: _ops, ...bare } = ec.jwk.private;
+      expect(toPublicJWK(bare)).not.toHaveProperty("key_ops");
+      expect(
+        toPublicJWK({ ...ec.jwk.private, key_ops: ["sign", "constructor", "sign"] as KeyUsage[] })
+          .key_ops,
+      ).toEqual(["verify"]);
+    });
+
+    it("drops prototype-polluting members", () => {
+      const polluted = JSON.parse(
+        `${JSON.stringify(ec.jwk.private).slice(0, -1)},"__proto__":{"polluted":true}}`,
+      ) as JWK_EC_Private;
+      const derived = toPublicJWK(polluted);
+      expect(Object.hasOwn(derived, "__proto__")).toBe(false);
+      expect((derived as { polluted?: unknown }).polluted).toBeUndefined();
+    });
+
+    it("refuses an oct JWK, a non-JWK, and a JWK without its public members", async () => {
+      const secret = await generateJWK("HS256");
+      // @ts-expect-error an oct JWK has no public half
+      expect(() => toPublicJWK(secret)).toThrow(
+        expect.objectContaining({
+          code: "ERR_JWK_INVALID",
+          message: "An oct JWK has no public half.",
+        }),
+      );
+      // @ts-expect-error not a JWK
+      expect(() => toPublicJWK("nope")).toThrow(
+        expect.objectContaining({
+          code: "ERR_JWK_INVALID",
+          message: "toPublicJWK expects an asymmetric JWK.",
+        }),
+      );
+      expect(() =>
+        toPublicJWK({ kty: "EC", crv: "P-256", d: "x" } as unknown as JWK_EC_Private),
+      ).toThrow(
+        expect.objectContaining({
+          code: "ERR_JWK_INVALID",
+          message: "EC JWK lacks the public members of its key type.",
+        }),
+      );
     });
   });
 
@@ -2817,6 +2910,26 @@ describe("types", () => {
     ).returns.resolves.toEqualTypeOf<
       GeneratedKeyMap["ES256"] | GeneratedJWKMap<string | false>["ES256"]
     >();
+  });
+
+  it("types toPublicJWK after the input family", () => {
+    expectTypeOf(toPublicJWK<JWK_RSA_Private<"RS256">>).returns.toEqualTypeOf<
+      JWK_RSA_Public<"RS256">
+    >();
+    expectTypeOf(toPublicJWK<JWK_EC_Private<"ES256"> & Named<"ES256">>).returns.toEqualTypeOf<
+      JWK_EC_Public<"ES256"> & { kid: string }
+    >();
+    expectTypeOf(toPublicJWK<JWK_OKP_Private<"Ed25519">>).returns.toEqualTypeOf<
+      JWK_OKP_Public<"Ed25519">
+    >();
+    expectTypeOf(toPublicJWK<JWK_EC_Public<"ES256">>).returns.toEqualTypeOf<
+      JWK_EC_Public<"ES256">
+    >();
+    expectTypeOf(
+      toPublicJWK<JWK_EC_Private<"ECDH-ES"> | JWK_OKP_Private<"ECDH-ES">>,
+    ).returns.toEqualTypeOf<JWK_EC_Public<"ECDH-ES"> | JWK_OKP_Public<"ECDH-ES">>();
+    // @ts-expect-error an oct JWK has no public half
+    expectTypeOf(() => toPublicJWK({} as JWK_oct)).toBeFunction();
   });
 
   it("types generateJWK after the JWK map", () => {

@@ -76,6 +76,22 @@ hmac.kid === (await thumbprint(hmac)); // true
 const bare = await generateJWK("HS256", { kid: false }); // typed without `kid`
 ```
 
+### `toPublicJWK(jwk)`
+
+Derives the public half of an asymmetric JWK, synchronous. Advanced use: `generateJWK()`/`generateKey()` already return both halves, so keep the pair; reach for this when a deployment persists the private JWK alone (eg: one secret in the environment, public half derived at boot) or publishes a JWKS from stored private keys.
+
+- `jwk: JWK_Asymmetric` — RSA, EC or OKP, private or public. Returns `ToPublicJWKReturn<typeof jwk>`: the public interface of the input's family and `alg` (`JWK_EC_Private<"ES256">` → `JWK_EC_Public<"ES256">`), keeping a `kid` the input is typed to carry
+- Drops `d`, and `p`/`q`/`dp`/`dq`/`qi`/`oth` on RSA; maps `key_ops` to the public operations (`sign` → `verify`, `decrypt` → `encrypt`, `unwrapKey` → `wrapKey`, `deriveBits`/`deriveKey` dropped, so an ECDH-ES public half has `key_ops: []` like the generated one); keeps every other member (`kid`, `alg`, `use`, `x5*`, `ext`). The result equals the pair's `publicKey` for every algorithm
+- A public JWK returns an equal copy; an `oct` JWK (`"An oct JWK has no public half."`), a non-JWK, or a JWK without the public members of its `kty` throws `ERR_JWK_INVALID`
+
+```ts
+import { toPublicJWK, type JWK_EC_Private } from "unjwt/jwk";
+
+const privateKey: JWK_EC_Private<"ES256"> = JSON.parse(process.env.SIGNING_KEY!);
+const publicKey = toPublicJWK(privateKey); // no `d`, key_ops: ["verify"], same kid/alg
+await verify(token, publicKey);
+```
+
 ### `thumbprint(jwk, options?)`
 
 RFC 7638 JWK Thumbprint: the base64url digest of the key's required members alone, as JSON with no whitespace and member names in lexicographic order.

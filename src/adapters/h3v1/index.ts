@@ -42,6 +42,7 @@ export type { CompatEvent } from "./session/_shared.ts";
 export type * from "../../core/types/index.ts";
 export {
   generateJWK,
+  toPublicJWK,
   thumbprint,
   importPEM,
   exportPEM,

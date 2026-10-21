@@ -35,6 +35,7 @@ export type { CookieAttributes } from "./_cookie-attributes.ts";
 export type * from "../core/types/index.ts";
 export {
   generateJWK,
+  toPublicJWK,
   thumbprint,
   importPEM,
   exportPEM,
