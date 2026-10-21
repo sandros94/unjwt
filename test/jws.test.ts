@@ -1981,8 +1981,9 @@ describe.concurrent("JWS producer header gates", () => {
   it.each(["alg", "typ", "cty", "kid", "jwk", "jku", "x5c", "x5t", "x5u"])(
     "refuses the registered parameter %s in crit",
     async (param) => {
+      const value = param === "jwk" ? (await generateJWK("ES256")).publicKey : "irrelevant";
       const error = await sign("payload", key, {
-        protectedHeader: { crit: [param], [param]: "irrelevant" },
+        protectedHeader: { crit: [param], [param]: value },
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect(error.message).toContain("registered header parameters");

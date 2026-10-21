@@ -46,6 +46,7 @@ import {
   isJWK,
   isJWKSet,
   isPlainObject,
+  isPublicJWK,
 } from "./utils/guards.ts";
 import { assertCritShape, parsePayloadBytes, parsePayloadSegment } from "./_jwt-internal.ts";
 import { assertClaimValidationOptions, assertStringList, validateJwtClaims } from "./utils/jwt.ts";
@@ -187,6 +188,43 @@ export function assertProtectedOnlyOption(
     throw new JWTError(
       `${family} "${param}" must be integrity protected; move it from the ${tier} header to the protected header.`,
       "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/**
+ * RFC 7515 §4.1.3 / RFC 7516 §4.1.5: a `jwk` header carries the public key alone; `epk`
+ * (RFC 7518 §4.6.1.1) is key-agreement output the producer writes itself.
+ */
+export function assertProducerKeyHeaders(
+  header: object | undefined,
+  options: { tier: string; family: "JWS" | "JWE" },
+): void {
+  if (!header) return;
+  const { tier, family } = options;
+  if (Object.hasOwn(header, "jwk") && !isPublicJWK(Reflect.get(header, "jwk"))) {
+    throw new JWTError(
+      `${family} "jwk" in the ${tier} header must be a public JWK; pass the pair's publicKey half.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+  if (Object.hasOwn(header, "epk")) {
+    throw new JWTError(
+      `${family} "epk" is written by the ECDH-ES key agreement; pass an ephemeral key through "ecdh.ephemeralKey" instead of the ${tier} header.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
+}
+
+/** RFC 7800 §3.2: a `cnf.jwk` confirmation key is a public JWK, never private material or a secret. */
+export function assertProducerConfirmation(payload: unknown): void {
+  if (typeof payload !== "object" || payload === null) return;
+  const cnf: unknown = Reflect.get(payload, "cnf");
+  if (typeof cnf !== "object" || cnf === null || !Object.hasOwn(cnf, "jwk")) return;
+  if (!isPublicJWK(Reflect.get(cnf, "jwk"))) {
+    throw new JWTError(
+      'Invalid JWT "cnf" (Confirmation) Claim: "jwk" must be a public JWK (RFC 7800 §3.2).',
+      "ERR_JWT_CLAIM_INVALID",
     );
   }
 }

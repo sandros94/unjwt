@@ -49,6 +49,8 @@ import {
   assertConsumerOptions,
   assertOptionEntry,
   assertProtectedOnlyOption,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   assertSerializationObject,
   buildUnwrapKeyOptions,
   checkAlgAllowed,
@@ -102,10 +104,17 @@ export async function encryptMulti(
     tier: "shared unprotected",
     family: "JWE",
   });
+  assertProducerKeyHeaders(options.protectedHeader, { tier: "protected", family: "JWE" });
+  assertProducerKeyHeaders(options.sharedUnprotectedHeader, {
+    tier: "shared unprotected",
+    family: "JWE",
+  });
+  assertProducerConfirmation(payload);
   for (const [index, recipient] of recipients.entries()) {
     assertOptionEntry(recipient, { label: `recipients[${index}]`, objects: ["header"] });
     assertNoZipOption(recipient.header, "per-recipient");
     assertProtectedOnlyOption(recipient.header, { tier: "per-recipient", family: "JWE" });
+    assertProducerKeyHeaders(recipient.header, { tier: "per-recipient", family: "JWE" });
   }
 
   const resolvedAlgs: KeyManagementAlgorithm[] = recipients.map((r, i) =>

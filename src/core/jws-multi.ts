@@ -40,6 +40,8 @@ import {
   assertConsumerOptions,
   assertOptionEntry,
   assertProtectedOnlyOption,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   asJWTError,
   asKeyLookupError,
   asKeyUsageError,
@@ -87,8 +89,11 @@ export async function signMulti(
     });
     assertNotStringKey(signer.key);
     assertProtectedOnlyOption(signer.unprotectedHeader, { tier: "unprotected", family: "JWS" });
+    assertProducerKeyHeaders(signer.protectedHeader, { tier: "protected", family: "JWS" });
+    assertProducerKeyHeaders(signer.unprotectedHeader, { tier: "unprotected", family: "JWS" });
     assertB64Option(signer.protectedHeader);
   }
+  assertProducerConfirmation(payload);
 
   const resolvedAlgs: JWSAlgorithm[] = signers.map((s, i) => _resolveSignerAlg(s, i));
 
