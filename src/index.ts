@@ -32,6 +32,7 @@ export {
   exportPEM,
   getJWKsFromSet,
   deriveSharedSecret,
+  toPublicJWK,
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
