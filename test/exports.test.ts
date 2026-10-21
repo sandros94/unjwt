@@ -51,6 +51,7 @@ describe("root barrel (unjwt)", () => {
     "base64Encode",
     "base64Decode",
     "secureRandomBytes",
+    "digestUrl",
     "concatUint8Arrays",
     "maybeArray",
     "textEncoder",

@@ -10,6 +10,7 @@ import {
   base64Encode,
   base64Decode,
   concatUint8Arrays,
+  digestUrl,
   maybeArray,
   isJWK,
   isPublicJWK,
@@ -32,7 +33,7 @@ import {
   validateCriticalHeadersJWE,
   validateCriticalHeadersJWS,
 } from "../src/core/internal.ts";
-import { generateKey } from "../src/core/jwk.ts";
+import { generateKey, thumbprint } from "../src/core/jwk.ts";
 import { isJWTError } from "../src/core/error.ts";
 import type {
   JOSEPayloadMode,
@@ -196,6 +197,28 @@ describe.concurrent("Utility Functions", () => {
         expect((error as Error).message).toContain(name);
       }
     });
+  });
+});
+
+describe("digestUrl", () => {
+  it("digests text as UTF-8 and bytes as given, base64url, SHA-256 by default", async () => {
+    const text = await digestUrl("abc");
+    expect(text).toBe("ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0");
+    expect(await digestUrl(textEncoder.encode("abc"))).toBe(text);
+    expect(await digestUrl("abc", "SHA-256")).toBe(text);
+    expect(await digestUrl("abc", "SHA-384")).toBe(
+      "ywB1P0WjXou1oD1pmsZQBycsMqsO3tFjGotgWkP_W-2AhgcroefMI1i67KE0yCWn",
+    );
+    expect(await digestUrl("abc", "SHA-512")).toBe(
+      "3a81oZNherrMQXNJriBBMRLm-k6JqX6iCp7u5ktV05ohkpkqJ0_BqDa6PCOj_uu9RU1EI2Q86A4qmslPpUyknw",
+    );
+    expectTypeOf(digestUrl).returns.resolves.toEqualTypeOf<string>();
+  });
+
+  it("is the last step of a JWK thumbprint", async () => {
+    const { publicKey } = await generateKey("ES256", { toJWK: true, kid: false });
+    const canonical = `{"crv":"P-256","kty":"EC","x":"${publicKey.x}","y":"${publicKey.y}"}`;
+    expect(await digestUrl(canonical)).toBe(await thumbprint(publicKey));
   });
 });
 
