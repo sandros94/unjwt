@@ -35,9 +35,9 @@ export function mintSessionId(config: SessionCoreConfig): string {
 export function emptySession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TContext,
+  TEvent,
   Config extends SessionCoreConfig,
->(binding: SessionBinding<TContext, Config>): PendingSession<T, MaxAge> {
+>(binding: SessionBinding<TEvent, Config>): PendingSession<T, MaxAge> {
   const createdAt = sessionInstant(binding);
   return typedSession<T, MaxAge>({
     id: undefined,

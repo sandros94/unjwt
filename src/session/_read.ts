@@ -18,9 +18,9 @@ import { assertTokenSource } from "./_transport.ts";
 export async function loadSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TContext,
+  TEvent,
   Config extends SessionCoreConfig,
->(binding: SessionBinding<TContext, Config>): Promise<SessionState<T, MaxAge>> {
+>(binding: SessionBinding<TEvent, Config>): Promise<SessionState<T, MaxAge>> {
   const { config, codec, store, args, transport } = binding;
 
   // Key errors are misconfiguration: thrown, never reported through `onError`.
@@ -39,7 +39,7 @@ export async function loadSession<
       session.expiresAt < codec.now(config)
     ) {
       dropSessionCookie(binding);
-      const freshSession = emptySession<T, MaxAge, TContext, Config>(binding);
+      const freshSession = emptySession<T, MaxAge, TEvent, Config>(binding);
       store.set(freshSession);
       await fireExpire(binding, {
         session: {
@@ -56,7 +56,7 @@ export async function loadSession<
     return session;
   }
 
-  const session = emptySession<T, MaxAge, TContext, Config>(binding);
+  const session = emptySession<T, MaxAge, TEvent, Config>(binding);
   store.set(session);
 
   const token = transport.read();
@@ -117,8 +117,8 @@ export async function loadSession<
   return session;
 }
 
-async function fireRead<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+async function fireRead<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
   session: StoredSession,
 ): Promise<void> {
   if (session.id === undefined || session.token === undefined) return;
@@ -129,9 +129,9 @@ async function fireRead<TContext, Config extends SessionCoreConfig>(
   });
 }
 
-/** Reissues the session just read when `rolling` asks, unless a hook replaced it; a context without a cookie or a sealed response leaves it to the next request. */
-async function rollSession<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+/** Reissues the session just read when `rolling` asks, unless a hook replaced it; an event without a cookie or a sealed response leaves it to the next request. */
+async function rollSession<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
   session: StoredSession,
 ): Promise<void> {
   const { config, codec, transport, store } = binding;
@@ -146,8 +146,8 @@ async function rollSession<TContext, Config extends SessionCoreConfig>(
   await binding.actions.roll(binding);
 }
 
-async function fireExpire<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+async function fireExpire<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
   expired: {
     session: {
       id: string | undefined;

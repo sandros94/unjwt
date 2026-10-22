@@ -1,9 +1,9 @@
 import { deriveSecret, createError } from "nuxt/server";
 
-import { type SessionContext, type SessionDefinition, defineJWESession } from "unjwt/session";
+import { type SessionDefinition, type WebSessionEvent, defineJWESession } from "unjwt/session";
 import { base64UrlStringify } from "unjwt/utils";
 
-type Definition = SessionDefinition<SessionData, "1h", SessionContext>;
+type Definition = SessionDefinition<SessionData, "1h", WebSessionEvent>;
 let definition: Promise<Definition> | undefined;
 
 /**
@@ -23,11 +23,11 @@ async function define(): Promise<Definition> {
   });
 }
 
-export async function useAppSession(event: SessionContext) {
+export async function useAppSession(event: WebSessionEvent) {
   return (definition ??= define()).then((current) => current.use(event));
 }
 
-export async function requireAppSession(event: SessionContext) {
+export async function requireAppSession(event: WebSessionEvent) {
   const current = await useAppSession(event);
   if (!current.id) throw createError({ statusCode: 401, message: "Sign in first" });
   return current;

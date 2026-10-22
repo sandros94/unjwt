@@ -36,7 +36,7 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 | `unsealJWESession` (`unjwt/adapters/h3v1`, `h3v2`)                    | `defineJWESession(config).open(token, event)`          | v0.8.2        | v0.9.0    |
 | `defineJWSSession` (`unjwt/adapters/h3v1`)                            | `defineJWSSession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
 | `defineJWESession` (`unjwt/adapters/h3v1`)                            | `defineJWESession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
-| `CompatEvent` (`unjwt/adapters/h3v1`)                                 | `SessionRequestHeaders` (`unjwt/session`)              | v0.8.2        | v0.9.0    |
+| `CompatEvent` (`unjwt/adapters/h3v1`)                                 | `SessionRequestEvent` (`unjwt/session`)                | v0.8.2        | v0.9.0    |
 | `defineJWSSession` (`unjwt/adapters/h3`, `h3v2`)                      | `defineJWSSession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
 | `defineJWESession` (`unjwt/adapters/h3`, `h3v2`)                      | `defineJWESession` (`unjwt/session`)                   | v0.8.2        | v0.9.0    |
 | `SessionJWS`, `SessionJWE` (`unjwt/adapters/h3*`)                     | `SessionJWS`, `SessionJWE` (`unjwt/session`)           | v0.8.2        | v0.9.0    |

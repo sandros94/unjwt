@@ -1,12 +1,7 @@
 import type { SessionDriver } from "./_driver.ts";
 import { invalidConfigError } from "./_contract.ts";
 import { webCookieJar } from "./_cookie.ts";
-import type {
-  SessionContext,
-  SessionRequestEvent,
-  SessionRequestHeaders,
-  SessionToken,
-} from "./types.ts";
+import type { SessionHandedToken, SessionRequestEvent, WebSessionEvent } from "./types.ts";
 
 /** Message prefix for every error the Web session entry emits. */
 export const PREFIX = "[unjwt/session]";
@@ -14,45 +9,46 @@ export const PREFIX = "[unjwt/session]";
 /** The state of each request without a `context` of its own, keyed by its `Request` or by the object handed in. */
 const SESSIONS = /* @__PURE__ */ new WeakMap<object, Record<string, unknown>>();
 
-/** The Web session driver: a request event, a request that only reads, or a token in hand. */
-export const webSessionDriver: SessionDriver<SessionContext> = {
+/** The Web session driver: a request event by its `Request` or its `Headers`, or a token in hand. */
+export const webSessionDriver: SessionDriver<WebSessionEvent> = {
   prefix: PREFIX,
 
-  /** `context.sessions` when the framework hands a context, so middleware and handler share one state. */
-  state: (context) => {
-    if (isHanded(context)) return sessionsOf(context);
-    if (context.context) return contextSessions(context.context);
-    return sessionsOf("req" in context ? webRequest(context) : context);
+  /** `event.context.sessions` when the framework hands a context, so middleware and handler share one state. */
+  state: (event) => {
+    if (isHanded(event)) return sessionsOf(event);
+    if (event.context) return contextSessions(event.context);
+    return sessionsOf(event.req ? webRequest(event.req) : event);
   },
 
-  header: (context, name) => (isHanded(context) ? undefined : requestHeaders(context).get(name)),
+  header: (event, name) => (isHanded(event) ? undefined : requestHeaders(event).get(name)),
 
   /** The Web exposes no response-sent signal: the jar takes writes while there is a `res`. */
-  cookies: (context) =>
-    isHanded(context)
+  cookies: (event) =>
+    isHanded(event)
       ? { read: () => undefined }
-      : webCookieJar(requestHeaders(context), context.res?.headers),
+      : webCookieJar(requestHeaders(event), event.res?.headers),
 
-  handed: (context) => (isHanded(context) ? { token: context.token } : undefined),
+  handed: (event) => (isHanded(event) ? { token: event.token } : undefined),
 };
 
 /** A token in hand is the shape with neither `req` nor `headers`, so a request event is never mistaken for one; anything else is refused. */
-function isHanded(context: SessionContext): context is SessionToken {
-  if ("req" in context || "headers" in context) return false;
-  if ("token" in context) return true;
-  throw invalidConfigError(
-    `${PREFIX} use() got neither a request event, a request's headers, nor a token.`,
-  );
+function isHanded(event: WebSessionEvent): event is SessionHandedToken {
+  if ("req" in event || "headers" in event) return false;
+  if ("token" in event) return true;
+  throw invalidConfigError(`${PREFIX} use() got neither a request event nor a token.`);
 }
 
-function requestHeaders(context: SessionRequestEvent | SessionRequestHeaders): Headers {
-  return "req" in context ? webRequest(context).headers : context.headers;
+/** `req` first, so an event's own `Request` keys the state; `headers` alone is a request by its headers. */
+function requestHeaders(event: SessionRequestEvent): Headers {
+  if (event.req) return webRequest(event.req).headers;
+  if (event.headers) return event.headers;
+  throw invalidConfigError(`${PREFIX} use() got a request event with neither "req" nor "headers".`);
 }
 
 /** The event's `Request`; a runtime's own event (h3 v1's Node `req`) is refused with the fix spelled out. */
-function webRequest(context: SessionRequestEvent): Request {
-  const headers: unknown = context.req.headers;
-  if (typeof headers === "object" && headers !== null && "get" in headers) return context.req;
+function webRequest(req: Request): Request {
+  const headers: unknown = req.headers;
+  if (typeof headers === "object" && headers !== null && "get" in headers) return req;
   throw invalidConfigError(`${PREFIX} use() got an event whose "req" is not a web Request.`);
 }
 

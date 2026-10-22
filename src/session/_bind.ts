@@ -23,17 +23,17 @@ import {
 const kSessionNames: unique symbol = Symbol("unjwt_session_names");
 
 /** Validates the config, claims its name on the request and resolves where its token travels. */
-export function bindSession<TContext, Config extends SessionCoreConfig>(
-  context: TContext,
+export function bindSession<TEvent, Config extends SessionCoreConfig>(
+  event: TEvent,
   config: Config,
   options: {
-    driver: SessionDriver<TContext>;
+    driver: SessionDriver<TEvent>;
     codec: SessionCodec<Config>;
-    actions: SessionActions<TContext, Config>;
+    actions: SessionActions<TEvent, Config>;
     /** The hook argument naming the request, as the public entry names it: `{ event }` or `{ context }`. */
-    hookArgs: (context: TContext) => Record<string, unknown>;
+    hookArgs: (event: TEvent) => Record<string, unknown>;
   },
-): SessionBinding<TContext, Config> {
+): SessionBinding<TEvent, Config> {
   const { driver, codec, actions, hookArgs } = options;
   const { prefix } = driver;
   const name = config.name || codec.defaultName;
@@ -44,23 +44,23 @@ export function bindSession<TContext, Config extends SessionCoreConfig>(
     assertCookiePrefix(name, attrs, { prefix });
   }
   assertRolling(config, { prefix });
-  const record = driver.state(context);
+  const record = driver.state(event);
   claimSessionName(record, { name, family: codec.family, prefix });
   return {
-    context,
+    event,
     config,
     driver,
     codec,
     actions,
     name,
-    args: hookArgs(context),
+    args: hookArgs(event),
     store: recordSlotStore(record, `${codec.family}:${name}`),
-    transport: resolveTransport(driver, context, { config, name }),
+    transport: resolveTransport(driver, event, { config, name }),
   };
 }
 
-export function sessionToken<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+export function sessionToken<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
 ): string | undefined {
   const { transport } = binding;
   assertTokenSource(transport, { prefix: binding.driver.prefix });
@@ -78,8 +78,8 @@ export function recordSlotStore(record: Record<string, unknown>, slot: string): 
 }
 
 /** An expiring token sets `expires` and drops `maxAge`, which would take precedence (RFC 6265 §5.3). */
-export function sessionCookie<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+export function sessionCookie<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
   options: { expiresAt?: number | undefined } = {},
 ): SessionCookie {
   const { chunkMaxLength, ...configured } = binding.config.cookie || {};
@@ -92,8 +92,8 @@ export function sessionCookie<TContext, Config extends SessionCoreConfig>(
 }
 
 /** Drops an expired session's cookie; a sealed response leaves it to the next request, which carries the same token. */
-export function dropSessionCookie<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
 ): void {
   const { transport } = binding;
   if (!transport.drop || !transport.writable()) return;

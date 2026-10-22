@@ -1,16 +1,15 @@
 export type {
   OpenedSessionState,
   SessionClaims,
-  SessionContext,
   SessionData,
   SessionDefinition,
+  SessionHandedToken,
   SessionIssueOptions,
   SessionManager,
   SessionRequestEvent,
-  SessionRequestHeaders,
-  SessionToken,
   SessionUpdate,
   SessionUpdateTrigger,
+  WebSessionEvent,
 } from "./types.ts";
 export {
   type SessionConfigJWS,

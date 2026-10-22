@@ -1,15 +1,13 @@
 # Web Standard Sessions Reference (`unjwt/session`)
 
-JWT sessions over a web-standard request event (`{ req, res, context }`: an h3 v2 event, the
-event `nuxt/server` hands a Nuxt 4.6+ handler, or one built from a `Request` and the `Headers`
-its response is sent with), over a `Request` that only reads, or over a token the caller already
-holds. No framework, no peer dependency. The same entry exposes the driver contract, so any
+JWT sessions over a web-standard request event (an h3 v2 event, the event `nuxt/server` hands a
+Nuxt 4.6+ handler, a `Request`, a crossws upgrade request, or `{ req | headers, res, context }`
+built by hand; read-only without `res`), or over a token the caller already holds. No framework, no peer dependency. The same entry exposes the driver contract, so any
 framework can run these sessions.
 
 Import path: `unjwt/session`
 
-Exports: `defineJWSSession`, `defineJWESession`, `defineSessionDriver`; types `SessionContext`,
-`SessionRequestEvent`, `SessionRequestHeaders`, `SessionToken`,
+Exports: `defineJWSSession`, `defineJWESession`, `defineSessionDriver`; types `WebSessionEvent`, `SessionRequestEvent`, `SessionHandedToken`,
 `SessionDriver`, `CookieJar`, `CookieAttributes`, `SessionDefinition`, `OpenedSessionState`, `SessionManager`,
 `SessionClaims`, `SessionData`, `SessionUpdate`, `SessionUpdateTrigger`, `SessionIssueOptions`,
 `SessionConfigJWS`/`SessionConfigJWE`, `SessionHooksJWS`/`SessionHooksJWE`,
@@ -21,18 +19,27 @@ The session manager, config options, hooks, cookie layout, chunking, lifetime, `
 are shared by every entry (Elysia's `adapters-elysia.md` documents them in full); what is specific
 to this entry is listed here.
 
-## SessionContext
+## What `use()` takes: `WebSessionEvent`
 
 ```ts
-type SessionContext =
-  | { req: Request; res?: { headers: Headers }; context?: Record<string, unknown> } // request event; no res = read-only
-  | { headers: Headers; res?: { headers: Headers }; context?: Record<string, unknown> } // by headers: a Request, a WebSocket upgrade; no res = read-only
-  | { token: string | undefined }; // a token in hand
+type SessionRequestEvent = { res?: { headers: Headers }; context?: Record<string, unknown> } & (
+  | { req: Request; headers?: Headers } // an h3 v2 event, Nuxt's RequestEvent
+  | { headers: Headers; req?: Request } // a Request itself, a crossws upgrade request
+); // no res = read-only
+
+interface SessionHandedToken {
+  token: string | undefined; // a token in hand
+}
+
+type WebSessionEvent = SessionRequestEvent | SessionHandedToken;
 ```
 
-State: `context.sessions` when a `context` is given (the h3 slot, shared with middleware on the same
-event), else a `WeakMap` keyed on `req`, on the object passed, or on the `{ token }` object. An h3 v2
-`H3Event` and Nuxt's `RequestEvent` match the first shape unchanged; a `Request` matches the second.
+`req` is read first, `headers` otherwise; an event with neither, or an empty object, throws
+`ERR_SESSION_CONFIG_INVALID`. State: `event.context.sessions` when a `context` is given (the h3 slot,
+shared with middleware on the same event), else a `WeakMap` keyed on `req`, on the object passed,
+or on the `{ token }` object. An h3 v2 `H3Event` and Nuxt's `RequestEvent` match by `req`; a
+`Request`, and a crossws 0.3 or 0.4 upgrade request (both carry `headers` and `context`), match by
+`headers` as they are.
 
 ## Signatures
 
@@ -40,25 +47,25 @@ event), else a `WeakMap` keyed on `req`, on the object passed, or on the `{ toke
 function defineJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext extends SessionContext = SessionContext,
->(config: SessionConfigJWS<T, MaxAge, TContext>): SessionDefinition<T, MaxAge, TContext>;
+  TEvent extends WebSessionEvent = WebSessionEvent,
+>(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 
 function defineJWSSession<
   T extends Record<string, any> = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext = SessionContext,
+  TEvent = WebSessionEvent,
 >(
-  config: SessionConfigJWS<T, MaxAge, TContext>,
-  options: { driver: SessionDriver<TContext> },
-): SessionDefinition<T, MaxAge, TContext>;
+  config: SessionConfigJWS<T, MaxAge, TEvent>,
+  options: { driver: SessionDriver<TEvent> },
+): SessionDefinition<T, MaxAge, TEvent>;
 // defineJWESession: same two signatures over SessionConfigJWE
 ```
 
-`TContext` is inferred from the driver; without `{ driver }` it is `SessionContext`, or the third
+`TEvent` is inferred from the driver; without `{ driver }` it is `WebSessionEvent`, or the third
 generic when given (`defineJWESession<Data, MaxAge, H3Event>(config)`: `use()` then takes that event only). Hooks receive
-`{ context: TContext }` whatever the driver: the entry names the hook argument, not the driver.
-`onVerifyKeyLookup` / `onUnsealKeyLookup` get `context` only from `use()` (typed
-`context?: TContext`); `open()` passes none and resolves to `{ id, createdAt, expiresAt, data }`.
+`{ event: TEvent }` whatever the driver: the entry names the hook argument, not the driver.
+`onVerifyKeyLookup` / `onUnsealKeyLookup` get `event` only from `use()` (typed
+`event?: TEvent`); `open()` passes none and resolves to `{ id, createdAt, expiresAt, data }`.
 Default `name`: `"unjwt-jws"` / `"unjwt-jwe"`. `cookie` takes
 `CookieAttributes & { chunkMaxLength? }`. Error messages start with `[unjwt/session]` (a custom
 driver's `prefix` otherwise).
@@ -89,13 +96,14 @@ export default {
   that goes to `use(event)` as is, on Nitro 2 and 3; key it from `deriveSecret()` of `nuxt/server`
   (32 HKDF bytes as hex → `oct` JWK, created lazily since it needs the runtime config).
 
-## Read-only: a `Request`, `{ req }` without `res`, `{ headers, context? }`
+## Read-only: a `Request`, `{ req }` or `{ headers }` without `res`
 
 Reads work. On a cookie session `update()` throws `ERR_SESSION_READONLY_EVENT`
 (`Cannot update session on read-only event.`); `clear()` empties the session for the rest of the
 request, fires `onClear` and resolves, writing nothing (an `onRead` revocation clears with no
 gate); an expired token fires `onExpire` without dropping the cookie; `rolling` does not reissue.
-With `cookie: false`, `update()` re-mints onto `session.token`. WebSockets: in `upgrade`,
+With `cookie: false`, `update()` re-mints onto `session.token`. WebSockets: in `upgrade`, `use(request)` reads
+(crossws 0.3's plain request and 0.4's `Request` both carry `headers` and `context`); to write,
 `use({ headers: request.headers, context: request.context, res: { headers } })` then
 `return { headers }`: the `101` handshake carries a roll, an expired cookie's drop or a `clear()`
 made during the read. Read once there, copy what the socket needs onto `request.context`
@@ -131,18 +139,18 @@ send(session.token); // the new token; sending it is the caller's job
 ## Driver contract
 
 ```ts
-interface SessionDriver<TContext> {
+interface SessionDriver<TEvent> {
   /** Starts every error message. */
   prefix: string;
   /** A record unique to the request: session state and the name registry. */
-  state(context: TContext): Record<string, unknown>;
+  state(event: TEvent): Record<string, unknown>;
   /** A request header by lowercase name. */
-  header(context: TContext, name: string): string | null | undefined;
-  cookies(context: TContext): CookieJar;
+  header(event: TEvent, name: string): string | null | undefined;
+  cookies(event: TEvent): CookieJar;
   /** `false` once the response was sent: `update()`/`clear()` throw; absent = always open. */
-  writable?(context: TContext): boolean;
-  /** `{ token }` when the context carries the token: no cookie or header is consulted. */
-  handed?(context: TContext): { token: string | undefined } | undefined;
+  writable?(event: TEvent): boolean;
+  /** `{ token }` when the event carries the token: no cookie or header is consulted. */
+  handed?(event: TEvent): { token: string | undefined } | undefined;
 }
 
 interface CookieJar<A = { expires?: Date; maxAge?: number }> {
@@ -154,7 +162,7 @@ interface CookieJar<A = { expires?: Date; maxAge?: number }> {
   write?(name: string, value: string, attrs: A): void;
 }
 
-function defineSessionDriver<TContext>(driver: SessionDriver<TContext>): SessionDriver<TContext>;
+function defineSessionDriver<TEvent>(driver: SessionDriver<TEvent>): SessionDriver<TEvent>;
 ```
 
 ```ts
@@ -181,21 +189,21 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 // appSession.use(event: RequestEvent)
 ```
 
-- `state(context)` must return an object unique to the request (`event.locals`, `event.context`, a
+- `state(event)` must return an object unique to the request (`event.locals`, `event.context`, a
   `WeakMap` keyed by the request). A module-level or shared object leaks sessions across requests.
 - `write` must replace, not append: a re-issue in the same request writes the same names again.
 - Writes arrive one cookie at a time: base cookie, chunks `name.1…N`, `Max-Age=0` for surplus.
 - Shipped drivers: h3 (state on `event.context.sessions`, `writable` from Node `headersSent`,
   v2 stages cookies in `res.errHeaders`), Elysia (state keyed by `Request`, reactive jar, no
-  `written`), `unjwt/session` (state on `context.sessions`, else keyed by `req`, the object passed
+  `written`), `unjwt/session` (state on `event.context.sessions`, else keyed by `req`, the object passed
   or the `{ token }` object; `handed`).
 
 ## Frameworks
 
 - h3 v2 (`new H3()`): the `H3Event` goes to `use()` as is. A thrown handler sends `res.errHeaders`
   only: keep the cookie with `hooks: { onUpdate: stage, onClear: stage }` where `stage` copies
-  `event.res.headers.getSetCookie()` into `event.res.errHeaders` (`{ context: event }` is the hook
-  arg; `defineJWESession<Data, MaxAge, H3Event>(config)` narrows `context` so it typechecks).
+  `event.res.headers.getSetCookie()` into `event.res.errHeaders` (`{ event }` is the hook
+  arg; `defineJWESession<Data, MaxAge, H3Event>(config)` narrows `event` so it typechecks).
 - Nitro 3: same event; no auto-imports (`defineHandler`, `defineWebSocketHandler`, `HTTPError` from
   `nitro`, `readBody` from `nitro/h3`); Nitro's error handler drops prepared headers on a throw.
 - Nuxt 4.6+/5: handlers must come from `nuxt/server` (`defineEventHandler`, `readBody`, `createError`),

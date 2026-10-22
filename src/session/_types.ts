@@ -66,18 +66,18 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
 }
 
 /** The write side as the read path reaches it: the manager hooks receive, and the reissue `rolling` asks for. */
-export interface SessionActions<TContext, Config extends SessionCoreConfig> {
-  manager: (binding: SessionBinding<TContext, Config>) => object;
-  roll: (binding: SessionBinding<TContext, Config>) => Promise<void>;
+export interface SessionActions<TEvent, Config extends SessionCoreConfig> {
+  manager: (binding: SessionBinding<TEvent, Config>) => object;
+  roll: (binding: SessionBinding<TEvent, Config>) => Promise<void>;
 }
 
 /** One session of one request: its config, its framework, its codec, its write side and its token transport. */
-export interface SessionBinding<TContext, Config extends SessionCoreConfig> {
-  context: TContext;
+export interface SessionBinding<TEvent, Config extends SessionCoreConfig> {
+  event: TEvent;
   config: Config;
-  driver: SessionDriver<TContext>;
+  driver: SessionDriver<TEvent>;
   codec: SessionCodec<Config>;
-  actions: SessionActions<TContext, Config>;
+  actions: SessionActions<TEvent, Config>;
   /** Session name — drives the cookie name and the default session header. */
   name: string;
   /** The hook argument naming the request. */

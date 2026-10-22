@@ -7,10 +7,12 @@ import { sign } from "../src/core/jws.ts";
 import { encrypt } from "../src/core/jwe.ts";
 import {
   type CookieJar,
-  type SessionContext,
   type SessionDefinition,
   type SessionDriver,
+  type SessionHandedToken,
   type SessionManager,
+  type SessionRequestEvent,
+  type WebSessionEvent,
   defineJWESession,
   defineJWSSession,
   defineSessionDriver,
@@ -21,7 +23,11 @@ const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 type Family = "jws" | "jwe";
-type Definition = SessionDefinition<Record<string, unknown>, ExpiresIn | undefined, SessionContext>;
+type Definition = SessionDefinition<
+  Record<string, unknown>,
+  ExpiresIn | undefined,
+  WebSessionEvent
+>;
 
 interface FamilyCase {
   family: Family;
@@ -338,14 +344,14 @@ describe("unjwt/session with a token in hand", () => {
     const onRead = vi.fn();
     const session = define({ ...config, hooks: { onRead } });
     const token = await session.issue({ user: "ada" });
-    const context: SessionContext = { token };
+    const event: WebSessionEvent = { token };
 
-    expect(session.token(context)).toBe(token);
-    const manager = await session.use(context);
+    expect(session.token(event)).toBe(token);
+    const manager = await session.use(event);
     expect(manager.data).toEqual({ user: "ada" });
     expect(manager.token).toBe(token);
     expect(onRead).toHaveBeenCalledOnce();
-    expect(onRead.mock.calls[0]?.[0]).toMatchObject({ context });
+    expect(onRead.mock.calls[0]?.[0]).toMatchObject({ event });
 
     await manager.update({ user: "grace" });
     expect(manager.token).not.toBe(token);
@@ -404,26 +410,26 @@ describe("unjwt/session with a token in hand", () => {
 });
 
 describe("defineSessionDriver", () => {
-  interface PlainContext {
+  interface PlainEvent {
     locals: Record<string, unknown>;
     headers: Record<string, string>;
     cookies: Map<string, string>;
   }
 
-  const plainDriver = defineSessionDriver<PlainContext>({
+  const plainDriver = defineSessionDriver<PlainEvent>({
     prefix: "[plain]",
-    state: (context) => context.locals,
-    header: (context, name) => context.headers[name],
-    cookies: (context): CookieJar => ({
-      read: (name) => context.cookies.get(name),
+    state: (event) => event.locals,
+    header: (event, name) => event.headers[name],
+    cookies: (event): CookieJar => ({
+      read: (name) => event.cookies.get(name),
       write: (name, value, attrs) => {
-        if (attrs.maxAge === 0) context.cookies.delete(name);
-        else context.cookies.set(name, value);
+        if (attrs.maxAge === 0) event.cookies.delete(name);
+        else event.cookies.set(name, value);
       },
     }),
   });
 
-  const plain = (cookies = new Map<string, string>()): PlainContext => ({
+  const plain = (cookies = new Map<string, string>()): PlainEvent => ({
     locals: {},
     headers: {},
     cookies,
@@ -441,41 +447,41 @@ describe("defineSessionDriver", () => {
     await written.update({ user: "ada" });
     expect(cookies.get(`unjwt-${family}`)).toBe(written.token);
 
-    const context = plain(cookies);
-    const read = await session.use(context);
+    const event = plain(cookies);
+    const read = await session.use(event);
     expect(read.data).toEqual({ user: "ada" });
     expect(onRead).toHaveBeenCalledOnce();
-    expect(onRead.mock.calls[0]?.[0]?.context).toBe(context);
+    expect(onRead.mock.calls[0]?.[0]?.event).toBe(event);
 
     await read.clear();
     expect(cookies.has(`unjwt-${family}`)).toBe(false);
   });
 
-  it("types the context from the driver, and as SessionContext without one", () => {
-    expectTypeOf(plainDriver).toEqualTypeOf<SessionDriver<PlainContext>>();
+  it("types the event from the driver, and as WebSessionEvent without one", () => {
+    expectTypeOf(plainDriver).toEqualTypeOf<SessionDriver<PlainEvent>>();
 
     const custom = defineJWSSession(
       {
         key: jwsKey,
         hooks: {
-          onRead: ({ context }) => {
-            expectTypeOf(context).toEqualTypeOf<PlainContext>();
+          onRead: ({ event }) => {
+            expectTypeOf(event).toEqualTypeOf<PlainEvent>();
           },
         },
       },
       { driver: plainDriver },
     );
-    expectTypeOf(custom.use).parameter(0).toEqualTypeOf<PlainContext>();
+    expectTypeOf(custom.use).parameter(0).toEqualTypeOf<PlainEvent>();
 
     const web = defineJWESession({
       key: jweKey,
       hooks: {
-        onRead: ({ context }) => {
-          expectTypeOf(context).toEqualTypeOf<SessionContext>();
+        onRead: ({ event }) => {
+          expectTypeOf(event).toEqualTypeOf<WebSessionEvent>();
         },
       },
     });
-    expectTypeOf(web.use).parameter(0).toEqualTypeOf<SessionContext>();
+    expectTypeOf(web.use).parameter(0).toEqualTypeOf<WebSessionEvent>();
   });
 });
 
@@ -497,8 +503,8 @@ describe("unjwt/session types", () => {
       key: jweKey,
       maxAge: "1h",
       hooks: {
-        onUpdate: ({ context }) => {
-          expectTypeOf(context).toEqualTypeOf<FrameworkEvent>();
+        onUpdate: ({ event }) => {
+          expectTypeOf(event).toEqualTypeOf<FrameworkEvent>();
         },
       },
     });
@@ -507,12 +513,15 @@ describe("unjwt/session types", () => {
     void narrowed.use(new Request("http://localhost/"));
   });
 
-  it("takes a request or a token as its context, never an empty object", () => {
-    expectTypeOf<{ req: Request }>().toExtend<SessionContext>();
-    expectTypeOf<{ req: Request; headers: Headers }>().toExtend<SessionContext>();
-    expectTypeOf<{ token: string }>().toExtend<SessionContext>();
-    expectTypeOf<{ token: undefined }>().toExtend<SessionContext>();
-    expectTypeOf<{}>().not.toExtend<SessionContext>();
+  it("takes a request event by its Request or its Headers, or a token, never an empty object", () => {
+    expectTypeOf<{ req: Request }>().toExtend<SessionRequestEvent>();
+    expectTypeOf<{ headers: Headers }>().toExtend<SessionRequestEvent>();
+    expectTypeOf<{ req: Request; headers: Headers }>().toExtend<SessionRequestEvent>();
+    expectTypeOf<Request>().toExtend<SessionRequestEvent>();
+    expectTypeOf<{ res: { headers: Headers } }>().not.toExtend<SessionRequestEvent>();
+    expectTypeOf<{ token: string }>().toExtend<SessionHandedToken>();
+    expectTypeOf<{ token: undefined }>().toExtend<SessionHandedToken>();
+    expectTypeOf<{}>().not.toExtend<WebSessionEvent>();
   });
 });
 

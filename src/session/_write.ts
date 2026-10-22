@@ -29,8 +29,8 @@ import { loadSession } from "./_read.ts";
 import { assertTokenSource, assertWritable } from "./_transport.ts";
 
 /** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */
-export async function encodeSession<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+export async function encodeSession<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
 ): Promise<string> {
   const { config, codec, store, transport } = binding;
   await codec.assertKeys(config);
@@ -44,10 +44,10 @@ export async function encodeSession<TContext, Config extends SessionCoreConfig>(
 export async function issueSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TContext,
+  TEvent,
   Config extends SessionCoreConfig,
 >(
-  binding: SessionBinding<TContext, Config>,
+  binding: SessionBinding<TEvent, Config>,
   update?: SessionUpdate<T>,
   options?: SessionIssueOptions,
   trigger: SessionUpdateTrigger = "update",
@@ -57,7 +57,7 @@ export async function issueSession<
   assertWritable(transport, { operation: "update", prefix: driver.prefix });
 
   const session =
-    storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TContext, Config>(binding));
+    storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TEvent, Config>(binding));
 
   const oldSession = snapshotSession(session);
 
@@ -109,9 +109,9 @@ export async function issueSession<
   return issued;
 }
 
-/** Drop the session cookie, where the context takes one, and leave an empty session for the rest of the request. */
-export async function dropSession<TContext, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TContext, Config>,
+/** Drop the session cookie, where the event takes one, and leave an empty session for the rest of the request. */
+export async function dropSession<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
 ): Promise<void> {
   const { config, driver, store, args, transport } = binding;
 
@@ -138,9 +138,9 @@ export async function dropSession<TContext, Config extends SessionCoreConfig>(
 export function sessionManager<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TContext,
+  TEvent,
   Config extends SessionCoreConfig,
->(binding: SessionBinding<TContext, Config>): SessionManager<T, MaxAge> {
+>(binding: SessionBinding<TEvent, Config>): SessionManager<T, MaxAge> {
   const { store } = binding;
   const state = () => storedSession<T, MaxAge>(store);
 
@@ -162,7 +162,7 @@ export function sessionManager<
       return session ? session.token : sessionToken(binding);
     },
     update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
-      await issueSession<T, MaxAge, TContext, Config>(binding, update, options);
+      await issueSession<T, MaxAge, TEvent, Config>(binding, update, options);
       return manager;
     },
     clear: async () => {
@@ -175,8 +175,8 @@ export function sessionManager<
 }
 
 /** What a binding needs from this module; passed to `bindSession` by every adapter. */
-export function sessionActions<TContext, Config extends SessionCoreConfig>(): SessionActions<
-  TContext,
+export function sessionActions<TEvent, Config extends SessionCoreConfig>(): SessionActions<
+  TEvent,
   Config
 > {
   return {

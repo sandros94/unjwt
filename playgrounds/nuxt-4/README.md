@@ -41,10 +41,10 @@ The import is the whole point. Nuxt's auto-imported `defineEventHandler` is stil
 // server/utils/session.ts
 import { deriveSecret, createError } from "nuxt/server";
 
-import { type SessionContext, type SessionDefinition, defineJWESession } from "unjwt/session";
+import { type SessionDefinition, type WebSessionEvent, defineJWESession } from "unjwt/session";
 import { base64UrlStringify } from "unjwt/utils";
 
-type Definition = SessionDefinition<SessionData, "1h", SessionContext>;
+type Definition = SessionDefinition<SessionData, "1h", WebSessionEvent>;
 let definition: Promise<Definition> | undefined;
 
 async function define(): Promise<Definition> {
@@ -59,14 +59,14 @@ async function define(): Promise<Definition> {
   });
 }
 
-export async function useAppSession(event: SessionContext) {
+export async function useAppSession(event: WebSessionEvent) {
   return (definition ??= define()).then((current) => current.use(event));
 }
 ```
 
 Nuxt v4.6 reads `NUXT_APP_SECRET` (or `runtimeConfig.appSecret`) and generates a development one when unset; builds do not. `deriveSecret(purpose)` returns 32 HKDF-SHA256 bytes as hex, stable while `appSecret` is and distinct per purpose; the util turns them into an `A256GCM` `oct` JWK. It needs the runtime config, so the definition is created on the first `useAppSession()` call, not at module load, and cached in the module.
 
-`useAppSession` takes `SessionContext`, not only `RequestEvent`: the same util serves a route's event, a WebSocket upgrade request, and `{ token }` when a token arrives some other way.
+`useAppSession` takes a `WebSessionEvent`, not only `RequestEvent`: the same util serves a route's event, a WebSocket upgrade request, and `{ token }` when a token arrives some other way.
 
 `rolling: "15m"` reissues a token older than 15 minutes on the first read that sees it, over HTTP and at a WebSocket upgrade alike, so an active user never expires. A cookie whose token cannot be opened is dropped by the read itself, so a tampered or foreign cookie is not sent back on every request; `onError` only reports it.
 

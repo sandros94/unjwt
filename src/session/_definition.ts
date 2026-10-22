@@ -12,30 +12,29 @@ import type { SessionDefinition, SessionRecord } from "./types.ts";
 export function defineSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-  TContext,
+  TEvent,
   Config extends SessionCoreConfig,
 >(
   config: Config,
   options: {
-    driver: SessionDriver<TContext>;
+    driver: SessionDriver<TEvent>;
     codec: SessionCodec<Config>;
     /** The hook argument naming the request, as the public entry names it. */
-    hookArgs: (context: TContext) => Record<string, unknown>;
+    hookArgs: (event: TEvent) => Record<string, unknown>;
   },
-): SessionDefinition<T, MaxAge, TContext> {
+): SessionDefinition<T, MaxAge, TEvent> {
   const { driver, codec, hookArgs } = options;
-  const actions: SessionActions<TContext, Config> = sessionActions();
-  const bind = (context: TContext) =>
-    bindSession(context, config, { driver, codec, actions, hookArgs });
+  const actions: SessionActions<TEvent, Config> = sessionActions();
+  const bind = (event: TEvent) => bindSession(event, config, { driver, codec, actions, hookArgs });
 
   return {
-    use: async (context) => {
-      const binding = bind(context);
-      await loadSession<T, MaxAge, TContext, Config>(binding);
-      return sessionManager<T, MaxAge, TContext, Config>(binding);
+    use: async (event) => {
+      const binding = bind(event);
+      await loadSession<T, MaxAge, TEvent, Config>(binding);
+      return sessionManager<T, MaxAge, TEvent, Config>(binding);
     },
 
-    token: (context) => sessionToken(bind(context)),
+    token: (event) => sessionToken(bind(event)),
 
     issue: async (data, issueOptions) => {
       await codec.assertKeys(config);

@@ -1,6 +1,6 @@
 import { H3, serve, HTTPError } from "h3";
 
-import { type SessionContext, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
+import { type WebSessionEvent, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
 
 export const password =
   process.env.SESSION_PASSWORD ?? "playground-password-with-at-least-32-characters";
@@ -22,7 +22,7 @@ const session = defineJWESession<SessionData, "1h">({
   rolling: "15m",
 });
 
-function useAppSession(event: SessionContext) {
+function useAppSession(event: WebSessionEvent) {
   return session.use(event);
 }
 

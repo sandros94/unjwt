@@ -264,11 +264,11 @@ function defineJWSSession<
 >(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 // defineJWESession: same shape over SessionConfigJWE
 
-interface SessionDefinition<T, MaxAge, TContext> {
+interface SessionDefinition<T, MaxAge, TEvent> {
   /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
-  use: (context: TContext) => Promise<SessionManager<T, MaxAge>>;
+  use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
   /** The token the request carries (this response's own write first), unopened. */
-  token: (context: TContext) => string | undefined;
+  token: (event: TEvent) => string | undefined;
   /** Mints a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it); reads and writes nothing. */
   issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;
   /** Opens a token into session state, checking `typ`, pinned algorithms, `jti`/`iat` and `exp` when `maxAge` is set; the key-lookup hook receives no request. */

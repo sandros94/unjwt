@@ -9,11 +9,11 @@ import type { CookieAttributes } from "./_cookie-attributes.ts";
 import type { SessionDriver } from "./_driver.ts";
 import type {
   SessionClaims,
-  SessionContext,
   SessionDefinition,
   SessionManager,
   SessionRecord,
   SessionState,
+  WebSessionEvent,
 } from "./types.ts";
 import { defineSession } from "./_definition.ts";
 import { webSessionDriver } from "./_web-driver.ts";
@@ -30,40 +30,40 @@ export interface SessionJWS<
 export interface SessionHooksJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext = SessionContext,
+  TEvent = WebSessionEvent,
 > extends JWSSessionHooks<
   SessionJWS<T, MaxAge>,
   SessionManager<T, MaxAge>,
-  { context: TContext },
-  SessionConfigJWS<T, MaxAge, TContext>
+  { event: TEvent },
+  SessionConfigJWS<T, MaxAge, TEvent>
 > {}
 
 /** Configuration for a JWS-backed (signed, not encrypted) session. */
 export interface SessionConfigJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext = SessionContext,
+  TEvent = WebSessionEvent,
 > extends JWSSessionConfig<MaxAge, CookieAttributes> {
   /** Cookie and session-header name. Default `"unjwt-jws"`; a `.<digits>` suffix throws `ERR_SESSION_CONFIG_INVALID`. */
   name?: string;
-  hooks?: SessionHooksJWS<T, MaxAge, TContext>;
+  hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 
 /** Defines a JWS (signed, not encrypted) session once, its data readable by clients; `use`, `token`, `issue` and `open` serve every request. */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext extends SessionContext = SessionContext,
->(config: SessionConfigJWS<T, MaxAge, TContext>): SessionDefinition<T, MaxAge, TContext>;
+  TEvent extends WebSessionEvent = WebSessionEvent,
+>(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 /** Defines a JWS (signed, not encrypted) session over a framework driver of your own. */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext = SessionContext,
+  TEvent = WebSessionEvent,
 >(
-  config: SessionConfigJWS<T, MaxAge, TContext>,
-  options: { driver: SessionDriver<TContext> },
-): SessionDefinition<T, MaxAge, TContext>;
+  config: SessionConfigJWS<T, MaxAge, TEvent>,
+  options: { driver: SessionDriver<TEvent> },
+): SessionDefinition<T, MaxAge, TEvent>;
 export function defineJWSSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
   config: JWSCodecConfig,
   options?: { driver?: SessionDriver<unknown> },
@@ -71,7 +71,7 @@ export function defineJWSSession<T extends SessionRecord, MaxAge extends Expires
   const driver = options?.driver ?? webSessionDriver;
   return defineSession<T, MaxAge, unknown, JWSCodecConfig>(config, {
     driver,
-    hookArgs: (context) => ({ context }),
+    hookArgs: (event) => ({ event }),
     codec: createJWSCodec({ prefix: driver.prefix, defaultName: "unjwt-jws" }),
   });
 }

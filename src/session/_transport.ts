@@ -27,32 +27,32 @@ export interface SessionCookie {
 export interface SessionTransport {
   /** The token this response wrote, else the request cookie's, else the session header's; absent without a token source. */
   read?: () => string | undefined;
-  /** Present while the session keeps its token in a cookie the context can write. */
+  /** Present while the session keeps its token in a cookie the event can write. */
   write?: (token: string, cookie: SessionCookie) => void;
-  /** Present while the session keeps its token in a cookie the context can write. */
+  /** Present while the session keeps its token in a cookie the event can write. */
   drop?: (cookie: SessionCookie) => void;
-  /** The session keeps its token in a cookie, but the context cannot take one (a headers-only event). */
+  /** The session keeps its token in a cookie, but the event cannot take one (a request without a response). */
   readonly: boolean;
   /** Platform signal that the response can still change; `false` once it was sent. */
   writable: () => boolean;
 }
 
 /** A token the driver hands in, else the cookie and header transports a config asks for, over the driver of one request. */
-export function resolveTransport<TContext>(
-  driver: SessionDriver<TContext>,
-  context: TContext,
+export function resolveTransport<TEvent>(
+  driver: SessionDriver<TEvent>,
+  event: TEvent,
   options: { config: SessionTokenSource; name: string },
 ): SessionTransport {
-  const handed = driver.handed?.(context);
+  const handed = driver.handed?.(event);
   if (handed) return { read: () => handed.token, readonly: false, writable: () => true };
 
   const { config, name } = options;
-  const header = headerReader(driver, context, options);
+  const header = headerReader(driver, event, options);
   if (config.cookie === false) {
     return { read: header, readonly: false, writable: () => true };
   }
 
-  const jar = driver.cookies(context);
+  const jar = driver.cookies(event);
   const store = responseStore(jar);
   const transport: SessionTransport = {
     read: () => {
@@ -63,7 +63,7 @@ export function resolveTransport<TContext>(
       return (written ?? readChunked(jar, name)) || header?.() || undefined;
     },
     readonly: !store,
-    writable: () => driver.writable?.(context) ?? true,
+    writable: () => driver.writable?.(event) ?? true,
   };
   if (!store) return transport;
 
@@ -88,7 +88,7 @@ export function assertTokenSource(
   }
 }
 
-/** No update where the context takes no cookie the session keeps its token in; no update or clear once the response was sent. */
+/** No update where the event takes no cookie the session keeps its token in; no update or clear once the response was sent. */
 export function assertWritable(
   transport: SessionTransport,
   options: { operation: "update" | "clear"; prefix: string },
@@ -134,15 +134,15 @@ export function headerToken(value: string | null | undefined): string | undefine
 }
 
 /** Reads the session header `sessionHeader` names, else `x-<name>-session`. */
-function headerReader<TContext>(
-  driver: SessionDriver<TContext>,
-  context: TContext,
+function headerReader<TEvent>(
+  driver: SessionDriver<TEvent>,
+  event: TEvent,
   options: { config: SessionTokenSource; name: string },
 ): (() => string | undefined) | undefined {
   const { config, name } = options;
   if (config.sessionHeader === false) return undefined;
   const header = sessionHeaderName(name, config.sessionHeader);
-  return () => headerToken(driver.header(context, header));
+  return () => headerToken(driver.header(event, header));
 }
 
 /** The jar as the chunked layer writes it, this response's value first; absent when it takes no cookie. */

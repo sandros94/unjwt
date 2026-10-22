@@ -56,7 +56,7 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
    *   first 15 minutes change nothing; the first read after that issues a fresh hour. Must be
    *   shorter than `maxAge`.
    *
-   * A read that cannot write (a read-only context, a response already sent) does not reissue;
+   * A read that cannot write (a read-only event, a response already sent) does not reissue;
    * the next request, carrying the same token, does.
    *
    * @default undefined — the session expires at `iat + maxAge` however often it is read.
@@ -154,40 +154,36 @@ export type OpenedSessionState<
 export interface SessionDefinition<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext = unknown,
+  TEvent = unknown,
 > {
   /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
-  use: (context: TContext) => Promise<SessionManager<T, MaxAge>>;
+  use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
   /** The token the request carries (this response's own write first), unopened. */
-  token: (context: TContext) => string | undefined;
+  token: (event: TEvent) => string | undefined;
   /** Mints a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it); reads and writes nothing. */
   issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;
   /** Opens a token into session state, checking `typ`, pinned algorithms, `jti`/`iat` and `exp` when `maxAge` is set; the key-lookup hook receives no request. */
   open: (token: string) => Promise<OpenedSessionState<T, MaxAge>>;
 }
 
-/** A web-standard request event: reads, and writes while `res` is there. */
-export interface SessionRequestEvent {
-  readonly req: Request;
+interface SessionRequestBase {
   /** The response being prepared; without it the session is read-only. */
   readonly res?: { readonly headers: Headers };
-  /** The framework's per-request state, where `sessions` is kept; without it state is keyed on `req`. */
+  /** Per-request state shared with the framework, where `sessions` is kept; without it state is keyed on `req`, else on this object. */
   readonly context?: Record<string, unknown>;
 }
 
-/** A request by its headers: a `Request` itself, a WebSocket upgrade's request, a peer's `request` with its `context`. */
-export interface SessionRequestHeaders {
-  readonly headers: Headers;
-  /** The response being prepared, such as the headers a WebSocket `upgrade` returns; without it the session is read-only. */
-  readonly res?: { readonly headers: Headers };
-  /** Per-request state shared with the framework; without it state is keyed on this object. */
-  readonly context?: Record<string, unknown>;
-}
+/** A request event: by its `Request`, or by its `Headers` (a `Request` itself, a WebSocket upgrade's request). */
+export type SessionRequestEvent = SessionRequestBase &
+  (
+    | { readonly req: Request; readonly headers?: Headers }
+    | { readonly headers: Headers; readonly req?: Request }
+  );
 
 /** A token handed in directly; sending a re-issued one is the caller's job. */
-export interface SessionToken {
+export interface SessionHandedToken {
   token: string | undefined;
 }
 
-/** What `use()` takes: a request event, a request by its headers, or a token in hand. */
-export type SessionContext = SessionRequestEvent | SessionRequestHeaders | SessionToken;
+/** What the Web session driver takes: a request event, or a token in hand. */
+export type WebSessionEvent = SessionRequestEvent | SessionHandedToken;

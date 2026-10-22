@@ -34,7 +34,7 @@ Nitro v3 has no auto-imports: `defineHandler`, `defineWebSocketHandler` and `HTT
 ```ts
 // server/utils/session.ts
 import { HTTPError } from "nitro";
-import { type SessionContext, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
+import { type WebSessionEvent, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
 
 const key = await deriveJWKFromPassword(password, {
   alg: "PBES2-HS256+A128KW",
@@ -49,14 +49,14 @@ const definition = defineJWESession<SessionData, "1h">({
   rolling: "15m",
 });
 
-export function useAppSession(event: SessionContext) {
+export function useAppSession(event: WebSessionEvent) {
   return definition.use(event);
 }
 ```
 
 The key is derived once at module load from `SESSION_PASSWORD` (with a default for local use), so the definition needs no runtime config and is created at import time.
 
-`useAppSession` takes `SessionContext`, not only an `H3Event`: the same util serves a route's event, a WebSocket upgrade request, and `{ token }` when a token arrives some other way.
+`useAppSession` takes a `WebSessionEvent`, not only an `H3Event`: the same util serves a route's event, a WebSocket upgrade request, and `{ token }` when a token arrives some other way.
 
 `rolling: "15m"` reissues a token older than 15 minutes on the first read that sees it, over HTTP and at a WebSocket upgrade alike, so an active user never expires. A cookie whose token cannot be opened is dropped by the read itself, so a tampered or foreign cookie is not sent back on every request; `onError` only reports it.
 

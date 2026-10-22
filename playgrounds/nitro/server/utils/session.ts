@@ -1,5 +1,5 @@
 import { HTTPError } from "nitro";
-import { type SessionContext, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
+import { type WebSessionEvent, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
 
 export interface SessionData {
   user: string;
@@ -20,11 +20,11 @@ const definition = defineJWESession<SessionData, "1h">({
   rolling: "15m",
 });
 
-export function useAppSession(event: SessionContext) {
+export function useAppSession(event: WebSessionEvent) {
   return definition.use(event);
 }
 
-export async function requireAppSession(event: SessionContext) {
+export async function requireAppSession(event: WebSessionEvent) {
   const current = await useAppSession(event);
   if (!current.id) throw new HTTPError({ status: 401, message: "Sign in first" });
   return current;

@@ -75,7 +75,7 @@ import type { SessionContext } from "../src/adapters/elysia/session/types.ts";
 import {
   defineJWSSession as defineJWSSessionWeb,
   defineJWESession as defineJWESessionWeb,
-  type SessionContext as WebSessionContext,
+  type WebSessionEvent,
 } from "../src/session/index.ts";
 import type { CookieAttributes } from "../src/adapters/elysia/_cookie.ts";
 import { createJWSCodec } from "../src/session/_codec-jws.ts";
@@ -4338,7 +4338,7 @@ describe("session adapters — shared contract", () => {
         expect(viaRequest.body).toEqual({ user: "alice" });
         expect(seen).toEqual([
           ["config", "header"],
-          ["config", isH3(port.port) ? "event" : "context", "header"].toSorted(),
+          ["config", port.port === "elysia" ? "context" : "event", "header"].toSorted(),
         ]);
       },
     );
@@ -4501,7 +4501,7 @@ describe("session adapters — shared contract", () => {
         key: jwsKey,
         hooks: {
           onVerifyKeyLookup: (args) => {
-            expectTypeOf(args.context).toEqualTypeOf<WebSessionContext | undefined>();
+            expectTypeOf(args.event).toEqualTypeOf<WebSessionEvent | undefined>();
             return jwsKey;
           },
         },
@@ -4510,7 +4510,7 @@ describe("session adapters — shared contract", () => {
         key: jweKey,
         hooks: {
           onUnsealKeyLookup: (args) => {
-            expectTypeOf(args.context).toEqualTypeOf<WebSessionContext | undefined>();
+            expectTypeOf(args.event).toEqualTypeOf<WebSessionEvent | undefined>();
             return jweKey;
           },
         },
@@ -4661,10 +4661,10 @@ const OPENERS: Record<Port, Record<Family, Opener>> = {
   "h3 v1": { jws: useJWSSessionV1, jwe: useJWESessionV1 },
   "elysia": { jws: createJWSSession, jwe: createJWESession },
   "web": {
-    jws: (context: WebSessionContext, config: Parameters<typeof defineJWSSessionWeb>[0]) =>
-      defineJWSSessionWeb(config).use(context),
-    jwe: (context: WebSessionContext, config: Parameters<typeof defineJWESessionWeb>[0]) =>
-      defineJWESessionWeb(config).use(context),
+    jws: (event: WebSessionEvent, config: Parameters<typeof defineJWSSessionWeb>[0]) =>
+      defineJWSSessionWeb(config).use(event),
+    jwe: (event: WebSessionEvent, config: Parameters<typeof defineJWESessionWeb>[0]) =>
+      defineJWESessionWeb(config).use(event),
   },
 };
 
