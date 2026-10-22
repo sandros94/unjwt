@@ -23,8 +23,8 @@ The following is a list of reference files:
 
 - `references/jws.md`: `sign()`, `verify()`, `signMulti()`, `verifyMulti()`, `verifyMultiAll()`, `generalToFlattenedJWS()`, `JWSSignOptions`, `JWSVerifyOptions`, `JWSMultiSignOptions`, `JWSMultiVerifyOptions`, `JWSMultiVerifyAllOptions`, `JWSMultiVerifyOutcome`, `JWSGeneralSerialization`, `JWSFlattenedSerialization`, `JWSMultiSigner`
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `encryptMulti()`, `decryptMulti()`, `generalToFlattened()`, `JWEEncryptOptions`, `JWEDecryptOptions`, `JWEMultiEncryptOptions`, `JWEMultiDecryptOptions`, `JWEGeneralSerialization`, `JWEFlattenedSerialization`, `JWEMultiRecipient`
-- `references/jwk.md`: `generateKey()`, `generateJWK()`, `thumbprint()`, `importKey()`, `exportKey()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
-- `references/utils.md`: `base64UrlStringify`/`base64UrlParse`, `base64Stringify`/`base64Parse`, `secureRandomBytes`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
+- `references/jwk.md`: `generateKey()`, `generateJWK()`, `toPublicJWK()`, `thumbprint()`, `importKey()`, `exportJWK()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
+- `references/utils.md`: `base64UrlStringify`/`base64UrlParse`, `base64Stringify`/`base64Parse`, `secureRandomBytes`, `digestUrl`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
 - `references/adapters-h3.md`: H3 session adapters (v1 and v2), `defineJWSSession`/`defineJWESession` (`use`, `token`, `issue`, `open`), `SessionDefinition`, `SessionManager` interface, `SessionConfigJWE`, `SessionConfigJWS`, lifecycle hooks (`onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`), key lookup hooks (`onUnsealKeyLookup`, `onVerifyKeyLookup`), issuing/opening tokens without a request, cookie chunking, header-based tokens, refresh token pattern
 - `references/session.md`: `unjwt/session` Web standard sessions, `defineJWSSession`/`defineJWESession` over a request event `{ req, res, context }` (h3 v2 / `nuxt/server`; read-only without `res`), a `Request` or `{ headers, context }` (read-only), or `{ token }` (token in hand, re-mint onto `manager.token`), `SessionContext`, `Set-Cookie` replace on `Headers`, rules for `use()`, the driver contract (`SessionDriver`, `CookieJar`, `defineSessionDriver`, `{ driver }` option, `handed`), a SvelteKit driver, frameworks (h3 v2 `errHeaders` hook, Nitro 3 imports, Nuxt `nuxt/server` handlers, WebSocket upgrade)
 - `references/adapters-elysia.md`: Elysia session adapter, `jwsSession`/`jweSession` plugins, ambient `ctx[contextKey]`, `requireSession` guard macro (derived per `contextKey`), multiple sessions (access JWS + refresh JWE), `defineJWSSession`/`defineJWESession` (`use`, `token`, `issue`, `open`, `plugin()`), `SessionDefinition`/`SessionPluginDefinition`, `SessionConfigJWS`/`SessionConfigJWE`, lifecycle hooks (`context` not `event`), cookie chunking, header tokens, `isolatedDeclarations` plugin typing
@@ -37,7 +37,7 @@ The following is a list of reference files:
 | `unjwt/jws`             | `sign()`, `verify()` (Compact) — `signMulti()`, `verifyMulti()` (General JSON Serialization)                                                                    |
 | `unjwt/jwe`             | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization)                                                            |
 | `unjwt/jwk`             | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                                                                                  |
-| `unjwt/utils`           | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`                                                                                 |
+| `unjwt/utils`           | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`, `digestUrl`                                                                    |
 | `unjwt/internal`        | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use                                                                     |
 | `unjwt/adapters/h3`     | H3 session adapter (aliases h3v2) — `defineJWSSession`/`defineJWESession`                                                                                       |
 | `unjwt/adapters/h3v1`   | H3 v1 session adapter (Nuxt v4, Nitro v2) — `defineJWSSession`/`defineJWESession`                                                                               |
@@ -50,7 +50,7 @@ Session entry exports (as each `index.ts` exports them):
 - `unjwt/adapters/h3`, `unjwt/adapters/h3v1`, `unjwt/adapters/h3v2`: `defineJWSSession`, `defineJWESession`; types `SessionDefinition`, `SessionManager`, `SessionClaims`, `SessionData`, `SessionUpdate`, `SessionUpdateTrigger`, `SessionIssueOptions`, `SessionConfigJWS`, `SessionConfigJWE`, `SessionHooksJWS`, `SessionHooksJWE`, `SessionJWS`, `SessionJWE`, `SessionSignOptions`, `SessionVerifyOptions`, `SessionEncryptOptions`, `SessionDecryptOptions`
 - `unjwt/adapters/elysia`: `jwsSession`, `jweSession`, `defineJWSSession`, `defineJWESession`; the same types plus `SessionContext`, `SessionPlugin`, `SessionPluginDefinition`, `CookieAttributes`, `ChunkableCookie`, `ChunkableCookieJar`, `WriteChunkedCookieOptions`
 - `unjwt/session`: `defineJWSSession`, `defineJWESession`, `defineSessionDriver`; the same types as h3 plus `SessionContext`, `SessionRequestEvent`, `SessionRequestHeaders`, `SessionToken`, `SessionDriver`, `CookieJar`, `CookieAttributes`
-- Every session entry also re-exports `generateJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword` and every core type
+- Every session entry also re-exports `generateJWK`, `toPublicJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword` and every core type
 
 ## Quick Start
 
@@ -62,6 +62,11 @@ import { generateJWK } from "unjwt/jwk";
 const key = await generateJWK("HS256");
 const token = await sign({ sub: "user123" }, key, { expiresIn: "1h" });
 const { payload } = await verify(token, key);
+
+// Asymmetric: a pair is two keys — the private half signs, the public half verifies
+const { privateKey, publicKey } = await generateJWK("ES256");
+const signed = await sign({ sub: "user123" }, privateKey, { expiresIn: "1h" });
+const verified = await verify(signed, publicKey);
 
 // Encrypt and decrypt (JWE)
 import { encrypt, decrypt } from "unjwt/jwe";
@@ -83,6 +88,7 @@ const link = await useSession.issue({ email: "a@example.com" }, { maxAge: "15m" 
 
 - **`JOSEPayload`**: the payload type accepted by `sign`/`encrypt` — `string | Uint8Array | object`; covers both JWT and generic serializable objects. `JWTClaims` remains the spec-compliant sub-type for typed claim access
 - **JWK-first key model**: functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array
+- **A pair is two keys**: `generateJWK()`/`generateKey()` return `{ privateKey, publicKey }` for every asymmetric algorithm (Web Crypto only generates pairs). Sign and decrypt with `privateKey`; verify, encrypt and publish `publicKey` — `verify`/`encrypt` refuse a JWK carrying `d`. Keep and store both halves; prefer not to derive one from the other. `toPublicJWK(privateJWK)` is the advanced path for a deployment that might persist the private key alone (one secret, public half derived at boot)
 - **Strings are not keys**: `importKey` and every JWS entry point reject a `string` with `ERR_JWK_INVALID` (`"String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM()."`). JWE is the sole exception, and only as a PBES2 password — under any other `alg` it is rejected too
 - **Payload typing is declared, not sniffed**: `verify`/`verifyMulti`/`verifyMultiAll`/`decrypt`/`decryptMulti` take `payload: "json" | "string" | "bytes"` (default `"json"` — must parse to a non-null, non-array object, and claims are validated). `typ`/`cty` never pick the shape. `validateClaims: true` outside `"json"` is `ERR_INVALID_OPTION`
 - **Algorithm inference**: `sign`/`encrypt` infer `alg`/`enc` from JWK properties when not explicitly provided; password strings default to PBES2

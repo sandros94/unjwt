@@ -52,6 +52,24 @@ export interface JOSEPayloadTypeMap<T = JWTClaims> {
 /** The payload type returned under `Mode`; a union of modes yields the union of payloads. */
 export type PayloadOf<Mode extends JOSEPayloadMode, T = JWTClaims> = JOSEPayloadTypeMap<T>[Mode];
 
+/** "cnf" (Confirmation) Claim members (RFC 7800 §3.1), with `jkt` (RFC 9449 §6.1) and `x5t#S256` (RFC 8705 §3.1). */
+export interface JWTConfirmation {
+  /** The proof-of-possession key as a public JWK */
+  "jwk"?: JWK_Public;
+  /** The proof-of-possession key as an encrypted JWK, a JWE in compact serialization */
+  "jwe"?: string;
+  /** A Key ID the recipient resolves out of band */
+  "kid"?: string;
+  /** A JWK Set URL holding the key, selected by `kid` */
+  "jku"?: string;
+  /** The RFC 7638 SHA-256 thumbprint of the DPoP public key */
+  "jkt"?: string;
+  /** The SHA-256 thumbprint of the client certificate, base64url */
+  "x5t#S256"?: string;
+
+  [member: string]: unknown;
+}
+
 export interface JWTClaims {
   /** "iss" (Issuer) Claim */
   iss?: string;
@@ -67,6 +85,8 @@ export interface JWTClaims {
   iat?: number;
   /** "jti" (JWT ID) Claim */
   jti?: string;
+  /** "cnf" (Confirmation) Claim, the proof-of-possession key; never validated, read by the application */
+  cnf?: JWTConfirmation;
 
   [propName: string]: unknown;
 }

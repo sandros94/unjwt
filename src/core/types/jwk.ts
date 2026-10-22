@@ -487,6 +487,16 @@ export type JWK_Private<Alg extends JWK_Asymmetric_Algorithm = JWK_Asymmetric_Al
   | ECFor<Alg, JWK_EC_Private<Extract<Alg, JWK_ECDSA | JWK_ECDH_ES>>>
   | OKPFor<Alg, JWK_OKP_Private<Extract<Alg, JWK_OKP_SIGN | JWK_ECDH_ES>>>;
 
+/** `toPublicJWK` result: the public interface of the input's family and `alg`, keeping a `kid` the input is typed to carry. */
+export type ToPublicJWKReturn<T extends JWK_Asymmetric> = (T extends JWK_RSA<infer Alg>
+  ? JWK_RSA_Public<Alg>
+  : T extends JWK_EC<infer Alg>
+    ? JWK_EC_Public<Alg>
+    : T extends JWK_OKP<infer Alg>
+      ? JWK_OKP_Public<Alg>
+      : never) &
+  (T extends { kid: string } ? { kid: string } : unknown);
+
 /** JSON Web Key (RFC 7517) of type "RSA", "EC", "OKP" or "oct". */
 export type JWK<Alg extends JWKAlgorithm = JWKAlgorithm> =
   | OctFor<Alg, JWK_oct<Extract<Alg, Exclude<JWKAlgorithm, JWK_Asymmetric_Algorithm>>>>

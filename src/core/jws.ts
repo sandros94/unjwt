@@ -34,6 +34,8 @@ import {
   assertJWSAlgSupported,
   checkJWSB64,
   assertNotStringKey,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   decodeJWSPayload,
   decodeProtectedHeader,
   resolveKeyInput,
@@ -83,6 +85,8 @@ export async function sign(
   assertNotStringKey(key);
 
   const { protectedHeader: userHeader } = options;
+  assertProducerKeyHeaders(userHeader, { tier: "protected", family: "JWS" });
+  assertProducerConfirmation(payload);
   let { alg } = options;
 
   if (!alg) {

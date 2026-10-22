@@ -39,6 +39,7 @@ export type { SessionPlugin, SessionPluginDefinition } from "./_plugin.ts";
 export type * from "../../core/types/index.ts";
 export {
   generateJWK,
+  toPublicJWK,
   thumbprint,
   importPEM,
   exportPEM,

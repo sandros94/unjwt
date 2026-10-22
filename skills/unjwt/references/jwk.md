@@ -2,13 +2,15 @@
 
 JSON Web Key ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.txt)) — key generation, import/export, wrapping, PEM conversion, and cache control.
 
-Import: `import { generateKey, generateJWK, thumbprint, importKey, exportKey, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
+Import: `import { generateKey, generateJWK, thumbprint, importKey, exportJWK, wrapKey, unwrapKey, deriveSharedSecret, importPEM, exportPEM, deriveKeyFromPassword, deriveJWKFromPassword, getJWKsFromSet, configureJWKCache, clearJWKCache, WeakMapJWKCache } from "unjwt/jwk"`
 
 Key lookup types: `JWKLookupFunction<TReturn, THeader>` and `JWKLookupFunctionHeader` from `unjwt/jwk`; the family aliases `JWSKeyLookup` (`unjwt/jws`) and `JWEKeyLookup` (`unjwt/jwe`) fix `THeader` to `JWSHeaderParameters` / `JWEHeaderParameters` — all also `from "unjwt"`
 
 ## Key Generation
 
 Unless specific control over the output format is required, prefer `generateJWK()` — it always returns a ready-to-use JWK whose `kid` is the key's RFC 7638 thumbprint (or the `kid` option: a string, or `false` for none).
+
+Every JWK the library emits (generation, `exportJWK`, `importPEM`, password derivation) carries no `ext` or `key_ops`: they describe a `CryptoKey`, not the key, and an import grants the usages `alg` allows. `key_ops` is written only when `keyUsage` is passed, holding the usages that option left on the key.
 
 ### `generateKey(alg, options?)`
 
@@ -27,10 +29,10 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
 
 - `alg: GenerateKeyAlgorithm` — any JWS or JWE algorithm except `"dir"` and PBES2
 - `options?: GenerateKeyOptions`
-  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`, with the key's RFC 7638 thumbprint as its `kid` (one `kid` for both halves of a pair) unless `kid` is set. Composite `A*CBC-HS*` keys carry `alg`, `ext` and `key_ops` like every other symmetric JWK, so the result infers `alg: "dir"` on its own
+  - `toJWK?: boolean` — when `true`, returns JWK format instead of `CryptoKey` / `CryptoKeyPair` / `Uint8Array`, with the key's RFC 7638 thumbprint as its `kid` (one `kid` for both halves of a pair) unless `kid` is set. Composite `A*CBC-HS*` keys carry `alg` like every other symmetric JWK (and `key_ops` only with `keyUsage`), and that `alg` is what lets `encrypt` infer `alg: "dir"` on its own
   - `kid?: string | false` — read only with `toJWK`: a string is set verbatim, `false` sets no `kid`; either skips the thumbprint, a SHA-256 digest about as costly as generating an HMAC key. Anything else throws `ERR_INVALID_OPTION`
   - `extractable?: boolean` — default `true`; ignored when `toJWK: true` (the JWK output requires exporting the intermediate key)
-  - `keyUsage?: KeyUsage[]` — narrows the usages derived from `alg`, for every algorithm including `ECDH-ES*` (which admits `deriveBits` / `deriveKey`). A usage the algorithm cannot serve throws `ERR_INVALID_OPTION`. A key pair splits the list between its halves — private takes `sign` / `decrypt` / `unwrapKey` / `deriveBits` / `deriveKey`, public takes `verify` / `encrypt` / `wrapKey` — so a narrowing that empties a half the algorithm would have populated is `ERR_INVALID_OPTION` as well: `generateJWK("ES256", { keyUsage: ["sign"] })` would emit a public JWK with `key_ops: []` that no `verify` accepts. `ECDH-ES*` is complete with its private half alone, since ECDH public keys carry no usage
+  - `keyUsage?: KeyUsage[]` — narrows the usages derived from `alg`, for every algorithm including `ECDH-ES*` (which admits `deriveBits` / `deriveKey`). A JWK output carries the usages each key keeps as its `key_ops`: `generateJWK("ES256", { keyUsage: ["sign", "verify"] })` gives `["sign"]` on the private half and `["verify"]` on the public one. A usage the algorithm cannot serve throws `ERR_INVALID_OPTION`. A key pair splits the list between its halves — private takes `sign` / `decrypt` / `unwrapKey` / `deriveBits` / `deriveKey`, public takes `verify` / `encrypt` / `wrapKey` — so a narrowing that empties a half the algorithm would have populated is `ERR_INVALID_OPTION` as well: `generateJWK("ES256", { keyUsage: ["sign"] })` would emit a public JWK with `key_ops: []` that no `verify` accepts. `ECDH-ES*` is complete with its private half alone, since ECDH public keys carry no usage
   - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw
     `ERR_INVALID_OPTION` (RFC 7518 §3.3 / §3.5 set 2048 as the floor for `RS*`, `PS*` and `RSA-OAEP*`)
   - `publicExponent?: Uint8Array` — RSA only, the exponent's big-endian bytes, default `0x010001`. Anything that is not a non-empty `Uint8Array` throws `ERR_INVALID_OPTION`
@@ -74,6 +76,22 @@ hmac.kid === (await thumbprint(hmac)); // true
 
 // kid: false → no kid, no digest
 const bare = await generateJWK("HS256", { kid: false }); // typed without `kid`
+```
+
+### `toPublicJWK(jwk)`
+
+The public half of an asymmetric JWK, synchronous. Advanced use: `generateJWK()`/`generateKey()` already return both halves, so keep the pair; reach for this when a deployment persists the private JWK alone (one secret in the environment, public half derived at boot).
+
+- `jwk: JWK_Asymmetric` — RSA, EC or OKP, private or public. Returns `ToPublicJWKReturn<typeof jwk>`: the public interface of the input's family and `alg` (`JWK_EC_Private<"ES256">` → `JWK_EC_Public<"ES256">`), keeping a typed `kid`
+- Drops `d` and the RSA CRT members; a `key_ops`, when present, is mapped to the public operations (`sign` → `verify`, `decrypt` → `encrypt`, `unwrapKey` → `wrapKey`, ECDH derivations dropped); every other member is kept. Equals the pair's `publicKey` for every algorithm
+- A public JWK returns an equal copy; an `oct` JWK, a non-JWK, or a JWK missing its public members throws `ERR_JWK_INVALID`
+
+```ts
+import { toPublicJWK, type JWK_EC_Private } from "unjwt/jwk";
+
+const privateKey: JWK_EC_Private<"ES256"> = JSON.parse(process.env.SIGNING_KEY!);
+const publicKey = toPublicJWK(privateKey); // no `d`, same kid/alg
+await verify(token, publicKey);
 ```
 
 ### `thumbprint(jwk, options?)`
@@ -188,10 +206,11 @@ const key = await importKey(symJwk, {
 const recipientPub = await importKey(recipientJwk, { alg: "RSA-OAEP-256", expect: "public" });
 ```
 
-### `exportKey(key, jwkParams?)`
+### `exportJWK(key, jwkParams?)`
 
 Exports a `CryptoKey` to JWK format. `jwkParams` optionally merges metadata fields
-(`kid`, `use`, `x5c`, etc.) onto the result.
+(`kid`, `use`, `x5c`, etc.) onto the result. Web Crypto's `ext` and `key_ops` are not written:
+they describe the `CryptoKey`, and an import decides both from `alg` and its own options.
 
 `jwkParams` may only decorate the key, never redescribe it: passing `kty`, `alg`, `key_ops`,
 `ext`, or any key-material member (`k`, `d`, `n`, `e`, `p`, `q`, `dp`, `dq`, `qi`, `x`, `y`,
@@ -205,7 +224,7 @@ Mint key-wrapping keys with `generateJWK(alg)` or `generateKey(alg, { toJWK: tru
 stamp the `alg` that was asked for.
 
 Returns `Promise<JWK>`. A `CryptoKey` carries no key type the compiler can read, so a caller who
-knows it narrows with the type parameter: `exportKey<JWK_EC_Public>(publicKey)`.
+knows it narrows with the type parameter: `exportJWK<JWK_EC_Public>(publicKey)`.
 
 ## Key Wrapping
 
@@ -330,7 +349,7 @@ is read from the label (`importPEM(pkcs8, "ES256", { pemType: "pkcs8" })` is `JW
 - `options?`
   - `pemType?: Type extends "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
   - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`); the
-    reserved members listed under `exportKey` throw `ERR_INVALID_OPTION`
+    reserved members listed under `exportJWK` throw `ERR_INVALID_OPTION`
 
 The returned JWK always contains the key material in plain JavaScript. To obtain a
 non-extractable `CryptoKey`, pass the result to `importKey(jwk, { extractable: false })`.

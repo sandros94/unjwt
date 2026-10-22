@@ -7,7 +7,7 @@ import type {
   JWEDecryptResult,
   PayloadOf,
 } from "../src/core/jwe.ts";
-import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk.ts";
+import { generateKey, generateJWK, exportJWK, unwrapKey, wrapKey } from "../src/core/jwk.ts";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
 import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
 import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal.ts";
@@ -226,6 +226,7 @@ describe.concurrent("JWE Utilities", () => {
         const jwe = await encrypt(plaintext, encryptionKey, {
           alg,
           enc,
+          ...(alg.startsWith("PBES2") ? { p2c: 1000 } : {}),
         });
 
         // jose doesn't support PBES2-HS256+A128KW alg header
@@ -710,7 +711,7 @@ describe.concurrent("JWE Utilities", () => {
 
     beforeAll(async () => {
       key = keys[alg].key as CryptoKey;
-      joseKey = await jose.importJWK(await exportKey(key));
+      joseKey = await jose.importJWK(await exportJWK(key));
       jwe = await encrypt(plaintextObj, key, { alg, enc });
     });
 
@@ -718,7 +719,7 @@ describe.concurrent("JWE Utilities", () => {
       // Two AES-KW keys without kid — encrypt with key2, set has key1 first so retry is exercised
       const [rawKey1, rawKey2] = await Promise.all([generateKey("A256KW"), generateKey("A256KW")]);
       const token = await encrypt(plaintextObj, rawKey2, { alg: "A256KW", enc: "A256GCM" });
-      const [jwk1, jwk2] = await Promise.all([exportKey(rawKey1), exportKey(rawKey2)]);
+      const [jwk1, jwk2] = await Promise.all([exportJWK(rawKey1), exportJWK(rawKey2)]);
       const set = { keys: [jwk1, jwk2] };
       const { payload } = await decrypt(token, set, { allowSymmetricJWKSet: true });
       expect(payload).toEqual(plaintextObj);
@@ -727,7 +728,7 @@ describe.concurrent("JWE Utilities", () => {
     // A candidate that cannot open the token only means "try the next one".
     it("skips a malformed JWK and decrypts with a later candidate", async () => {
       const rawValid = await generateKey("A256KW");
-      const validJwk = await exportKey(rawValid);
+      const validJwk = await exportJWK(rawValid);
       // `kty: "RSA"` with `alg: "A256KW"` is nonsensical — `subtleMapping` rejects
       // the combination. The fake `d` field satisfies the `expect: "private"` intent
       // check so the alg mismatch surfaces rather than the intent guard short-circuiting.
@@ -809,7 +810,7 @@ describe.concurrent("JWE Utilities", () => {
       const wrongKey = await generateKey("A128KW");
       await expect(decrypt(jwe, wrongKey)).rejects.toThrow(JWTError);
 
-      const wrongJoseKey = await jose.importJWK(await exportKey(wrongKey));
+      const wrongJoseKey = await jose.importJWK(await exportJWK(wrongKey));
       // eslint-disable-next-line vitest/require-to-throw-message -- cross-check that jose also rejects the wrong key; its error type/message is jose-internal
       await expect(jose.compactDecrypt(jwe, wrongJoseKey)).rejects.toThrow();
     });
@@ -1075,7 +1076,7 @@ describe.concurrent("JWE Utilities", () => {
 
     beforeAll(async () => {
       recipientKeyPair = keys[ecdhAlg].key as CryptoKeyPair;
-      recipientPublicKeyJwk = await exportKey<JWK_EC_Public>(recipientKeyPair.publicKey);
+      recipientPublicKeyJwk = await exportJWK<JWK_EC_Public>(recipientKeyPair.publicKey);
     });
 
     it("should encrypt and decrypt with ECDH-ES and include epk", async () => {
@@ -1140,7 +1141,7 @@ describe.concurrent("JWE Utilities", () => {
         namedCurve: "P-256",
         keyUsage: ["deriveBits"],
       });
-      const providedEphemeralJwk = await exportKey<JWK_EC_Public>(providedEphemeral.publicKey);
+      const providedEphemeralJwk = await exportJWK<JWK_EC_Public>(providedEphemeral.publicKey);
       const apu = secureRandomBytes(16);
       const apv = secureRandomBytes(16);
 

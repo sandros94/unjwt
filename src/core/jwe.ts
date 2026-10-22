@@ -45,6 +45,8 @@ import {
   assertNoZipOption,
   assertProducerCEK,
   assertProducerCrit,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   assertProducerIV,
   assertConsumerOptions,
   buildUnwrapKeyOptions,
@@ -120,6 +122,8 @@ export async function encrypt(
   options: JWEEncryptOptions = {},
 ): Promise<string> {
   assertOptionEntry(options, { label: "options", objects: ["protectedHeader"] });
+  assertProducerKeyHeaders(options.protectedHeader, { tier: "protected", family: "JWE" });
+  assertProducerConfirmation(payload);
   const {
     protectedHeader: userHeader,
     cek: providedCek,

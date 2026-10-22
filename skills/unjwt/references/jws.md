@@ -34,7 +34,7 @@ Creates a JWS Compact Serialization token.
     Without it, `sign(payload, pemText, { alg: "HS256" })` would HMAC over the PEM armour.
 - `options?: JWSSignOptions`
   - `alg?: JWSAlgorithm` — required when key is CryptoKey or Uint8Array
-  - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`)
+  - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`, `jwk`). A `jwk` must be a public JWK (`isPublicJWK`): a private key or an `oct` secret there is `ERR_INVALID_OPTION`, in every tier of `signMulti` too. A JSON payload whose `cnf.jwk` is not a public JWK is `ERR_JWT_CLAIM_INVALID` (RFC 7800 §3.2), in every producer
   - `expiresIn?: ExpiresIn` — sets `exp` claim relative to `iat` (number in seconds, or string like `"1h"`, `"7D"`). A malformed duration throws `ERR_INVALID_OPTION`
   - `currentDate?: Date` — override current time for `iat`/`exp` computation
 
@@ -56,16 +56,17 @@ Creates a JWS Compact Serialization token.
 - When a JWK with a `kid` is used, the `kid` is added to the header as a fallback — an explicit `protectedHeader.kid` always takes precedence
 
 ```ts
-import { sign } from "unjwt/jws";
+import { sign, verify } from "unjwt/jws";
 import { generateJWK } from "unjwt/jwk";
 
-// Symmetric (HMAC)
+// Symmetric (HMAC): one key signs and verifies
 const hmacKey = await generateJWK("HS256");
 const token = await sign({ sub: "user123" }, hmacKey);
 
-// Asymmetric (RSA)
-const rsaKeys = await generateJWK("RS256");
-const token2 = await sign({ sub: "user123" }, rsaKeys.privateKey);
+// Asymmetric (RSA): a pair is two keys — the private half signs, the public half verifies
+const { privateKey, publicKey } = await generateJWK("RS256");
+const token2 = await sign({ sub: "user123" }, privateKey);
+const { payload } = await verify(token2, publicKey);
 
 // With expiration
 const token3 = await sign({ sub: "user123" }, hmacKey, { expiresIn: "1h" });

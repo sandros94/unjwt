@@ -41,6 +41,7 @@ export type { SessionSignOptions, SessionVerifyOptions } from "./session/jws.ts"
 export type * from "../../core/types/index.ts";
 export {
   generateJWK,
+  toPublicJWK,
   thumbprint,
   importPEM,
   exportPEM,

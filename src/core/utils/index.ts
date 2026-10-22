@@ -18,6 +18,7 @@ export { safeJsonParse, sanitizeObject, sanitizeObjectCopy } from "unsecure/sani
 export { textEncoder, textDecoder } from "unsecure/utils";
 
 export * from "./base64.ts";
+export { digestUrl, type DigestHash } from "./digest.ts";
 export { concatUint8Arrays, maybeArray } from "./array.ts";
 export {
   isJWK,
