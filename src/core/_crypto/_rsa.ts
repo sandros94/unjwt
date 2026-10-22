@@ -1,5 +1,5 @@
-import { JWTError } from "../error";
-import type { JWK_RSA_ENC, JWK_RSA_PSS, JWK_RSA_SIGN } from "../types";
+import { JWTError } from "../error.ts";
+import type { JWK_RSA_ENC, JWK_RSA_PSS, JWK_RSA_SIGN } from "../types/index.ts";
 import {
   checkKeyUsage,
   hashBitsOf,
@@ -8,7 +8,7 @@ import {
   rsaOaepHashOf,
   shaBitsOf,
   unusableKey,
-} from "./_key-algorithm";
+} from "./_key-algorithm.ts";
 
 export async function encryptRSAES(
   alg: JWK_RSA_ENC,

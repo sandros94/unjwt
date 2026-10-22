@@ -1,0 +1,18 @@
+{
+  "name": "unjwt-playground-nuxt-4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "start": "node .output/server/index.mjs",
+    "prepare": "nuxt prepare",
+    "postinstall": "pnpm prepare"
+  },
+  "dependencies": {
+    "h3": "^1.15.11",
+    "nuxt": "^4.6.2",
+    "unjwt": "workspace:*",
+    "vue": "^3.5.0"
+  }
+}

@@ -1,12 +1,12 @@
 import { describe, it, expect, expectTypeOf } from "vitest";
-import * as root from "../src/index";
-import * as utils from "../src/core/utils";
-import * as internal from "../src/core/internal";
-import type * as jws from "../src/core/jws";
-import type * as jwe from "../src/core/jwe";
-import type * as jwk from "../src/core/jwk";
-import { base64UrlParse, validateJwtClaims, isJWK } from "../src/core/utils";
-import { generateKey } from "../src/core/jwk";
+import * as root from "../src/index.ts";
+import * as utils from "../src/core/utils/index.ts";
+import * as internal from "../src/core/internal.ts";
+import type * as jws from "../src/core/jws.ts";
+import type * as jwe from "../src/core/jwe.ts";
+import type * as jwk from "../src/core/jwk.ts";
+import { base64UrlParse, validateJwtClaims, isJWK } from "../src/core/utils/index.ts";
+import { generateKey } from "../src/core/jwk.ts";
 
 describe("root barrel (unjwt)", () => {
   // The root entry point is a flat set of named exports, not a namespace

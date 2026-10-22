@@ -1,14 +1,14 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64.ts";
 
 import type {
   JWKSet,
   KeyManagementAlgorithm,
   JWKAlgorithm,
   ContentEncryptionAlgorithm,
-} from "./types/jwk";
-import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt";
+} from "./types/jwk.ts";
+import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt.ts";
 import type {
   JWEEncryptJWK,
   JWEDecryptJWK,
@@ -18,19 +18,24 @@ import type {
   JWEHeaderParameters,
   JWEProtectedHeader,
   JWEKeyLookup,
-} from "./types/jwe";
+} from "./types/jwe.ts";
 
-import { importKey } from "./jwk";
-import { encrypt as joseEncrypt, assertPBES2Params, generateIV, encryptKey } from "./_crypto";
-import { JWTError } from "./error";
-import { isContentEncryptionAlgorithm, isPBES2Algorithm } from "./utils/algorithms";
-import { isJWK } from "./utils/guards";
+import { importKey } from "./jwk.ts";
+import {
+  encrypt as joseEncrypt,
+  assertPBES2Params,
+  generateIV,
+  encryptKey,
+} from "./_crypto/index.ts";
+import { JWTError } from "./error.ts";
+import { isContentEncryptionAlgorithm, isPBES2Algorithm } from "./utils/algorithms.ts";
+import { isJWK } from "./utils/guards.ts";
 import {
   applyTypDefault,
   computeJwtTimeClaims,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
-} from "./_jwt-internal";
+} from "./_jwt-internal.ts";
 import {
   JWE_ALG_CTX,
   assertCompactToken,
@@ -61,11 +66,11 @@ import {
   validateClaimsIfJson,
   decodeSegment,
   decodeJWEPayload,
-} from "./_internal";
-import { buildKeyManagementParams, unwrapAndDecrypt } from "./_jwe-internal";
+} from "./_internal.ts";
+import { buildKeyManagementParams, unwrapAndDecrypt } from "./_jwe-internal.ts";
 
-export type * from "./types/jwe";
-export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt";
+export type * from "./types/jwe.ts";
+export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt.ts";
 export {
   type JWTErrorCode,
   type KnownJWTErrorCode,
@@ -75,9 +80,9 @@ export {
   isJWTError,
   UnsecureError,
   isUnsecureError,
-} from "./error";
-export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi";
-export { DEFAULT_JOSE_LIMITS } from "./_internal";
+} from "./error.ts";
+export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi.ts";
+export { DEFAULT_JOSE_LIMITS } from "./_internal.ts";
 
 /**
  * Encrypt a payload into a JWE Compact Serialization string. `key` is a CryptoKey, a JWK, or

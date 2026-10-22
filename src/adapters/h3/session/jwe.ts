@@ -1,0 +1,200 @@
+import type { HTTPEvent } from "h3";
+
+import type { ExpiresIn } from "../../../core/types/index.ts";
+import type {
+  SessionDefinition,
+  SessionIssueOptions,
+  SessionRecord,
+  SessionState,
+} from "../../../session/types.ts";
+import {
+  type JWECodecConfig,
+  type JWESessionConfig,
+  type JWESessionHooks,
+  createJWECodec,
+} from "../../../session/_codec-jwe.ts";
+import { bindSession } from "../../../session/_bind.ts";
+import type { SessionBinding } from "../../../session/_types.ts";
+import { openSessionToken } from "../../../session/_core.ts";
+import { defineSession } from "../../../session/_definition.ts";
+import { loadSession } from "../../../session/_read.ts";
+import {
+  dropSession,
+  encodeSession,
+  issueSession,
+  sessionActions,
+} from "../../../session/_write.ts";
+import type { CookieSerializeOptions } from "../_cookie.ts";
+import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
+import { PREFIX, h3SessionDriver } from "./_shared.ts";
+
+export type { SessionDecryptOptions, SessionEncryptOptions } from "../../../session/_codec-jwe.ts";
+
+const codec = createJWECodec({ prefix: PREFIX, defaultName: "h3-jwe" });
+const hookArgs = (event: HTTPEvent) => ({ event });
+
+/**
+ * Session state for the current request, mirroring the claims of its JWE token.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
+export interface SessionJWE<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+> extends SessionState<T, MaxAge> {}
+
+/**
+ * JWE session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
+export interface SessionHooksJWE<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+> extends JWESessionHooks<
+  SessionJWE<T, MaxAge>,
+  SessionManager<T, MaxAge>,
+  { event: TEvent },
+  SessionConfigJWE<T, MaxAge, TEvent>
+> {}
+
+/**
+ * Configuration for a JWE-backed (encrypted) session.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
+export interface SessionConfigJWE<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+> extends JWESessionConfig<MaxAge, CookieSerializeOptions> {
+  /** Cookie and session-header name. Default `"h3-jwe"`; a `.<digits>` suffix throws `ERR_SESSION_CONFIG_INVALID`. */
+  name?: string;
+  hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
+}
+
+/**
+ * Defines a JWE (encrypted) session once; its `use`, `token`, `issue` and `open` serve every request.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ */
+export function defineJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent> {
+  return defineSession<T, MaxAge, HTTPEvent, JWECodecConfig>(config, {
+    driver: h3SessionDriver,
+    hookArgs,
+    codec,
+  });
+}
+
+/**
+ * Create a JWE (encrypted) session manager for the request.
+ * @deprecated Use `defineJWESession(config).use(event)`.
+ */
+export async function useJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<SessionManager<T, MaxAge>> {
+  return defineJWESession(config).use(event);
+}
+
+/**
+ * Get (and lazily initialize) the session for the current request.
+ * @deprecated Use `defineJWESession(config).use(event)`; the manager exposes the same state.
+ */
+export async function getJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<SessionJWE<T, MaxAge>> {
+  return loadSession<T, MaxAge, HTTPEvent, JWECodecConfig>(bind(event, config));
+}
+
+/**
+ * Read the raw session token: cookie first, then the session header (default `x-<name>-session`, optional `Bearer`).
+ * @deprecated Use `defineJWESession(config).token(event)`.
+ */
+export function getJWESessionToken<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): string | undefined {
+  return defineJWESession(config).token(event);
+}
+
+/**
+ * Update the session data (if provided) and reissue the JWE; `options.maxAge` overrides this token's lifetime.
+ * @deprecated Use `(await defineJWESession(config).use(event)).update(update, options)`.
+ */
+export async function updateJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(
+  event: TEvent,
+  config: SessionConfigJWE<T, MaxAge, TEvent>,
+  update?: SessionUpdate<T>,
+  options?: SessionIssueOptions,
+): Promise<SessionJWE<T, MaxAge> & { id: string; token: string }> {
+  return issueSession<T, MaxAge, HTTPEvent, JWECodecConfig>(bind(event, config), update, options);
+}
+
+/**
+ * Seal the session as a compact JWE without writing a cookie; fresh `jti` if no ID, no token source needed.
+ * @deprecated Use `defineJWESession(config).issue(data)` to mint a token, or `(await defineJWESession(config).use(event)).token` for the current one.
+ */
+export async function sealJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<string> {
+  return encodeSession(bind(event, config));
+}
+
+/**
+ * Decrypt a compact JWE into a session, checking `typ`, pinned `alg`/`enc`, `jti`/`iat` and `exp` (required with `maxAge`).
+ * @deprecated Use `defineJWESession(config).open(sealed)`.
+ */
+export async function unsealJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(
+  event: TEvent,
+  config: SessionConfigJWE<T, MaxAge, TEvent>,
+  sealed: string,
+): Promise<Partial<SessionJWE<T, MaxAge>>> {
+  return openSessionToken<T, MaxAge, JWECodecConfig>(codec, config, {
+    token: sealed,
+    args: { event },
+  });
+}
+
+/**
+ * Drop the session cookie and leave an empty session for the rest of the request.
+ * @deprecated Use `(await defineJWESession(config).use(event)).clear()`.
+ */
+export async function clearJWESession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends HTTPEvent = HTTPEvent,
+>(event: TEvent, config: SessionConfigJWE<T, MaxAge, TEvent>): Promise<void> {
+  return dropSession(bind(event, config));
+}
+
+function bind<
+  T extends SessionRecord,
+  MaxAge extends ExpiresIn | undefined,
+  TEvent extends HTTPEvent,
+>(
+  event: TEvent,
+  config: SessionConfigJWE<T, MaxAge, TEvent>,
+): SessionBinding<HTTPEvent, JWECodecConfig> {
+  return bindSession<HTTPEvent, JWECodecConfig>(event, config, {
+    driver: h3SessionDriver,
+    hookArgs,
+    codec,
+    actions: sessionActions(),
+  });
+}

@@ -1,6 +1,6 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64.ts";
 
 import type {
   JWKSet,
@@ -21,19 +21,19 @@ import type {
   JWSMultiVerifyResult,
   JWSMultiVerifyAllOptions,
   JWSMultiVerifyOutcome,
-} from "./types";
+} from "./types/index.ts";
 
-import { importKey } from "./jwk";
-import { sign as joseSign } from "./_crypto";
-import { JWTError } from "./error";
-import { isJWK } from "./utils/guards";
-import { inferJWSAllowedAlgorithms } from "./utils/algorithms";
+import { importKey } from "./jwk.ts";
+import { sign as joseSign } from "./_crypto/index.ts";
+import { JWTError } from "./error.ts";
+import { isJWK } from "./utils/guards.ts";
+import { inferJWSAllowedAlgorithms } from "./utils/algorithms.ts";
 import {
   computeJwtTimeClaims,
   getPlaintextBytes,
   parsePayloadText,
   validateCriticalHeadersJWS,
-} from "./_jwt-internal";
+} from "./_jwt-internal.ts";
 import {
   JWS_ALG_CTX,
   assertB64Option,
@@ -62,9 +62,9 @@ import {
   validateClaimsIfJson,
   decodeSegment,
   keyMatchesHeader,
-} from "./_internal";
-import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal";
-import type { ResolvedKeyInput } from "./_internal";
+} from "./_internal.ts";
+import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal.ts";
+import type { ResolvedKeyInput } from "./_internal.ts";
 
 /**
  * Signs a payload with multiple signers as a JWS General JSON Serialization (RFC 7515 §7.2.1).

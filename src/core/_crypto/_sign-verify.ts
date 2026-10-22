@@ -1,5 +1,5 @@
-import { JWTError } from "../error";
-import type { JWK_HMAC, JWK_RSA_PSS, JWK_RSA_SIGN, JWSAlgorithm } from "../types";
+import { JWTError } from "../error.ts";
+import type { JWK_HMAC, JWK_RSA_PSS, JWK_RSA_SIGN, JWSAlgorithm } from "../types/index.ts";
 import {
   ECDSA_CURVES,
   checkKeyUsage,
@@ -9,7 +9,7 @@ import {
   namedCurveOf,
   shaBitsOf,
   unusableKey,
-} from "./_key-algorithm";
+} from "./_key-algorithm.ts";
 
 const HASHED_SIGNATURE_ALGORITHMS: Readonly<
   Record<JWK_HMAC | JWK_RSA_SIGN | JWK_RSA_PSS, "HMAC" | "RSASSA-PKCS1-v1_5" | "RSA-PSS">

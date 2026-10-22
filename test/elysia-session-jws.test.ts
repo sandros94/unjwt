@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
-import { generateJWK } from "../src/core/jwk";
+import { generateJWK } from "../src/core/jwk.ts";
 import type {
   JWK_oct,
   JWK_HMAC,
   JWSAsymmetricPrivateJWK,
   JWSAsymmetricPublicJWK,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 import {
   createJWSSession,
   type SessionConfigJWS,
   type SessionContext,
-} from "../src/adapters/elysia/session/jws";
-import type { CookieAttributes } from "../src/adapters/elysia/_cookie";
+} from "../src/adapters/elysia/session/jws.ts";
+import type { CookieAttributes } from "../src/adapters/elysia/_cookie.ts";
 
 interface MockEntry {
   value: unknown;
@@ -109,7 +109,7 @@ describe("elysia JWS session core", () => {
   });
 
   it("reads the token from the session header (Bearer stripped) and fires onRead", async () => {
-    const cfg: SessionConfigJWS = { key: hsKey };
+    const cfg: SessionConfigJWS = { key: hsKey, sessionHeader: true };
     const minted = await createJWSSession(makeContext().context, cfg);
     await minted.update({ user: "carol" });
 

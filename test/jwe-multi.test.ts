@@ -10,9 +10,9 @@ import {
   JWTError,
   isJWTError,
   isUnsecureError,
-} from "../src/core/jwe";
-import { generateJWK, wrapKey } from "../src/core/jwk";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+} from "../src/core/jwe.ts";
+import { generateJWK, wrapKey } from "../src/core/jwk.ts";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
 import { secureRandomBytes } from "unsecure/random";
 import type {
   JWK,
@@ -28,7 +28,7 @@ import type {
   JWEMultiDecryptOptions,
   JWEMultiDecryptResult,
   JWTClaims,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 
 describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
   const keys = {} as {

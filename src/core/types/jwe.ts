@@ -5,7 +5,7 @@ import type {
   JOSEConsumerOptions,
   JOSEPayloadMode,
   JWTTimeClaimOptions,
-} from "./jwt";
+} from "./jwt.ts";
 import type {
   JWK,
   JWK_oct,
@@ -27,8 +27,8 @@ import type {
   JWKSet,
   JWKLookupFunction,
   ECDHEphemeralKeyInput,
-} from "./jwk";
-import type { StrictOmit } from "../utils/types";
+} from "./jwk.ts";
+import type { StrictOmit } from "../utils/types.ts";
 
 /** `oct` JWK algorithms admissible for JWE key management (HMAC excluded). */
 type _JWEOctAlg = JWK_AES_KW | JWK_AES_GCM | JWK_AES_GCM_KW | JWK_AES_CBC_HMAC | JWK_PBES2 | "dir";

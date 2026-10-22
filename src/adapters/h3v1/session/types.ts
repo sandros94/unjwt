@@ -1,10 +1,10 @@
-import type { SessionIssueOptions } from "../../_session";
-
-export type { SessionIssueOptions };
 export type {
+  OpenedSessionState,
   SessionClaims,
   SessionData,
+  SessionDefinition,
+  SessionIssueOptions,
   SessionManager,
   SessionUpdate,
   SessionUpdateTrigger,
-} from "../../_session-types";
+} from "../../../session/types.ts";

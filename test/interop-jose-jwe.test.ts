@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
 import {
   encrypt,
   decrypt,
@@ -9,7 +9,7 @@ import {
   decryptMulti,
   generalToFlattened,
   JWTError,
-} from "../src/core/jwe";
+} from "../src/core/jwe.ts";
 import {
   generateKey,
   generateJWK,
@@ -18,7 +18,7 @@ import {
   importPEM,
   exportPEM,
   thumbprint,
-} from "../src/core/jwk";
+} from "../src/core/jwk.ts";
 import type {
   JWK,
   JWK_oct,
@@ -32,8 +32,8 @@ import type {
   ContentEncryptionAlgorithm,
   JWEGeneralSerialization,
   JWEFlattenedSerialization,
-} from "../src/core/types";
-import { rsa, ec } from "./keys";
+} from "../src/core/types/index.ts";
+import { rsa, ec } from "./keys.ts";
 
 type Pair = { priv: JWK; pub: JWK };
 type JoseKey = Uint8Array | jose.JWK;

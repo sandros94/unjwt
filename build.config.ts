@@ -12,18 +12,18 @@ export default defineBuildConfig({
         "./src/core/jwk",
         "./src/core/utils/index",
         "./src/core/internal",
+        "./src/adapters/h3/index",
         "./src/adapters/h3v1/index",
-        "./src/adapters/h3v2/index",
         "./src/adapters/elysia/index",
+        "./src/session/index",
       ],
       rolldown: {
         platform: "neutral",
-        external: ["h3v1", "h3v2", "elysia"],
+        external: ["h3", "h3v1", "elysia"],
         plugins: [
           replacePlugin(
             {
               'h3v1"': 'h3"',
-              'h3v2"': 'h3"',
             },
             {
               delimiters: ["", ""],

@@ -1,16 +1,16 @@
 import { textEncoder } from "unsecure/utils";
 
-import { concatUint8Arrays, uint32be } from "../utils/array";
-import { JWTError } from "../error";
-import type { ContentEncryptionAlgorithm, JWK_ECDH_ES } from "../types";
+import { concatUint8Arrays, uint32be } from "../utils/array.ts";
+import { JWTError } from "../error.ts";
+import type { ContentEncryptionAlgorithm, JWK_ECDH_ES } from "../types/index.ts";
 import {
   aesBitsOf,
   checkKeyUsage,
   innerKeyWrapAlg,
   namedCurveOf,
   unusableKey,
-} from "./_key-algorithm";
-import { bitLengthCEK } from "./_aes";
+} from "./_key-algorithm.ts";
+import { bitLengthCEK } from "./_aes.ts";
 
 /** RFC 7518 §4.6.2 — the AlgorithmID of the Concat KDF: `enc` for direct agreement, `alg` with key wrapping, or whatever a caller of `deriveSharedSecret` names. */
 export type ConcatKdfAlgorithm = ContentEncryptionAlgorithm | JWK_ECDH_ES;

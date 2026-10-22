@@ -50,6 +50,8 @@ const MARKERS = {
   subtleImport: "importKey",
   thumbprint: "JWK thumbprint",
   cookieEs: "cookie-es",
+  h3Import: 'from"h3',
+  elysiaImport: 'from"elysia"',
 } as const;
 
 interface Entry {
@@ -109,6 +111,13 @@ const ENTRIES: ReadonlyArray<Entry> = [
     measured: 49085,
     absent: [MARKERS.cookieEs],
     external: ["h3v1"],
+  },
+  // the Web entry imports no framework, and carries the cookie parser it uses
+  {
+    name: "defineJWSSession",
+    module: "session/index.ts",
+    measured: 53694,
+    absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
   },
 ];
 

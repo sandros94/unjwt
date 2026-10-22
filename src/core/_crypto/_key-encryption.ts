@@ -1,7 +1,7 @@
-import { base64UrlStringify } from "../utils/base64";
-import { JWTError } from "../error";
-import { quoteTokenValue } from "../utils/_text";
-import { cryptoKeyCurve, innerKeyWrapAlg } from "./_key-algorithm";
+import { base64UrlStringify } from "../utils/base64.ts";
+import { JWTError } from "../error.ts";
+import { quoteTokenValue } from "../utils/_text.ts";
+import { cryptoKeyCurve, innerKeyWrapAlg } from "./_key-algorithm.ts";
 
 import type {
   ContentEncryptionAlgorithm,
@@ -14,18 +14,18 @@ import type {
   JWK_OKP,
   JWK_EC_Public,
   JWK_OKP_Public,
-} from "../types";
-import { isJWK, assertCryptoKey, isCryptoKey } from "../utils/guards";
-import { generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes";
-import { jwkTokey, keyToJWK } from "./_key-codec";
-import { encryptRSAES } from "./_rsa";
+} from "../types/index.ts";
+import { isJWK, assertCryptoKey, isCryptoKey } from "../utils/guards.ts";
+import { generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes.ts";
+import { jwkTokey, keyToJWK } from "./_key-codec.ts";
+import { encryptRSAES } from "./_rsa.ts";
 import {
   deriveECDHESKey,
   ecdhDerivedBits,
   generateEphemeralKeyPair,
   assertECDHKeyAllowed,
-} from "./_ecdh";
-import { pbes2Wrap } from "./_pbes2";
+} from "./_ecdh.ts";
+import { pbes2Wrap } from "./_pbes2.ts";
 
 export async function encryptKey(
   alg: KeyManagementAlgorithm,

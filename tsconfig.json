@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "preserve",
     "moduleDetection": "force",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -22,8 +21,7 @@
     "allowImportingTsExtensions": true,
     "lib": ["ESNext", "DOM"],
     "paths": {
-      "#h3v1": ["./node_modules/h3v1/dist/index"],
-      "#h3v2": ["./node_modules/h3v2/dist/index"]
+      "#h3v1": ["./node_modules/h3v1/dist/index"]
     }
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],

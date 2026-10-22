@@ -1,16 +1,16 @@
 import * as jose from "jose";
 import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
-import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe";
+import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe.ts";
 import type {
   JOSEPayloadTypeMap,
   JWEDecryptOptions,
   JWEDecryptResult,
   PayloadOf,
-} from "../src/core/jwe";
-import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk";
+} from "../src/core/jwe.ts";
+import { generateKey, generateJWK, exportKey, unwrapKey, wrapKey } from "../src/core/jwk.ts";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
-import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
+import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal.ts";
 import type {
   JWK,
   JWK_oct,
@@ -25,7 +25,7 @@ import type {
   JWEHeaderParameters,
   KeyManagementAlgorithm,
   ContentEncryptionAlgorithm,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 
 describe.concurrent("JWE Utilities", () => {
   const plaintextObj: JWTClaims = {

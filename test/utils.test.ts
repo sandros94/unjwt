@@ -23,7 +23,7 @@ import {
   validateJwtClaims,
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
-} from "../src/core/utils";
+} from "../src/core/utils/index.ts";
 import {
   computeJwtTimeClaims,
   parsePayloadBytes,
@@ -31,9 +31,9 @@ import {
   parsePayloadText,
   validateCriticalHeadersJWE,
   validateCriticalHeadersJWS,
-} from "../src/core/internal";
-import { generateKey } from "../src/core/jwk";
-import { isJWTError } from "../src/core/error";
+} from "../src/core/internal.ts";
+import { generateKey } from "../src/core/jwk.ts";
+import { isJWTError } from "../src/core/error.ts";
 import type {
   JOSEPayloadMode,
   JWTClaims,
@@ -46,7 +46,7 @@ import type {
   JWK_OKP_Public,
   JWK_OKP_Private,
   JWK_RSA_Public,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 
 describe.concurrent("Utility Functions", () => {
   describe("concatUint8Arrays", () => {

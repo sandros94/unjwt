@@ -1,84 +1,55 @@
-import { type H3Event, type H3EventContext, getCookie, getRequestHeader, isEvent } from "h3v1";
-import { parse as parseCookies } from "cookie-es";
 import {
-  readChunkedBy,
-  readChunkedFrom,
-  readChunkedFromSetCookie,
-  removeChunked,
-  writeChunked,
-} from "../../_chunked-cookie";
-import { type SessionTokenSource, resolveSessionToken } from "../../_session";
-import { type SessionPort, recordSlotStore } from "../../_session-core";
-import { eventCookieStore, responseSetCookies } from "../_cookie";
+  type H3Event,
+  type H3EventContext,
+  getCookie,
+  getRequestHeader,
+  isEvent,
+  setCookie,
+} from "h3v1";
+import { parse as parseCookies } from "cookie-es";
+import { setCookieValues } from "../../../session/_chunked-cookie.ts";
+import type { CookieJar, SessionDriver } from "../../../session/_driver.ts";
+import { type CookieSerializeOptions, responseSetCookies } from "../_cookie.ts";
 
-export type { SessionTokenSource };
-
-/** Message prefix for every error and warning the h3 adapters emit. */
+/** Message prefix for every error the h3 adapters emit. */
 export const PREFIX = "[unjwt/h3]";
 
-/** Event shapes the adapter reads from in websockets. */
+/**
+ * Event shapes the adapter reads from in websockets.
+ * @deprecated `unjwt/adapters/h3v1` is removed in 0.9.0. Nuxt 4.6+ runs sessions through `unjwt/session` with handlers from `nuxt/server`; h3 v2, Nuxt 5 and Nitro 3 through `unjwt/adapters/h3`.
+ */
 export type CompatEvent =
   | { request: { headers: Headers }; context: H3EventContext }
   | { headers: Headers; context: H3EventContext };
 
-/** The h3 v1 session port: event-context state, request token, response cookies. */
-export const h3SessionPort: SessionPort<CompatEvent | H3Event> = {
+/** The h3 v1 session driver: event-context state, request headers, the response's cookies. */
+export const h3SessionDriver: SessionDriver<CompatEvent | H3Event> = {
   prefix: PREFIX,
 
-  carrier: (event) => ({ event }),
+  state: (event) => (event.context.sessions ||= Object.create(null)),
 
-  /** Keyed by family and name, so a JWS and a JWE session sharing a `name` stay apart. */
-  store: (event, slot) => recordSlotStore(() => getSessionsContext(event), slot),
+  header: (event, name) =>
+    isEvent(event) ? requestHeader(event, name) : compatHeaders(event).get(name),
 
-  readToken: readSessionToken,
+  cookies: (event) => (isEvent(event) ? eventJar(event) : compatJar(event)),
 
-  scope: getSessionsContext,
-
-  writable: hasWritableResponse,
-
-  setCookie: (event, sessionName, token, { attrs, chunkMaxLength }) => {
-    writeChunked(eventCookieStore(cookieEvent(event)), sessionName, token, {
-      attrs,
-      chunkMaxLength,
-      prefix: PREFIX,
-    });
-  },
-
-  deleteCookie: (event, sessionName, { attrs }) => {
-    removeChunked(eventCookieStore(cookieEvent(event)), sessionName, { attrs });
-  },
+  /** As in h3 v1's own `useSession`: an event writes until its response is handled. */
+  writable: (event) => !isEvent(event) || !event.handled,
 };
 
-export function getSessionsContext(event: H3Event | CompatEvent): Record<string, unknown> {
-  return (event.context.sessions ||= Object.create(null));
+function eventJar(event: H3Event): CookieJar<CookieSerializeOptions> {
+  return {
+    read: (name) => getCookie(event, name),
+    written: (name) => setCookieValues(responseSetCookies(event))[name],
+    write: (name, value, attrs) => {
+      setCookie(event, name, value, attrs);
+    },
+  };
 }
 
-/** Whether the response can still take a `Set-Cookie`: an h3 event, as in h3 v1's own `useSession`, whose response is not yet handled. */
-export function hasWritableResponse(event: H3Event | CompatEvent): event is H3Event {
-  return isEvent(event) && !event.handled;
-}
-
-/** Read the session token: a cookie just set on the response, the request cookie, then the session header. */
-export function readSessionToken(
-  event: H3Event | CompatEvent,
-  sessionName: string,
-  source: SessionTokenSource,
-): string | undefined {
-  return resolveSessionToken(source, sessionName, {
-    written: (name) =>
-      isEvent(event) ? readChunkedFromSetCookie(responseSetCookies(event), name) : undefined,
-    cookie: (name) =>
-      isEvent(event)
-        ? readChunkedBy((key) => getCookie(event, key), name)
-        : readChunkedFrom(compatCookies(event), name),
-    header: (name) =>
-      isEvent(event) ? requestHeader(event, name) : compatHeaders(event).get(name),
-  });
-}
-
-function cookieEvent(event: H3Event | CompatEvent): H3Event {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `writable` held, so this is an H3Event
-  return event as H3Event;
+function compatJar(event: CompatEvent): CookieJar {
+  let cookies: Record<string, string | undefined> | undefined;
+  return { read: (name) => (cookies ||= compatCookies(event))[name] };
 }
 
 function requestHeader(event: H3Event, name: string): string | undefined {

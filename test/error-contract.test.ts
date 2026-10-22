@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { JWTError, isJWTError } from "../src/core/error";
+import { JWTError, isJWTError } from "../src/core/error.ts";
 import {
   sign,
   verify,
@@ -8,8 +8,14 @@ import {
   verifyMulti,
   verifyMultiAll,
   generalToFlattenedJWS,
-} from "../src/core/jws";
-import { encrypt, decrypt, encryptMulti, decryptMulti, generalToFlattened } from "../src/core/jwe";
+} from "../src/core/jws.ts";
+import {
+  encrypt,
+  decrypt,
+  encryptMulti,
+  decryptMulti,
+  generalToFlattened,
+} from "../src/core/jwe.ts";
 import {
   deriveJWKFromPassword,
   deriveSharedSecret,
@@ -21,16 +27,16 @@ import {
   thumbprint,
   unwrapKey,
   wrapKey,
-} from "../src/core/jwk";
-import { computeDurationInSeconds } from "../src/core/utils";
+} from "../src/core/jwk.ts";
+import { computeDurationInSeconds } from "../src/core/utils/index.ts";
 import type {
   ContentEncryptionAlgorithm,
   JWK_EC_Private,
   JWK_EC_Public,
   JWEGeneralSerialization,
   JWSGeneralSerialization,
-} from "../src/core/types";
-import { ec, rsa } from "./keys";
+} from "../src/core/types/index.ts";
+import { ec, rsa } from "./keys.ts";
 
 const payload = { sub: "u1" } as const;
 

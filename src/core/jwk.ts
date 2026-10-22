@@ -10,7 +10,7 @@ import {
   resolvePasswordKey,
   stringKeyError,
   assertJWEEncSupported,
-} from "./_internal";
+} from "./_internal.ts";
 
 import type {
   JWK,
@@ -49,15 +49,21 @@ import type {
   UnwrapKeyOptions,
   UnwrapKeyResult,
   UnwrappingKeyFor,
-} from "./types";
-import { assertPlainObject, isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./utils/guards";
+} from "./types/index.ts";
+import {
+  assertPlainObject,
+  isCryptoKey,
+  isCryptoKeyPair,
+  isJWK,
+  isJWKSet,
+} from "./utils/guards.ts";
 import {
   PBES2_ALGORITHMS,
   isContentEncryptionAlgorithm,
   isEd25519Signature,
   isECDHESAlgorithm,
-} from "./utils/algorithms";
-import { JWTError } from "./error";
+} from "./utils/algorithms.ts";
+import { JWTError } from "./error.ts";
 import {
   jwkTokey,
   keyToJWK,
@@ -85,28 +91,28 @@ import {
   toPKCS8,
   toSPKI,
   thumbprint,
-} from "./_crypto";
-import { assertECDHKeyAllowed, ecdhDerivedBits } from "./_crypto/_ecdh";
-import { ecdhesWrap } from "./_crypto/_key-encryption";
+} from "./_crypto/index.ts";
+import { assertECDHKeyAllowed, ecdhDerivedBits } from "./_crypto/_ecdh.ts";
+import { ecdhesWrap } from "./_crypto/_key-encryption.ts";
 import {
   ECDSA_CURVES,
   aesBitsOf,
   innerKeyWrapAlg,
   jwsHashOf,
   rsaOaepHashOf,
-} from "./_crypto/_key-algorithm";
+} from "./_crypto/_key-algorithm.ts";
 
-export type * from "./types/jwk";
+export type * from "./types/jwk.ts";
 export { thumbprint };
-export type { ThumbprintHash } from "./_crypto";
+export type { ThumbprintHash } from "./_crypto/index.ts";
 export {
   type UnsecureErrorCode,
   JWTError,
   isJWTError,
   UnsecureError,
   isUnsecureError,
-} from "./error";
-export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error";
+} from "./error.ts";
+export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "./error.ts";
 
 /**
  * Generates a key for a JWA algorithm: a `CryptoKey` for symmetric algorithms, raw bytes for

@@ -8,11 +8,11 @@ import {
   verifyMultiAll,
   DEFAULT_JOSE_LIMITS,
   isJWTError,
-} from "../src/core/jws";
-import { encrypt, decrypt, encryptMulti, decryptMulti } from "../src/core/jwe";
-import { generateJWK } from "../src/core/jwk";
-import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal";
-import { base64UrlParse, base64UrlStringify } from "../src/core/utils/base64";
+} from "../src/core/jws.ts";
+import { encrypt, decrypt, encryptMulti, decryptMulti } from "../src/core/jwe.ts";
+import { generateJWK } from "../src/core/jwk.ts";
+import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal.ts";
+import { base64UrlParse, base64UrlStringify } from "../src/core/utils/base64.ts";
 import { textEncoder } from "unsecure/utils";
 import type {
   JWK_EC_Private,
@@ -22,7 +22,7 @@ import type {
   JWSGeneralSerialization,
   JWEGeneralSerialization,
   JWKLookupFunction,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 
 /** An `oct` JWK whose `k` is a PBES2 password — a recipient key for `encryptMulti`. */
 function passwordJWK(password: string): JWK_oct<"PBES2-HS256+A128KW"> {

@@ -1,4 +1,4 @@
-import { JWTError } from "../error";
+import { JWTError } from "../error.ts";
 import type {
   JWK_AES_Algorithm,
   JWK_ECDSA,
@@ -7,7 +7,7 @@ import type {
   JWSHashedAlgorithm,
   KeyWrapAlgorithmOf,
   KeyWrappingAlgorithm,
-} from "../types";
+} from "../types/index.ts";
 
 export type SHA = "SHA-1" | "SHA-256" | "SHA-384" | "SHA-512";
 

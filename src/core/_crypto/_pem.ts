@@ -1,9 +1,9 @@
-import { base64Stringify, base64Parse } from "../utils/base64";
+import { base64Stringify, base64Parse } from "../utils/base64.ts";
 
-import { isCryptoKey } from "../utils/guards";
-import { JWTError } from "../error";
-import type { JWKPEMAlgorithm } from "../types";
-import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm";
+import { isCryptoKey } from "../utils/guards.ts";
+import { JWTError } from "../error.ts";
+import type { JWKPEMAlgorithm } from "../types/index.ts";
+import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm.ts";
 
 export interface KeyImportOptions {
   /** `extractable` for `SubtleCrypto.importKey`; defaults to `false` for private keys, `true` otherwise. */

@@ -1,18 +1,18 @@
 import { secureRandomBytes } from "unsecure/random";
 
-import type { JWEEncryptOptions, JWEKeyManagementHeaderParameters } from "./types/jwe";
+import type { JWEEncryptOptions, JWEKeyManagementHeaderParameters } from "./types/jwe.ts";
 import type {
   ContentEncryptionAlgorithm,
   JWK,
   JWKSet,
   KeyManagementAlgorithm,
   UnwrapKeyOptions,
-} from "./types/jwk";
-import { importKey, unwrapKey, getJWKsFromSet } from "./jwk";
-import { decrypt as joseDecrypt } from "./_crypto/_aes";
-import { JWTError } from "./error";
-import { isJWKSet } from "./utils/guards";
-import type { PBES2Budget } from "./_internal";
+} from "./types/jwk.ts";
+import { importKey, unwrapKey, getJWKsFromSet } from "./jwk.ts";
+import { decrypt as joseDecrypt } from "./_crypto/_aes.ts";
+import { JWTError } from "./error.ts";
+import { isJWKSet } from "./utils/guards.ts";
+import type { PBES2Budget } from "./_internal.ts";
 import {
   DEFAULT_PBES2_ITERATIONS,
   asDecryptionError,
@@ -21,7 +21,7 @@ import {
   buildECDHAgreementParams,
   buildJWKSetFilter,
   resolvePasswordKey,
-} from "./_internal";
+} from "./_internal.ts";
 
 export type DecryptionKeyMaterial = CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | string;
 
