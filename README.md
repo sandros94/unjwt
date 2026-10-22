@@ -4,7 +4,7 @@
 [![npm downloads](https://npmx.dev/api/registry/badge/downloads/unjwt)](https://npmx.dev/package/unjwt)
 [![bundle size](https://npmx.dev/api/registry/badge/size/unjwt)](https://npmx.dev/package/unjwt)
 
-Low-level JWT toolkit built on the Web Crypto API. Sign, verify, encrypt, decrypt, and manage keys — JWS, JWE, and JWK in a single zero-dependency package.
+A collection of JWT utilities based on the Web Crypto API, in a single zero-dependency package.
 
 > **📖 Documentation — [unjwt.s94.dev](https://unjwt.s94.dev)**
 

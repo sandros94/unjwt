@@ -1,7 +1,25 @@
 {
   "name": "unjwt",
   "version": "0.8.1",
-  "description": "Low-level JWT utilities",
+  "description": "A collection of JWT utilities based on the Web Crypto API.",
+  "keywords": [
+    "auth",
+    "browser",
+    "decrypt",
+    "edge",
+    "encrypt",
+    "jose",
+    "jwe",
+    "jwk",
+    "jws",
+    "jwt",
+    "security",
+    "serverless",
+    "session",
+    "sign",
+    "verify",
+    "webcrypto"
+  ],
   "homepage": "https://unjwt.s94.dev",
   "license": "MIT",
   "author": {
@@ -11,6 +29,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sandros94/unjwt.git"
+  },
+  "funding": {
+    "url": "https://github.com/sponsors/sandros94"
   },
   "files": [
     "dist"
