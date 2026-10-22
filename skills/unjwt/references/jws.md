@@ -35,8 +35,9 @@ Creates a JWS Compact Serialization token.
 - `options?: JWSSignOptions`
   - `alg?: JWSAlgorithm` — required when key is CryptoKey or Uint8Array
   - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`, `jwk`). A `jwk` must be a public JWK (`isPublicJWK`): a private key or an `oct` secret there is `ERR_INVALID_OPTION`, in every tier of `signMulti` too. A JSON payload whose `cnf.jwk` is not a public JWK is `ERR_JWT_CLAIM_INVALID` (RFC 7800 §3.2), in every producer
-  - `expiresIn?: ExpiresIn` — sets `exp` claim relative to `iat` (number in seconds, or string like `"1h"`, `"7D"`). A malformed duration throws `ERR_INVALID_OPTION`
-  - `currentDate?: Date` — override current time for `iat`/`exp` computation
+  - `expiresIn?: ExpiresIn` — sets `exp` claim relative to `currentDate`, the clock (number in seconds, or string like `"1h"`, `"7D"`). A malformed duration throws `ERR_INVALID_OPTION`
+  - `issuedAt?: boolean | Date` — writes `iat` alone: `true` as `currentDate`, a `Date` as that instant; `false` is unset. Anything else is `ERR_INVALID_OPTION`. `iat` and the clock are distinct: a backdated `iat` does not move `exp`/`nbf`
+  - `currentDate?: Date` — the clock: `iat` when written, and the base of `expiresIn`/`notBeforeIn`
 
 **Returns:** `Promise<string>` — JWS compact token
 
@@ -48,7 +49,7 @@ Creates a JWS Compact Serialization token.
 - `b64` must be a boolean (RFC 7797 §3) — any other value is `ERR_INVALID_OPTION`. A `protectedHeader` that is not an object (a string, an array, `null`) is `ERR_INVALID_OPTION` too, as is a `signMulti` signer entry, or its `protectedHeader`/`unprotectedHeader`, that is not one
 - A key that cannot serve the declared `alg` throws `ERR_JWK_INVALID` with the WebCrypto failure as its `cause`
 - If payload is an object and `typ` is not set, defaults to `"JWT"`. No `cty` is added (RFC 7519 §5.2 keeps it for nested JWTs, as `"JWT"`); a `cty` set in `protectedHeader` is kept as given
-- If `expiresIn` is set and `iat` is missing, `iat` is set to current time
+- If `expiresIn`/`notBefore*` or `issuedAt` is set and `iat` is missing, `iat` is set to `currentDate` (`issuedAt: Date`: that instant); `exp`/`nbf` from a duration are `currentDate` plus the duration, never `iat` plus
 - `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt)). `"b64"` is added to `crit` automatically (created when absent, never duplicated) — RFC 7797 §6 requires the flag to be integrity protected, and jose/other verifiers reject the token otherwise
 - With `b64: false`, a compact payload containing `"."` throws `ERR_JWS_INVALID` (RFC 7797 §5.2 — it would split the compact serialization). Use the JSON serialization (`signMulti`) for such payloads
 - With `b64: false`, payload bytes that are not valid UTF-8 throw `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not valid UTF-8."`) in `sign` and `signMulti` — the unencoded payload travels as text
@@ -155,7 +156,7 @@ Produces a `JWSGeneralSerialization` object. The payload is shared; each signer 
 
 - `payload` — `string | Uint8Array | Record<string, any>`
 - `signers: JWSMultiSigner[]` — non-empty. Each signer is `{ key: JWSSignJWK | CryptoKey, alg?, protectedHeader?, unprotectedHeader? }`. The signer's `alg` wins; otherwise it comes from `key.alg` (JWK) or the CryptoKey's own WebCrypto algorithm. An alg-less JWK throws `ERR_JWS_SIGNER_ALG_INFERENCE`. `kid` is copied from a JWK key only — a CryptoKey signer must put `kid` in its `protectedHeader`.
-- `options?: JWSMultiSignOptions` — mirrors `JWSSignOptions` minus the per-signer fields (`alg`, `protectedHeader`). Keeps: `currentDate`, `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt`.
+- `options?: JWSMultiSignOptions` — mirrors `JWSSignOptions` minus the per-signer fields (`alg`, `protectedHeader`). Keeps: `currentDate`, `issuedAt`, `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt`.
 
 Throws `ERR_JWS_B64_INCONSISTENT` when signers disagree on `b64` (RFC 7797 §3 mandates consistency). Throws `ERR_JWS_HEADER_PARAMS_NOT_DISJOINT` when a parameter name appears in both the protected and unprotected header of the same signer. When `b64: false`, each signer's protected header gets `"b64"` appended to its `crit` automatically (RFC 7797 §6).
 
@@ -376,6 +377,7 @@ interface JWSSignOptions {
     [propName: string]: unknown;
   };
   currentDate?: Date;
+  issuedAt?: boolean | Date;
   expiresIn?: ExpiresIn;
   expiresAt?: Date;
   notBeforeIn?: ExpiresIn;
@@ -457,6 +459,7 @@ interface JWSMultiSigner {
 
 interface JWSMultiSignOptions {
   currentDate?: Date;
+  issuedAt?: boolean | Date;
   expiresIn?: ExpiresIn;
   expiresAt?: Date;
   notBeforeIn?: ExpiresIn;

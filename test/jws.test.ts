@@ -1798,6 +1798,25 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       );
     });
 
+    it("writes iat on its own with issuedAt", async () => {
+      const date = new Date("2030-01-01T00:00:00Z");
+      const at = Math.floor(date.getTime() / 1000);
+      const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256", issuedAt: date });
+      const { payload } = await verify(jws, hs256Key, { currentDate: date });
+      expect(payload).toEqual({ sub: "u", iat: at });
+      const yesterday = new Date(Date.now() - 86_400_000);
+      const fresh = await sign({ sub: "u" }, hs256Key, {
+        alg: "HS256",
+        issuedAt: yesterday,
+        expiresIn: "1h",
+      });
+      const { payload: live } = await verify(fresh, hs256Key);
+      expect(live.iat).toBe(Math.floor(yesterday.getTime() / 1000));
+      expect(live.exp).toBeGreaterThan(Math.floor(Date.now() / 1000) + 3500);
+      const plain = await sign({ sub: "u" }, hs256Key, { alg: "HS256", issuedAt: false });
+      expect((await verify(plain, hs256Key)).payload).toEqual({ sub: "u" });
+    });
+
     it("still rejects a genuine typ mismatch", async () => {
       const jws = await sign({ sub: "u" }, hs256Key, {
         alg: "HS256",

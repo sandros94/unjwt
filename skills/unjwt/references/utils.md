@@ -40,7 +40,7 @@ Returns a cryptographically secure `Uint8Array<ArrayBuffer>` of the specified le
 
 ### `digestUrl(data, hash?)`
 
-Base64url digest of text (UTF-8) or `Uint8Array` under `hash: "SHA-256" | "SHA-384" | "SHA-512"` (`DigestHash`, default `"SHA-256"`); the last step of `thumbprint()`. DPoP (RFC 9449): the access token carries `cnf: { jkt: await thumbprint(publicKey) }`; each proof is `sign({ jti, htm, htu, ath: await digestUrl(accessToken) }, privateKey, { protectedHeader: { typ: "dpop+jwt", jwk: publicKey } })`; the resource server verifies it with `verify(proof, (header) => header.jwk, { algorithms, typ: "dpop+jwt" })`, then checks `ath` against the presented token and `thumbprint(header.jwk)` against the token's `cnf.jkt`.
+Base64url digest of text (UTF-8) or `Uint8Array` under `hash: "SHA-256" | "SHA-384" | "SHA-512"` (`DigestHash`, default `"SHA-256"`); the last step of `thumbprint()`. DPoP (RFC 9449): the access token carries `cnf: { jkt: await thumbprint(publicKey) }`; each proof is `sign({ jti, htm, htu, ath: await digestUrl(accessToken) }, privateKey, { issuedAt: true, protectedHeader: { typ: "dpop+jwt", jwk: publicKey } })`; the resource server verifies it with `verify(proof, (header) => header.jwk, { algorithms, typ: "dpop+jwt", maxTokenAge })`, then checks `ath` against the presented token and `thumbprint(header.jwk)` against the token's `cnf.jkt`.
 
 ### `concatUint8Arrays(...arrays)`
 
@@ -165,7 +165,7 @@ Import: `import { ... } from "unjwt/internal"`
 - `getPlaintextBytes(payload)` — `string | Uint8Array | object` to bytes; a
   non-serializable object is `ERR_INVALID_OPTION`.
 - `computeJwtTimeClaims(payload, options?)` — `iat` plus `exp`/`nbf` from
-  `expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`, an alias of
+  `issuedAt`/`expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`, an alias of
   `JWTTimeClaimOptions` — the base `JWSSignOptions` and `JWEEncryptOptions` extend).
 - `validateCriticalHeadersJWS(header, recognized?)` / `validateCriticalHeadersJWE(header, recognized?)`
   — RFC 7515 §4.1.11 / RFC 7516 §4.1.13 `crit` processing.

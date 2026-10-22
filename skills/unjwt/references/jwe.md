@@ -51,6 +51,7 @@ Produces a JWE Compact Serialization token.
   - `enc?: ContentEncryptionAlgorithm` — defaults to `A256GCM`; under `alg: "dir"` it comes from the CEK's own `alg` (or its `enc` hint) and is required when the key carries neither
   - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`, and so is an `epk` in any tier: the key agreement writes it, a custom ephemeral key goes through `ecdh.ephemeralKey`). A `jwk` in any tier must be a public JWK, else `ERR_INVALID_OPTION`; a payload `cnf.jwk` that is not one is `ERR_JWT_CLAIM_INVALID` (RFC 7800 §3.2). A `crit` is held to the rules `decrypt` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no registered parameter, and every entry present in the header being built. A header that is not an object (a string, an array, `null`) or that `JSON.stringify` refuses (a `BigInt`, a circular reference) is `ERR_INVALID_OPTION` too. An object payload without `typ` gets `typ: "JWT"`; no `cty` is added (RFC 7519 §5.2 keeps it for nested JWTs, as `"JWT"`), and one set here is kept as given
   - `expiresIn?: ExpiresIn` — sets `exp` claim
+  - `issuedAt?: boolean | Date` — writes `iat` alone, as on `sign()`
   - `currentDate?: Date`
   - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`
   - `contentEncryptionIV?: Uint8Array` — custom IV; must be exactly the length `enc` names, or `ERR_INVALID_OPTION`
@@ -370,6 +371,7 @@ interface JWEEncryptOptions {
   alg?: KeyManagementAlgorithm;
   enc?: ContentEncryptionAlgorithm;
   currentDate?: Date;
+  issuedAt?: boolean | Date;
   expiresIn?: ExpiresIn;
   expiresAt?: Date;
   notBeforeIn?: ExpiresIn;
@@ -526,6 +528,7 @@ interface JWEMultiEncryptOptions {
   // Inherited from JWEEncryptOptions (minus alg, ecdh, p2s, p2c, keyManagementIV)
   enc?: ContentEncryptionAlgorithm;
   currentDate?: Date;
+  issuedAt?: boolean | Date;
   expiresIn?: ExpiresIn;
   expiresAt?: Date;
   notBeforeIn?: ExpiresIn;

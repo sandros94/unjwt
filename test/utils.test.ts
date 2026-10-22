@@ -33,7 +33,8 @@ import {
   validateCriticalHeadersJWE,
   validateCriticalHeadersJWS,
 } from "../src/core/internal.ts";
-import { generateKey, thumbprint } from "../src/core/jwk.ts";
+import { generateJWK, generateKey, thumbprint } from "../src/core/jwk.ts";
+import { sign, verify } from "../src/core/jws.ts";
 import { isJWTError } from "../src/core/error.ts";
 import type {
   JOSEPayloadMode,
@@ -113,7 +114,50 @@ describe.concurrent("Utility Functions", () => {
       expect(claims).toHaveProperty("iat");
       expect(claims.iat).toBe(1000);
       expect(claims).toHaveProperty("exp");
-      expect(claims.exp).toBe(1060);
+      expect(claims.exp).toBe(now + 60);
+    });
+
+    it("writes iat alone from issuedAt", () => {
+      const date = new Date("2030-01-01T00:00:00Z");
+      const at = Math.floor(date.getTime() / 1000);
+
+      expect(computeJwtTimeClaims({ sub: "u" }, { issuedAt: true, currentDate: date })).toEqual({
+        sub: "u",
+        iat: at,
+      });
+      expect(computeJwtTimeClaims({}, { issuedAt: date, currentDate: new Date(0) })).toEqual({
+        iat: at,
+      });
+      expect(
+        computeJwtTimeClaims({}, { issuedAt: date, expiresIn: "1m", currentDate: new Date(0) }),
+      ).toEqual({ iat: at, exp: 60 });
+      expect(
+        computeJwtTimeClaims({}, { issuedAt: date, notBeforeIn: 0, currentDate: new Date(0) }),
+      ).toEqual({ iat: at, nbf: 0 });
+      expect(computeJwtTimeClaims({ iat: 1000 }, { issuedAt: date })).toBeUndefined();
+      expect(computeJwtTimeClaims({}, { issuedAt: false })).toBeUndefined();
+      expect(
+        computeJwtTimeClaims({}, { issuedAt: false, expiresIn: "1m", currentDate: date }),
+      ).toEqual({
+        iat: at,
+        exp: at + 60,
+      });
+      expect(computeJwtTimeClaims("text", { issuedAt: true })).toBeUndefined();
+    });
+
+    it("refuses an issuedAt that is neither a boolean nor a valid Date", () => {
+      for (const issuedAt of ["now", 0, new Date("nope")]) {
+        const error = (() => {
+          try {
+            // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- probing a runtime refusal
+            computeJwtTimeClaims({}, { issuedAt: issuedAt as never });
+            return undefined;
+          } catch (caught) {
+            return caught;
+          }
+        })();
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      }
     });
 
     it("should set exp from expiresAt (absolute)", () => {
@@ -219,6 +263,37 @@ describe("digestUrl", () => {
     const { publicKey } = await generateKey("ES256", { toJWK: true, kid: false });
     const canonical = `{"crv":"P-256","kty":"EC","x":"${publicKey.x}","y":"${publicKey.y}"}`;
     expect(await digestUrl(canonical)).toBe(await thumbprint(publicKey));
+  });
+
+  it("binds a DPoP proof to its access token (RFC 9449)", async () => {
+    const [{ publicKey, privateKey }, serverKey] = await Promise.all([
+      generateJWK("ES256", { kid: false }),
+      generateJWK("ES256"),
+    ]);
+    const accessToken = await sign(
+      { sub: "user_42", cnf: { jkt: await thumbprint(publicKey) } },
+      serverKey.privateKey,
+      { expiresIn: "10m", protectedHeader: { typ: "at+jwt" } },
+    );
+    const proof = await sign(
+      {
+        jti: crypto.randomUUID(),
+        htm: "GET",
+        htu: "https://api.example.com/orders",
+        ath: await digestUrl(accessToken),
+      },
+      privateKey,
+      { issuedAt: true, protectedHeader: { typ: "dpop+jwt", jwk: publicKey } },
+    );
+
+    const { payload, protectedHeader } = await verify<{ ath: string }>(
+      proof,
+      (header) => header.jwk,
+      { algorithms: ["ES256"], typ: "dpop+jwt", maxTokenAge: "60s" },
+    );
+    const access = await verify(accessToken, serverKey.publicKey, { typ: "at+jwt" });
+    expect(payload.ath).toBe(await digestUrl(accessToken));
+    expect(await thumbprint(protectedHeader.jwk!)).toBe(access.payload.cnf?.jkt);
   });
 });
 

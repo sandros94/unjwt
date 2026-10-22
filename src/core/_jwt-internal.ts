@@ -120,13 +120,18 @@ export type ComputeJwtTimeClaimsOptions = JWTTimeClaimOptions;
 
 /**
  * Return a copy of an object payload with `iat` and the requested `exp` / `nbf`, or `undefined` when none applies.
- * Both members of `expiresIn`/`expiresAt` or `notBeforeIn`/`notBeforeAt` throw `ERR_JWT_CLAIM_INVALID`.
+ * `currentDate` is the clock: `iat` when written, and the base of `expiresIn` / `notBeforeIn`;
+ * `issuedAt` writes `iat` alone, a `Date` as that instant. Both members of `expiresIn`/`expiresAt` or `notBeforeIn`/`notBeforeAt` throw `ERR_JWT_CLAIM_INVALID`.
  */
 export function computeJwtTimeClaims(
   payload: unknown,
   options?: ComputeJwtTimeClaimsOptions,
 ): JWTClaims | undefined {
-  const { currentDate, expiresIn, expiresAt, notBeforeIn, notBeforeAt } = options ?? {};
+  const { currentDate, issuedAt, expiresIn, expiresAt, notBeforeIn, notBeforeAt } = options ?? {};
+
+  if (issuedAt !== undefined && typeof issuedAt !== "boolean" && !(issuedAt instanceof Date)) {
+    throw new JWTError('"issuedAt" must be a boolean or a Date.', "ERR_INVALID_OPTION");
+  }
 
   if (expiresIn !== undefined && expiresAt !== undefined) {
     throw new JWTError(
@@ -143,22 +148,25 @@ export function computeJwtTimeClaims(
 
   const hasExpHint = expiresIn !== undefined || expiresAt !== undefined;
   const hasNbfHint = notBeforeIn !== undefined || notBeforeAt !== undefined;
-  if (!hasExpHint && !hasNbfHint) return undefined;
+  const hasIatHint = issuedAt === true || issuedAt instanceof Date;
+  if (!hasExpHint && !hasNbfHint && !hasIatHint) return undefined;
   if (!payload || typeof payload !== "object" || payload instanceof Uint8Array) return undefined;
 
   const wantsExp = hasExpHint && (!("exp" in payload) || payload.exp === undefined);
   const wantsNbf = hasNbfHint && (!("nbf" in payload) || payload.nbf === undefined);
-  if (!wantsExp && !wantsNbf) return undefined;
+  const wantsIat = hasIatHint && (!("iat" in payload) || payload.iat === undefined);
+  if (!wantsExp && !wantsNbf && !wantsIat) return undefined;
 
   const now = Math.round((currentDate ?? new Date()).getTime() / 1000);
   const claims: JWTClaims = { ...payload };
-  claims.iat ||= now;
+  claims.iat ||=
+    issuedAt instanceof Date ? Math.floor(_instantOf(issuedAt, "issuedAt") / 1000) : now;
 
   if (wantsExp) {
     if (expiresAt !== undefined) {
       claims.exp = Math.floor(_instantOf(expiresAt, "expiresAt") / 1000);
     } else if (expiresIn !== undefined) {
-      claims.exp = claims.iat + computeDurationInSeconds(expiresIn);
+      claims.exp = now + computeDurationInSeconds(expiresIn);
     }
   }
 
@@ -173,7 +181,7 @@ export function computeJwtTimeClaims(
           "ERR_JWT_CLAIM_INVALID",
         );
       }
-      claims.nbf = claims.iat + offset;
+      claims.nbf = now + offset;
     }
   }
 
@@ -251,7 +259,7 @@ export function assertCritShape(
   }
 }
 
-function _instantOf(value: Date, name: "expiresAt" | "notBeforeAt"): number {
+function _instantOf(value: Date, name: "issuedAt" | "expiresAt" | "notBeforeAt"): number {
   const ms = value instanceof Date ? value.getTime() : Number.NaN;
   if (!Number.isFinite(ms)) {
     throw new JWTError(`"${name}" must be a valid Date.`, "ERR_INVALID_OPTION");

@@ -135,13 +135,15 @@ export interface JWTClaimValidationOptions {
 
 /** Time claims a producer computes; a claim already in the payload is kept as given. */
 export interface JWTTimeClaimOptions {
-  /** Reference moment for `iat` and relative durations. @default new Date() */
+  /** The clock: `iat` when written, and the base of `expiresIn` / `notBeforeIn`. @default new Date() */
   currentDate?: Date;
-  /** Duration until `exp`; exclusive with `expiresAt`. */
+  /** Writes `iat` on its own: `true` as `currentDate`, a `Date` as that instant; `false` is unset. `exp`/`nbf` options write it either way. */
+  issuedAt?: boolean | Date;
+  /** Duration from `currentDate` until `exp`; exclusive with `expiresAt`. */
   expiresIn?: ExpiresIn;
   /** Absolute `exp`; exclusive with `expiresIn`. */
   expiresAt?: Date;
-  /** Duration from `iat` until `nbf` (`0` sets `nbf = iat`); exclusive with `notBeforeAt`. */
+  /** Duration from `currentDate` until `nbf` (`0` sets `nbf` to it); exclusive with `notBeforeAt`. */
   notBeforeIn?: ExpiresIn;
   /** Absolute `nbf` (RFC 7519 §4.1.5); exclusive with `notBeforeIn`. */
   notBeforeAt?: Date;
