@@ -702,8 +702,14 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     describe("JWK Set candidate policy", () => {
+      let rsaPair: Awaited<ReturnType<typeof generateJWK<"RS256">>>;
+      let otherRsaPair: Awaited<ReturnType<typeof generateJWK<"RS256">>>;
+      beforeAll(async () => {
+        [rsaPair, otherRsaPair] = await Promise.all([generateJWK("RS256"), generateJWK("RS256")]);
+      });
+
       it("ignores an injected oct key unless the caller admits symmetric material", async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const attackerSecret = await generateJWK("HS256");
         const genuine = await sign(payloadObj, privateKey);
         const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
@@ -724,7 +730,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it('skips a "use"/"key_ops" mismatched key ordered before the signing key', async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);
 
         const useMismatch: JWKSet = { keys: [{ ...publicKey, use: "enc" }, publicKey] };
@@ -737,7 +743,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it("skips non-JWK entries and unusable candidates instead of aborting", async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);
         const kid = publicKey.kid;
 
@@ -757,7 +763,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it("does not let an alg-less key poison inference for the whole set", async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);
         const { alg: _alg, ...algLess } = publicKey as JWK & { alg?: string };
 
@@ -767,10 +773,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it("reports every tried candidate as the cause when none verifies", async () => {
-        const [a, b] = await Promise.all([
-          generateJWK("RS256", { modulusLength: 2048 }),
-          generateJWK("RS256", { modulusLength: 2048 }),
-        ]);
+        const [a, b] = [rsaPair, otherRsaPair];
         const jws = await sign(payloadObj, { ...a.privateKey, kid: undefined });
 
         const set = {

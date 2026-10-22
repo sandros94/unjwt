@@ -186,7 +186,7 @@ describe("encrypt key inference", () => {
   });
 
   it("still treats a string key as a PBES2 password", async () => {
-    const token = await encrypt(payload, "correct horse battery staple");
+    const token = await encrypt(payload, "correct horse battery staple", { p2c: 1000 });
     const { protectedHeader } = await decrypt(token, "correct horse battery staple");
     expect(protectedHeader.alg).toBe("PBES2-HS256+A128KW");
   });

@@ -514,20 +514,18 @@ describe("inferJWSAllowedAlgorithms", () => {
   });
 
   it("infers from CryptoKeys across JWS alg families", async () => {
-    const hmac = await generateKey("HS384");
+    const [hmac, rsa, pss, ec, ed] = await Promise.all([
+      generateKey("HS384"),
+      generateKey("RS512", { modulusLength: 2048 }),
+      generateKey("PS256", { modulusLength: 2048 }),
+      generateKey("ES384"),
+      generateKey("Ed25519"),
+    ]);
     expect(inferJWSAllowedAlgorithms(hmac)).toEqual(["HS384"]);
-
-    const rsa = await generateKey("RS512", { modulusLength: 2048 });
     expect(inferJWSAllowedAlgorithms(rsa.publicKey)).toEqual(["RS512"]);
     expect(inferJWSAllowedAlgorithms(rsa)).toEqual(["RS512"]);
-
-    const pss = await generateKey("PS256", { modulusLength: 2048 });
     expect(inferJWSAllowedAlgorithms(pss.publicKey)).toEqual(["PS256"]);
-
-    const ec = await generateKey("ES384");
     expect(inferJWSAllowedAlgorithms(ec.publicKey)).toEqual(["ES384"]);
-
-    const ed = await generateKey("Ed25519");
     expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["EdDSA", "Ed25519"]);
   });
 

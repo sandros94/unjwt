@@ -87,7 +87,12 @@ import { loadSession } from "../src/session/_read.ts";
 import { dropSession, issueSession, sessionActions } from "../src/session/_write.ts";
 import type { SessionManager } from "../src/session/types.ts";
 
-const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
+const [jwsKey, jweKey, rsaSignPair, rsaEncPair] = await Promise.all([
+  generateJWK("HS256"),
+  generateJWK("A128KW"),
+  generateJWK("RS256"),
+  generateJWK("RSA-OAEP-256"),
+]);
 // PBES2 derives its key from the JWK's bytes, so the JWK declares the PBES2 alg itself.
 const pbes2Key = { ...jweKey, alg: "PBES2-HS256+A128KW" } as const;
 
@@ -1986,7 +1991,7 @@ describe("session adapters — shared contract", () => {
     it.each(jweCases())(
       "$label: refuses a password string as the private half before any token is opened",
       async (port) => {
-        const { publicKey } = await generateJWK("RSA-OAEP-256");
+        const { publicKey } = rsaEncPair;
         const onError = vi.fn();
         const forged = await encrypt(
           { jti: "forged", iat: nowSeconds(), exp: nowSeconds() + 3600, sub: "attacker" },
@@ -3478,7 +3483,7 @@ describe("session adapters — shared contract", () => {
     it.each(portFamilyCases())(
       "$label: names the private half when it is not a private key",
       async (port) => {
-        const { publicKey } = await rsaPairFor(port);
+        const { publicKey } = rsaPairFor(port);
         const body = await refusal(port, { publicKey, privateKey: publicKey });
 
         expect(body.code).toBe(true);
@@ -3489,7 +3494,7 @@ describe("session adapters — shared contract", () => {
     it.each(portFamilyCases())(
       "$label: names the public half when it is not a public key",
       async (port) => {
-        const { privateKey } = await rsaPairFor(port);
+        const { privateKey } = rsaPairFor(port);
         const body = await refusal(port, { publicKey: "hunter2", privateKey });
 
         expect(body.code).toBe(true);
@@ -3500,7 +3505,7 @@ describe("session adapters — shared contract", () => {
     it.each(portFamilyCases().filter((port) => port.family === "jwe"))(
       "$label: names the public half when the pair has none",
       async (port) => {
-        const { privateKey } = await rsaPairFor(port);
+        const { privateKey } = rsaPairFor(port);
         const body = await refusal(port, { privateKey });
 
         expect(body.code).toBe(true);
@@ -3511,7 +3516,7 @@ describe("session adapters — shared contract", () => {
     it.each(portFamilyCases().filter((port) => port.family === "jws"))(
       "$label: refuses a public key list or set carrying an entry that is not a public key",
       async (port) => {
-        const { privateKey, publicKey } = await rsaPairFor(port);
+        const { privateKey, publicKey } = rsaPairFor(port);
         const bodies = [
           await refusal(port, { privateKey, publicKey: [publicKey, privateKey] }),
           await refusal(port, { privateKey, publicKey: { keys: [publicKey, jwsKey] } }),
@@ -5132,9 +5137,9 @@ function setCookieNames(response: Response): string[] {
   return response.headers.getSetCookie().map((cookie) => cookie.split("=")[0]);
 }
 
-/** An RSA key pair of the family `port` runs. */
+/** The RSA key pair of the family `port` runs; the halves are only ever read. */
 function rsaPairFor(port: PortFamilyCase) {
-  return generateJWK(port.family === "jws" ? "RS256" : "RSA-OAEP-256");
+  return port.family === "jws" ? rsaSignPair : rsaEncPair;
 }
 
 function decodeSegment(segment: string): Record<string, unknown> {

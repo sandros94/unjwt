@@ -226,6 +226,7 @@ describe.concurrent("JWE Utilities", () => {
         const jwe = await encrypt(plaintext, encryptionKey, {
           alg,
           enc,
+          ...(alg.startsWith("PBES2") ? { p2c: 1000 } : {}),
         });
 
         // jose doesn't support PBES2-HS256+A128KW alg header
