@@ -34,7 +34,7 @@ Creates a JWS Compact Serialization token.
     Without it, `sign(payload, pemText, { alg: "HS256" })` would HMAC over the PEM armour.
 - `options?: JWSSignOptions`
   - `alg?: JWSAlgorithm` — required when key is CryptoKey or Uint8Array
-  - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`)
+  - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`, `jwk`). A `jwk` must be a public JWK (`isPublicJWK`): a private key or an `oct` secret there is `ERR_INVALID_OPTION`, in every tier of `signMulti` too. A JSON payload whose `cnf.jwk` is not a public JWK is `ERR_JWT_CLAIM_INVALID` (RFC 7800 §3.2), in every producer
   - `expiresIn?: ExpiresIn` — sets `exp` claim relative to `iat` (number in seconds, or string like `"1h"`, `"7D"`). A malformed duration throws `ERR_INVALID_OPTION`
   - `currentDate?: Date` — override current time for `iat`/`exp` computation
 
@@ -56,16 +56,17 @@ Creates a JWS Compact Serialization token.
 - When a JWK with a `kid` is used, the `kid` is added to the header as a fallback — an explicit `protectedHeader.kid` always takes precedence
 
 ```ts
-import { sign } from "unjwt/jws";
+import { sign, verify } from "unjwt/jws";
 import { generateJWK } from "unjwt/jwk";
 
-// Symmetric (HMAC)
+// Symmetric (HMAC): one key signs and verifies
 const hmacKey = await generateJWK("HS256");
 const token = await sign({ sub: "user123" }, hmacKey);
 
-// Asymmetric (RSA)
-const rsaKeys = await generateJWK("RS256");
-const token2 = await sign({ sub: "user123" }, rsaKeys.privateKey);
+// Asymmetric (RSA): a pair is two keys — the private half signs, the public half verifies
+const { privateKey, publicKey } = await generateJWK("RS256");
+const token2 = await sign({ sub: "user123" }, privateKey);
+const { payload } = await verify(token2, publicKey);
 
 // With expiration
 const token3 = await sign({ sub: "user123" }, hmacKey, { expiresIn: "1h" });
@@ -78,10 +79,10 @@ Verifies a JWS token and returns its payload.
 **Parameters:**
 
 - `jws` — `string` — the JWS compact token
-- `key` — `CryptoKey | JWSVerifyJWK | JWKSet | Uint8Array | JWKLookupFunction`
+- `key` — `CryptoKey | JWSVerifyJWK | JWKSet | Uint8Array | JWSKeyLookup`
   - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`. The key is imported with `expect: "public"`, so an asymmetric JWK still carrying `d` throws `ERR_JWK_INVALID` instead of being imported; `sign` mirrors this with `expect: "private"`.
   - `JWKSet` stays fully permissive (`JWK[]`) because JWKS from the wire are heterogeneous; runtime filters candidates per header.
-  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
+  - `JWSKeyLookup`: `(header: JWSHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg` is already validated
   - `JWKSet`: multi-key selection with automatic retry. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
     - Token has no `kid` — every candidate is tried in order; the first to verify successfully wins
@@ -97,9 +98,8 @@ Verifies a JWS token and returns its payload.
   - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls (an HMAC key-rotation set), never for one fetched from a `jwks_uri`
   - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the payload must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWS_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The signed content never decides its own shape, and `typ`/`cty` never pick it — both are signer-controlled. Under RFC 7797 `b64: false` the unencoded segment is the content and the same modes apply
   - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
-  - `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
   - `limits?: { keyCandidates?: number }` — how many JWK Set candidates one token may be tried against after `kid`/`alg`/`use` filtering. Default `8` (`DEFAULT_JOSE_LIMITS.keyCandidates`); a wider set throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. Must be a positive integer, else `ERR_INVALID_OPTION`
-  - `allowSymmetricJWKSet`, `payload`, `validateClaims` and `forceUint8Array` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
+  - `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
   - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a verifier that configures none; configure `audience` to enforce RFC 7519 §4.1.3
   - Every option is checked before the token is read, and a configured check is never skipped for being empty: `audience: ""` (or a list with an empty entry), `issuer: ""`, `subject: ""`, `typ: ""` or a non-string `typ`, `maxTokenAge: 0`, an `options` that is not an object, `limits` that is not an object, and an `algorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings each throw `ERR_INVALID_OPTION` (`'"algorithms" must be an array of strings.'`). An empty list (`audience: []`, `algorithms: []`) is a check no token passes
@@ -113,7 +113,6 @@ Verifies a JWS token and returns its payload.
 - no `payload` or `payload: "json"` → `T`, the claims — `JWTClaims` unless given: `verify<MyClaims>(token, key)`
 - `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array<ArrayBuffer>`
 - a `payload` that is not a literal (a `JOSEPayloadMode` variable, a `JWSVerifyOptions` object) → the union of what its modes return
-- the deprecated `forceUint8Array: true` → `Uint8Array<ArrayBuffer>`
 - a claims type together with `payload: "string"` / `"bytes"` is a type error
 
 **Header validation (before any key work):**
@@ -399,8 +398,6 @@ interface JWSVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "keyCandidates">;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
   issuer?: string | string[];
@@ -471,8 +468,6 @@ interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> 
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
   issuer?: string | string[];
@@ -491,8 +486,6 @@ interface JWSMultiVerifyAllOptions<Mode extends JOSEPayloadMode = JOSEPayloadMod
   allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   audience?: string | string[];
   issuer?: string | string[];
@@ -528,17 +521,10 @@ type JWSMultiVerifyOutcome<T extends JOSEPayload = JOSEPayload> =
       signerHeader?: JWSHeaderParameters;
     };
 
-// JWKLookupFunction is shared with JWE decrypt — imported from unjwt/jwk or unjwt
-// Optional `TReturn` generic narrows the return type; defaults fully permissive.
-type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
-  header: {
-    kid?: string;
-    alg?: string;
-    enc?: string;
-    typ?: string;
-    crit?: string[];
-    [key: string]: unknown;
-  },
+// JWSKeyLookup = JWKLookupFunction<TReturn, JWSHeaderParameters> — from unjwt/jws or unjwt.
+// The header is the decoded protected header after the alg check, so `alg` is a `JWSAlgorithm`.
+type JWSKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
+  header: JWSHeaderParameters,
   token: string,
-) => TReturn | Promise<TReturn>;
+) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
 ```

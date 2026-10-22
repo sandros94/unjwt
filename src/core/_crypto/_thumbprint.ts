@@ -1,12 +1,12 @@
-import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "../utils/base64";
-import { JWTError } from "../error";
-import { assertPlainObject } from "../utils/guards";
+import { digestUrl } from "../utils/digest.ts";
+import { JWTError } from "../error.ts";
+import { assertPlainObject } from "../utils/guards.ts";
 
-import type { JWK } from "../types";
+import type { JWK } from "../types/index.ts";
+import type { DigestHash } from "../utils/digest.ts";
 
 /** Hash functions RFC 7638 §3.4 leaves open to the application. */
-export type ThumbprintHash = "SHA-256" | "SHA-384" | "SHA-512";
+export type ThumbprintHash = DigestHash;
 
 /** RFC 7638 §3.2 — each key type's required members, in lexicographic order. */
 const THUMBPRINT_MEMBERS: Readonly<Record<string, readonly string[]>> =
@@ -62,6 +62,5 @@ export async function thumbprint(
     return `${JSON.stringify(name)}:${JSON.stringify(value)}`;
   });
 
-  const digest = await crypto.subtle.digest(hash, textEncoder.encode(`{${canonical.join(",")}}`));
-  return base64UrlStringify(new Uint8Array(digest));
+  return digestUrl(`{${canonical.join(",")}}`, hash);
 }

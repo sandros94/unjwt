@@ -1,11 +1,11 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64.ts";
 
 import type {
   JWKSet,
   JWSVerifyJWK,
-  JWKLookupFunction,
+  JWSKeyLookup,
   JWSAlgorithm,
   JWSHeaderParameters,
   JOSEPayload,
@@ -21,25 +21,27 @@ import type {
   JWSMultiVerifyResult,
   JWSMultiVerifyAllOptions,
   JWSMultiVerifyOutcome,
-} from "./types";
+} from "./types/index.ts";
 
-import { importKey } from "./jwk";
-import { sign as joseSign } from "./_crypto";
-import { JWTError } from "./error";
-import { isJWK } from "./utils/guards";
-import { inferJWSAllowedAlgorithms } from "./utils/algorithms";
+import { importKey } from "./jwk.ts";
+import { sign as joseSign } from "./_crypto/index.ts";
+import { JWTError } from "./error.ts";
+import { isJWK } from "./utils/guards.ts";
+import { inferJWSAllowedAlgorithms } from "./utils/algorithms.ts";
 import {
   computeJwtTimeClaims,
   getPlaintextBytes,
   parsePayloadText,
   validateCriticalHeadersJWS,
-} from "./_jwt-internal";
+} from "./_jwt-internal.ts";
 import {
   JWS_ALG_CTX,
   assertB64Option,
   assertConsumerOptions,
   assertOptionEntry,
   assertProtectedOnlyOption,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   asJWTError,
   asKeyLookupError,
   asKeyUsageError,
@@ -62,9 +64,9 @@ import {
   validateClaimsIfJson,
   decodeSegment,
   keyMatchesHeader,
-} from "./_internal";
-import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal";
-import type { ResolvedKeyInput } from "./_internal";
+} from "./_internal.ts";
+import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal.ts";
+import type { ResolvedKeyInput } from "./_internal.ts";
 
 /**
  * Signs a payload with multiple signers as a JWS General JSON Serialization (RFC 7515 §7.2.1).
@@ -87,8 +89,11 @@ export async function signMulti(
     });
     assertNotStringKey(signer.key);
     assertProtectedOnlyOption(signer.unprotectedHeader, { tier: "unprotected", family: "JWS" });
+    assertProducerKeyHeaders(signer.protectedHeader, { tier: "protected", family: "JWS" });
+    assertProducerKeyHeaders(signer.unprotectedHeader, { tier: "unprotected", family: "JWS" });
     assertB64Option(signer.protectedHeader);
   }
+  assertProducerConfirmation(payload);
 
   const resolvedAlgs: JWSAlgorithm[] = signers.map((s, i) => _resolveSignerAlg(s, i));
 
@@ -151,23 +156,23 @@ export async function signMulti(
  */
 export async function verifyMulti<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSMultiVerifyOptions<"json"> & { forceUint8Array?: false },
 ): Promise<JWSMultiVerifyResult<T>>;
 /** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function verifyMulti(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSMultiVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSMultiVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verifyMulti<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSMultiVerifyOptions<Mode>,
 ): Promise<JWSMultiVerifyResult<PayloadOf<Mode>>>;
 export async function verifyMulti(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSMultiVerifyOptions = {},
 ): Promise<JWSMultiVerifyResult> {
   assertConsumerOptions(options);
@@ -298,23 +303,23 @@ export async function verifyMulti(
  */
 export async function verifyMultiAll<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options?: JWSMultiVerifyAllOptions<"json"> & { forceUint8Array?: false },
 ): Promise<JWSMultiVerifyOutcome<T>[]>;
 /** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function verifyMultiAll(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options: JWSMultiVerifyAllOptions & { forceUint8Array: true },
 ): Promise<JWSMultiVerifyOutcome<Uint8Array<ArrayBuffer>>[]>;
 export async function verifyMultiAll<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options?: JWSMultiVerifyAllOptions<Mode>,
 ): Promise<JWSMultiVerifyOutcome<PayloadOf<Mode>>[]>;
 export async function verifyMultiAll(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   options: JWSMultiVerifyAllOptions = {},
 ): Promise<JWSMultiVerifyOutcome[]> {
   assertConsumerOptions(options);
@@ -601,7 +606,7 @@ async function _verifyOneSignature(
   payload: string,
   entry: JWSGeneralSignature,
   index: number,
-  keyResolver: JWKLookupFunction,
+  keyResolver: JWSKeyLookup,
   context: {
     options: JWSMultiVerifyAllOptions;
     payloadMode: JOSEPayloadMode;
@@ -638,7 +643,7 @@ async function _verifyOneSignature(
   });
   if (typError) return fail(typError, protectedHeader, unprotectedHeader);
 
-  let rawKeyMaterial: ResolvedKeyInput<JWKLookupFunction>;
+  let rawKeyMaterial: ResolvedKeyInput<JWSKeyLookup>;
   try {
     rawKeyMaterial = await resolveKeyInput(keyResolver, {
       header: effective,

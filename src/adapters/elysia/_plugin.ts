@@ -1,6 +1,9 @@
 import { Elysia } from "elysia";
 
-import type { SessionContext } from "./session/types";
+import type { ExpiresIn } from "../../core/types/index.ts";
+import type { SessionDefinition } from "../../session/types.ts";
+import type { SessionClaims, SessionManager, SessionRecord } from "../../session/types.ts";
+import type { SessionContext } from "./session/types.ts";
 
 /**
  * Explicit return type for the `jwsSession` / `jweSession` plugin factories.
@@ -34,6 +37,16 @@ export type SessionPlugin<
   { derive: {}; resolve: Resolved; schema: {}; standaloneSchema: {}; response: {} },
   { derive: {}; resolve: {}; schema: {}; standaloneSchema: {}; response: {} }
 >;
+
+/** A session definition on Elysia, plus the plugin that resolves its manager under `contextKey` (`K`). */
+export interface SessionPluginDefinition<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  K extends string = "session",
+> extends SessionDefinition<T, MaxAge, SessionContext> {
+  /** Resolves the session onto the context under `contextKey`, with the guard macro answering 401 while no session is established. */
+  plugin: () => SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`>;
+}
 
 /**
  * The plugin a session factory returns: it resolves the session `create`

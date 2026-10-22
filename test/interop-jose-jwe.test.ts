@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
 import {
   encrypt,
   decrypt,
@@ -9,16 +9,16 @@ import {
   decryptMulti,
   generalToFlattened,
   JWTError,
-} from "../src/core/jwe";
+} from "../src/core/jwe.ts";
 import {
   generateKey,
   generateJWK,
   importKey,
-  exportKey,
+  exportJWK,
   importPEM,
   exportPEM,
   thumbprint,
-} from "../src/core/jwk";
+} from "../src/core/jwk.ts";
 import type {
   JWK,
   JWK_oct,
@@ -32,8 +32,8 @@ import type {
   ContentEncryptionAlgorithm,
   JWEGeneralSerialization,
   JWEFlattenedSerialization,
-} from "../src/core/types";
-import { rsa, ec } from "./keys";
+} from "../src/core/types/index.ts";
+import { rsa, ec } from "./keys.ts";
 
 type Pair = { priv: JWK; pub: JWK };
 type JoseKey = Uint8Array | jose.JWK;
@@ -197,22 +197,22 @@ describe.concurrent("interop with jose: JWK", () => {
     ["ECDH-ES X25519", "ECDH-ES", { namedCurve: "X25519" }],
   ];
 
-  it.each(ASYM)("%s: exportKey/importKey match jose exportJWK/importJWK", async (_, alg, opts) => {
+  it.each(ASYM)("%s: exportJWK/importKey match jose exportJWK/importJWK", async (_, alg, opts) => {
     const pair = (await generateKey(alg, { ...opts, toJWK: false })) as CryptoKeyPair;
     for (const key of [pair.privateKey, pair.publicKey]) {
-      const ours = await exportKey(key);
+      const ours = await exportJWK(key);
       const theirs = await jose.exportJWK(key);
       expect(stripMeta(ours)).toEqual(theirs);
       const viaJose = await jose.importJWK(ours, alg, { extractable: true });
       expect(await jose.exportJWK(viaJose)).toEqual(theirs);
       const viaUnjwt = await importKey(theirs as JWK, { alg, extractable: true });
-      expect(stripMeta(await exportKey(viaUnjwt as CryptoKey))).toEqual(theirs);
+      expect(stripMeta(await exportJWK(viaUnjwt as CryptoKey))).toEqual(theirs);
     }
   });
 
   it.each(["HS256", "A128KW", "A256GCM"] as const)("oct %s: import/export parity", async (alg) => {
     const key = await generateKey(alg);
-    const ours = await exportKey<JWK_oct>(key);
+    const ours = await exportJWK<JWK_oct>(key);
     expect(stripMeta(ours)).toEqual(await jose.exportJWK(key));
     expect(await jose.importJWK(ours as jose.JWK)).toEqual(await importKey(ours));
   });

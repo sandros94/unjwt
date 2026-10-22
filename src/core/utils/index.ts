@@ -9,16 +9,17 @@ import {
   validateCriticalHeadersJWS as _validateCriticalHeadersJWS,
   validateCriticalHeadersJWE as _validateCriticalHeadersJWE,
   assertCritShape as _assertCritShape,
-} from "../_jwt-internal";
+} from "../_jwt-internal.ts";
 
-export { UnsecureError, isUnsecureError, type UnsecureErrorCode } from "../error";
+export { UnsecureError, isUnsecureError, type UnsecureErrorCode } from "../error.ts";
 
 export { secureRandomBytes } from "unsecure/random";
 export { safeJsonParse, sanitizeObject, sanitizeObjectCopy } from "unsecure/sanitize";
 export { textEncoder, textDecoder } from "unsecure/utils";
 
-export * from "./base64";
-export { concatUint8Arrays, maybeArray } from "./array";
+export * from "./base64.ts";
+export { digestUrl, type DigestHash } from "./digest.ts";
+export { concatUint8Arrays, maybeArray } from "./array.ts";
 export {
   isJWK,
   isJWKSet,
@@ -29,15 +30,15 @@ export {
   isAsymmetricJWK,
   isPrivateJWK,
   isPublicJWK,
-} from "./guards";
+} from "./guards.ts";
 
 export {
   type InferAlgorithmsOptions,
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
-} from "./algorithms";
-export { isJWTContent, computeDurationInSeconds, validateJwtClaims } from "./jwt";
-export type * from "./types";
+} from "./algorithms.ts";
+export { isJWTContent, computeDurationInSeconds, validateJwtClaims } from "./jwt.ts";
+export type * from "./types.ts";
 
 /** @deprecated Use `ParsePayloadOptions` from `unjwt/internal`; removed in v0.9.0. */
 export type DecodePayloadOptions = ParsePayloadOptions;

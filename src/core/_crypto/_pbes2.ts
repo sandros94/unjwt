@@ -1,10 +1,18 @@
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "../utils/base64";
+import { base64UrlStringify } from "../utils/base64.ts";
 
-import { concatUint8Arrays } from "../utils/array";
-import { JWTError } from "../error";
-import { checkKeyUsage, innerKeyWrapAlg, isAlgorithm, unusableKey } from "./_key-algorithm";
-import { aesKwWrap, aesKwUnwrap } from "./_aes";
+import { concatUint8Arrays } from "../utils/array.ts";
+import { JWTError } from "../error.ts";
+import type { JWK_PBES2 } from "../types/index.ts";
+import {
+  aesBitsOf,
+  checkKeyUsage,
+  innerKeyWrapAlg,
+  isAlgorithm,
+  pbes2HashOf,
+  unusableKey,
+} from "./_key-algorithm.ts";
+import { aesKwWrap, aesKwUnwrap } from "./_aes.ts";
 
 /** RFC 7518 §4.8.1.2 — the floor every PBES2 `p2c` is held to. */
 export const DEFAULT_PBES2_MIN_ITERATIONS = 1000;
@@ -52,7 +60,7 @@ export function assertPBES2Count(count: unknown, name: string): asserts count is
 }
 
 export async function pbes2Wrap(
-  alg: string,
+  alg: JWK_PBES2,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   cek: Uint8Array<ArrayBuffer>,
   p2c: number,
@@ -87,7 +95,7 @@ export function assertPBES2Iterations(
 }
 
 export async function pbes2Unwrap(
-  alg: string,
+  alg: JWK_PBES2,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
   encryptedKey: Uint8Array<ArrayBuffer>,
   p2c: number,
@@ -102,7 +110,7 @@ export async function pbes2Unwrap(
 
 export async function deriveKey(
   p2s: Uint8Array<ArrayBuffer>,
-  alg: string,
+  alg: JWK_PBES2,
   p2c: number,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -115,9 +123,9 @@ export async function deriveKey(
   }
 
   const salt = concatUint8Arrays(textEncoder.encode(alg), new Uint8Array([0]), p2s);
-  const keylen = Number.parseInt(alg.slice(13, 16), 10);
+  const keylen = aesBitsOf(innerKeyWrapAlg(alg));
   const subtleAlg = {
-    hash: `SHA-${alg.slice(8, 11)}`,
+    hash: pbes2HashOf(alg),
     iterations: p2c,
     name: "PBKDF2",
     salt,
@@ -128,7 +136,7 @@ export async function deriveKey(
   return new Uint8Array(await crypto.subtle.deriveBits(subtleAlg, cryptoKey, keylen));
 }
 
-export function checkPBES2CryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
+export function checkPBES2CryptoKey(key: CryptoKey, alg: JWK_PBES2, usage?: KeyUsage): void {
   if (!isAlgorithm(key.algorithm, "PBKDF2")) {
     throw unusableKey("PBKDF2");
   }
@@ -137,7 +145,7 @@ export function checkPBES2CryptoKey(key: CryptoKey, alg: string, usage?: KeyUsag
 
 async function getPBKDF2CryptoKey(
   key: CryptoKey | Uint8Array<ArrayBuffer>,
-  alg: string,
+  alg: JWK_PBES2,
   options: { usage?: KeyUsage; extractable?: boolean } = {},
 ): Promise<CryptoKey> {
   const { extractable = false, usage = "deriveBits" } = options;

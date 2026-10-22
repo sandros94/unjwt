@@ -1,14 +1,14 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64.ts";
 
 import type {
   JWKSet,
-  JWKLookupFunction,
   KeyManagementAlgorithm,
+  JWKAlgorithm,
   ContentEncryptionAlgorithm,
-} from "./types/jwk";
-import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt";
+} from "./types/jwk.ts";
+import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt.ts";
 import type {
   JWEEncryptJWK,
   JWEDecryptJWK,
@@ -17,19 +17,25 @@ import type {
   JWEDecryptResult,
   JWEHeaderParameters,
   JWEProtectedHeader,
-} from "./types/jwe";
+  JWEKeyLookup,
+} from "./types/jwe.ts";
 
-import { importKey } from "./jwk";
-import { encrypt as joseEncrypt, assertPBES2Params, generateIV, encryptKey } from "./_crypto";
-import { JWTError } from "./error";
-import { isContentEncryptionAlgorithm } from "./utils/algorithms";
-import { isJWK } from "./utils/guards";
+import { importKey } from "./jwk.ts";
+import {
+  encrypt as joseEncrypt,
+  assertPBES2Params,
+  generateIV,
+  encryptKey,
+} from "./_crypto/index.ts";
+import { JWTError } from "./error.ts";
+import { isContentEncryptionAlgorithm, isPBES2Algorithm } from "./utils/algorithms.ts";
+import { isJWK } from "./utils/guards.ts";
 import {
   applyTypDefault,
   computeJwtTimeClaims,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
-} from "./_jwt-internal";
+} from "./_jwt-internal.ts";
 import {
   JWE_ALG_CTX,
   assertCompactToken,
@@ -39,6 +45,8 @@ import {
   assertNoZipOption,
   assertProducerCEK,
   assertProducerCrit,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   assertProducerIV,
   assertConsumerOptions,
   buildUnwrapKeyOptions,
@@ -60,11 +68,11 @@ import {
   validateClaimsIfJson,
   decodeSegment,
   decodeJWEPayload,
-} from "./_internal";
-import { buildKeyManagementParams, unwrapAndDecrypt } from "./_jwe-internal";
+} from "./_internal.ts";
+import { buildKeyManagementParams, unwrapAndDecrypt } from "./_jwe-internal.ts";
 
-export type * from "./types/jwe";
-export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt";
+export type * from "./types/jwe.ts";
+export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt.ts";
 export {
   type JWTErrorCode,
   type KnownJWTErrorCode,
@@ -74,9 +82,9 @@ export {
   isJWTError,
   UnsecureError,
   isUnsecureError,
-} from "./error";
-export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi";
-export { DEFAULT_JOSE_LIMITS } from "./_internal";
+} from "./error.ts";
+export { encryptMulti, decryptMulti, generalToFlattened } from "./jwe-multi.ts";
+export { DEFAULT_JOSE_LIMITS } from "./_internal.ts";
 
 /**
  * Encrypt a payload into a JWE Compact Serialization string. `key` is a CryptoKey, a JWK, or
@@ -114,6 +122,8 @@ export async function encrypt(
   options: JWEEncryptOptions = {},
 ): Promise<string> {
   assertOptionEntry(options, { label: "options", objects: ["protectedHeader"] });
+  assertProducerKeyHeaders(options.protectedHeader, { tier: "protected", family: "JWE" });
+  assertProducerConfirmation(payload);
   const {
     protectedHeader: userHeader,
     cek: providedCek,
@@ -123,7 +133,7 @@ export async function encrypt(
     p2c,
     ecdh,
   } = options;
-  let alg: string | undefined = options.alg;
+  let alg: JWKAlgorithm | undefined = options.alg;
   let enc: unknown = options.enc;
 
   assertNoZipOption(userHeader, "protected");
@@ -167,7 +177,7 @@ export async function encrypt(
 
   assertProducerCEK(providedCek, enc);
   assertProducerIV(providedContentIV, enc);
-  if (alg.startsWith("PBES2")) assertPBES2Params({ p2s, p2c });
+  if (isPBES2Algorithm(alg)) assertPBES2Params({ p2s, p2c });
 
   const jweKeyManagementParams = buildKeyManagementParams(alg, {
     keyManagementIV,
@@ -233,24 +243,24 @@ export async function encrypt(
  */
 export async function decrypt<T extends object = JWTClaims>(
   jwe: string,
-  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
   options?: JWEDecryptOptions<"json"> & { forceUint8Array?: false },
 ): Promise<JWEDecryptResult<T>>;
 /** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function decrypt(
   jwe: string,
-  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
   options: JWEDecryptOptions & { forceUint8Array: true },
 ): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
 /** Decrypts a compact JWE whose plaintext decodes under `options.payload`; see {@link PayloadOf}. */
 export async function decrypt<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jwe: string,
-  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
   options?: JWEDecryptOptions<Mode>,
 ): Promise<JWEDecryptResult<PayloadOf<Mode>>>;
 export async function decrypt(
   jwe: string,
-  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
   options: JWEDecryptOptions = {},
 ): Promise<JWEDecryptResult> {
   assertCompactToken(jwe, "JWE");

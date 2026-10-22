@@ -1,24 +1,26 @@
-import { base64UrlStringify } from "../utils/base64";
+import { base64UrlStringify } from "../utils/base64.ts";
 
-import type { JWK } from "../types";
-import { isCryptoKey } from "../utils/guards";
-import { JWTError } from "../error";
-import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm";
-import { quoteTokenValue } from "../utils/_text";
+import type { JWK, JWKAlgorithm } from "../types/index.ts";
+import { isCryptoKey } from "../utils/guards.ts";
+import { JWTError } from "../error.ts";
+import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm.ts";
+import { quoteTokenValue } from "../utils/_text.ts";
 
 /** Import a JWK for its `alg`; `key_ops` (RFC 7517 §4.3) and `ext` only ever narrow usages and extractability. */
 export async function jwkTokey(
   jwk: JWK,
-  options: { extractable?: boolean } = {},
+  options: { extractable?: boolean; alg?: JWKAlgorithm } = {},
 ): Promise<CryptoKey> {
-  if (!jwk.alg) {
+  const alg = jwk.alg ?? options.alg;
+  if (!alg) {
     throw new JWTError(
       '"alg" argument is required when "jwk.alg" is not present',
       "ERR_JWK_INVALID",
     );
   }
 
-  const { algorithm, keyUsages } = subtleMapping(jwk);
+  const { algorithm, keyUsages } = subtleMapping(jwk, alg);
+  const material: JsonWebKey = { ...jwk, alg };
 
   const isPrivate = "d" in jwk && jwk.d !== undefined;
   const extractable = jwk.ext === false ? false : (options.extractable ?? !isPrivate);
@@ -26,18 +28,14 @@ export async function jwkTokey(
   try {
     return await crypto.subtle.importKey(
       "jwk",
-      jwk,
+      material,
       algorithm,
       extractable,
       permittedUsages(jwk, keyUsages),
     );
   } catch (error) {
     if (error instanceof JWTError) throw error;
-    throw new JWTError(
-      `Key is not usable for ${quoteTokenValue(jwk.alg)}.`,
-      "ERR_JWK_INVALID",
-      error,
-    );
+    throw new JWTError(`Key is not usable for ${quoteTokenValue(alg)}.`, "ERR_JWK_INVALID", error);
   }
 }
 
@@ -57,7 +55,9 @@ export async function keyToJWK<T extends JWK>(
         "ERR_JWK_INVALID",
       );
     }
-    jwk = await crypto.subtle.exportKey("jwk", key);
+    // `ext` and `key_ops` describe the CryptoKey, not required by JWK.
+    const { ext: _ext, key_ops: _keyOps, ...exported } = await crypto.subtle.exportKey("jwk", key);
+    jwk = exported;
   }
 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- WebCrypto exports a complete JWK of the key's own kty
@@ -75,7 +75,10 @@ function permittedUsages(jwk: JWK, keyUsages: KeyUsage[]): KeyUsage[] {
   return permitted;
 }
 
-function subtleMapping(jwk: JWK): {
+function subtleMapping(
+  jwk: JWK,
+  alg: JWKAlgorithm,
+): {
   algorithm: RsaHashedImportParams | EcKeyAlgorithm | Algorithm;
   keyUsages: KeyUsage[];
 } {
@@ -84,18 +87,18 @@ function subtleMapping(jwk: JWK): {
 
   switch (jwk.kty) {
     case "RSA": {
-      switch (jwk.alg) {
+      switch (alg) {
         case "PS256":
         case "PS384":
         case "PS512": {
-          algorithm = { name: "RSA-PSS", hash: jwsHashOf(jwk.alg) };
+          algorithm = { name: "RSA-PSS", hash: jwsHashOf(alg) };
           keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
         case "RS256":
         case "RS384":
         case "RS512": {
-          algorithm = { name: "RSASSA-PKCS1-v1_5", hash: jwsHashOf(jwk.alg) };
+          algorithm = { name: "RSASSA-PKCS1-v1_5", hash: jwsHashOf(alg) };
           keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
@@ -103,13 +106,13 @@ function subtleMapping(jwk: JWK): {
         case "RSA-OAEP-256":
         case "RSA-OAEP-384":
         case "RSA-OAEP-512": {
-          algorithm = { name: "RSA-OAEP", hash: rsaOaepHashOf(jwk.alg) };
+          algorithm = { name: "RSA-OAEP", hash: rsaOaepHashOf(alg) };
           keyUsages = hasPrivateMember(jwk) ? ["decrypt", "unwrapKey"] : ["encrypt", "wrapKey"];
           break;
         }
         default: {
           throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(jwk.alg)}.`,
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(alg)}.`,
             "ERR_JWK_INVALID",
           );
         }
@@ -117,11 +120,11 @@ function subtleMapping(jwk: JWK): {
       break;
     }
     case "EC": {
-      switch (jwk.alg) {
+      switch (alg) {
         case "ES256":
         case "ES384":
         case "ES512": {
-          algorithm = { name: "ECDSA", namedCurve: ECDSA_CURVES[jwk.alg] };
+          algorithm = { name: "ECDSA", namedCurve: ECDSA_CURVES[alg] };
           keyUsages = hasPrivateMember(jwk) ? ["sign"] : ["verify"];
           break;
         }
@@ -138,7 +141,7 @@ function subtleMapping(jwk: JWK): {
         }
         default: {
           throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(jwk.alg)}.`,
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(alg)}.`,
             "ERR_JWK_INVALID",
           );
         }
@@ -146,7 +149,7 @@ function subtleMapping(jwk: JWK): {
       break;
     }
     case "OKP": {
-      switch (jwk.alg) {
+      switch (alg) {
         case "Ed25519":
         case "EdDSA": {
           algorithm = { name: requireCurve(jwk, ["Ed25519"]) };
@@ -163,7 +166,7 @@ function subtleMapping(jwk: JWK): {
         }
         default: {
           throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(jwk.alg)}.`,
+            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(alg)}.`,
             "ERR_JWK_INVALID",
           );
         }

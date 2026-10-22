@@ -1,4 +1,5 @@
-import { JWTError } from "../error";
+import { JWTError } from "../error.ts";
+import type { JWK_HMAC, JWK_RSA_PSS, JWK_RSA_SIGN, JWSAlgorithm } from "../types/index.ts";
 import {
   ECDSA_CURVES,
   checkKeyUsage,
@@ -6,17 +7,26 @@ import {
   isAlgorithm,
   jwsHashOf,
   namedCurveOf,
+  shaBitsOf,
   unusableKey,
-} from "./_key-algorithm";
+} from "./_key-algorithm.ts";
 
-const HASHED_SIGNATURE_ALGORITHMS: Record<string, "HMAC" | "RSASSA-PKCS1-v1_5" | "RSA-PSS"> = {
-  HS: "HMAC",
-  RS: "RSASSA-PKCS1-v1_5",
-  PS: "RSA-PSS",
-};
+const HASHED_SIGNATURE_ALGORITHMS: Readonly<
+  Record<JWK_HMAC | JWK_RSA_SIGN | JWK_RSA_PSS, "HMAC" | "RSASSA-PKCS1-v1_5" | "RSA-PSS">
+> = /* @__PURE__ */ Object.freeze({
+  HS256: "HMAC",
+  HS384: "HMAC",
+  HS512: "HMAC",
+  RS256: "RSASSA-PKCS1-v1_5",
+  RS384: "RSASSA-PKCS1-v1_5",
+  RS512: "RSASSA-PKCS1-v1_5",
+  PS256: "RSA-PSS",
+  PS384: "RSA-PSS",
+  PS512: "RSA-PSS",
+});
 
 export async function sign(
-  alg: string,
+  alg: JWSAlgorithm,
   key: CryptoKey,
   data: Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -26,7 +36,7 @@ export async function sign(
 }
 
 export async function verify(
-  alg: string,
+  alg: JWSAlgorithm,
   key: CryptoKey,
   signature: Uint8Array<ArrayBuffer>,
   data: Uint8Array<ArrayBuffer>,
@@ -39,7 +49,7 @@ export async function verify(
   }
 }
 
-export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage): void {
+export function checkSigCryptoKey(key: CryptoKey, alg: JWSAlgorithm, usage: KeyUsage): void {
   switch (alg) {
     case "HS256":
     case "HS384":
@@ -50,9 +60,9 @@ export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage):
     case "PS256":
     case "PS384":
     case "PS512": {
-      const name = HASHED_SIGNATURE_ALGORITHMS[alg.slice(0, 2)];
+      const name = HASHED_SIGNATURE_ALGORITHMS[alg];
       if (!isAlgorithm(key.algorithm, name)) throw unusableKey(name);
-      const expected = Number.parseInt(alg.slice(2), 10);
+      const expected = shaBitsOf(jwsHashOf(alg));
       if (hashBitsOf(key.algorithm.hash) !== expected)
         throw unusableKey(`SHA-${expected}`, "algorithm.hash");
       break;
@@ -71,61 +81,55 @@ export function checkSigCryptoKey(key: CryptoKey, alg: string, usage: KeyUsage):
       if (actual !== expected) throw unusableKey(expected, "algorithm.namedCurve");
       break;
     }
-    default: {
-      throw new JWTError("CryptoKey does not support this operation", "ERR_JWK_INVALID");
-    }
   }
 
   checkKeyUsage(key, usage);
 }
 
 export function subtleAlgorithm(
-  alg: string,
+  alg: JWSAlgorithm,
   algorithm: KeyAlgorithm,
 ):
   | { hash: string; name: string; saltLength?: undefined; namedCurve?: undefined }
   | { hash: string; name: string; saltLength: number; namedCurve?: undefined }
   | { hash: string; name: string; namedCurve: string | undefined; saltLength?: undefined }
   | { name: string; hash?: undefined; saltLength?: undefined; namedCurve?: undefined } {
-  const hash = jwsHashOf(alg);
   switch (alg) {
     case "HS256":
     case "HS384":
     case "HS512": {
-      return { hash, name: "HMAC" };
+      return { hash: jwsHashOf(alg), name: "HMAC" };
     }
     case "PS256":
     case "PS384":
     case "PS512": {
-      return {
-        hash,
-        name: "RSA-PSS",
-        saltLength: Number.parseInt(alg.slice(-3), 10) >> 3,
-      };
+      const hash = jwsHashOf(alg);
+      return { hash, name: "RSA-PSS", saltLength: shaBitsOf(hash) >> 3 };
     }
     case "RS256":
     case "RS384":
     case "RS512": {
-      return { hash, name: "RSASSA-PKCS1-v1_5" };
+      return { hash: jwsHashOf(alg), name: "RSASSA-PKCS1-v1_5" };
     }
     case "ES256":
     case "ES384":
     case "ES512": {
-      return {
-        hash,
-        name: "ECDSA",
-        namedCurve: namedCurveOf(algorithm),
-      };
+      return { hash: jwsHashOf(alg), name: "ECDSA", namedCurve: namedCurveOf(algorithm) };
     }
     case "Ed25519":
     case "EdDSA": {
       return { name: "Ed25519" };
     }
     default: {
-      throw new JWTError(
-        `alg ${alg} is not supported either by JOSE or your javascript runtime`,
-        "ERR_JWS_ALG_NOT_ALLOWED",
-      );
+      return unsupportedSignatureAlgorithm(alg);
     }
   }
+}
+
+/** Reached only by a caller outside the type system; `never` keeps the switch above exhaustive. */
+function unsupportedSignatureAlgorithm(alg: never): never {
+  throw new JWTError(
+    `alg ${String(alg)} is not supported either by JOSE or your javascript runtime`,
+    "ERR_JWS_ALG_NOT_ALLOWED",
+  );
 }

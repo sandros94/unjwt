@@ -1,12 +1,12 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 
-import type { JWK, JWKSet } from "./types/jwk";
-import type { JWSAlgorithm, JWSHeaderParameters, JWSProtectedHeader } from "./types/jws";
-import { importKey, getJWKsFromSet } from "./jwk";
-import { verify as joseVerify } from "./_crypto/_sign-verify";
-import { JWTError } from "./error";
-import { isJWK, isJWKSet } from "./utils/guards";
-import { applyTypDefault } from "./_jwt-internal";
+import type { JWK, JWKSet } from "./types/jwk.ts";
+import type { JWSAlgorithm, JWSHeaderParameters, JWSProtectedHeader } from "./types/jws.ts";
+import { importKey, getJWKsFromSet } from "./jwk.ts";
+import { verify as joseVerify } from "./_crypto/_sign-verify.ts";
+import { JWTError } from "./error.ts";
+import { isJWK, isJWKSet } from "./utils/guards.ts";
+import { applyTypDefault } from "./_jwt-internal.ts";
 import {
   applyB64Header,
   asKeyUsageError,
@@ -14,7 +14,7 @@ import {
   assertProducerCrit,
   buildJWKSetFilter,
   resolveSigningKey,
-} from "./_internal";
+} from "./_internal.ts";
 
 /** Build a signature's protected header; precedence: `alg` > caller's header > the JWK's `kid`. */
 export function buildJWSProtectedHeader(

@@ -8,9 +8,9 @@ import {
   generalToFlattenedJWS,
   isJWTError,
   isUnsecureError,
-} from "../src/core/jws";
-import { generateJWK, generateKey, importKey } from "../src/core/jwk";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+} from "../src/core/jws.ts";
+import { generateJWK, generateKey, importKey } from "../src/core/jwk.ts";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
 import type {
   JWK,
   JWK_oct,
@@ -23,8 +23,8 @@ import type {
   JWSMultiVerifyResult,
   JWSMultiVerifyAllOptions,
   JWTClaims,
-} from "../src/core/types";
-import type { JOSEPayloadMode, PayloadOf } from "../src/core/jws";
+} from "../src/core/types/index.ts";
+import type { JOSEPayloadMode, PayloadOf } from "../src/core/jws.ts";
 
 /**
  * Asserts a multi-verify outcome is `verified: false` and returns it narrowed to

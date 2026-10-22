@@ -1,4 +1,4 @@
-import type { JWTError } from "../error";
+import type { JWTError } from "../error.ts";
 import type {
   JoseHeaderParameters,
   JOSELimits,
@@ -6,7 +6,7 @@ import type {
   JOSEConsumerOptions,
   JOSEPayloadMode,
   JWTTimeClaimOptions,
-} from "./jwt";
+} from "./jwt.ts";
 import type {
   JWK_oct,
   JWK_EC_Public,
@@ -20,11 +20,21 @@ import type {
   JWK_RSA_PSS,
   JWK_ECDSA,
   JWK_OKP_SIGN,
-} from "./jwk";
-import type { StrictOmit } from "../utils/types";
+  JWK,
+  JWKSet,
+  JWKLookupFunction,
+} from "./jwk.ts";
+import type { StrictOmit } from "../utils/types.ts";
 
 /** JWS Signing Algorithm Identifier. */
 export type JWSAlgorithm = JWK_HMAC | JWK_RSA_SIGN | JWK_RSA_PSS | JWK_ECDSA | JWK_OKP_SIGN;
+
+/** A key lookup for `verify`: it receives the validated JWS header. */
+export type JWSKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> =
+  JWKLookupFunction<TReturn, JWSHeaderParameters>;
+
+/** JWS algorithms that name their digest (`*256`/`*384`/`*512`); EdDSA does not. */
+export type JWSHashedAlgorithm = Exclude<JWSAlgorithm, JWK_OKP_SIGN>;
 
 /** Asymmetric private JWKs admissible as a signing key. */
 export type JWSAsymmetricPrivateJWK =

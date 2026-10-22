@@ -1,9 +1,9 @@
 import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64.ts";
 
-import type { KeyManagementAlgorithm, ContentEncryptionAlgorithm } from "./types/jwk";
-import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt";
+import type { KeyManagementAlgorithm, ContentEncryptionAlgorithm } from "./types/jwk.ts";
+import type { JOSEPayload, JOSEPayloadMode, JWTClaims, PayloadOf } from "./types/jwt.ts";
 import type {
   JWEEncryptJWK,
   JWEHeaderParameters,
@@ -15,26 +15,26 @@ import type {
   JWEMultiDecryptKey,
   JWEMultiDecryptOptions,
   JWEMultiDecryptResult,
-} from "./types/jwe";
+} from "./types/jwe.ts";
 
-import { importKey } from "./jwk";
+import { importKey } from "./jwk.ts";
 import {
   encrypt as joseEncrypt,
   assertPBES2Params,
   generateIV,
   generateCEK,
   encryptKey,
-} from "./_crypto";
-import { JWTError } from "./error";
-import type { ResolvedKeyInput } from "./_internal";
-import { isContentEncryptionAlgorithm } from "./utils/algorithms";
-import { isJWK } from "./utils/guards";
+} from "./_crypto/index.ts";
+import { JWTError } from "./error.ts";
+import type { ResolvedKeyInput } from "./_internal.ts";
+import { isContentEncryptionAlgorithm } from "./utils/algorithms.ts";
+import { isJWK } from "./utils/guards.ts";
 import {
   applyTypDefault,
   computeJwtTimeClaims,
   getPlaintextBytes,
   validateCriticalHeadersJWE,
-} from "./_jwt-internal";
+} from "./_jwt-internal.ts";
 import {
   JWE_ALG_CTX,
   JWE_DIRECT_ALGS,
@@ -49,6 +49,8 @@ import {
   assertConsumerOptions,
   assertOptionEntry,
   assertProtectedOnlyOption,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   assertSerializationObject,
   buildUnwrapKeyOptions,
   checkAlgAllowed,
@@ -74,8 +76,8 @@ import {
   validateClaimsIfJson,
   decodeSegment,
   decodeJWEPayload,
-} from "./_internal";
-import { buildKeyManagementParams, unwrapAndDecrypt } from "./_jwe-internal";
+} from "./_internal.ts";
+import { buildKeyManagementParams, unwrapAndDecrypt } from "./_jwe-internal.ts";
 
 /**
  * Encrypt a payload to multiple recipients as JWE General JSON Serialization (RFC 7516 §7.2.1).
@@ -102,10 +104,17 @@ export async function encryptMulti(
     tier: "shared unprotected",
     family: "JWE",
   });
+  assertProducerKeyHeaders(options.protectedHeader, { tier: "protected", family: "JWE" });
+  assertProducerKeyHeaders(options.sharedUnprotectedHeader, {
+    tier: "shared unprotected",
+    family: "JWE",
+  });
+  assertProducerConfirmation(payload);
   for (const [index, recipient] of recipients.entries()) {
     assertOptionEntry(recipient, { label: `recipients[${index}]`, objects: ["header"] });
     assertNoZipOption(recipient.header, "per-recipient");
     assertProtectedOnlyOption(recipient.header, { tier: "per-recipient", family: "JWE" });
+    assertProducerKeyHeaders(recipient.header, { tier: "per-recipient", family: "JWE" });
   }
 
   const resolvedAlgs: KeyManagementAlgorithm[] = recipients.map((r, i) =>

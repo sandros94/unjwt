@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { JWTError, isJWTError } from "../src/core/error";
+import { JWTError, isJWTError } from "../src/core/error.ts";
 import {
   sign,
   verify,
@@ -8,12 +8,18 @@ import {
   verifyMulti,
   verifyMultiAll,
   generalToFlattenedJWS,
-} from "../src/core/jws";
-import { encrypt, decrypt, encryptMulti, decryptMulti, generalToFlattened } from "../src/core/jwe";
+} from "../src/core/jws.ts";
+import {
+  encrypt,
+  decrypt,
+  encryptMulti,
+  decryptMulti,
+  generalToFlattened,
+} from "../src/core/jwe.ts";
 import {
   deriveJWKFromPassword,
   deriveSharedSecret,
-  exportKey,
+  exportJWK,
   exportPEM,
   generateJWK,
   generateKey,
@@ -21,16 +27,16 @@ import {
   thumbprint,
   unwrapKey,
   wrapKey,
-} from "../src/core/jwk";
-import { computeDurationInSeconds } from "../src/core/utils";
+} from "../src/core/jwk.ts";
+import { computeDurationInSeconds } from "../src/core/utils/index.ts";
 import type {
   ContentEncryptionAlgorithm,
   JWK_EC_Private,
   JWK_EC_Public,
   JWEGeneralSerialization,
   JWSGeneralSerialization,
-} from "../src/core/types";
-import { ec, rsa } from "./keys";
+} from "../src/core/types/index.ts";
+import { ec, rsa } from "./keys.ts";
 
 const payload = { sub: "u1" } as const;
 
@@ -180,7 +186,7 @@ describe("encrypt key inference", () => {
   });
 
   it("still treats a string key as a PBES2 password", async () => {
-    const token = await encrypt(payload, "correct horse battery staple");
+    const token = await encrypt(payload, "correct horse battery staple", { p2c: 1000 });
     const { protectedHeader } = await decrypt(token, "correct horse battery staple");
     expect(protectedHeader.alg).toBe("PBES2-HS256+A128KW");
   });
@@ -201,6 +207,7 @@ describe("encrypt key inference", () => {
 
 describe("key management errors", () => {
   it("importKey rejects a JWK whose alg the library does not implement", async () => {
+    // @ts-expect-error an alg outside the union, as wire data could carry
     await expectCode(() => importKey({ ...rsa.jwk.public, alg: "RS257" }), "ERR_JWK_INVALID");
   });
 
@@ -218,16 +225,16 @@ describe("key management errors", () => {
     );
   });
 
-  it("exportKey rejects a non-extractable CryptoKey", async () => {
+  it("exportJWK rejects a non-extractable CryptoKey", async () => {
     const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, [
       "sign",
       "verify",
     ]);
-    await expectCode(() => exportKey(key), "ERR_JWK_INVALID");
+    await expectCode(() => exportJWK(key), "ERR_JWK_INVALID");
   });
 
-  it("exportKey rejects anything that is not a CryptoKey", async () => {
-    await expectCode(() => exportKey(hs256 as unknown as CryptoKey), "ERR_INVALID_OPTION");
+  it("exportJWK rejects anything that is not a CryptoKey", async () => {
+    await expectCode(() => exportJWK(hs256 as unknown as CryptoKey), "ERR_INVALID_OPTION");
   });
 
   it("exportPEM rejects an algorithm the library does not implement", async () => {
@@ -531,10 +538,12 @@ describe("JWE producer option errors", () => {
 });
 
 describe("key generation", () => {
-  it("stamps alg, ext and key_ops on an AES-CBC+HMAC JWK", async () => {
+  it("stamps alg on an AES-CBC+HMAC JWK and no CryptoKey members", async () => {
     expect(cbcCek.alg).toBe("A256CBC-HS512");
-    expect(cbcCek.ext).toBe(true);
-    expect(cbcCek.key_ops).toEqual(["encrypt", "decrypt"]);
+    expect(cbcCek).not.toHaveProperty("ext");
+    expect(cbcCek).not.toHaveProperty("key_ops");
+    const narrowed = await generateJWK("A256CBC-HS512", { keyUsage: ["encrypt"] });
+    expect(narrowed.key_ops).toEqual(["encrypt"]);
   });
 
   it("gives every generateKey JWK the thumbprint kid generateJWK promises", async () => {

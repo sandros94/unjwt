@@ -1,7 +1,9 @@
 export type {
+  OpenedSessionState,
   SessionClaims,
   SessionContext,
   SessionData,
+  SessionDefinition,
   SessionIssueOptions,
   SessionManager,
   SessionUpdate,
@@ -12,6 +14,7 @@ export {
   type SessionHooksJWS,
   type SessionJWS,
   createJWSSession,
+  defineJWSSession,
   jwsSession,
 } from "./session/jws.ts";
 export type { SessionSignOptions, SessionVerifyOptions } from "./session/jws.ts";
@@ -22,6 +25,7 @@ export {
   type SessionHooksJWE,
   type SessionJWE,
   createJWESession,
+  defineJWESession,
   jweSession,
 } from "./session/jwe.ts";
 export type {
@@ -30,11 +34,12 @@ export type {
   ChunkableCookieJar,
   WriteChunkedCookieOptions,
 } from "./_cookie.ts";
-export type { SessionPlugin } from "./_plugin.ts";
+export type { SessionPlugin, SessionPluginDefinition } from "./_plugin.ts";
 
 export type * from "../../core/types/index.ts";
 export {
   generateJWK,
+  toPublicJWK,
   thumbprint,
   importPEM,
   exportPEM,

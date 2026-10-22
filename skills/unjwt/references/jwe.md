@@ -49,7 +49,7 @@ Produces a JWE Compact Serialization token.
 - `options?: JWEEncryptOptions`
   - `alg?: KeyManagementAlgorithm`
   - `enc?: ContentEncryptionAlgorithm` — defaults to `A256GCM`; under `alg: "dir"` it comes from the CEK's own `alg` (or its `enc` hint) and is required when the key carries neither
-  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`). A `crit` is held to the rules `decrypt` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no registered parameter, and every entry present in the header being built. A header that is not an object (a string, an array, `null`) or that `JSON.stringify` refuses (a `BigInt`, a circular reference) is `ERR_INVALID_OPTION` too. An object payload without `typ` gets `typ: "JWT"`; no `cty` is added (RFC 7519 §5.2 keeps it for nested JWTs, as `"JWT"`), and one set here is kept as given
+  - `protectedHeader?` — additional header params (excludes `alg`/`enc`/`iv`/`tag`/`p2s`/`p2c`/`epk`/`apu`/`apv`; `zip` is typed `never` and rejected at runtime with `ERR_INVALID_OPTION`, and so is an `epk` in any tier: the key agreement writes it, a custom ephemeral key goes through `ecdh.ephemeralKey`). A `jwk` in any tier must be a public JWK, else `ERR_INVALID_OPTION`; a payload `cnf.jwk` that is not one is `ERR_JWT_CLAIM_INVALID` (RFC 7800 §3.2). A `crit` is held to the rules `decrypt` applies, as `ERR_INVALID_OPTION`: a non-empty array of strings, no registered parameter, and every entry present in the header being built. A header that is not an object (a string, an array, `null`) or that `JSON.stringify` refuses (a `BigInt`, a circular reference) is `ERR_INVALID_OPTION` too. An object payload without `typ` gets `typ: "JWT"`; no `cty` is added (RFC 7519 §5.2 keeps it for nested JWTs, as `"JWT"`), and one set here is kept as given
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `currentDate?: Date`
   - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`
@@ -97,7 +97,7 @@ Decrypts a JWE token.
 **Parameters:**
 
 - `jwe` — `string` — the JWE compact token
-- `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWKLookupFunction`
+- `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWEKeyLookup`
   - `JWEDecryptJWK` is the private-side counterpart of `JWEEncryptJWK`. The key is imported with `expect: "private"`, so a public asymmetric JWK throws `ERR_JWK_INVALID`; `encrypt` mirrors this with `expect: "public"` and refuses one that still carries `d`.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
@@ -107,7 +107,7 @@ Decrypts a JWE token.
     - Token has no `kid` — every candidate is tried in order; first to succeed wins
     - A candidate that cannot open the token — unusable key material as much as a failed unwrap — only means "try the next one"; when none succeeds, `ERR_JWE_DECRYPTION_FAILED` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
-  - `JWKLookupFunction`: `(header, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution
+  - `JWEKeyLookup`: `(header: JWEHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg`/`enc` are already validated
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata. A raw `Uint8Array` is such a key: it declares nothing, so `decrypt(jwe, rawBytes, { algorithms: ["A256KW"] })` names the `alg` the matching `encrypt` call was given. A password `string` still infers the PBES2 family alone
   - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls, never for one fetched from a `jwks_uri`
@@ -117,13 +117,12 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - `encryptionAlgorithms?: ContentEncryptionAlgorithm[]` — allowlist of content encryption algorithms
 - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the plaintext must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWE_INVALID` (`"Invalid JWE: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWE_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The decrypted content never decides its own shape, and `typ`/`cty` never pick it
 - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
-- `forceUint8Array?: boolean` — **deprecated** alias of `payload: "bytes"` (removed in v0.9.0). Passing both with conflicting values throws `ERR_INVALID_OPTION`
 - `returnCek?: boolean` — include raw `cek` and `aad` in result. A CEK that cannot leave Web Crypto — a non-extractable `CryptoKey` under `dir`, or one unwrapped under `extractable: false` — throws `ERR_INVALID_OPTION` (`'"returnCek" requires an extractable content encryption key.'`)
 - `extractable?: boolean` — whether the unwrapped CEK `CryptoKey` is extractable; defaults to `true`, and `false` is honoured
 - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
 - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `600_000` — the `p2c` a producer mints by default — to cap PBKDF2 DoS potential; raise it to open a token minted at a higher cost. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
 - `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".'`) before the first import. `pbes2Iterations` defaults to `2_400_000` — four attempts at the `600_000` `p2c` a producer mints by default, so an envelope written entirely at the defaults is still openable by its fourth PBES2 recipient — and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` falls outside `minIterations`/`maxIterations` throws that bound, and one that no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 2400000 exhausted."`); either spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
-- `allowSymmetricJWKSet`, `payload`, `validateClaims` and `forceUint8Array` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
+- `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
 - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 - Options are checked before the token is read, as on `verify`: an empty `audience` / `issuer` / `subject` / `typ`, a non-string `typ`, `maxTokenAge: 0`, non-object `options` or `limits`, and an `algorithms` / `encryptionAlgorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings throw `ERR_INVALID_OPTION`
@@ -135,7 +134,6 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - no `payload` or `payload: "json"` → `T`, the claims — `JWTClaims` unless given: `decrypt<MyClaims>(token, key)`
 - `payload: "string"` → `string`; `payload: "bytes"` → `Uint8Array<ArrayBuffer>`
 - a `payload` that is not a literal (a `JOSEPayloadMode` variable, a `JWEDecryptOptions` object) → the union of what its modes return
-- the deprecated `forceUint8Array: true` → `Uint8Array<ArrayBuffer>`
 - a claims type together with `payload: "string"` / `"bytes"` is a type error
 
 **Header and segment validation.** Everything the protected header alone decides is settled before a key is resolved or imported, so a malformed token never reaches key management:
@@ -330,8 +328,8 @@ interface JWEHeaderParameters {
   cty?: string;
   crit?: string[];
   // JWE-specific header parameters
-  alg?: KeyManagementAlgorithm | (string & {});
-  enc?: ContentEncryptionAlgorithm | (string & {});
+  alg?: KeyManagementAlgorithm;
+  enc?: ContentEncryptionAlgorithm;
   p2c?: number;
   p2s?: string;
   iv?: string;
@@ -440,8 +438,6 @@ interface JWEDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   keyUsage?: KeyUsage[];
   extractable?: boolean;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   returnCek?: boolean;
   minIterations?: number; // default: 1000
@@ -581,8 +577,6 @@ interface JWEMultiDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode>
   keyUsage?: KeyUsage[];
   extractable?: boolean;
   payload?: Mode;
-  /** @deprecated Use `payload: "bytes"`. Removed in v0.9.0 */
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
   returnCek?: boolean;
   minIterations?: number;
@@ -602,17 +596,10 @@ interface JWEMultiDecryptResult<T extends JOSEPayload = JOSEPayload> {
   recipientIndex: number;
 }
 
-// JWKLookupFunction is shared with JWS verify — imported from unjwt/jwk or unjwt
-// Optional `TReturn` generic narrows the return type; defaults fully permissive.
-type JWKLookupFunction<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
-  header: {
-    kid?: string;
-    alg?: string;
-    enc?: string;
-    typ?: string;
-    crit?: string[];
-    [key: string]: unknown;
-  },
+// JWEKeyLookup = JWKLookupFunction<TReturn, JWEHeaderParameters> — from unjwt/jwe or unjwt.
+// The header is the decoded protected header after the alg/enc checks, so both are closed unions.
+type JWEKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> = (
+  header: JWEHeaderParameters,
   token: string,
-) => TReturn | Promise<TReturn>;
+) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
 ```

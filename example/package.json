@@ -1,0 +1,13 @@
+{
+  "name": "unjwt-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "h3 serve server.mjs",
+    "start": "h3 serve --prod server.mjs"
+  },
+  "dependencies": {
+    "h3": "^2.0.5",
+    "unjwt": "^0.8.2"
+  }
+}

@@ -1,14 +1,15 @@
-import type { SessionIssueOptions } from "../../_session";
-import type { ChunkableCookieJar } from "../_cookie";
+import type { ChunkableCookieJar } from "../_cookie.ts";
 
-export type { SessionIssueOptions };
 export type {
+  OpenedSessionState,
   SessionClaims,
   SessionData,
+  SessionDefinition,
+  SessionIssueOptions,
   SessionManager,
   SessionUpdate,
   SessionUpdateTrigger,
-} from "../../_session-types";
+} from "../../../session/types.ts";
 
 export interface SessionContext {
   cookie: ChunkableCookieJar;

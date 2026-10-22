@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>unjwt on Nitro 3</title>
+  </head>
+  <body>
+    <main style="font-family: system-ui; max-width: 40rem; margin: 2rem auto">
+      <h1>unjwt on Nitro 3</h1>
+      <p>
+        <button data-call="POST /login">login</button>
+        <button data-call="GET /me">me</button>
+        <button data-call="POST /logout">logout</button>
+        <button data-socket>websocket</button>
+        <button data-call="GET /throw-after-clear">throw after clear</button>
+      </p>
+      <div id="log"></div>
+    </main>
+    <script type="module">
+      const log = document.querySelector("#log");
+      const say = (line) => {
+        const pre = document.createElement("pre");
+        pre.textContent = line;
+        log.prepend(pre);
+      };
+
+      async function call(method, path, body) {
+        const response = await fetch(path, {
+          method,
+          headers: body ? { "content-type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const text = await response.text();
+        say(`${method} ${path} → ${response.status} ${text}`);
+      }
+
+      function openSocket() {
+        const ws = new WebSocket(`${location.origin.replace("http", "ws")}/ws`);
+        ws.addEventListener("open", () => ws.send("ping"));
+        ws.addEventListener("message", (event) => say(`ws ← ${event.data}`));
+        ws.addEventListener("error", () => say("ws → refused"));
+        ws.addEventListener("close", (event) => say(`ws closed (${event.code})`));
+      }
+
+      for (const button of document.querySelectorAll("[data-call]")) {
+        const [method, path] = button.dataset.call.split(" ");
+        const body = path === "/login" ? { user: "alice" } : undefined;
+        button.addEventListener("click", () => call(method, path, body));
+      }
+      document.querySelector("[data-socket]").addEventListener("click", openSocket);
+    </script>
+  </body>
+</html>

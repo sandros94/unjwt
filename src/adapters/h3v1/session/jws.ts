@@ -1,44 +1,50 @@
 import type { H3Event } from "h3v1";
 
-import type { CookieSerializeOptions } from "cookie-esv1";
-
-import type { ExpiresIn } from "../../../core/types";
-import type { SessionIssueOptions } from "../../_session";
+import type { ExpiresIn } from "../../../core/types/index.ts";
+import type {
+  SessionDefinition,
+  SessionIssueOptions,
+  SessionRecord,
+  SessionState,
+} from "../../../session/types.ts";
 import {
   type JWSCodecConfig,
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "../../_codec-jws";
-export type { SessionSignOptions, SessionVerifyOptions } from "../../_codec-jws";
-import {
-  type SessionBinding,
-  type SessionState,
-  bindSession,
-  openSessionToken,
-  sessionToken,
-} from "../../_session-core";
-import { loadSession } from "../../_session-read";
+} from "../../../session/_codec-jws.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "../../../session/_codec-jws.ts";
+import { bindSession } from "../../../session/_bind.ts";
+import type { SessionBinding } from "../../../session/_types.ts";
+import { openSessionToken } from "../../../session/_core.ts";
+import { defineSession } from "../../../session/_definition.ts";
+import { loadSession } from "../../../session/_read.ts";
 import {
   dropSession,
   encodeSession,
   issueSession,
-  sessionManager,
   sessionActions,
-} from "../../_session-write";
-import type { SessionRecord } from "../../_session-types";
-import type { SessionClaims, SessionUpdate, SessionManager } from "./types";
-import { type CompatEvent, PREFIX, h3SessionPort } from "./_shared";
+} from "../../../session/_write.ts";
+import type { CookieSerializeOptions } from "../_cookie.ts";
+import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
+import { type CompatEvent, PREFIX, h3SessionDriver } from "./_shared.ts";
 
 const codec = createJWSCodec({ prefix: PREFIX, defaultName: "h3-jws" });
+const hookArgs = (event: CompatEvent | H3Event) => ({ event });
 
-/** Session state for the current request, mirroring the claims of its JWS token. */
+/**
+ * Session state for the current request, mirroring the claims of its JWS token.
+ * @deprecated `unjwt/adapters/h3v1` is removed in 0.9.0. Nuxt 4.6+ runs sessions through `unjwt/session` with handlers from `nuxt/server`; h3 v2, Nuxt 5 and Nitro 3 through `unjwt/adapters/h3`.
+ */
 export interface SessionJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
-/** JWS session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
+/**
+ * JWS session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token.
+ * @deprecated `unjwt/adapters/h3v1` is removed in 0.9.0. Nuxt 4.6+ runs sessions through `unjwt/session` with handlers from `nuxt/server`; h3 v2, Nuxt 5 and Nitro 3 through `unjwt/adapters/h3`.
+ */
 export interface SessionHooksJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -50,7 +56,10 @@ export interface SessionHooksJWS<
   SessionConfigJWS<T, MaxAge, TEvent>
 > {}
 
-/** Configuration for a JWS-backed (signed, not encrypted) session. */
+/**
+ * Configuration for a JWS-backed (signed, not encrypted) session.
+ * @deprecated `unjwt/adapters/h3v1` is removed in 0.9.0. Nuxt 4.6+ runs sessions through `unjwt/session` with handlers from `nuxt/server`; h3 v2, Nuxt 5 and Nitro 3 through `unjwt/adapters/h3`.
+ */
 export interface SessionConfigJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -61,18 +70,38 @@ export interface SessionConfigJWS<
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 
-/** Create a JWS (signed, not encrypted) session manager for the request; clients can read its data. */
+/**
+ * Defines a JWS (signed, not encrypted) session once, its data readable by clients; `use`, `token`, `issue` and `open` serve every request.
+ * @deprecated `unjwt/adapters/h3v1` is removed in 0.9.0. Nuxt 4.6+ runs sessions through `unjwt/session` with handlers from `nuxt/server`; h3 v2, Nuxt 5 and Nitro 3 through `unjwt/adapters/h3`.
+ */
+export function defineJWSSession<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
+>(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent> {
+  return defineSession<T, MaxAge, CompatEvent | H3Event, JWSCodecConfig>(config, {
+    driver: h3SessionDriver,
+    hookArgs,
+    codec,
+  });
+}
+
+/**
+ * Create a JWS (signed, not encrypted) session manager for the request.
+ * @deprecated Use `defineJWSSession(config).use(event)`.
+ */
 export async function useJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): Promise<SessionManager<T, MaxAge>> {
-  const binding = bind(event, config);
-  await loadSession<T, MaxAge, CompatEvent | H3Event, JWSCodecConfig>(binding);
-  return sessionManager<T, MaxAge, CompatEvent | H3Event, JWSCodecConfig>(binding);
+  return defineJWSSession(config).use(event);
 }
 
-/** Get (and lazily initialize) the session for the current request. */
+/**
+ * Get (and lazily initialize) the session for the current request.
+ * @deprecated Use `defineJWSSession(config).use(event)`; the manager exposes the same state.
+ */
 export async function getJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -81,16 +110,22 @@ export async function getJWSSession<
   return loadSession<T, MaxAge, CompatEvent | H3Event, JWSCodecConfig>(bind(event, config));
 }
 
-/** Read the raw session token: cookie first, then the session header (default `x-<name>-session`, optional `Bearer`). */
+/**
+ * Read the raw session token: cookie first, then the session header (default `x-<name>-session`, optional `Bearer`).
+ * @deprecated Use `defineJWSSession(config).token(event)`.
+ */
 export function getJWSSessionToken<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends CompatEvent | H3Event = CompatEvent | H3Event,
 >(event: TEvent, config: SessionConfigJWS<T, MaxAge, TEvent>): string | undefined {
-  return sessionToken(bind(event, config));
+  return defineJWSSession(config).token(event);
 }
 
-/** Update the session data (if provided) and reissue the JWS; `options.maxAge` overrides this token's lifetime. */
+/**
+ * Update the session data (if provided) and reissue the JWS; `options.maxAge` overrides this token's lifetime.
+ * @deprecated Use `(await defineJWSSession(config).use(event)).update(update, options)`.
+ */
 export async function updateJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -108,7 +143,10 @@ export async function updateJWSSession<
   );
 }
 
-/** Sign the session as a compact JWS without writing a cookie; fresh `jti` if no ID, no token source needed. */
+/**
+ * Sign the session as a compact JWS without writing a cookie; fresh `jti` if no ID, no token source needed.
+ * @deprecated Use `defineJWSSession(config).issue(data)` to mint a token, or `(await defineJWSSession(config).use(event)).token` for the current one.
+ */
 export async function signJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -117,7 +155,10 @@ export async function signJWSSession<
   return encodeSession(bind(event, config));
 }
 
-/** Verify a compact JWS into a session, checking `typ`, pinned `alg`, `jti`/`iat` and `exp` (required with `maxAge`). */
+/**
+ * Verify a compact JWS into a session, checking `typ`, pinned `alg`, `jti`/`iat` and `exp` (required with `maxAge`).
+ * @deprecated Use `defineJWSSession(config).open(token)`.
+ */
 export async function verifyJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -128,12 +169,15 @@ export async function verifyJWSSession<
   token: string,
 ): Promise<Partial<SessionJWS<T, MaxAge>>> {
   return openSessionToken<T, MaxAge, JWSCodecConfig>(codec, config, {
-    token,
-    carrier: { event },
+    token: token,
+    args: { event },
   });
 }
 
-/** Drop the session cookie and leave an empty session for the rest of the request. */
+/**
+ * Drop the session cookie and leave an empty session for the rest of the request.
+ * @deprecated Use `(await defineJWSSession(config).use(event)).clear()`.
+ */
 export async function clearJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -151,7 +195,8 @@ function bind<
   config: SessionConfigJWS<T, MaxAge, TEvent>,
 ): SessionBinding<CompatEvent | H3Event, JWSCodecConfig> {
   return bindSession<CompatEvent | H3Event, JWSCodecConfig>(event, config, {
-    port: h3SessionPort,
+    driver: h3SessionDriver,
+    hookArgs,
     codec,
     actions: sessionActions(),
   });

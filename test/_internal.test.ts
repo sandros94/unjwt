@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { textDecoder, textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "../src/core/utils/base64";
+import { base64UrlStringify } from "../src/core/utils/base64.ts";
 
 import {
   JWS_ALG_CTX,
@@ -14,9 +14,9 @@ import {
   resolveSigningKey,
   validateClaimsIfJson,
   resolvePayloadMode,
-} from "../src/core/_internal";
-import { generateKey, generateJWK } from "../src/core/jwk";
-import { isJWTError, JWTError } from "../src/core/error";
+} from "../src/core/_internal.ts";
+import { generateKey, generateJWK } from "../src/core/jwk.ts";
+import { isJWTError, JWTError } from "../src/core/error.ts";
 import type {
   JWK,
   JWK_EC_Private,
@@ -25,8 +25,8 @@ import type {
   JWK_RSA_Public,
   JWK_Symmetric,
   JWTClaims,
-} from "../src/core/types";
-import type { JWTErrorCode, KnownJWTErrorCode } from "../src/core/error";
+} from "../src/core/types/index.ts";
+import type { JWTErrorCode, KnownJWTErrorCode } from "../src/core/error.ts";
 
 /** Assert that `fn` throws a `JWTError` with the given `code`. */
 function expectThrowsJWTError(fn: () => unknown, code: KnownJWTErrorCode): void {
@@ -49,6 +49,7 @@ describe.concurrent("_internal helpers", () => {
     const noKid: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RS256" };
     const noAlg: JWK = { kty: "RSA", n: "x", e: "AQAB", kid: "a" };
     const wrongAlg: JWK = { kty: "RSA", n: "x", e: "AQAB", kid: "a", alg: "RS512" };
+    // @ts-expect-error an oct key claiming a signing alg, as a hostile JWK Set could carry
     const octKey: JWK = { kty: "oct", k: "x", kid: "a", alg: "RS256" };
 
     it("keeps keys matching both kid and alg", () => {
@@ -83,7 +84,7 @@ describe.concurrent("_internal helpers", () => {
     });
 
     it("drops oct entries unless the caller admits symmetric material", () => {
-      const header = { kid: "a", alg: "RS256" };
+      const header = { kid: "a", alg: "RS256" } as const;
       expect(buildJWKSetFilter(header, { op: "sig" })(octKey)).toBe(false);
       expect(buildJWKSetFilter(header, { op: "sig", allowSymmetric: true })(octKey)).toBe(true);
     });
@@ -248,7 +249,7 @@ describe.concurrent("_internal helpers", () => {
 
     it("rejects raw bytes under an algorithm that is not HMAC", async () => {
       const raw = crypto.getRandomValues(new Uint8Array(32));
-      for (const alg of ["RS256", "ES256", "EdDSA", "PS512"]) {
+      for (const alg of ["RS256", "ES256", "EdDSA", "PS512"] as const) {
         const error = await resolveSigningKey(alg, raw, "verify").catch((e) => e);
         expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
         expect(error.message).toContain(alg);

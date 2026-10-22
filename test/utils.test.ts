@@ -10,6 +10,7 @@ import {
   base64Encode,
   base64Decode,
   concatUint8Arrays,
+  digestUrl,
   maybeArray,
   isJWK,
   isPublicJWK,
@@ -23,7 +24,7 @@ import {
   validateJwtClaims,
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
-} from "../src/core/utils";
+} from "../src/core/utils/index.ts";
 import {
   computeJwtTimeClaims,
   parsePayloadBytes,
@@ -31,9 +32,9 @@ import {
   parsePayloadText,
   validateCriticalHeadersJWE,
   validateCriticalHeadersJWS,
-} from "../src/core/internal";
-import { generateKey } from "../src/core/jwk";
-import { isJWTError } from "../src/core/error";
+} from "../src/core/internal.ts";
+import { generateKey, thumbprint } from "../src/core/jwk.ts";
+import { isJWTError } from "../src/core/error.ts";
 import type {
   JOSEPayloadMode,
   JWTClaims,
@@ -46,7 +47,7 @@ import type {
   JWK_OKP_Public,
   JWK_OKP_Private,
   JWK_RSA_Public,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 
 describe.concurrent("Utility Functions", () => {
   describe("concatUint8Arrays", () => {
@@ -196,6 +197,28 @@ describe.concurrent("Utility Functions", () => {
         expect((error as Error).message).toContain(name);
       }
     });
+  });
+});
+
+describe("digestUrl", () => {
+  it("digests text as UTF-8 and bytes as given, base64url, SHA-256 by default", async () => {
+    const text = await digestUrl("abc");
+    expect(text).toBe("ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0");
+    expect(await digestUrl(textEncoder.encode("abc"))).toBe(text);
+    expect(await digestUrl("abc", "SHA-256")).toBe(text);
+    expect(await digestUrl("abc", "SHA-384")).toBe(
+      "ywB1P0WjXou1oD1pmsZQBycsMqsO3tFjGotgWkP_W-2AhgcroefMI1i67KE0yCWn",
+    );
+    expect(await digestUrl("abc", "SHA-512")).toBe(
+      "3a81oZNherrMQXNJriBBMRLm-k6JqX6iCp7u5ktV05ohkpkqJ0_BqDa6PCOj_uu9RU1EI2Q86A4qmslPpUyknw",
+    );
+    expectTypeOf(digestUrl).returns.resolves.toEqualTypeOf<string>();
+  });
+
+  it("is the last step of a JWK thumbprint", async () => {
+    const { publicKey } = await generateKey("ES256", { toJWK: true, kid: false });
+    const canonical = `{"crv":"P-256","kty":"EC","x":"${publicKey.x}","y":"${publicKey.y}"}`;
+    expect(await digestUrl(canonical)).toBe(await thumbprint(publicKey));
   });
 });
 
@@ -491,20 +514,18 @@ describe("inferJWSAllowedAlgorithms", () => {
   });
 
   it("infers from CryptoKeys across JWS alg families", async () => {
-    const hmac = await generateKey("HS384");
+    const [hmac, rsa, pss, ec, ed] = await Promise.all([
+      generateKey("HS384"),
+      generateKey("RS512", { modulusLength: 2048 }),
+      generateKey("PS256", { modulusLength: 2048 }),
+      generateKey("ES384"),
+      generateKey("Ed25519"),
+    ]);
     expect(inferJWSAllowedAlgorithms(hmac)).toEqual(["HS384"]);
-
-    const rsa = await generateKey("RS512", { modulusLength: 2048 });
     expect(inferJWSAllowedAlgorithms(rsa.publicKey)).toEqual(["RS512"]);
     expect(inferJWSAllowedAlgorithms(rsa)).toEqual(["RS512"]);
-
-    const pss = await generateKey("PS256", { modulusLength: 2048 });
     expect(inferJWSAllowedAlgorithms(pss.publicKey)).toEqual(["PS256"]);
-
-    const ec = await generateKey("ES384");
     expect(inferJWSAllowedAlgorithms(ec.publicKey)).toEqual(["ES384"]);
-
-    const ed = await generateKey("Ed25519");
     expect(inferJWSAllowedAlgorithms(ed.publicKey)).toEqual(["EdDSA", "Ed25519"]);
   });
 
@@ -639,7 +660,7 @@ describe("base64 tooling", () => {
 
     it("rejects padding, the standard alphabet, whitespace and stray bits", () => {
       for (const bad of ["aGVsbG8=", "+__+", "aGVs bG8", "aGVsbG9", "aGVsb"]) {
-        expect(() => base64UrlParse(bad)).toThrowError(
+        expect(() => base64UrlParse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }
@@ -661,7 +682,7 @@ describe("base64 tooling", () => {
       expect(base64Parse("aGVsbG8=")).toBe("hello");
       expect(base64Parse("+//+", { returnAs: "uint8array" })).toEqual(bytes);
       for (const bad of ["aGVsbG8", "-__-", "aGVsbG8=="]) {
-        expect(() => base64Parse(bad)).toThrowError(
+        expect(() => base64Parse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }

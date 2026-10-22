@@ -32,15 +32,15 @@ base64UrlParse("SGVsbG8="); // throws UnsecureError MALFORMED
 
 Standard base64 per RFC 4648 §4: `+/` alphabet, **`=` padding required**. Same options as the URL-safe pair.
 
-### Deprecated aliases (removed in v0.9)
-
-`base64UrlEncode` → `base64UrlStringify`, `base64UrlDecode` → `base64UrlParse`, `base64Encode` → `base64Stringify`, `base64Decode` → `base64Parse`. Same behaviour, same signatures.
-
 ### `secureRandomBytes(length)`
 
 Returns a cryptographically secure `Uint8Array<ArrayBuffer>` of the specified length via `crypto.getRandomValues`.
 
 > Re-exported from `unsecure/random`. There is no `randomBytes` alias — use `secureRandomBytes`.
+
+### `digestUrl(data, hash?)`
+
+Base64url digest of text (UTF-8) or `Uint8Array` under `hash: "SHA-256" | "SHA-384" | "SHA-512"` (`DigestHash`, default `"SHA-256"`); the last step of `thumbprint()`. DPoP (RFC 9449): the access token carries `cnf: { jkt: await thumbprint(publicKey) }`; each proof is `sign({ jti, htm, htu, ath: await digestUrl(accessToken) }, privateKey, { protectedHeader: { typ: "dpop+jwt", jwk: publicKey } })`; the resource server verifies it with `verify(proof, (header) => header.jwk, { algorithms, typ: "dpop+jwt" })`, then checks `ath` against the presented token and `thumbprint(header.jwk)` against the token's `cnf.jkt`.
 
 ### `concatUint8Arrays(...arrays)`
 
@@ -121,7 +121,7 @@ interface JWTClaimValidationOptions {
 
 ### `inferJWSAllowedAlgorithms(key)`
 
-Returns the set of JWS signing algorithms a given key can unambiguously produce, or `undefined` when inference is not possible. Used by `verify()` as the default allowlist when `options.algorithms` is omitted. Returns `undefined` for raw `Uint8Array` keys, JWKs without `alg`, lookup functions, or an HMAC/RSA `CryptoKey` whose hash is not SHA-256/384/512 — callers with those shapes must pass `algorithms` explicitly.
+Returns the set of JWS signing algorithms a given key can unambiguously produce, or `undefined` when inference is not possible. Used by `verify()` as the default allowlist when `options.algorithms` is omitted. Returns `undefined` for raw `Uint8Array` keys, JWKs without `alg` or whose `alg` is not a JWS algorithm, lookup functions, or an HMAC/RSA `CryptoKey` whose hash is not SHA-256/384/512 — callers with those shapes must pass `algorithms` explicitly.
 
 ### `inferJWEAllowedAlgorithms(key)`
 
@@ -129,7 +129,7 @@ Returns the set of JWE key-management algorithms a given key can unambiguously h
 
 - A password `string` infers the three PBES2 variants.
 - A raw `Uint8Array` infers nothing — bytes carry no role, so the caller names the algorithm.
-- An `oct` JWK infers its own `alg` alone, except that an `alg` naming a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is a CEK and infers `"dir"`.
+- An `oct` JWK infers its own `alg` alone, except that an `alg` naming a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is a CEK and infers `"dir"`; an `alg` that is not a key management algorithm (an `HS*` key) infers nothing.
 - An EC or OKP JWK without an `alg` infers the four ECDH-ES variants from its `crv`.
 
 ## Helper Functions
@@ -174,15 +174,9 @@ Import: `import { ... } from "unjwt/internal"`
 - `expiredClaimMessage(exp)` — the `ERR_JWT_EXPIRED` message for an `exp` (NumericDate, seconds)
   that has passed; the session adapters raise the same text for an in-memory expiry.
 
-### Deprecated aliases in `unjwt/utils` (removed in v0.9)
-
-`applyTypDefault`, `decodePayloadFromBytes` → `parsePayloadBytes`,
-`decodePayloadFromB64UrlSegment` → `parsePayloadSegment`, `getPlaintextBytes`,
-`computeJwtTimeClaims`, `validateCriticalHeadersJWS`, `validateCriticalHeadersJWE`,
-`assertCritShape`, and the types `DecodePayloadOptions` → `ParsePayloadOptions`,
-`ComputeJwtTimeClaimsOptions`. Same bindings; import them from `unjwt/internal`.
-
 ## Utility Types
+
+`JWTClaims` types `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti` and `cnf` (`JWTConfirmation`, RFC 7800 §3.1: `jwk`, `jwe`, `kid`, `jku`, plus `jkt` of RFC 9449 and `x5t#S256` of RFC 8705); `cnf` is never validated, the application compares it to the presented key.
 
 ```ts
 // Strict version of Omit. `K` accepts real keys of `T` plus arbitrary string /

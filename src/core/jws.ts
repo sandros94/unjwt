@@ -1,5 +1,5 @@
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "./utils/base64";
+import { base64UrlStringify } from "./utils/base64.ts";
 
 import type {
   JWKSet,
@@ -7,33 +7,35 @@ import type {
   JWSVerifyJWK,
   JWSAlgorithm,
   JWSSignOptions,
-  JWKLookupFunction,
+  JWSKeyLookup,
   JWSVerifyOptions,
   JWSVerifyResult,
   JOSEPayload,
   JOSEPayloadMode,
   JWTClaims,
   PayloadOf,
-} from "./types";
-import { importKey } from "./jwk";
-import { sign as joseSign } from "./_crypto";
-import { JWTError } from "./error";
-import { isJWK } from "./utils/guards";
+} from "./types/index.ts";
+import { importKey } from "./jwk.ts";
+import { sign as joseSign } from "./_crypto/index.ts";
+import { JWTError } from "./error.ts";
+import { isJWK } from "./utils/guards.ts";
 import {
   computeJwtTimeClaims,
   getPlaintextBytes,
   parsePayloadText,
   validateCriticalHeadersJWS,
-} from "./_jwt-internal";
+} from "./_jwt-internal.ts";
 import {
   JWS_ALG_CTX,
   asKeyUsageError,
   assertCompactToken,
   assertConsumerOptions,
   checkAlgAllowed,
-  checkJWSAlgSupported,
+  assertJWSAlgSupported,
   checkJWSB64,
   assertNotStringKey,
+  assertProducerKeyHeaders,
+  assertProducerConfirmation,
   decodeJWSPayload,
   decodeProtectedHeader,
   resolveKeyInput,
@@ -45,11 +47,11 @@ import {
   assertOptionEntry,
   validateClaimsIfJson,
   decodeSegment,
-} from "./_internal";
-import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal";
+} from "./_internal.ts";
+import { buildJWSProtectedHeader, verifyWithKey } from "./_jws-internal.ts";
 
-export type * from "./types/jws";
-export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt";
+export type * from "./types/jws.ts";
+export type { JOSEPayloadMode, JOSEPayloadTypeMap, PayloadOf } from "./types/jwt.ts";
 export {
   type JWTErrorCode,
   type KnownJWTErrorCode,
@@ -59,9 +61,9 @@ export {
   isJWTError,
   UnsecureError,
   isUnsecureError,
-} from "./error";
-export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi";
-export { DEFAULT_JOSE_LIMITS } from "./_internal";
+} from "./error.ts";
+export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi.ts";
+export { DEFAULT_JOSE_LIMITS } from "./_internal.ts";
 
 /** Creates a JWS Compact Serialization; an object payload is JSON-serialized, `alg` is required unless the JWK carries one. */
 export async function sign(
@@ -83,6 +85,8 @@ export async function sign(
   assertNotStringKey(key);
 
   const { protectedHeader: userHeader } = options;
+  assertProducerKeyHeaders(userHeader, { tier: "protected", family: "JWS" });
+  assertProducerConfirmation(payload);
   let { alg } = options;
 
   if (!alg) {
@@ -96,8 +100,7 @@ export async function sign(
     }
   }
 
-  const algSupportError = checkJWSAlgSupported(alg);
-  if (algSupportError) throw algSupportError;
+  assertJWSAlgSupported(alg);
 
   let signingKey: CryptoKey;
   try {
@@ -154,23 +157,23 @@ export async function sign(
  */
 export async function verify<T extends object = JWTClaims>(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSVerifyOptions<"json"> & { forceUint8Array?: false },
 ): Promise<JWSVerifyResult<T>>;
 /** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
 export async function verify(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSVerifyOptions & { forceUint8Array: true },
 ): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verify<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options?: JWSVerifyOptions<Mode>,
 ): Promise<JWSVerifyResult<PayloadOf<Mode>>>;
 export async function verify(
   jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWKLookupFunction,
+  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
   options: JWSVerifyOptions = {},
 ): Promise<JWSVerifyResult> {
   assertCompactToken(jws, "JWS");
@@ -199,8 +202,7 @@ export async function verify(
 
   const alg = protectedHeader.alg;
 
-  const algSupportError = checkJWSAlgSupported(alg);
-  if (algSupportError) throw algSupportError;
+  assertJWSAlgSupported(alg);
 
   const headerError =
     checkJWSB64(protectedHeader) ??

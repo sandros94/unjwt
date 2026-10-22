@@ -1,17 +1,17 @@
 import * as jose from "jose";
 import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64";
+import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
 
-import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws";
+import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws.ts";
 import type {
   JOSEPayloadMode,
   JOSEPayloadTypeMap,
   JWSVerifyOptions,
   JWSVerifyResult,
   PayloadOf,
-} from "../src/core/jws";
-import { generateKey, generateJWK, exportKey } from "../src/core/jwk";
+} from "../src/core/jws.ts";
+import { generateKey, generateJWK, exportJWK } from "../src/core/jwk.ts";
 import type {
   JWTClaims,
   JWK,
@@ -20,7 +20,7 @@ import type {
   JWK_RSA_Private,
   JWKSet,
   JWSVerifyJWK,
-} from "../src/core/types";
+} from "../src/core/types/index.ts";
 
 describe.concurrent("JWS Utilities", () => {
   const payloadObj = {
@@ -506,10 +506,10 @@ describe.concurrent("JWS Utilities", () => {
 
       jwkSet = {
         keys: await Promise.all([
-          exportKey(hs256Key, { kid: "key2" }),
-          exportKey(rs256KeyPair.publicKey, { kid: "key1" }),
-          exportKey(es256KeyPair.publicKey, { kid: "key66" }),
-          exportKey(ps256KeyPair.publicKey, { kid: "key69" }),
+          exportJWK(hs256Key, { kid: "key2" }),
+          exportJWK(rs256KeyPair.publicKey, { kid: "key1" }),
+          exportJWK(es256KeyPair.publicKey, { kid: "key66" }),
+          exportJWK(ps256KeyPair.publicKey, { kid: "key69" }),
         ]),
       };
 
@@ -622,7 +622,7 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     it("should verify with JWK known in the keyset", async () => {
-      const rsPrKey = await exportKey<JWK_RSA_Private<"RS256">>(rs256KeyPair.privateKey, {
+      const rsPrKey = await exportJWK<JWK_RSA_Private<"RS256">>(rs256KeyPair.privateKey, {
         kid: "key1",
       });
       const jws = await sign(payloadObj, rsPrKey);
@@ -694,7 +694,7 @@ describe.concurrent("JWS Utilities", () => {
     it("should verify with JWKSet by trying multiple keys when no kid is present", async () => {
       // Two HMAC keys without kid — sign with key2, set has key1 first so retry is exercised
       const [raw1, raw2] = await Promise.all([generateKey("HS256"), generateKey("HS256")]);
-      const [jwk1, jwk2] = await Promise.all([exportKey(raw1), exportKey(raw2)]);
+      const [jwk1, jwk2] = await Promise.all([exportJWK(raw1), exportJWK(raw2)]);
       const jws = await sign(payloadObj, raw2, { alg: "HS256" });
       const set: JWKSet = { keys: [jwk1, jwk2] };
       const { payload } = await verify(jws, set, { allowSymmetricJWKSet: true });
@@ -702,8 +702,14 @@ describe.concurrent("JWS Utilities", () => {
     });
 
     describe("JWK Set candidate policy", () => {
+      let rsaPair: Awaited<ReturnType<typeof generateJWK<"RS256">>>;
+      let otherRsaPair: Awaited<ReturnType<typeof generateJWK<"RS256">>>;
+      beforeAll(async () => {
+        [rsaPair, otherRsaPair] = await Promise.all([generateJWK("RS256"), generateJWK("RS256")]);
+      });
+
       it("ignores an injected oct key unless the caller admits symmetric material", async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const attackerSecret = await generateJWK("HS256");
         const genuine = await sign(payloadObj, privateKey);
         const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
@@ -724,7 +730,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it('skips a "use"/"key_ops" mismatched key ordered before the signing key', async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);
 
         const useMismatch: JWKSet = { keys: [{ ...publicKey, use: "enc" }, publicKey] };
@@ -737,7 +743,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it("skips non-JWK entries and unusable candidates instead of aborting", async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);
         const kid = publicKey.kid;
 
@@ -757,7 +763,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it("does not let an alg-less key poison inference for the whole set", async () => {
-        const { publicKey, privateKey } = await generateJWK("RS256", { modulusLength: 2048 });
+        const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);
         const { alg: _alg, ...algLess } = publicKey as JWK & { alg?: string };
 
@@ -767,10 +773,7 @@ describe.concurrent("JWS Utilities", () => {
       });
 
       it("reports every tried candidate as the cause when none verifies", async () => {
-        const [a, b] = await Promise.all([
-          generateJWK("RS256", { modulusLength: 2048 }),
-          generateJWK("RS256", { modulusLength: 2048 }),
-        ]);
+        const [a, b] = [rsaPair, otherRsaPair];
         const jws = await sign(payloadObj, { ...a.privateKey, kid: undefined });
 
         const set = {
@@ -1411,7 +1414,7 @@ describe.concurrent("JWS Utilities", () => {
         "signature verification failed",
       );
 
-      const otherJoseKey = await jose.importJWK(await exportKey(otherKey));
+      const otherJoseKey = await jose.importJWK(await exportJWK(otherKey));
       await expect(jose.compactVerify(jws, otherJoseKey)).rejects.toThrow(
         "signature verification failed",
       );
@@ -1981,8 +1984,9 @@ describe.concurrent("JWS producer header gates", () => {
   it.each(["alg", "typ", "cty", "kid", "jwk", "jku", "x5c", "x5t", "x5u"])(
     "refuses the registered parameter %s in crit",
     async (param) => {
+      const value = param === "jwk" ? (await generateJWK("ES256")).publicKey : "irrelevant";
       const error = await sign("payload", key, {
-        protectedHeader: { crit: [param], [param]: "irrelevant" },
+        protectedHeader: { crit: [param], [param]: value },
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
       expect(error.message).toContain("registered header parameters");

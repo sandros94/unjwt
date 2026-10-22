@@ -1,20 +1,30 @@
 import { textEncoder } from "unsecure/utils";
 
-import { concatUint8Arrays, uint32be } from "../utils/array";
-import { JWTError } from "../error";
-import { checkKeyUsage, namedCurveOf, unusableKey } from "./_key-algorithm";
-import { bitLengthCEK } from "./_aes";
+import { concatUint8Arrays, uint32be } from "../utils/array.ts";
+import { JWTError } from "../error.ts";
+import type { ContentEncryptionAlgorithm, JWK_ECDH_ES } from "../types/index.ts";
+import {
+  aesBitsOf,
+  checkKeyUsage,
+  innerKeyWrapAlg,
+  namedCurveOf,
+  unusableKey,
+} from "./_key-algorithm.ts";
+import { bitLengthCEK } from "./_aes.ts";
+
+/** RFC 7518 §4.6.2 — the AlgorithmID of the Concat KDF: `enc` for direct agreement, `alg` with key wrapping, or whatever a caller of `deriveSharedSecret` names. */
+export type ConcatKdfAlgorithm = ContentEncryptionAlgorithm | JWK_ECDH_ES;
 
 export async function deriveECDHESKey(
   publicKey: CryptoKey,
   privateKey: CryptoKey,
-  algorithm: string,
+  algorithm: ConcatKdfAlgorithm,
   keyLength: number,
   apu: Uint8Array<ArrayBuffer> = new Uint8Array(0),
   apv: Uint8Array<ArrayBuffer> = new Uint8Array(0),
 ): Promise<Uint8Array<ArrayBuffer>> {
-  checkECDHCryptoKey(publicKey, "ECDH");
-  checkECDHCryptoKey(privateKey, "ECDH", "deriveBits");
+  checkECDHCryptoKey(publicKey);
+  checkECDHCryptoKey(privateKey, "deriveBits");
 
   const value = concatUint8Arrays(
     lengthAndInput(textEncoder.encode(algorithm)),
@@ -44,8 +54,16 @@ export async function deriveECDHESKey(
 }
 
 /** RFC 7518 §4.6.2 — the Concat KDF output length: the CEK size, or the AES-KW key size. */
-export function ecdhDerivedBits(alg: string, enc: string): number {
-  return alg === "ECDH-ES" ? bitLengthCEK(enc) : Number.parseInt(alg.slice(-5, -2), 10);
+export function ecdhDerivedBits(
+  alg: JWK_ECDH_ES,
+  enc: ContentEncryptionAlgorithm | undefined,
+): number {
+  if (alg !== "ECDH-ES") return aesBitsOf(innerKeyWrapAlg(alg));
+  if (enc) return bitLengthCEK(enc);
+  throw new JWTError(
+    'ECDH-ES requires "enc", the content encryption algorithm the key is agreed for.',
+    "ERR_JWE_INVALID",
+  );
 }
 
 /** A fresh extractable key pair on the curve of an ECDH-ES recipient key. */
@@ -72,7 +90,7 @@ export function assertECDHKeyAllowed(key: CryptoKey): void {
   }
 }
 
-export function checkECDHCryptoKey(key: CryptoKey, alg: string, usage?: KeyUsage): void {
+export function checkECDHCryptoKey(key: CryptoKey, usage?: KeyUsage): void {
   switch (key.algorithm.name) {
     case "ECDH":
     case "X25519": {
