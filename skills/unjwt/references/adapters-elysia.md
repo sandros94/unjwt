@@ -199,10 +199,8 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
   key:
     | CryptoKey // requires jwe.encryptOptions.alg + enc
     | JWEEncryptJWK
-    | {
-        privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
-        publicKey: JWEAsymmetricPublicJWK | CryptoKey;
-      };
+    | { privateKey: JWEAsymmetricPrivateJWK; publicKey?: JWEAsymmetricPublicJWK | CryptoKey } // public half derived when absent
+    | { privateKey: CryptoKey; publicKey: JWEAsymmetricPublicJWK | CryptoKey };
   maxAge?: MaxAge;
   rolling?: true | ExpiresIn;
   name?: string; // default "elysia-jwe"
@@ -235,6 +233,7 @@ signing — the JWS/JWE token is already authenticated; the raw token is stored 
 ## Keys, token source and errors
 
 - **Key material only.** `key` is a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`.
+  A JWE session also takes a private JWK alone as `{ privateKey }` (`importPEM()` output, say) and seals with its own public half; a private `CryptoKey` has none to derive, so it comes with `publicKey`.
   A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with
   `deriveJWKFromPassword()`. A `CryptoKey` needs `jws.signOptions.alg` (or
   `jwe.encryptOptions.alg` + `enc`), else `ERR_SESSION_CONFIG_INVALID`. A configured JWK is

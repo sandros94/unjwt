@@ -28,7 +28,9 @@ Peer dep: `h3`
   accepts only those values. Without them, accepted algorithms are inferred from the key's
   metadata.
 - **Key material only.** `key` is a JWK, a `{ privateKey, publicKey }` pair, or a
-  `CryptoKey`. A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with
+  `CryptoKey`. A JWE session also takes a private JWK alone as `{ privateKey }` (`importPEM()`
+  output, say) and seals with its own public half; a private `CryptoKey` has none to derive, so
+  it comes with `publicKey`. A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with
   `deriveJWKFromPassword()`. A `CryptoKey` carries no algorithm, so it also requires
   `jws.signOptions.alg` (or `jwe.encryptOptions.alg` + `enc`), else
   `ERR_SESSION_CONFIG_INVALID`. A configured JWK is imported when the session is opened: one the

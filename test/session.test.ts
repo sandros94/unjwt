@@ -1,8 +1,10 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
 
-import type { ExpiresIn } from "../src/core/types/index.ts";
+import type { ExpiresIn, JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/core/error.ts";
-import { generateJWK } from "../src/core/jwk.ts";
+import { generateJWK, generateKey, importPEM } from "../src/core/jwk.ts";
+import type { JWESessionKey } from "../src/session/_codec-jwe.ts";
+import { rsa } from "./keys.ts";
 import { sign } from "../src/core/jws.ts";
 import { encrypt } from "../src/core/jwe.ts";
 import {
@@ -522,6 +524,47 @@ describe("unjwt/session types", () => {
     expectTypeOf<{ token: string }>().toExtend<SessionHandedToken>();
     expectTypeOf<{ token: undefined }>().toExtend<SessionHandedToken>();
     expectTypeOf<{}>().not.toExtend<WebSessionEvent>();
+  });
+});
+
+describe("JWE key pair halves", () => {
+  const roundTrip = async (key: JWESessionKey) => {
+    const session = defineJWESession({ name: "web", key });
+    const headers = new Headers();
+    const written = await session.use({ req: get(), res: { headers } });
+    await written.update({ user: "ada" });
+    const read = await session.use({ req: get({ cookie: replay(headers) }) });
+    return { id: read.id, data: read.data, writtenId: written.id };
+  };
+
+  it("a private JWK alone seals with its own public half", async () => {
+    const { privateKey } = await generateJWK("RSA-OAEP-256");
+    const result = await roundTrip({ privateKey });
+    expect(result.id).toBe(result.writtenId);
+    expect(result.data).toEqual({ user: "ada" });
+  });
+
+  it("an imported PKCS8 PEM is a session key as it comes", async () => {
+    const privateKey = await importPEM(rsa.pem.pkcs8, "RSA-OAEP-256", { pemType: "pkcs8" });
+    const result = await roundTrip({ privateKey });
+    expect(result.id).toBe(result.writtenId);
+    expect(result.data).toEqual({ user: "ada" });
+  });
+
+  it("a private CryptoKey alone is refused, its public half cannot be derived", async () => {
+    const { privateKey } = await generateKey("RSA-OAEP-256");
+    const session = defineJWESession({ name: "web", key: { privateKey } as never });
+    const error = await session
+      .use({ req: get(), res: { headers: new Headers() } })
+      .catch((e) => e);
+    expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+    expect((error as Error).message).toContain('a CryptoKey "privateKey" needs its "publicKey"');
+  });
+
+  it("types: a private JWK may come alone, a private CryptoKey may not", () => {
+    expectTypeOf<{ privateKey: JWEAsymmetricPrivateJWK }>().toExtend<JWESessionKey>();
+    expectTypeOf<{ privateKey: CryptoKey }>().not.toExtend<JWESessionKey>();
+    expectTypeOf<{ privateKey: CryptoKey; publicKey: CryptoKey }>().toExtend<JWESessionKey>();
   });
 });
 

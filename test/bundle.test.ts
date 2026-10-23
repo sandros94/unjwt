@@ -92,13 +92,13 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["decrypt"],
     module: "core/jwe.ts",
-    measured: { min: 38350, gzip: 12244 },
+    measured: { min: 38350, gzip: 12242 },
     absent: [MARKERS.thumbprint],
   },
   {
     imports: ["encrypt"],
     module: "core/jwe.ts",
-    measured: { min: 32516, gzip: 10577 },
+    measured: { min: 32518, gzip: 10572 },
     absent: [MARKERS.thumbprint],
   },
   {
@@ -111,13 +111,13 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["generateKey"],
     module: "core/jwk.ts",
-    measured: { min: 11165, gzip: 4190 },
+    measured: { min: 11030, gzip: 4133 },
     absent: [MARKERS.pem],
   },
   {
     imports: ["importPEM"],
     module: "core/jwk.ts",
-    measured: { min: 12251, gzip: 4755 },
+    measured: { min: 12116, gzip: 4698 },
     absent: [],
   },
   {
@@ -148,13 +148,13 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["encrypt", "decrypt"],
     module: "core/jwe.ts",
-    measured: { min: 53640, gzip: 16253 },
+    measured: { min: 53640, gzip: 16282 },
     absent: [MARKERS.thumbprint],
   },
   {
     imports: ["generateJWK", "exportJWK"],
     module: "core/jwk.ts",
-    measured: { min: 11532, gzip: 4292 },
+    measured: { min: 11397, gzip: 4233 },
     absent: [MARKERS.pem],
   },
   // the Web entry imports no framework, and carries the cookie parser it uses
@@ -167,7 +167,7 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["defineJWESession"],
     module: "session/index.ts",
-    measured: { min: 75303, gzip: 23551 },
+    measured: { min: 76199, gzip: 24039 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
   },
   {

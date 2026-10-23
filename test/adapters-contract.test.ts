@@ -15,7 +15,7 @@ import {
 import { Elysia } from "elysia";
 
 import { isJWTError } from "../src/core/error.ts";
-import { generateJWK } from "../src/core/jwk.ts";
+import { generateJWK, generateKey } from "../src/core/jwk.ts";
 import { sign, verify } from "../src/core/jws.ts";
 import { encrypt, decrypt } from "../src/core/jwe.ts";
 import type { ExpiresIn } from "../src/core/types/index.ts";
@@ -3503,13 +3503,31 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(portFamilyCases().filter((port) => port.family === "jwe"))(
-      "$label: names the public half when the pair has none",
+      "$label: a private JWK alone seals with its own public half",
       async (port) => {
         const { privateKey } = rsaPairFor(port);
+        const body = await port.run(
+          { name: port.name, key: { privateKey }, cookie: { secure: false } },
+          async (open) => {
+            const session = await open();
+            await session.update({ user: "ada" });
+            return { id: session.id ?? null, data: session.data };
+          },
+        );
+
+        expect(body.id).toEqual(expect.any(String));
+        expect(body.data).toEqual({ user: "ada" });
+      },
+    );
+
+    it.each(portFamilyCases().filter((port) => port.family === "jwe"))(
+      "$label: names the public half when a CryptoKey pair has none",
+      async (port) => {
+        const { privateKey } = await generateKey("RSA-OAEP-256");
         const body = await refusal(port, { privateKey });
 
         expect(body.code).toBe(true);
-        expect(body.message).toMatch(/"publicKey"/);
+        expect(body.message).toMatch(/CryptoKey "privateKey" needs its "publicKey"/);
       },
     );
 

@@ -1,6 +1,13 @@
 import { encrypt, decrypt } from "../core/jwe.ts";
 import { DEFAULT_PBES2_ITERATIONS } from "../core/_internal.ts";
-import { isCryptoKey, isJWK, isSymmetricJWK, isPublicJWK } from "../core/utils/guards.ts";
+import {
+  isCryptoKey,
+  isJWK,
+  isPrivateJWK,
+  isPublicJWK,
+  isSymmetricJWK,
+} from "../core/utils/guards.ts";
+import { toPublicJWK } from "../core/jwk.ts";
 import type {
   ExpiresIn,
   JWEEncryptJWK,
@@ -26,14 +33,23 @@ import {
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_types.ts";
 import type { SessionBaseConfig, SessionHooks } from "./types.ts";
 
-/** Symmetric JWK, `CryptoKey` (requires pinned `alg` and `enc`), or a pair: public seals, private unseals. */
+/**
+ * Symmetric JWK, `CryptoKey` (requires pinned `alg` and `enc`), or a pair: public seals, private unseals.
+ * A private JWK alone seals with its own public half; a private `CryptoKey` has none to derive, so it comes with one.
+ */
 export type JWESessionKey =
   | CryptoKey
   | JWEEncryptJWK
   | {
-      privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
+      privateKey: JWEAsymmetricPrivateJWK;
       publicKey?: JWEAsymmetricPublicJWK | CryptoKey;
+    }
+  | {
+      privateKey: CryptoKey;
+      publicKey: JWEAsymmetricPublicJWK | CryptoKey;
     };
+
+type JWESessionKeyPair = Extract<JWESessionKey, { privateKey: unknown }>;
 
 /** JWE decrypt overrides, minus the options the adapter owns. */
 export type SessionDecryptOptions = StrictOmit<
@@ -171,8 +187,7 @@ function getEncryptKey(config: JWECodecConfig, prefix: string): JWEEncryptJWK | 
   if (isCryptoKey(key) || isSymmetricJWK(key)) {
     resolved = key;
   } else if (isKeyPair(key)) {
-    assertJWEKeyPair(key, prefix);
-    resolved = key.publicKey;
+    resolved = jweKeyPair(key, prefix).publicKey;
   }
 
   if (!resolved) {
@@ -191,8 +206,7 @@ function getDecryptKey(config: JWECodecConfig, prefix: string): JWEDecryptJWK | 
   if (isCryptoKey(key) || isSymmetricJWK(key)) {
     resolved = key;
   } else if (isKeyPair(key)) {
-    assertJWEKeyPair(key, prefix);
-    resolved = key.privateKey;
+    resolved = jweKeyPair(key, prefix).privateKey;
   }
 
   if (!resolved) {
@@ -206,16 +220,37 @@ function getDecryptKey(config: JWECodecConfig, prefix: string): JWEDecryptJWK | 
   return resolved;
 }
 
-function assertJWEKeyPair(
-  key: { privateKey?: unknown; publicKey?: unknown },
+/** Both halves of the pair, the public one derived from a private JWK when the config carries none. */
+function jweKeyPair(
+  key: JWESessionKeyPair,
   prefix: string,
-): void {
-  assertKeyPair(key, {
+): {
+  privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
+  publicKey: JWEAsymmetricPublicJWK | CryptoKey;
+} {
+  const pair = {
+    privateKey: key.privateKey,
+    publicKey: key.publicKey ?? derivedPublicHalf(key.privateKey, prefix),
+  };
+  assertKeyPair(pair, {
     prefix,
     family: "JWE",
     isPublic: (half) => isCryptoKey(half) || isPublicJWK(half),
     publicHalf: "a public JWK or a CryptoKey",
   });
+  return pair;
+}
+
+/** A private JWK carries its public members; a private `CryptoKey` does not, so it needs the public half spelled out. */
+function derivedPublicHalf(
+  privateKey: JWEAsymmetricPrivateJWK | CryptoKey,
+  prefix: string,
+): JWEAsymmetricPublicJWK | CryptoKey {
+  if (isPrivateJWK(privateKey)) return toPublicJWK(privateKey);
+  throw invalidKeyError(
+    `${prefix} Invalid JWE key: a CryptoKey "privateKey" needs its "publicKey".`,
+    privateKey,
+  );
 }
 
 function assertPinnedAlgEnc(key: unknown, config: JWECodecConfig, prefix: string): void {
