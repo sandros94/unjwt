@@ -1,6 +1,6 @@
 {
   "name": "unjwt",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "A collection of JWT utilities based on the Web Crypto API.",
   "keywords": [
     "auth",
