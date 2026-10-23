@@ -218,8 +218,8 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       unsecure:
-        specifier: ^0.3.2
-        version: 0.3.2
+        specifier: ^0.3.3
+        version: 0.3.3
       vitest:
         specifier: ^5.0.4
         version: 5.0.4(@types/node@24.19.2)(@vitest/coverage-v8@5.0.4)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))
@@ -3893,8 +3893,8 @@ packages:
   unrouting@0.2.3:
     resolution: {integrity: sha512-8wOFT/fBh8YeeDr1aVmkXCqYVTMbQ6vzfNzwzybKmSfXdRhGCq1Y2B1e9YeB0JEf85gbvSwJHAMu3D2IEcLGKA==}
 
-  unsecure@0.3.2:
-    resolution: {integrity: sha512-ctW5+DJ/1rjgYADvpjEqvTYONlVLfISdyoUWHCaS7D5A5qD45Mfxtu5U46b6PqZrikAlrUMv/zjJkaPwAXdRQw==}
+  unsecure@0.3.3:
+    resolution: {integrity: sha512-VwVIsqa/h/nVlF0Ki+oxSlBz16kEf05MjrI+npuUVqXQyc8QhBGsRY953otcvp/fhS+6nvKii5xTAi+xWM/kBg==}
 
   unstorage@1.17.6:
     resolution: {integrity: sha512-gjKtcmn/KwZuJZO9o2sc0esAQnhmTw0LviDHwevTXbJMYs0dRTp8ZEEWXHU0vTpzbN3cA0yxlTeyXssMp3zDqw==}
@@ -8026,7 +8026,7 @@ snapshots:
       escape-string-regexp: 5.0.0
       ufo: 1.6.4
 
-  unsecure@0.3.2: {}
+  unsecure@0.3.3: {}
 
   unstorage@1.17.6(db0@0.3.4)(ioredis@5.11.1(supports-color@10.2.2)):
     dependencies:
