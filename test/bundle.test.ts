@@ -4,8 +4,10 @@
 /// <reference types="node" />
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { rolldown } from "rolldown";
+import type { SizeMeta } from "./_size-reporter.ts";
 
 /**
  * Every export path is a subpath of one code-split bundle, so a single import
@@ -15,23 +17,29 @@ import { rolldown } from "rolldown";
  * bundler can tell whether it still does — an import moved to the wrong module
  * breaks it silently and shows up in someone's shipped bytes.
  *
- * Each row bundles a single named import from `src` — not from `dist`, so the
- * test needs no prior build — minifies it with every comment stripped, so the
- * `@__PURE__` annotations a minifier may keep do not count as code, and asserts
- * two things: the byte size is within `TOLERANCE` of the row's `measured`
- * value, and the markers listed with it are absent.
+ * Each row bundles one or more named imports from `src` — not from `dist`, so
+ * the test needs no prior build — minifies them with every comment stripped,
+ * so the `@__PURE__` annotations a minifier may keep do not count as code, and
+ * asserts two things: the minified and the gzipped size are each within
+ * `TOLERANCE` of the row's `measured` values, and the markers listed with it
+ * are absent.
  *
- * `measured` is the size when the row was last measured, and the bound is
- * two-sided: growth means something was pulled in, a drastic shrink means a
- * check or branch was shaken out. A deliberate change in either direction is a
- * one-line diff: re-measure and update `measured`. A change you cannot explain
- * is the test doing its job.
+ * Single-import rows guard tree-shaking; multi-import rows are what a consumer
+ * actually ships for one use case, and are the numbers to watch. `measured` is
+ * the size when the row was last measured, and the bound is two-sided: growth
+ * means something was pulled in, a drastic shrink means a check or branch was
+ * shaken out. A deliberate change in either direction is a one-line diff:
+ * re-measure with `pnpm size` and update `measured`. A change you cannot
+ * explain is the test doing its job.
  */
 
 const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
 /** Relative slack around `measured`, in both directions. */
-const TOLERANCE = 0.15;
+const TOLERANCE = 0.03;
+
+/** Absolute slack for rows too small for `TOLERANCE` to mean anything. */
+const TOLERANCE_FLOOR_BYTES = 64;
 
 /** Rolldown is fast, but a cold CI worker resolving a native binding is not. */
 const TIMEOUT = 60_000;
@@ -55,12 +63,12 @@ const MARKERS = {
 } as const;
 
 interface Entry {
-  /** The single name imported from the module. */
-  name: string;
+  /** The names imported from the module; one for a tree-shaking guard, several for a use case. */
+  imports: ReadonlyArray<string>;
   /** The module, relative to `src`. */
   module: string;
-  /** Minified bytes when the row was last measured; the test allows `TOLERANCE` either way. */
-  measured: number;
+  /** Sizes when the row was last measured; the test allows `TOLERANCE` either way. */
+  measured: { min: number; gzip: number };
   /** Strings that must not appear in the bundle. */
   absent: ReadonlyArray<string>;
   /** Imports left out of the bundle, as the build leaves out an adapter's framework. */
@@ -68,56 +76,121 @@ interface Entry {
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
+  // --- one import: tree-shaking guards ---
   {
-    name: "verify",
+    imports: ["verify"],
     module: "core/jws.ts",
-    measured: 26846,
+    measured: { min: 26503, gzip: 8860 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   {
-    name: "sign",
+    imports: ["sign"],
     module: "core/jws.ts",
-    measured: 19789,
+    measured: { min: 21030, gzip: 7245 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
-  { name: "decrypt", module: "core/jwe.ts", measured: 39335, absent: [MARKERS.thumbprint] },
-  { name: "encrypt", module: "core/jwe.ts", measured: 31818, absent: [MARKERS.thumbprint] },
-  { name: "importKey", module: "core/jwk.ts", measured: 9338, absent: [MARKERS.pem] },
+  {
+    imports: ["decrypt"],
+    module: "core/jwe.ts",
+    measured: { min: 38350, gzip: 12244 },
+    absent: [MARKERS.thumbprint],
+  },
+  {
+    imports: ["encrypt"],
+    module: "core/jwe.ts",
+    measured: { min: 32516, gzip: 10577 },
+    absent: [MARKERS.thumbprint],
+  },
+  {
+    imports: ["importKey"],
+    module: "core/jwk.ts",
+    measured: { min: 9377, gzip: 3626 },
+    absent: [MARKERS.pem],
+  },
   // the thumbprint is the default `kid` of every JWK it emits
-  { name: "generateKey", module: "core/jwk.ts", measured: 10719, absent: [MARKERS.pem] },
-  { name: "importPEM", module: "core/jwk.ts", measured: 12053, absent: [] },
   {
-    name: "base64UrlParse",
+    imports: ["generateKey"],
+    module: "core/jwk.ts",
+    measured: { min: 11165, gzip: 4190 },
+    absent: [MARKERS.pem],
+  },
+  {
+    imports: ["importPEM"],
+    module: "core/jwk.ts",
+    measured: { min: 12251, gzip: 4755 },
+    absent: [],
+  },
+  {
+    imports: ["base64UrlParse"],
     module: "core/utils/base64.ts",
-    measured: 3225,
+    measured: { min: 3277, gzip: 1578 },
     absent: [MARKERS.subtleImport],
   },
   {
-    name: "isJWK",
+    imports: ["isJWK"],
     module: "core/utils/index.ts",
-    measured: 132,
+    measured: { min: 132, gzip: 122 },
     absent: [MARKERS.randomBytes, MARKERS.base64],
   },
   {
-    name: "validateJwtClaims",
+    imports: ["validateJwtClaims"],
     module: "core/utils/jwt.ts",
-    measured: 4524,
+    measured: { min: 4124, gzip: 1503 },
     absent: [MARKERS.subtleImport],
   },
-  // cookie-es is bundled, so the adapter must carry the parser rather than import it
+  // --- use cases: what one consumer ships ---
   {
-    name: "useJWSSession",
-    module: "adapters/h3v1/index.ts",
-    measured: 49085,
-    absent: [MARKERS.cookieEs],
-    external: ["h3v1"],
+    imports: ["sign", "verify"],
+    module: "core/jws.ts",
+    measured: { min: 33113, gzip: 10679 },
+    absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
+  },
+  {
+    imports: ["encrypt", "decrypt"],
+    module: "core/jwe.ts",
+    measured: { min: 53640, gzip: 16253 },
+    absent: [MARKERS.thumbprint],
+  },
+  {
+    imports: ["generateJWK", "exportJWK"],
+    module: "core/jwk.ts",
+    measured: { min: 11532, gzip: 4292 },
+    absent: [MARKERS.pem],
   },
   // the Web entry imports no framework, and carries the cookie parser it uses
   {
-    name: "defineJWSSession",
+    imports: ["defineJWSSession"],
     module: "session/index.ts",
-    measured: 53694,
+    measured: { min: 54652, gzip: 17691 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
+  },
+  {
+    imports: ["defineJWESession"],
+    module: "session/index.ts",
+    measured: { min: 75303, gzip: 23551 },
+    absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
+  },
+  {
+    imports: ["defineJWSSession"],
+    module: "adapters/h3/index.ts",
+    measured: { min: 48657, gzip: 15772 },
+    absent: [MARKERS.cookieEs, MARKERS.elysiaImport],
+    external: ["h3"],
+  },
+  // cookie-es is bundled, so the adapter must carry the parser rather than import it
+  {
+    imports: ["useJWSSession"],
+    module: "adapters/h3v1/index.ts",
+    measured: { min: 49691, gzip: 16148 },
+    absent: [MARKERS.cookieEs],
+    external: ["h3v1"],
+  },
+  {
+    imports: ["jwsSession"],
+    module: "adapters/elysia/index.ts",
+    measured: { min: 48893, gzip: 15871 },
+    absent: [MARKERS.cookieEs, MARKERS.h3Import],
+    external: ["elysia"],
   },
 ];
 
@@ -126,18 +199,26 @@ const VIRTUAL_ENTRY = "\0unjwt-bundle-entry";
 
 describe("tree-shaking", () => {
   for (const entry of ENTRIES) {
+    const name = `${entry.imports.join(" + ")} (${entry.module})`;
     it(
-      `ships ${entry.name} in about ${entry.measured} bytes, and nothing else`,
-      async () => {
+      `ships ${name} in about ${entry.measured.min} bytes, and nothing else`,
+      async (ctx) => {
         const code = await bundleImport(entry);
-        const size = new TextEncoder().encode(code).length;
-        const drift = (size - entry.measured) / entry.measured;
+        const min = new TextEncoder().encode(code).length;
+        const gzip = gzipSync(code, { level: 9 }).length;
+        const size: SizeMeta = { min, gzip, measured: entry.measured };
+        ctx.task.meta.size = size;
+
         expect(
-          Math.abs(drift),
-          `${entry.name} bundles to ${size} bytes, measured ${entry.measured}; re-measure and update the row if the change is deliberate`,
-        ).toBeLessThanOrEqual(TOLERANCE);
+          Math.abs(min - entry.measured.min),
+          `${name} bundles to ${min} bytes minified, measured ${entry.measured.min}; re-measure with \`pnpm size\` and update the row if the change is deliberate`,
+        ).toBeLessThanOrEqual(slack(entry.measured.min));
+        expect(
+          Math.abs(gzip - entry.measured.gzip),
+          `${name} bundles to ${gzip} bytes gzipped, measured ${entry.measured.gzip}; re-measure with \`pnpm size\` and update the row if the change is deliberate`,
+        ).toBeLessThanOrEqual(slack(entry.measured.gzip));
         for (const marker of entry.absent) {
-          expect(code, `${entry.name} bundle must not contain ${marker}`).not.toContain(marker);
+          expect(code, `${name} bundle must not contain ${marker}`).not.toContain(marker);
         }
       },
       TIMEOUT,
@@ -145,12 +226,17 @@ describe("tree-shaking", () => {
   }
 });
 
+function slack(measured: number): number {
+  return Math.max(TOLERANCE_FLOOR_BYTES, measured * TOLERANCE);
+}
+
 /**
- * Bundle one named import and return the minified code. `console.log` is what
- * keeps the import alive: an unused one is exactly what tree-shaking removes,
+ * Bundle the named imports and return the minified code. `console.log` is what
+ * keeps the imports alive: an unused one is exactly what tree-shaking removes,
  * which would measure nothing.
  */
 async function bundleImport(entry: Entry): Promise<string> {
+  const names = entry.imports.join(", ");
   const build = await rolldown({
     input: VIRTUAL_ENTRY,
     platform: "neutral",
@@ -163,7 +249,7 @@ async function bundleImport(entry: Entry): Promise<string> {
         resolveId: (id) => (id === VIRTUAL_ENTRY ? id : null),
         load: (id) =>
           id === VIRTUAL_ENTRY
-            ? `import { ${entry.name} } from ${JSON.stringify(path.join(SRC, entry.module))};\nconsole.log(${entry.name});\n`
+            ? `import { ${names} } from ${JSON.stringify(path.join(SRC, entry.module))};\nconsole.log(${names});\n`
             : null,
       },
     ],

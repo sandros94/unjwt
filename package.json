@@ -94,6 +94,7 @@
     "dev:nitro": "pnpm --dir playgrounds/nitro dev",
     "dev:prepare": "obuild --stub && pnpm --dir playgrounds/nuxt-4 prepare && pnpm simple-git-hooks",
     "lint": "oxlint --deny-warnings . && oxfmt --check .",
+    "size": "vitest run test/bundle.test.ts --reporter=./test/_size-reporter.ts",
     "fmt": "automd && oxlint --fix . && oxfmt .",
     "prepack": "pnpm build",
     "test": "vitest run --slowTestThreshold=1000",

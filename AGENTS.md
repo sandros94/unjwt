@@ -26,6 +26,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - **Single test file:** `pnpm vitest run test/jws.test.ts`
 - **Type check:** `pnpm typecheck` (uses `tsc` from TypeScript 7)
 - **Lint:** `pnpm lint` (oxlint + oxfmt --check)
+- **Size:** `pnpm size` prints what each use case ships, minified and gzipped, against the sizes recorded in `test/bundle.test.ts` (3% slack); a deliberate change updates the row
 - **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
 - **Example:** `pnpm dev` runs the h3 playground
