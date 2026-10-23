@@ -2,7 +2,7 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 
 import type { JWK, JWKSet } from "./types/jwk.ts";
 import type { JWSAlgorithm, JWSHeaderParameters, JWSProtectedHeader } from "./types/jws.ts";
-import { importKey, getJWKsFromSet } from "./jwk.ts";
+import { importKey, getJWKsFromSet } from "./_import-key.ts";
 import { verify as joseVerify } from "./_crypto/_sign-verify.ts";
 import { JWTError } from "./error.ts";
 import { isJWK, isJWKSet } from "./utils/guards.ts";

@@ -15,7 +15,7 @@ import type {
   JWTClaims,
   PayloadOf,
 } from "./types/index.ts";
-import { importKey } from "./jwk.ts";
+import { importKey } from "./_import-key.ts";
 import { sign as joseSign } from "./_crypto/index.ts";
 import { JWTError } from "./error.ts";
 import { isJWK } from "./utils/guards.ts";

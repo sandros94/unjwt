@@ -57,6 +57,7 @@ src/
     jws-multi.ts        # signMulti/verifyMulti/verifyMultiAll (General/Flattened JWS)
     jwe-multi.ts        # encryptMulti/decryptMulti (General/Flattened JWE)
     jwk.ts              # key management (generateKey, importKey, exportKey, wrapKey, unwrapKey, PEM conversion)
+    _import-key.ts      # importKey + the JWK import cache + getJWKsFromSet: what jws/jwe need from the key module, without wrap/unwrap/PEM/generation
     _internal.ts        # shared signing-key resolver + JWKSet candidate filter for jws/jwe
     _jwt-internal.ts    # JOSE plumbing: typ/cty defaults, payload parsing, time claims, crit checks
     internal.ts         # `unjwt/internal` entry point over _jwt-internal.ts

@@ -1,0 +1,243 @@
+import type {
+  JWK,
+  JWKSet,
+  JWK_oct,
+  JWKAlgorithm,
+  JWKCacheAdapter,
+  ImportedKey,
+} from "./types/index.ts";
+import { decodeSegment, stringKeyError } from "./_internal.ts";
+import { isCryptoKey, isJWK, isJWKSet } from "./utils/guards.ts";
+import { isContentEncryptionAlgorithm, isEd25519Signature } from "./utils/algorithms.ts";
+import { JWTError } from "./error.ts";
+import { jwkTokey, assertOctKeyLength } from "./_crypto/index.ts";
+
+/**
+ * Default JWK import cache, keyed by JWK object identity: a copied JWK misses it, and a JWK
+ * mutated in place keeps serving the old `CryptoKey`. Rotate by replacing the object.
+ */
+export class WeakMapJWKCache implements JWKCacheAdapter {
+  private readonly _map = new WeakMap<object, Record<string, CryptoKey>>();
+
+  get(jwk: JWK, alg: JWKAlgorithm): CryptoKey | undefined {
+    return this._map.get(jwk)?.[alg];
+  }
+
+  set(jwk: JWK, alg: JWKAlgorithm, key: CryptoKey): void {
+    let entry = this._map.get(jwk);
+    if (!entry) {
+      this._map.set(jwk, { [alg]: key });
+    } else {
+      entry[alg] = key;
+    }
+  }
+}
+
+let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
+
+/**
+ * Replaces the JWK import cache used by `importKey`, or disables it with `false`.
+ *
+ * A cache shared across JWK objects keys on the RFC 7638 thumbprint, the pair half (`d` present)
+ * and `alg`: the thumbprint covers public members only, and a `kid` may name different keys.
+ * `get` and `set` may return promises.
+ *
+ * @example
+ * ```ts
+ * const cacheKey = async (jwk: JWK, alg: JWKAlgorithm) =>
+ *   `${await thumbprint(jwk)}:${"d" in jwk ? "private" : "public"}:${alg}`;
+ * const map = new Map<string, CryptoKey>();
+ * configureJWKCache({
+ *   get: async (jwk, alg) => map.get(await cacheKey(jwk, alg)),
+ *   set: async (jwk, alg, key) => {
+ *     map.set(await cacheKey(jwk, alg), key);
+ *   },
+ * });
+ * ```
+ */
+export function configureJWKCache(cache: JWKCacheAdapter | false): void {
+  _activeCache = cache;
+}
+
+/** Resets the JWK import cache to a fresh `WeakMapJWKCache`. */
+export function clearJWKCache(): void {
+  _activeCache = new WeakMapJWKCache();
+}
+
+/** Imports the secret of an `oct` JWK as a `CryptoKey` under `algorithm` and `usage`. */
+export async function importKey(
+  key: JWK_oct,
+  options: {
+    asCryptoKey: true;
+    /** Algorithm to import the key as (e.g. `{ name: "AES-GCM", length: 256 }`). */
+    algorithm: Parameters<typeof crypto.subtle.importKey>[2];
+    usage: KeyUsage[];
+    /** Mark the key as extractable. Defaults to `false`. */
+    extractable?: boolean;
+  },
+): Promise<CryptoKey>;
+/**
+ * Imports key material: a `CryptoKey` or `Uint8Array` is returned as is, an `oct` JWK as its raw
+ * bytes, an asymmetric JWK as a `CryptoKey` under its own `alg` or the hint. A string throws
+ * `ERR_JWK_INVALID`.
+ *
+ * `expect` and `extractable` apply to asymmetric keys only; `expect` rejects the other pair half
+ * with `ERR_JWK_INVALID`. A JWK's `alg` is authoritative (RFC 7517 §4.4): a different requested
+ * `alg` throws `ERR_JWK_INVALID`, except an `oct` JWK declaring a content encryption `alg` under
+ * `"dir"`.
+ */
+export async function importKey<K extends CryptoKey | JWK | Uint8Array<ArrayBuffer>>(
+  key: K,
+  options?:
+    | JWKAlgorithm
+    | {
+        /** Algorithm hint. Required when `key.alg` is absent on an asymmetric JWK. */
+        alg?: JWKAlgorithm;
+        /** Reject on shape mismatch instead of silently importing. */
+        expect?: "public" | "private";
+        /** Defaults to `false` for private, `true` for public material; JWK `ext: false` wins. */
+        extractable?: boolean;
+      },
+): Promise<ImportedKey<K>>;
+export async function importKey(
+  key: CryptoKey | JWK | Uint8Array<ArrayBuffer>,
+  algOrOptions?:
+    | JWKAlgorithm
+    | {
+        asCryptoKey?: true;
+        algorithm?: Parameters<typeof crypto.subtle.importKey>[2];
+        usage?: KeyUsage[];
+        extractable?: boolean;
+        alg?: JWKAlgorithm;
+        expect?: "public" | "private";
+      },
+): Promise<CryptoKey | Uint8Array<ArrayBuffer>> {
+  const alg = typeof algOrOptions === "string" ? algOrOptions : (algOrOptions?.alg ?? undefined);
+  const expect = typeof algOrOptions === "object" ? (algOrOptions.expect ?? undefined) : undefined;
+  const extractable =
+    typeof algOrOptions === "object" && !algOrOptions.asCryptoKey
+      ? algOrOptions.extractable
+      : undefined;
+
+  if (typeof key === "string") {
+    throw stringKeyError();
+  }
+
+  if (key instanceof Uint8Array) {
+    return key;
+  }
+
+  if (isCryptoKey(key)) {
+    assertIntentOnCryptoKey(key, expect);
+    return key;
+  }
+
+  if (isJWK(key)) {
+    assertJWKAlgAuthority(key, alg);
+    if ("k" in key && typeof key.k === "string") {
+      const rawBytes = decodeSegment(key.k, { family: "JWK", what: '"k"' });
+      assertOctKeyLength(rawBytes, alg ?? key.alg);
+      if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
+        const { algorithm, usage, extractable: rawExtractable = false } = algOrOptions;
+        if (!algorithm || !usage) {
+          throw new JWTError(
+            "asCryptoKey option requires `algorithm` and `usage` to be provided.",
+            "ERR_JWK_INVALID",
+          );
+        }
+        if (typeof algorithm === "object" && algorithm.name === "HMAC") {
+          const hash: unknown = "hash" in algorithm ? algorithm.hash : undefined;
+          const hashName =
+            typeof hash === "string"
+              ? hash
+              : typeof hash === "object" &&
+                  hash !== null &&
+                  "name" in hash &&
+                  typeof hash.name === "string"
+                ? hash.name
+                : undefined;
+          const minBytes = Number.parseInt(hashName?.slice(-3) ?? "", 10) / 8;
+          if (minBytes && rawBytes.length < minBytes) {
+            throw new JWTError(
+              `HMAC with ${hashName} requires a key of at least ${minBytes} bytes (got ${rawBytes.length})`,
+              "ERR_JWK_INVALID",
+            );
+          }
+        }
+        return crypto.subtle.importKey("raw", rawBytes, algorithm, rawExtractable, usage);
+      }
+      return rawBytes;
+    } else {
+      const effectiveAlg = key.alg || alg;
+      if (!effectiveAlg) {
+        throw new JWTError(
+          "Algorithm must be provided when importing non-oct JWK",
+          "ERR_JWK_INVALID",
+        );
+      }
+      assertIntentOnJWK(key, expect);
+      const cache = extractable === undefined ? _activeCache : false;
+      if (cache) {
+        const cached = await cache.get(key, effectiveAlg);
+        if (cached) return cached;
+      }
+      const cryptoKey = await jwkTokey(key, { extractable, alg });
+      if (cache) await cache.set(key, effectiveAlg, cryptoKey);
+      return cryptoKey;
+    }
+  }
+
+  throw new JWTError("Invalid key type provided to importKey", "ERR_JWK_INVALID");
+}
+
+/** RFC 7517 §4.4: a JWK's `alg` is authoritative, except an `oct` CEK consumed by `dir`. */
+function assertJWKAlgAuthority(jwk: JWK, alg: JWKAlgorithm | undefined): void {
+  if (!alg || !jwk.alg || jwk.alg === alg) return;
+  if (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg)) return;
+  if (isEd25519Signature(jwk.alg) && isEd25519Signature(alg)) return;
+  throw new JWTError(
+    `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
+    "ERR_JWK_INVALID",
+  );
+}
+
+function assertIntentOnJWK(jwk: JWK, expect: "public" | "private" | undefined): void {
+  if (expect === undefined || jwk.kty === "oct") return;
+  const hasPrivateScalar = "d" in jwk && typeof (jwk as { d?: unknown }).d === "string";
+  if (expect === "public" && hasPrivateScalar) {
+    throw new JWTError("Private JWK passed where a public key is expected.", "ERR_JWK_INVALID");
+  }
+  if (expect === "private" && !hasPrivateScalar) {
+    throw new JWTError("Public JWK passed where a private key is expected.", "ERR_JWK_INVALID");
+  }
+}
+
+function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | undefined): void {
+  if (expect === undefined || key.type === "secret") return;
+  if (expect === "public" && key.type === "private") {
+    throw new JWTError(
+      "Private CryptoKey passed where a public key is expected.",
+      "ERR_JWK_INVALID",
+    );
+  }
+  if (expect === "private" && key.type === "public") {
+    throw new JWTError(
+      "Public CryptoKey passed where a private key is expected.",
+      "ERR_JWK_INVALID",
+    );
+  }
+}
+
+/**
+ * Returns the JWKs of a JWK Set, dropping non-JWK entries, optionally narrowed by `filter`.
+ * An invalid set throws `ERR_JWK_INVALID`.
+ */
+export function getJWKsFromSet(jwkSet: JWKSet, filter?: (jwk: JWK) => boolean): JWK[] {
+  if (!jwkSet || !isJWKSet(jwkSet)) {
+    throw new JWTError("Invalid JWK Set provided", "ERR_JWK_INVALID");
+  }
+
+  const keys = jwkSet.keys.filter((key) => isJWK(key));
+
+  return filter ? keys.filter(filter) : keys;
+}

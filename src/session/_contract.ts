@@ -1,5 +1,5 @@
 import { JWTError, isJWTError } from "../core/error.ts";
-import { importKey } from "../core/jwk.ts";
+import { importKey } from "../core/_import-key.ts";
 import { computeDurationInSeconds, expiredClaimMessage } from "../core/utils/jwt.ts";
 import { isJWK, isPlainObject } from "../core/utils/guards.ts";
 import { quoteTokenValue } from "../core/utils/_text.ts";

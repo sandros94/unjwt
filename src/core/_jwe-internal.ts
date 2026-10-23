@@ -8,7 +8,8 @@ import type {
   KeyManagementAlgorithm,
   UnwrapKeyOptions,
 } from "./types/jwk.ts";
-import { importKey, unwrapKey, getJWKsFromSet } from "./jwk.ts";
+import { unwrapKey } from "./jwk.ts";
+import { importKey, getJWKsFromSet } from "./_import-key.ts";
 import { decrypt as joseDecrypt } from "./_crypto/_aes.ts";
 import { JWTError } from "./error.ts";
 import { isJWKSet } from "./utils/guards.ts";

@@ -20,7 +20,7 @@ import type {
   JWEKeyLookup,
 } from "./types/jwe.ts";
 
-import { importKey } from "./jwk.ts";
+import { importKey } from "./_import-key.ts";
 import {
   encrypt as joseEncrypt,
   assertPBES2Params,
