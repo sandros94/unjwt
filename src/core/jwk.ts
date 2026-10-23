@@ -604,10 +604,7 @@ export async function exportJWK<T extends JWK = JWK>(
   jwkParams?: JWKMetadata,
 ): Promise<T> {
   if (!isCryptoKey(key)) {
-    throw new JWTError(
-      `exportJWK expects a CryptoKey, got ${key === null ? "null" : typeof key}.`,
-      "ERR_INVALID_OPTION",
-    );
+    throw new JWTError("exportJWK expects a CryptoKey.", "ERR_INVALID_OPTION");
   }
   if (!key.extractable) {
     throw new JWTError(
@@ -758,7 +755,7 @@ export async function wrapKey(
       if (enc !== undefined) assertJWEEncSupported(enc);
       if (alg === "ECDH-ES" && !enc) {
         throw new JWTError(
-          "ECDH-ES direct key agreement requires options.ecdh.enc (the target content encryption algorithm)",
+          "ECDH-ES direct key agreement requires options.ecdh.enc",
           "ERR_JWK_INVALID",
         );
       }
@@ -905,7 +902,7 @@ export async function unwrapKey(
 
       if (!inferredAlgorithm) {
         throw new JWTError(
-          'Unable to infer algorithm for RSA-OAEP unwrapped key. Provide "unwrappedKeyAlgorithm" in options.',
+          'Cannot infer the RSA-OAEP unwrapped key algorithm, pass "unwrappedKeyAlgorithm".',
           "ERR_JWE_INVALID",
         );
       }
@@ -925,10 +922,7 @@ export async function unwrapKey(
     case "ECDH-ES+A192KW":
     case "ECDH-ES+A256KW": {
       if (!options.epk) {
-        throw new JWTError(
-          "ECDH-ES requires 'epk' (Ephemeral Public Key) option",
-          "ERR_JWE_INVALID",
-        );
+        throw new JWTError("ECDH-ES requires 'epk' option", "ERR_JWE_INVALID");
       }
       assertCryptoKeyFor(alg, importedUnwrappingKey, "unwrapping");
       assertECDHKeyAllowed(importedUnwrappingKey);
@@ -947,10 +941,7 @@ export async function unwrapKey(
       const infoAlg = alg === "ECDH-ES" ? options.enc : alg;
 
       if (!infoAlg) {
-        throw new JWTError(
-          "ECDH-ES requires content encryption algorithm ('enc') to derive the shared secret",
-          "ERR_JWE_INVALID",
-        );
+        throw new JWTError("ECDH-ES requires 'enc' to derive the shared secret", "ERR_JWE_INVALID");
       }
 
       const keyLength = ecdhDerivedBits(alg, options.enc);
@@ -1025,20 +1016,14 @@ export async function importPEM<
   },
 ): Promise<ImportedPEMJWK<A, Type>> {
   if (typeof pem !== "string") {
-    throw new JWTError(
-      `"pem" must be a PEM-encoded string, got ${pem === null ? "null" : typeof pem}.`,
-      "ERR_INVALID_OPTION",
-    );
+    throw new JWTError('"pem" must be a PEM-encoded string.', "ERR_INVALID_OPTION");
   }
   if (options !== undefined) assertPlainObject(options, "options");
   const extractable = true;
   const pemType = options?.pemType ?? inferPEMType(pem);
 
   if (!pemType) {
-    throw new JWTError(
-      'Cannot infer PEM type from the input; pass "options.pemType" explicitly.',
-      "ERR_JWK_INVALID",
-    );
+    throw new JWTError('Cannot infer PEM type from the input, pass "pemType".', "ERR_JWK_INVALID");
   }
 
   let cryptoKey: CryptoKey;
@@ -1083,7 +1068,7 @@ export async function exportPEM(
   if (options !== undefined) assertPlainObject(options, "options");
   if (jwk.kty === "oct") {
     throw new JWTError(
-      "Octet (symmetric) JWKs (kty: 'oct') cannot be exported to PKCS8 or SPKI PEM formats.",
+      "An oct JWK cannot be exported to PKCS8 or SPKI PEM.",
       "ERR_JWK_UNSUPPORTED",
     );
   }
@@ -1091,7 +1076,7 @@ export async function exportPEM(
   const effectiveAlg = jwk.alg || options?.alg;
   if (!effectiveAlg && (jwk.kty === "RSA" || jwk.kty === "EC" || jwk.kty === "OKP")) {
     throw new JWTError(
-      "Algorithm (alg) must be provided in the JWK or via options for converting this JWK type to a CryptoKey.",
+      '"alg" is required, set it on the JWK or pass it in options.',
       "ERR_JWK_INVALID",
     );
   }
@@ -1122,7 +1107,7 @@ export async function exportPEM(
     case "pkcs8": {
       if (cryptoKey.type !== "private") {
         throw new JWTError(
-          `Only 'private' type CryptoKeys can be exported to PKCS8 PEM format. Key type is '${cryptoKey.type}'.`,
+          `Only a private CryptoKey can be exported to PKCS8 PEM (got ${cryptoKey.type}).`,
           "ERR_JWK_INVALID",
         );
       }
@@ -1131,7 +1116,7 @@ export async function exportPEM(
     case "spki": {
       if (cryptoKey.type !== "public") {
         throw new JWTError(
-          `Only 'public' type CryptoKeys can be exported to SPKI PEM format. Key type is '${cryptoKey.type}'.`,
+          `Only a public CryptoKey can be exported to SPKI PEM (got ${cryptoKey.type}).`,
           "ERR_JWK_INVALID",
         );
       }
@@ -1331,10 +1316,7 @@ function getGenerateKeyParams(
       keyUsages = pairUsage(SIGNATURE_USAGES, ["sign", "verify"]);
       const namedCurve = options?.namedCurve ?? "Ed25519";
       if (namedCurve !== "Ed25519") {
-        throw new JWTError(
-          "Unsupported namedCurve provided. Supported values are: Ed25519",
-          "ERR_JWK_UNSUPPORTED",
-        );
+        throw new JWTError("Unsupported namedCurve, expected Ed25519", "ERR_JWK_UNSUPPORTED");
       }
       algorithm = { name: namedCurve };
       break;
@@ -1359,7 +1341,7 @@ function getGenerateKeyParams(
         }
         default: {
           throw new JWTError(
-            "Unsupported namedCurve provided. Supported values are: P-256, P-384, P-521 and X25519",
+            "Unsupported namedCurve, expected P-256, P-384, P-521 or X25519",
             "ERR_JWK_UNSUPPORTED",
           );
         }
@@ -1482,7 +1464,7 @@ function resolveKeyUsage(
   const rejected = requested.filter((entry) => !allowed.includes(entry));
   if (rejected.length > 0) {
     throw new JWTError(
-      `"keyUsage" ${rejected.join(", ")} cannot be served by ${alg}; it admits ${allowed.join(", ")}.`,
+      `"keyUsage" ${rejected.join(", ")} cannot be served by ${alg}, use ${allowed.join(", ")}.`,
       "ERR_INVALID_OPTION",
     );
   }
@@ -1512,7 +1494,7 @@ function assertPairUsages(
     const wanted = fallback.filter((entry) => half.includes(entry));
     if (wanted.length === 0 || usages.some((entry) => half.includes(entry))) continue;
     throw new JWTError(
-      `"keyUsage" leaves the ${side} half of a ${alg} key pair with no usage; include one of ${wanted.join(", ")}.`,
+      `"keyUsage" leaves the ${side} half of a ${alg} key pair unusable, add ${wanted.join(" or ")}.`,
       "ERR_INVALID_OPTION",
     );
   }
@@ -1588,19 +1570,14 @@ function assertPBES2Algorithm(alg: unknown): void {
 
 function assertKeyBytesArg(value: unknown, name: string): void {
   if (value instanceof Uint8Array || isCryptoKey(value)) return;
-  throw new JWTError(
-    `"${name}" must be a Uint8Array or a CryptoKey, got ${value === null ? "null" : typeof value}.`,
-    "ERR_INVALID_OPTION",
-  );
+  throw new JWTError(`"${name}" must be a Uint8Array or a CryptoKey.`, "ERR_INVALID_OPTION");
 }
 
+/** RFC 7518 §3.3 — an RSA key is 2048 bits or larger. */
 function assertModulusLength(modulusLength: number | undefined): number {
   const length = modulusLength ?? 2048;
   if (!Number.isInteger(length) || length < 2048) {
-    throw new JWTError(
-      "modulusLength must be at least 2048 bits (RFC 7518 §3.3)",
-      "ERR_INVALID_OPTION",
-    );
+    throw new JWTError("modulusLength must be at least 2048 bits", "ERR_INVALID_OPTION");
   }
   return length;
 }
@@ -1645,10 +1622,7 @@ function assertCryptoKeyFor(
   role: "wrapping" | "unwrapping",
 ): asserts key is CryptoKey {
   if (isCryptoKey(key)) return;
-  throw new JWTError(
-    `${alg.startsWith("RSA") ? "RSA-OAEP" : "ECDH-ES"} requires the ${role} key to be a CryptoKey`,
-    "ERR_JWK_INVALID",
-  );
+  throw new JWTError(`${alg} requires the ${role} key to be a CryptoKey`, "ERR_JWK_INVALID");
 }
 
 /** An `unwrapKey` header parameter, given as its base64url header value or as the decoded bytes. */

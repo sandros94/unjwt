@@ -309,7 +309,7 @@ describe.concurrent("JWS Utilities", () => {
 
       await expect(
         verify(jws, key, { currentDate: new Date("2029-12-31T12:00:00Z") }),
-      ).rejects.toThrow(/not yet valid/);
+      ).rejects.toThrow(/"nbf" is in the future/);
 
       await expect(
         verify(jws, key, { currentDate: new Date("2030-01-02T00:00:00Z") }),
@@ -393,11 +393,7 @@ describe.concurrent("JWS Utilities", () => {
         verify(jws, key, {
           currentDate: date,
         }),
-      ).rejects.toThrow(
-        `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(
-          payload.exp * 1000,
-        ).toISOString()})`,
-      );
+      ).rejects.toThrow(`JWT "exp" is in the past (${new Date(payload.exp * 1000).toISOString()})`);
     });
 
     it("should throw JWTError with ERR_JWT_EXPIRED code and cause for expired `exp`", async () => {
@@ -458,7 +454,7 @@ describe.concurrent("JWS Utilities", () => {
     it("should throw if alg is missing", async () => {
       const key = await generateKey("HS256");
       await expect(sign(payloadObj, key, {} as never)).rejects.toThrow(
-        'JWS "alg" (Algorithm) must be provided',
+        'JWS "alg" must be provided',
       );
     });
 
@@ -863,7 +859,7 @@ describe.concurrent("JWS Utilities", () => {
           hs256Key,
         );
         await expect(verify(jwsNoExt, hs256Key)).rejects.toThrow(
-          'Critical header parameter "app" listed in "crit" but not present in the protected header.',
+          'Critical header parameter "app" is missing from the protected header.',
         );
 
         await expect(
@@ -878,7 +874,7 @@ describe.concurrent("JWS Utilities", () => {
         const error = await verify(jws, hs256Key, { payload: "string" }).catch((e) => e);
         expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
         expect(error.message).toBe(
-          'Critical header parameter "b64" listed in "crit" but not present in the protected header.',
+          'Critical header parameter "b64" is missing from the protected header.',
         );
       });
 
@@ -910,7 +906,7 @@ describe.concurrent("JWS Utilities", () => {
           protectedHeader: { typ: "application/custom" },
         });
         await expect(verify(jws, hs256Key, { typ: "JWT" })).rejects.toThrow(
-          'Invalid JWS: "typ" (Type) Header Parameter mismatch. Expected "JWT", got "application/custom".',
+          'Invalid JWS: "typ" mismatch, expected "JWT".',
         );
 
         await expect(jose.jwtVerify(jws, hs256Key, { typ: "JWT" })).rejects.toThrow(
@@ -986,7 +982,7 @@ describe.concurrent("JWS Utilities", () => {
       it("should validate issuer (failure - mismatch)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
         await expect(verify(jws, hs256Key, { issuer: "wrong-issuer" })).rejects.toThrow(
-          'Invalid JWT "iss" (Issuer) Claim: Expected wrong-issuer, got test-issuer',
+          'Invalid JWT "iss": expected wrong-issuer, got test-issuer',
         );
 
         await expect(jose.jwtVerify(jws, hs256Key, { issuer: "wrong-issuer" })).rejects.toThrow(
@@ -1075,7 +1071,7 @@ describe.concurrent("JWS Utilities", () => {
       it("should validate audience (failure - mismatch)", async () => {
         const jws = await sign(basicJwtPayload, hs256Key, { alg: "HS256" });
         await expect(verify(jws, hs256Key, { audience: "wrong-audience" })).rejects.toThrow(
-          'Invalid JWT "aud" (Audience) Claim: Expected wrong-audience, got test-audience',
+          'Invalid JWT "aud": expected wrong-audience, got test-audience',
         );
       });
 
@@ -1107,9 +1103,7 @@ describe.concurrent("JWS Utilities", () => {
         );
 
         await expect(verify(jws, hs256Key)).rejects.toThrow(
-          `JWT "nbf" (Not Before) Claim validation failed: Token is not yet valid (nbf: ${new Date(
-            futureNbf * 1000,
-          ).toISOString()})`,
+          `JWT "nbf" is in the future (${new Date(futureNbf * 1000).toISOString()})`,
         );
       });
 
@@ -1141,9 +1135,7 @@ describe.concurrent("JWS Utilities", () => {
         );
 
         await expect(verify(jws, hs256Key)).rejects.toThrow(
-          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(
-            pastExp * 1000,
-          ).toISOString()})`,
+          `JWT "exp" is in the past (${new Date(pastExp * 1000).toISOString()})`,
         );
       });
 
@@ -1220,7 +1212,7 @@ describe.concurrent("JWS Utilities", () => {
 
         const pastDate = new Date(Date.now() + 50 * 1000); // 50 seconds in future
         await expect(verify(jws, hs256Key, { currentDate: pastDate })).rejects.toThrow(
-          "Token is not yet valid",
+          'JWT "nbf" is in the future',
         );
       });
 
@@ -1233,7 +1225,7 @@ describe.concurrent("JWS Utilities", () => {
 
         const futureDate = new Date(Date.now() + 120 * 1000); // 120 seconds in future
         await expect(verify(jws, hs256Key, { currentDate: futureDate })).rejects.toThrow(
-          "Token has expired",
+          'JWT "exp" is in the past',
         );
       });
 
@@ -1248,7 +1240,7 @@ describe.concurrent("JWS Utilities", () => {
             maxTokenAge: 30,
             currentDate: currentDateForward,
           }),
-        ).rejects.toThrow("Token is too old");
+        ).rejects.toThrow("is older than maxTokenAge");
 
         await expect(
           verify(jws, hs256Key, {
@@ -1296,7 +1288,7 @@ describe.concurrent("JWS Utilities", () => {
         );
         const jws = `${headerEncoded}.${payloadEncoded}.${base64UrlStringify(signatureBytes)}`;
 
-        await expect(verify(jws, hs256Key)).rejects.toThrow("Token has expired");
+        await expect(verify(jws, hs256Key)).rejects.toThrow('JWT "exp" is in the past');
       });
 
       it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
@@ -1305,7 +1297,7 @@ describe.concurrent("JWS Utilities", () => {
         const err = await verify(jws, hs256Key).catch((e) => e);
         expect(isJWTError(err)).toBe(true);
         expect((err as JWTError).code).toBe("ERR_JWT_CLAIM_INVALID");
-        expect((err as Error).message).toContain('"exp" (Expiration Time) Claim must be a number');
+        expect((err as Error).message).toContain('JWT "exp" must be a number');
       });
     });
 
@@ -1651,7 +1643,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       const hs256Error = await verify(hs256, sha1).catch((e) => e);
       expect(isJWTError(hs256Error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
       expect(hs256Error.message).toBe(
-        'Cannot infer allowed algorithms from this key; pass "options.algorithms" explicitly.',
+        'Cannot infer allowed algorithms from this key, pass "algorithms".',
       );
 
       const hs1 = await craft(base64UrlStringify(JSON.stringify({ alg: "HS1" })));
@@ -1728,7 +1720,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       // here: the b64/crit pairing is checked before any payload work.
       const error = await verify(jws, hs256Key).catch((e) => e);
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-      expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).');
+      expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit".');
     });
 
     it.each([["false"], [0], [null], [1]])(
@@ -1737,7 +1729,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         const jws = await craft(base64UrlStringify(JSON.stringify({ alg: "HS256", b64 })));
         const error = await verify(jws, hs256Key).catch((e) => e);
         expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-        expect(error.message).toBe('Invalid JWS: "b64" must be a boolean (RFC 7797 §3).');
+        expect(error.message).toBe('Invalid JWS: "b64" must be a boolean.');
       },
     );
 
@@ -1747,9 +1739,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         protectedHeader: { b64: false },
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-      expect(error.message).toBe(
-        'Invalid JWS: unencoded compact payload must not contain "." (RFC 7797 §5.2).',
-      );
+      expect(error.message).toBe('Invalid JWS: unencoded compact payload must not contain ".".');
 
       const bytesError = await sign(textEncoder.encode("a.b"), hs256Key, {
         alg: "HS256",
@@ -1794,7 +1784,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
       );
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
       expect(error.message).toBe(
-        'Invalid JWS: the protected header carries no "typ"; expected "at+jwt".',
+        'Invalid JWS: the protected header carries no "typ", expected "at+jwt".',
       );
     });
 
@@ -1822,9 +1812,7 @@ describe.concurrent("JWS header, algorithm and RFC 7797 hardening (compact)", ()
         alg: "HS256",
         protectedHeader: { typ: "at+jwt" },
       });
-      await expect(verify(jws, hs256Key, { typ: "dpop+jwt" })).rejects.toThrow(
-        /"typ" \(Type\) Header Parameter mismatch/,
-      );
+      await expect(verify(jws, hs256Key, { typ: "dpop+jwt" })).rejects.toThrow(/"typ" mismatch/);
     });
   });
 });
@@ -1937,8 +1925,7 @@ describe.concurrent("JWS payload typing (compact)", () => {
 });
 
 describe.concurrent("JWS string keys are rejected", () => {
-  const message =
-    "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
+  const message = "Key must be a JWK, CryptoKey or Uint8Array, not a string.";
 
   it("rejects a string key on sign", async () => {
     const error = await sign({ sub: "u" }, "a-very-long-shared-secret-value" as never, {
@@ -2059,7 +2046,7 @@ describe.concurrent("JWS producer header gates", () => {
         protectedHeader: { b64 } as never,
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
-      expect(error.message).toBe('"b64" must be a boolean (RFC 7797 §3).');
+      expect(error.message).toBe('"b64" must be a boolean.');
     },
   );
 

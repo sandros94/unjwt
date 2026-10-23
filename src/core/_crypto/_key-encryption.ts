@@ -97,7 +97,7 @@ export async function encryptKey(
     }
     default: {
       throw new JWTError(
-        `Invalid or unsupported "alg" (JWE Algorithm) header value: ${quoteTokenValue(alg)}`,
+        `Unsupported JWE "alg" ${quoteTokenValue(alg)}`,
         "ERR_JWE_ALG_NOT_ALLOWED",
       );
     }
@@ -211,10 +211,7 @@ const OKP_ECDH_CURVES: ReadonlySet<string> = /* @__PURE__ */ new Set(["X25519"])
 /** RFC 7518 §4.6.2 — direct ECDH-ES agrees on a key for one content encryption algorithm. */
 function contentAlgorithm(enc: ContentEncryptionAlgorithm | undefined): ContentEncryptionAlgorithm {
   if (enc) return enc;
-  throw new JWTError(
-    'ECDH-ES requires "enc", the content encryption algorithm the key is agreed for.',
-    "ERR_JWE_INVALID",
-  );
+  throw new JWTError('ECDH-ES requires "enc" to derive the key.', "ERR_JWE_INVALID");
 }
 
 /** RFC 7518 §4.6 — the ephemeral key agrees with the recipient key only on the same curve. */
@@ -224,7 +221,7 @@ function assertEphemeralCurve(ephemeralKey: CryptoKey, recipientKey: CryptoKey):
   const recipientCurve = cryptoKeyCurve(recipientKey);
   if (ephemeralCurve === recipientCurve) return;
   throw new JWTError(
-    `ECDH-ES ephemeral key curve ${quoteTokenValue(ephemeralCurve)} does not match the recipient key curve ${quoteTokenValue(recipientCurve)}.`,
+    `ECDH-ES ephemeral key curve ${quoteTokenValue(ephemeralCurve)} does not match recipient curve ${quoteTokenValue(recipientCurve)}.`,
     "ERR_JWK_INVALID",
   );
 }
@@ -235,9 +232,7 @@ function invalidEpk(detail: string): JWTError {
 
 function assertEpkCurve(epkCurve: string | undefined, recipientCurve: string | undefined): void {
   if (!recipientCurve || !epkCurve || epkCurve === recipientCurve) return;
-  throw invalidEpk(
-    `curve "${epkCurve}" does not match the recipient key curve "${recipientCurve}".`,
-  );
+  throw invalidEpk(`curve "${epkCurve}" does not match recipient curve "${recipientCurve}".`);
 }
 
 /** The `epk` header member: the public key parameters alone (RFC 7518 §4.6.1.1). */

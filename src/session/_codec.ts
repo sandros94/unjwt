@@ -181,7 +181,7 @@ export function assertPinnedCryptoKey(
 ): void {
   if (isCryptoKey(key) && !options.pinned) {
     throw invalidConfigError(
-      `${options.prefix} A CryptoKey session key carries no algorithm: set ${options.hint}.`,
+      `${options.prefix} A CryptoKey session key carries no algorithm, set ${options.hint}.`,
     );
   }
 }
@@ -208,7 +208,7 @@ function assertNotFromTheFuture(
     options.clockTolerance === undefined ? 0 : computeDurationInSeconds(options.clockTolerance);
   if (payload.iat > Math.floor(options.now / 1000) + tolerance) {
     throw invalidTokenError(
-      `${options.prefix} Invalid session token: issued in the future (iat: ${new Date(payload.iat * 1000).toISOString()}).`,
+      `${options.prefix} Invalid session token: "iat" is in the future (${new Date(payload.iat * 1000).toISOString()}).`,
     );
   }
 }

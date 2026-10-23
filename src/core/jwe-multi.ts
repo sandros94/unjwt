@@ -501,7 +501,7 @@ function _resolveRecipientAlg(key: JWEEncryptJWK, index: number): KeyManagementA
   const alg = key.kty === "oct" && isContentEncryptionAlgorithm(declared) ? "dir" : declared;
   if (JWE_DIRECT_ALGS.has(alg)) {
     throw new JWTError(
-      `Recipient[${index}] resolves to "${alg}", which requires exactly one recipient. Use encrypt() instead.`,
+      `Recipient[${index}] "${alg}" allows a single recipient, use encrypt().`,
       "ERR_JWE_ALG_FORBIDDEN_IN_MULTI",
     );
   }
@@ -523,6 +523,7 @@ function _buildPerRecipientHeader(
   return header;
 }
 
+/** RFC 7516 §7.2.1 — protected, shared unprotected and per-recipient headers are disjoint. */
 function _assertDisjointHeaders(
   protectedHeader: Record<string, unknown> | undefined,
   sharedUnprotected: Record<string, unknown> | undefined,
@@ -534,7 +535,7 @@ function _assertDisjointHeaders(
     for (const k of Object.keys(obj)) {
       if (seen.has(k)) {
         throw new JWTError(
-          `JWE header parameter "${k}" appears in multiple header tiers; protected, shared unprotected, and per-recipient headers must be disjoint (RFC 7516 §7.2.1).`,
+          `Invalid JWE: header parameter "${k}" is set in more than one header.`,
           "ERR_JWE_HEADER_PARAMS_NOT_DISJOINT",
         );
       }
@@ -566,7 +567,7 @@ function _normalizeSerialization(
   if ("recipients" in input) {
     if ("encrypted_key" in input || "header" in input) {
       throw new JWTError(
-        'Invalid JWE JSON Serialization: "recipients" must not be combined with a top-level "header" or "encrypted_key".',
+        'Invalid JWE JSON Serialization: "recipients" excludes top-level "header" and "encrypted_key".',
         "ERR_JWE_INVALID_SERIALIZATION",
       );
     }

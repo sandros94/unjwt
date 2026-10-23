@@ -99,7 +99,7 @@ describe("limits", () => {
         isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
       );
       await expect(verify(jws, set)).rejects.toThrow(
-        '9 candidate keys exceed the limit of 8; narrow the JWK Set with a "kid".',
+        '9 candidate keys exceed the limit of 8, narrow them with a "kid".',
       );
     });
 
@@ -107,7 +107,7 @@ describe("limits", () => {
       const jws = await sign({ sub: "u1" }, signer);
       const set: JWKSet = { keys: [decoys[0], publicKey] };
       await expect(verify(jws, set, { limits: { keyCandidates: 1 } })).rejects.toThrow(
-        '2 candidate keys exceed the limit of 1; narrow the JWK Set with a "kid".',
+        '2 candidate keys exceed the limit of 1, narrow them with a "kid".',
       );
       const { payload } = await verify<{ sub: string }>(jws, set, {
         limits: { keyCandidates: 2 },
@@ -119,7 +119,7 @@ describe("limits", () => {
       const jws = await signMulti({ sub: "u1" }, [{ key: signer }]);
       const set: JWKSet = { keys: [decoys[0], publicKey] };
       await expect(verifyMulti(jws, set, { limits: { keyCandidates: 1 } })).rejects.toThrow(
-        '2 candidate keys exceed the limit of 1; narrow the JWK Set with a "kid".',
+        '2 candidate keys exceed the limit of 1, narrow them with a "kid".',
       );
       const { payload } = await verifyMulti<{ sub: string }>(jws, set, {
         limits: { keyCandidates: 2 },

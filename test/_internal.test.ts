@@ -510,7 +510,7 @@ describe.concurrent("_internal helpers", () => {
       it("JWE: returns 'Cannot infer' with a more specific label", () => {
         const err = checkAlgAllowed("A256KW", undefined, { ctx: JWE_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
-        expect(err!.message).toContain("key management algorithms");
+        expect(err!.message).toContain("Cannot infer allowed algorithms");
       });
 
       it("JWE: raw bytes carry no role and must be named by the caller", () => {

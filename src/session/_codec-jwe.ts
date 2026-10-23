@@ -176,7 +176,7 @@ function getEncryptKey(config: JWECodecConfig, prefix: string): JWEEncryptJWK | 
   }
 
   if (!resolved) {
-    throw invalidKeyError(`${prefix} Invalid JWE key. It must be a JWK or a CryptoKey.`, key);
+    throw invalidKeyError(`${prefix} Invalid JWE key, expected a JWK or a CryptoKey.`, key);
   }
 
   assertPinnedAlgEnc(resolved, config, prefix);
@@ -197,7 +197,7 @@ function getDecryptKey(config: JWECodecConfig, prefix: string): JWEDecryptJWK | 
 
   if (!resolved) {
     throw invalidKeyError(
-      `${prefix} Invalid JWE key. It must be a JWK, a private JWK, or a CryptoKey.`,
+      `${prefix} Invalid JWE key, expected a JWK, a private JWK or a CryptoKey.`,
       key,
     );
   }

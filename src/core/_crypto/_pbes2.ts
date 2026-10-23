@@ -43,7 +43,7 @@ export function assertPBES2Params(params: {
 /** RFC 7518 §4.8.1.1 — a PBES2 salt input is at least 8 octets. */
 export function assertPBES2Salt(salt: unknown, name: string): void {
   if (salt instanceof Uint8Array && salt.length >= 8) return;
-  throw new JWTError(`${name} must be 8 or more octets (RFC 7518 §4.8.1.1).`, "ERR_INVALID_OPTION");
+  throw new JWTError(`${name} must be 8 or more octets.`, "ERR_INVALID_OPTION");
 }
 
 /** RFC 7518 §4.8.1.2 — a PBES2 iteration count is an integer of at least 1000. */

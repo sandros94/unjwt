@@ -161,7 +161,7 @@ function getSignKey(config: JWSCodecConfig, prefix: string): JWSSignJWK | Crypto
 
   if (!resolved) {
     throw invalidKeyError(
-      `${prefix} Invalid JWS key. It must be a symmetric JWK, a private JWK, or a CryptoKey.`,
+      `${prefix} Invalid JWS key, expected a symmetric JWK, a private JWK or a CryptoKey.`,
       key,
     );
   }
@@ -184,7 +184,7 @@ function getVerifyKey(config: JWSCodecConfig, prefix: string): JWSVerifyJWK | JW
 
   if (!resolved) {
     throw invalidKeyError(
-      `${prefix} Invalid JWS key. It must be a symmetric JWK, a public JWK/set, or a CryptoKey.`,
+      `${prefix} Invalid JWS key, expected a symmetric JWK, a public JWK/set or a CryptoKey.`,
       key,
     );
   }
@@ -204,7 +204,7 @@ function assertJWSKeyPair(
       isCryptoKey(half) ||
       isPublicJWK(half) ||
       isPublicKeyList(Array.isArray(half) ? half : isJWKSet(half) ? half.keys : undefined),
-    publicHalf: "a public JWK, a non-empty list or set of public JWKs, or a CryptoKey",
+    publicHalf: "a public JWK, a non-empty JWK set or a CryptoKey",
   });
 }
 

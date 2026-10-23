@@ -1009,9 +1009,7 @@ describe.concurrent("JWS multi-signature hardening", () => {
       };
       const error = await verifyMulti(tampered, keys.hs256).catch((e) => e);
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-      expect(error.message).toBe(
-        'Invalid JWS: "crit" must be integrity protected (RFC 7515 §4.1.11).',
-      );
+      expect(error.message).toBe('Invalid JWS: "crit" must be integrity protected.');
     });
 
     it("verifyMultiAll records crit in an unprotected header as a failed outcome", async () => {
@@ -1100,7 +1098,7 @@ describe.concurrent("JWS multi-signature hardening", () => {
       };
       const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-      expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).');
+      expect(error.message).toBe('Invalid JWS: "b64" must be listed in "crit".');
     });
 
     it.each([["false"], [0], [null], [1]])(
@@ -1117,7 +1115,7 @@ describe.concurrent("JWS multi-signature hardening", () => {
         };
         const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
         expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
-        expect(error.message).toBe('Invalid JWS: "b64" must be a boolean (RFC 7797 §3).');
+        expect(error.message).toBe('Invalid JWS: "b64" must be a boolean.');
       },
     );
 
@@ -1134,9 +1132,7 @@ describe.concurrent("JWS multi-signature hardening", () => {
       const [first, second] = await verifyMultiAll(tampered, () => keys.hs256);
       const failed = expectUnverified(first);
       expect(failed.error.code).toBe("ERR_JWS_INVALID");
-      expect(failed.error.message).toBe(
-        'Invalid JWS: "b64" must occur only within the protected header (RFC 7797 §3).',
-      );
+      expect(failed.error.message).toBe('Invalid JWS: "b64" must be in the protected header.');
       expect(second?.verified).toBe(true);
     });
 
@@ -1163,7 +1159,7 @@ describe.concurrent("JWS multi-signature hardening", () => {
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
       expect(error.message).toBe(
-        'Invalid JWS: the protected header on signature[0] carries no "typ"; expected "at+jwt".',
+        'Invalid JWS: the protected header on signature[0] carries no "typ", expected "at+jwt".',
       );
     });
 
@@ -1251,7 +1247,7 @@ describe.concurrent("signMulti header tiers", () => {
     );
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toBe(
-      'JWS "b64" must be integrity protected; move it from the unprotected header to the protected header.',
+      'JWS "b64" must be in the protected header, not the unprotected header.',
     );
   });
 
@@ -1263,7 +1259,7 @@ describe.concurrent("signMulti header tiers", () => {
         { key, protectedHeader: { b64 } as never },
       ]).catch((e) => e);
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
-      expect(error.message).toBe('"b64" must be a boolean (RFC 7797 §3).');
+      expect(error.message).toBe('"b64" must be a boolean.');
     },
   );
 
@@ -1509,7 +1505,7 @@ describe.concurrent('JWS JSON serialization "crit" members', () => {
     const error = await verifyMulti(jws, key, { payload: "string" }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWS_INVALID")).toBe(true);
     expect(error.message).toBe(
-      'Critical header parameter "b64" listed in "crit" but not present in the protected header.',
+      'Critical header parameter "b64" is missing from the protected header.',
     );
 
     const [outcome] = await verifyMultiAll(jws, () => key, { payload: "string" });

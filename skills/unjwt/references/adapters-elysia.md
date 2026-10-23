@@ -111,7 +111,7 @@ With defaults, two plugins would both expose `ctx.session` (later wins) — alwa
 A `name` spells one cookie and one cookie carries one token, so on any one request a name belongs
 to one session — families included. Opening a second family under a name already
 in use on the same request throws `ERR_SESSION_CONFIG_INVALID`
-(`'[unjwt/elysia] Session name "app" is already used by a JWS session on this request; …'`).
+(`'[unjwt/elysia] Session name "app" is already used by a JWS session on this request.'`).
 Re-creating the same family under the same name — a hook re-reading its own session — is the same
 session and is always allowed. All `use()` calls of one family and name on a request (plugin, handler,
 hook) share one state: a hook's `clear()` empties `ctx.session` and closes `requireSession`, a hook's

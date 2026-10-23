@@ -85,7 +85,7 @@ const genericExport = async (
   key: unknown,
 ) => {
   if (!isCryptoKey(key)) {
-    throw new JWTError(`Key must be of type CryptoKey, got ${typeof key}`, "ERR_INVALID_OPTION");
+    throw new JWTError("Key must be of type CryptoKey", "ERR_INVALID_OPTION");
   }
 
   if (!key.extractable) {
@@ -172,7 +172,7 @@ const genericImport = async (
       break;
     }
     default: {
-      throw new JWTError('Invalid or unsupported "alg" (Algorithm) value', "ERR_JWK_UNSUPPORTED");
+      throw new JWTError('Invalid or unsupported "alg" value', "ERR_JWK_UNSUPPORTED");
     }
   }
 

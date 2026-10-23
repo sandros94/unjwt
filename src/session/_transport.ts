@@ -83,7 +83,7 @@ export function assertTokenSource(
 ): asserts transport is SessionTransport & { read: () => string | undefined } {
   if (!transport.read) {
     throw invalidConfigError(
-      `${options.prefix} Session has no token source: "cookie" and "sessionHeader" are both disabled.`,
+      `${options.prefix} Session has no token source, enable "cookie" or "sessionHeader".`,
     );
   }
 }
@@ -109,7 +109,7 @@ export function assertSessionHeader(header: unknown, options: { prefix: string }
   if (header === undefined || typeof header === "boolean") return;
   if (isToken(header)) return;
   throw invalidConfigError(
-    `${options.prefix} Session "sessionHeader" must be true, false or a header name: letters, digits and !#$%&'*+-.^_\`|~ only. Got ${quoteTokenValue(header)}.`,
+    `${options.prefix} Session "sessionHeader" must be true, false or a header name (got ${quoteTokenValue(header)}).`,
   );
 }
 

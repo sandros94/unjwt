@@ -157,7 +157,7 @@ export async function encrypt(
   }
   if (!alg) {
     throw new JWTError(
-      'JWE "alg" (Key Management Algorithm) must be provided in options or inferable from the key',
+      'JWE "alg" must be provided in options or inferable from the key',
       "ERR_JWE_ALG_MISSING",
     );
   }
@@ -240,6 +240,7 @@ export async function encrypt(
 /**
  * Decrypt a JWE Compact Serialization string; `key` may be a lookup function.
  * The payload type follows `options.payload` (claims `T` by default).
+ * A compact JWE has five sections (RFC 7516 §3).
  */
 export async function decrypt<T extends object = JWTClaims>(
   jwe: string,
@@ -272,10 +273,7 @@ export async function decrypt(
 
   const parts = jwe.split(".");
   if (parts.length !== 5) {
-    throw new JWTError(
-      "Invalid JWE: Must contain five sections (RFC7516, section-3).",
-      "ERR_JWE_INVALID",
-    );
+    throw new JWTError("Invalid JWE: Must contain five sections.", "ERR_JWE_INVALID");
   }
   const [
     protectedHeaderEncoded,
@@ -391,7 +389,7 @@ function _buildJWEHeader(
 function assertHeaderAlgorithms(header: JWEHeaderParameters): asserts header is JWEProtectedHeader {
   if (!header.alg || !header.enc) {
     throw new JWTError(
-      'Invalid JWE: Protected header must be an object with "alg" and "enc" properties.',
+      'Invalid JWE: Protected header must carry "alg" and "enc".',
       "ERR_JWE_INVALID",
     );
   }

@@ -60,10 +60,7 @@ export function ecdhDerivedBits(
 ): number {
   if (alg !== "ECDH-ES") return aesBitsOf(innerKeyWrapAlg(alg));
   if (enc) return bitLengthCEK(enc);
-  throw new JWTError(
-    'ECDH-ES requires "enc", the content encryption algorithm the key is agreed for.',
-    "ERR_JWE_INVALID",
-  );
+  throw new JWTError('ECDH-ES requires "enc" to derive the key.', "ERR_JWE_INVALID");
 }
 
 /** A fresh extractable key pair on the curve of an ECDH-ES recipient key. */

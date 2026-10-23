@@ -66,15 +66,16 @@ const TOKEN = /^[!#$%&'*+\-.^_`|~\w]+$/;
 /** `<name>.<n>` is the cookie holding chunk `n` of the session called `<name>`. */
 const CHUNK_SUFFIX = /\.\d+$/;
 
+/** A session name is an RFC 6265 §4.1.1 cookie name that does not end like a chunk cookie. */
 export function assertSessionName(name: string, options: { prefix: string }): void {
   if (!isToken(name)) {
     throw invalidConfigError(
-      `${options.prefix} Session "name" must be a cookie name (RFC 6265 §4.1.1): letters, digits and !#$%&'*+-.^_\`|~ only. Got ${quoteTokenValue(name)}.`,
+      `${options.prefix} Session "name" must be a valid cookie name (got ${quoteTokenValue(name)}).`,
     );
   }
   if (CHUNK_SUFFIX.test(name)) {
     throw invalidConfigError(
-      `${options.prefix} Session "name" cannot end in a dot and digits: ${quoteTokenValue(name)} is the cookie holding a chunk of the session named ${quoteTokenValue(name.replace(CHUNK_SUFFIX, ""))}.`,
+      `${options.prefix} Session "name" ${quoteTokenValue(name)} cannot end in a dot and digits.`,
     );
   }
 }
@@ -99,9 +100,7 @@ export function assertCookiePrefix(
     attrs.secure === false ||
     (host && (attrs.domain !== undefined || (attrs.path !== undefined && attrs.path !== "/")));
   if (broken) {
-    throw invalidConfigError(
-      `${options.prefix} Session ${quoteTokenValue(name)}: a ${rule} (RFC 6265bis §4.1.3).`,
-    );
+    throw invalidConfigError(`${options.prefix} Session ${quoteTokenValue(name)}: a ${rule}.`);
   }
 }
 
@@ -123,16 +122,14 @@ export function assertRolling(
     );
   }
   if (computeDurationInSeconds(rolling) >= computeDurationInSeconds(config.maxAge)) {
-    throw invalidConfigError(
-      `${options.prefix} "rolling" must be shorter than "maxAge": the session would expire before it rolls.`,
-    );
+    throw invalidConfigError(`${options.prefix} "rolling" must be shorter than "maxAge".`);
   }
 }
 
 export function assertKeyMaterial(key: unknown, options: { prefix: string }): void {
   if (typeof key === "string") {
     throw invalidKeyError(
-      `${options.prefix} Session "key" must be a JWK or a CryptoKey, not a password string. Derive one once with deriveJWKFromPassword() and pass the result.`,
+      `${options.prefix} Session "key" cannot be a string, use deriveJWKFromPassword().`,
     );
   }
   if (!key) {
@@ -202,7 +199,7 @@ export function sanitizeSessionUpdate(
 ): Record<string, unknown> {
   if (!isPlainObject(update)) {
     throw new JWTError(
-      `${options.prefix} Session data must be a plain object, got ${Array.isArray(update) ? "an array" : typeof update}.`,
+      `${options.prefix} Session data must be a plain object.`,
       "ERR_INVALID_OPTION",
     );
   }

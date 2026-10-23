@@ -1302,7 +1302,7 @@ describe.concurrent("encryptMulti header tiers", () => {
     );
     expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
     expect(error.message).toBe(
-      'Invalid JWE: the protected header carries no "typ"; expected "at+jwt".',
+      'Invalid JWE: the protected header carries no "typ", expected "at+jwt".',
     );
   });
 });

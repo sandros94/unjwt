@@ -101,7 +101,7 @@ export function assertEntryLimit(
 export function assertCandidateLimit(count: number, limit: number): void {
   if (count <= limit) return;
   throw new JWTError(
-    `${count} candidate keys exceed the limit of ${limit}; narrow the JWK Set with a "kid".`,
+    `${count} candidate keys exceed the limit of ${limit}, narrow them with a "kid".`,
     "ERR_JWK_KEY_NOT_FOUND",
   );
 }
@@ -186,7 +186,7 @@ export function assertProtectedOnlyOption(
   for (const param of PROTECTED_ONLY_PARAMS[family]) {
     if (!Object.hasOwn(header, param)) continue;
     throw new JWTError(
-      `${family} "${param}" must be integrity protected; move it from the ${tier} header to the protected header.`,
+      `${family} "${param}" must be in the protected header, not the ${tier} header.`,
       "ERR_INVALID_OPTION",
     );
   }
@@ -204,13 +204,13 @@ export function assertProducerKeyHeaders(
   const { tier, family } = options;
   if (Object.hasOwn(header, "jwk") && !isPublicJWK(Reflect.get(header, "jwk"))) {
     throw new JWTError(
-      `${family} "jwk" in the ${tier} header must be a public JWK; pass the pair's publicKey half.`,
+      `${family} "jwk" in the ${tier} header must be a public JWK.`,
       "ERR_INVALID_OPTION",
     );
   }
   if (Object.hasOwn(header, "epk")) {
     throw new JWTError(
-      `${family} "epk" is written by the ECDH-ES key agreement; pass an ephemeral key through "ecdh.ephemeralKey" instead of the ${tier} header.`,
+      `${family} "epk" is not a header option, use "ecdh.ephemeralKey".`,
       "ERR_INVALID_OPTION",
     );
   }
@@ -222,10 +222,7 @@ export function assertProducerConfirmation(payload: unknown): void {
   const cnf: unknown = Reflect.get(payload, "cnf");
   if (typeof cnf !== "object" || cnf === null || !Object.hasOwn(cnf, "jwk")) return;
   if (!isPublicJWK(Reflect.get(cnf, "jwk"))) {
-    throw new JWTError(
-      'Invalid JWT "cnf" (Confirmation) Claim: "jwk" must be a public JWK (RFC 7800 §3.2).',
-      "ERR_JWT_CLAIM_INVALID",
-    );
+    throw new JWTError('Invalid JWT "cnf": "jwk" must be a public JWK.', "ERR_JWT_CLAIM_INVALID");
   }
 }
 
@@ -265,10 +262,7 @@ export function assertProducerCEK(
   if (cek === undefined) return;
   const expected = bitLengthCEK(enc) >> 3;
   if (!(cek instanceof Uint8Array) || cek.length !== expected) {
-    throw new JWTError(
-      `"cek" must be ${expected} bytes for ${enc} (got ${cek instanceof Uint8Array ? cek.length : typeof cek}).`,
-      "ERR_INVALID_OPTION",
-    );
+    throw new JWTError(`"cek" must be ${expected} bytes for ${enc}.`, "ERR_INVALID_OPTION");
   }
 }
 
@@ -281,7 +275,7 @@ export function assertProducerIV(
   const expected = bitLengthIV(enc) >> 3;
   if (!(iv instanceof Uint8Array) || iv.length !== expected) {
     throw new JWTError(
-      `"contentEncryptionIV" must be ${expected} bytes for ${enc} (got ${iv instanceof Uint8Array ? iv.length : typeof iv}).`,
+      `"contentEncryptionIV" must be ${expected} bytes for ${enc}.`,
       "ERR_INVALID_OPTION",
     );
   }
@@ -418,10 +412,7 @@ export async function resolveSigningKey(
 ): Promise<CryptoKey> {
   if (key instanceof Uint8Array) {
     if (alg !== "HS256" && alg !== "HS384" && alg !== "HS512") {
-      throw new JWTError(
-        `Raw key bytes are HMAC secrets; ${alg} needs an asymmetric key. Pass a JWK or a CryptoKey.`,
-        "ERR_JWK_INVALID",
-      );
+      throw new JWTError(`${alg} needs an asymmetric key, not raw bytes.`, "ERR_JWK_INVALID");
     }
     assertOctKeyLength(key, alg);
     return crypto.subtle.importKey("raw", key, { name: "HMAC", hash: jwsHashOf(alg) }, false, [
@@ -475,7 +466,7 @@ export function resolvePayloadMode(options: {
       mode = forceUint8Array ? "bytes" : "json";
     } else if (forceUint8Array !== (payload === "bytes")) {
       throw new JWTError(
-        '"forceUint8Array" contradicts "payload"; pass "payload" alone.',
+        '"forceUint8Array" contradicts "payload", pass "payload" alone.',
         "ERR_INVALID_OPTION",
       );
     }
@@ -490,7 +481,7 @@ export function resolvePayloadMode(options: {
 
 export function stringKeyError(): JWTError {
   return new JWTError(
-    "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().",
+    "Key must be a JWK, CryptoKey or Uint8Array, not a string.",
     "ERR_JWK_INVALID",
   );
 }
@@ -558,7 +549,7 @@ export function checkAlgAllowed<A extends JWKAlgorithm>(
   const inferred = ctx.infer(key, { allowSymmetric });
   if (!inferred) {
     return new JWTError(
-      `Cannot infer allowed ${ctx.label.toLowerCase()}s from this key; pass "options.algorithms" explicitly.`,
+      'Cannot infer allowed algorithms from this key, pass "algorithms".',
       ctx.errorCode,
     );
   }
@@ -605,20 +596,17 @@ export function checkJWSAlgSupported(alg: string): JWTError | undefined {
 /** RFC 7797 §3 / §6 — `b64` is a boolean, and `b64: false` must be listed in `crit`. */
 export function checkJWSB64(header: { b64?: unknown; crit?: unknown }): JWTError | undefined {
   if (Object.hasOwn(header, "b64") && typeof header.b64 !== "boolean") {
-    return new JWTError('Invalid JWS: "b64" must be a boolean (RFC 7797 §3).', "ERR_JWS_INVALID");
+    return new JWTError('Invalid JWS: "b64" must be a boolean.', "ERR_JWS_INVALID");
   }
   if (header.b64 !== false) return undefined;
   if (Array.isArray(header.crit) && header.crit.includes("b64")) return undefined;
-  return new JWTError(
-    'Invalid JWS: "b64" must be listed in "crit" (RFC 7797 §6).',
-    "ERR_JWS_INVALID",
-  );
+  return new JWTError('Invalid JWS: "b64" must be listed in "crit".', "ERR_JWS_INVALID");
 }
 
 /** RFC 7797 §3 — a caller's `b64` is a boolean. */
 export function assertB64Option(header: { b64?: unknown } | undefined): void {
   if (!header || !Object.hasOwn(header, "b64") || typeof header.b64 === "boolean") return;
-  throw new JWTError('"b64" must be a boolean (RFC 7797 §3).', "ERR_INVALID_OPTION");
+  throw new JWTError('"b64" must be a boolean.', "ERR_INVALID_OPTION");
 }
 
 /** Drop a default `b64: true` unless `crit` lists it; list `b64: false` in `crit` (RFC 7797 §3 / §6). */
@@ -753,7 +741,7 @@ export function assertDirectKeyRole(
   if (!isJWK(key) || typeof key.alg !== "string" || key.alg === "dir") return;
   if (enc !== undefined && key.alg === enc) return;
   throw new JWTError(
-    `JWK "alg" is "${key.alg}" but "dir" requires a key declared as "dir" or as the token's "enc" (${enc ?? "unknown"}).`,
+    `JWK "alg" is "${key.alg}" but "dir" requires "dir" or the token's "enc".`,
     "ERR_JWK_INVALID",
   );
 }
@@ -892,7 +880,7 @@ export function checkJWEZip(header: object | undefined): JWTError | undefined {
 export function assertNoZipOption(header: object | undefined, tier: string): void {
   if (!header || !Object.hasOwn(header, "zip")) return;
   throw new JWTError(
-    `JWE compression ("zip") is not supported; remove it from the ${tier} header.`,
+    `JWE compression ("zip") in the ${tier} header is not supported.`,
     "ERR_INVALID_OPTION",
   );
 }
@@ -900,10 +888,7 @@ export function assertNoZipOption(header: object | undefined, tier: string): voi
 /** RFC 7516 §4.1.13 — `crit` is only meaningful when it is integrity protected. */
 export function checkJWEUnprotectedCrit(header: object | undefined): JWTError | undefined {
   if (!header || !Object.hasOwn(header, "crit")) return undefined;
-  return new JWTError(
-    'Invalid JWE: "crit" must be integrity protected (RFC 7516 §4.1.13).',
-    "ERR_JWE_INVALID",
-  );
+  return new JWTError('Invalid JWE: "crit" must be integrity protected.', "ERR_JWE_INVALID");
 }
 
 /** RFC 7515 §4.1.9 — case-insensitive `typ` match with an optional `application/` prefix. */
@@ -925,8 +910,8 @@ export function checkProtectedTyp(
   const where = label ? ` on ${label}` : "";
   const message =
     actual === undefined
-      ? `Invalid ${family}: the protected header${where} carries no "typ"; expected "${expected}".`
-      : `Invalid ${family}: "typ" (Type) Header Parameter mismatch${where}. Expected "${expected}", got ${JSON.stringify(actual)}.`;
+      ? `Invalid ${family}: the protected header${where} carries no "typ", expected "${expected}".`
+      : `Invalid ${family}: "typ" mismatch${where}, expected "${expected}".`;
   return new JWTError(message, `ERR_${family}_INVALID`);
 }
 

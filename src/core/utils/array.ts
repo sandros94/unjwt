@@ -20,7 +20,7 @@ export function concatUint8Arrays(
 export function uint32be(value: number): Uint8Array<ArrayBuffer> {
   if (value < 0 || value >= 2 ** 32) {
     throw new JWTError(
-      `value must be >= 0 and <= ${2 ** 32 - 1}. Received ${value}`,
+      `value must be >= 0 and <= ${2 ** 32 - 1} (got ${value})`,
       "ERR_INVALID_OPTION",
     );
   }

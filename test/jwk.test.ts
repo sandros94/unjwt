@@ -59,8 +59,7 @@ import type {
 } from "../src/core/types/index.ts";
 import { rsa, ec } from "./keys.ts";
 
-const STRING_KEY_MESSAGE =
-  "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
+const STRING_KEY_MESSAGE = "Key must be a JWK, CryptoKey or Uint8Array, not a string.";
 import { deriveECDHESKey, encryptRSAES, bitLengthCEK } from "../src/core/_crypto/index.ts";
 
 describe.concurrent("JWK Utilities", () => {
@@ -234,16 +233,14 @@ describe.concurrent("JWK Utilities", () => {
       await expect(
         // @ts-expect-error Intentionally passing an unsupported namedCurve
         generateKey("EdDSA", { namedCurve: "Ed999" }),
-      ).rejects.toThrow("Unsupported namedCurve provided. Supported values are: Ed25519");
+      ).rejects.toThrow("Unsupported namedCurve, expected Ed25519");
     });
 
     it("should throw for unsupported ECDH-ES namedCurve", async () => {
       await expect(
         // @ts-expect-error Intentionally passing an unsupported namedCurve
         generateKey("ECDH-ES", { namedCurve: "P-999" }),
-      ).rejects.toThrow(
-        "Unsupported namedCurve provided. Supported values are: P-256, P-384, P-521 and X25519",
-      );
+      ).rejects.toThrow("Unsupported namedCurve, expected P-256, P-384, P-521 or X25519");
     });
 
     it("should throw for unsupported algorithm", async () => {
@@ -955,7 +952,7 @@ describe.concurrent("JWK Utilities", () => {
             format: "cryptokey",
             // no enc, no unwrappedKeyAlgorithm — inferAesImportAlgorithm returns undefined
           }),
-        ).rejects.toThrow(/Unable to infer algorithm for RSA-OAEP unwrapped key/i);
+        ).rejects.toThrow(/Cannot infer the RSA-OAEP unwrapped key algorithm/i);
       });
 
       it("should handle composite CBC CEK via RSA-OAEP-256", async () => {
@@ -966,7 +963,7 @@ describe.concurrent("JWK Utilities", () => {
 
         await expect(
           unwrapKey(encryptedKey, pair.privateKey, { alg, enc: "A256CBC-HS512" }),
-        ).rejects.toThrow(/Unable to infer algorithm for RSA-OAEP unwrapped key/i);
+        ).rejects.toThrow(/Cannot infer the RSA-OAEP unwrapped key algorithm/i);
 
         const unwrapped = await unwrapKey(encryptedKey, pair.privateKey, {
           alg,
@@ -1186,9 +1183,9 @@ describe.concurrent("JWK Utilities", () => {
         unwrapKey(new Uint8Array(0), recipientKeys.privateKey, {
           alg: "ECDH-ES",
           epk: senderKeys.publicKey,
-          // no enc — triggers "ECDH-ES requires content encryption algorithm"
+          // no enc — triggers "ECDH-ES requires 'enc' to derive the shared secret"
         }),
-      ).rejects.toThrow("ECDH-ES requires content encryption algorithm");
+      ).rejects.toThrow("ECDH-ES requires 'enc' to derive the shared secret");
     });
 
     it("should throw for ECDH-ES+KW unwrapKey with empty wrapped key", async () => {
@@ -1429,7 +1426,7 @@ describe.concurrent("JWK Utilities", () => {
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toBe(
-        'ECDH-ES ephemeral key curve "P-256" does not match the recipient key curve "P-384".',
+        'ECDH-ES ephemeral key curve "P-256" does not match recipient curve "P-384".',
       );
     });
 
@@ -1733,14 +1730,12 @@ describe.concurrent("JWK Utilities", () => {
 
       it("should throw when exporting 'oct' JWK to PEM", async () => {
         const octJwk: JWK_oct = { kty: "oct", k: "somekey" };
-        await expect(exportPEM(octJwk)).rejects.toThrow(
-          "Octet (symmetric) JWKs (kty: 'oct') cannot be exported",
-        );
+        await expect(exportPEM(octJwk)).rejects.toThrow("An oct JWK cannot be exported");
       });
 
       it("should throw if alg is missing and required for JWK to CryptoKey conversion", async () => {
         const rsaNoAlg = { ...rsa.jwk.public, alg: undefined };
-        await expect(exportPEM(rsaNoAlg)).rejects.toThrow("Algorithm (alg) must be provided");
+        await expect(exportPEM(rsaNoAlg)).rejects.toThrow('"alg" is required, set it on the JWK');
       });
 
       it("should use options.alg if JWK has no alg", async () => {
@@ -2235,7 +2230,7 @@ describe.concurrent("JWK Utilities", () => {
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toBe(
-        `Invalid or unsupported JWK "crv" (Curve) Parameter value: ${JSON.stringify(`${crv.slice(0, 64)}…`)}. Expected one of: P-256, P-384, P-521.`,
+        `Invalid JWK "crv" ${JSON.stringify(`${crv.slice(0, 64)}…`)}, expected P-256, P-384, P-521.`,
       );
       expect(error.message.length).toBeLessThan(200);
     });
@@ -2268,7 +2263,7 @@ describe.concurrent("JWK Utilities", () => {
       }).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
       expect(error.message).toBe(
-        'Invalid JWE: "epk" curve "P-384" does not match the recipient key curve "P-256".',
+        'Invalid JWE: "epk" curve "P-384" does not match recipient curve "P-256".',
       );
     });
 

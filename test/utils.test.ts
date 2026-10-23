@@ -435,7 +435,7 @@ describe("validateCriticalHeadersJWE (direct)", () => {
 
   it("throws when a crit param is listed but not present in the header", () => {
     expect(() => validateCriticalHeadersJWE({ crit: ["missingParam"] }, ["missingParam"])).toThrow(
-      'Critical header parameter "missingParam" listed in "crit" but not present',
+      'Critical header parameter "missingParam" is missing from the protected header',
     );
   });
 
@@ -496,13 +496,13 @@ describe("validateJwtClaims additional cases", () => {
         { iat: futureIat },
         { maxTokenAge: 60, clockTolerance: 10 }, // tolerance only 10s, iat is 100s in future
       ),
-    ).toThrow("Token was issued in the future");
+    ).toThrow('JWT "iat" is in the future');
   });
 
   it("throws 'Token is too old' for maxTokenAge violation", () => {
     const oldIat = Math.floor(Date.now() / 1000) - 300; // 300s ago
     expect(() => validateJwtClaims({ iat: oldIat }, { maxTokenAge: 60 })).toThrow(
-      "Token is too old",
+      "is older than maxTokenAge",
     );
   });
 
@@ -512,28 +512,22 @@ describe("validateJwtClaims additional cases", () => {
     expect(() =>
       // @ts-expect-error intentional non-number iat
       validateJwtClaims({ iat: "not-a-number" }, { maxTokenAge: 60 }),
-    ).toThrow('"iat" (Issued At) Claim must be a number');
+    ).toThrow('JWT "iat" must be a number');
   });
 
   // RFC 7519 §4.1: exp/nbf/iat are NumericDate and must be finite numbers.
   it("throws on non-finite exp / nbf", () => {
     // @ts-expect-error intentional non-number exp
-    expect(() => validateJwtClaims({ exp: "never" })).toThrow(
-      '"exp" (Expiration Time) Claim must be a number',
-    );
+    expect(() => validateJwtClaims({ exp: "never" })).toThrow('JWT "exp" must be a number');
     // @ts-expect-error intentional non-number nbf
-    expect(() => validateJwtClaims({ nbf: "later" })).toThrow(
-      '"nbf" (Not Before) Claim must be a number',
-    );
-    expect(() => validateJwtClaims({ exp: Number.NaN })).toThrow(
-      '"exp" (Expiration Time) Claim must be a number',
-    );
+    expect(() => validateJwtClaims({ nbf: "later" })).toThrow('JWT "nbf" must be a number');
+    expect(() => validateJwtClaims({ exp: Number.NaN })).toThrow('JWT "exp" must be a number');
   });
 
   it("throws for subject mismatch", () => {
     expect(() =>
       validateJwtClaims({ sub: "actual-subject" }, { subject: "expected-subject" }),
-    ).toThrow('"sub" (Subject) Claim');
+    ).toThrow('Invalid JWT "sub"');
   });
 
   it.each([
@@ -827,7 +821,7 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
   );
 
   it.each([
-    [{ crit: ["app"] }, 'Critical header parameter "app" listed in "crit" but not present'],
+    [{ crit: ["app"] }, 'Critical header parameter "app" is missing from the protected header'],
     [{ crit: ["app"], app: "web" }, "Unprocessed critical header parameters: app"],
   ])("reports the same crit violation for JWS and JWE (%j)", (header, message) => {
     expect(() => validateCriticalHeadersJWS(header)).toThrow(message);
@@ -845,7 +839,7 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
     );
     expect(() => validateCriticalHeadersJWE({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
     expect(() => validateCriticalHeadersJWE({ crit: ["app"] }, ["app"])).toThrow(
-      'Critical header parameter "app" listed in "crit" but not present',
+      'Critical header parameter "app" is missing from the protected header',
     );
   });
 });
@@ -857,14 +851,14 @@ describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
     it("accepts a Duration string and normalizes it to seconds", () => {
       expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "5m" })).not.toThrow();
       expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "1m" })).toThrow(
-        "Token is not yet valid",
+        'JWT "nbf" is in the future',
       );
     });
 
     it("accepts a numeric-string Duration as seconds, not as concatenation", () => {
       expect(() => validateJwtClaims({ nbf: now + 120 }, { clockTolerance: "300" })).not.toThrow();
       expect(() => validateJwtClaims({ nbf: now + 600 }, { clockTolerance: "300" })).toThrow(
-        "Token is not yet valid",
+        'JWT "nbf" is in the future',
       );
     });
 
@@ -914,7 +908,7 @@ describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
     const error = catchError(() =>
       validateJwtClaims({ iat: now - 3600 }, { maxTokenAge: "5m" }),
     ) as Error;
-    expect(error.message).toContain("maxTokenAge: 5m");
+    expect(error.message).toContain("maxTokenAge 5m");
     expect(error.message).not.toContain("5ms");
   });
 });

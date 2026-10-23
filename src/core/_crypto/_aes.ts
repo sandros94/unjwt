@@ -98,7 +98,7 @@ export function checkCEKLength(cek: Uint8Array<ArrayBuffer>, expected: number): 
   const actual = cek.byteLength << 3;
   if (actual !== expected) {
     throw new JWTError(
-      `Invalid Content Encryption Key length. Expected ${expected} bits, got ${actual} bits`,
+      `Invalid Content Encryption Key length, expected ${expected} bits (got ${actual})`,
       "ERR_INVALID_OPTION",
     );
   }

@@ -135,13 +135,13 @@ export function computeJwtTimeClaims(
 
   if (expiresIn !== undefined && expiresAt !== undefined) {
     throw new JWTError(
-      '"expiresIn" and "expiresAt" are mutually exclusive; pass only one.',
+      '"expiresIn" and "expiresAt" are mutually exclusive.',
       "ERR_JWT_CLAIM_INVALID",
     );
   }
   if (notBeforeIn !== undefined && notBeforeAt !== undefined) {
     throw new JWTError(
-      '"notBeforeIn" and "notBeforeAt" are mutually exclusive; pass only one.',
+      '"notBeforeIn" and "notBeforeAt" are mutually exclusive.',
       "ERR_JWT_CLAIM_INVALID",
     );
   }
@@ -298,7 +298,7 @@ function validateCriticalHeaders(
   for (const param of crit) {
     if (!Object.hasOwn(protectedHeader, param)) {
       throw new JWTError(
-        `Critical header parameter "${param}" listed in "crit" but not present in the protected header.`,
+        `Critical header parameter "${param}" is missing from the protected header.`,
         `ERR_${family}_INVALID`,
       );
     }

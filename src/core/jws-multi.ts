@@ -389,16 +389,10 @@ const PER_SIGNATURE_ERROR_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
 function _checkUnprotectedHeader(header: JWSHeaderParameters | undefined): JWTError | undefined {
   if (!header) return undefined;
   if (Object.hasOwn(header, "crit")) {
-    return new JWTError(
-      'Invalid JWS: "crit" must be integrity protected (RFC 7515 §4.1.11).',
-      "ERR_JWS_INVALID",
-    );
+    return new JWTError('Invalid JWS: "crit" must be integrity protected.', "ERR_JWS_INVALID");
   }
   if (Object.hasOwn(header, "b64")) {
-    return new JWTError(
-      'Invalid JWS: "b64" must occur only within the protected header (RFC 7797 §3).',
-      "ERR_JWS_INVALID",
-    );
+    return new JWTError('Invalid JWS: "b64" must be in the protected header.', "ERR_JWS_INVALID");
   }
   return undefined;
 }
@@ -464,7 +458,7 @@ function _readSignatureHeaders(entry: JWSGeneralSignature, index: number): Signa
   if (!alg) {
     return failed(
       new JWTError(
-        `Invalid JWS: Signature[${index}] has no "alg" in its protected or unprotected header.`,
+        `Invalid JWS: Signature[${index}] has no "alg" in its headers.`,
         "ERR_JWS_INVALID",
       ),
     );
@@ -510,6 +504,7 @@ function _inferSignerAlg(key: JWSMultiSigner["key"], index: number): JWSAlgorith
   return inferred[0];
 }
 
+/** RFC 7797 §3 — every signer uses the same `b64` value. */
 function _resolveB64(signers: JWSMultiSigner[]): boolean {
   let decided: boolean | undefined;
   for (let i = 0; i < signers.length; i++) {
@@ -517,15 +512,13 @@ function _resolveB64(signers: JWSMultiSigner[]): boolean {
     if (raw === undefined) continue;
     if (decided === undefined) decided = raw;
     else if (decided !== raw) {
-      throw new JWTError(
-        `Inconsistent "b64" across signers (RFC 7797 §3 requires all signers use the same b64 value).`,
-        "ERR_JWS_B64_INCONSISTENT",
-      );
+      throw new JWTError('Inconsistent "b64" across signers.', "ERR_JWS_B64_INCONSISTENT");
     }
   }
   return decided ?? true;
 }
 
+/** RFC 7515 §7.2.1 — a signature's protected and unprotected headers are disjoint. */
 function _assertDisjointHeaders(
   protectedHeader: Record<string, unknown> | undefined,
   unprotectedHeader: Record<string, unknown> | undefined,
@@ -534,7 +527,7 @@ function _assertDisjointHeaders(
   for (const k of Object.keys(unprotectedHeader)) {
     if (k in protectedHeader) {
       throw new JWTError(
-        `JWS header parameter "${k}" appears in both protected and unprotected headers of a signature; they must be disjoint (RFC 7515 §7.2.1).`,
+        `Invalid JWS: header parameter "${k}" is set in more than one header.`,
         "ERR_JWS_HEADER_PARAMS_NOT_DISJOINT",
       );
     }
@@ -581,7 +574,7 @@ function _normalizeSerialization(
     // RFC 7515 §7.2: General and Flattened members must not be mixed.
     if ("signature" in input || "protected" in input) {
       throw new JWTError(
-        'Invalid JWS JSON Serialization: "signatures" must not be combined with a top-level "signature" or "protected".',
+        'Invalid JWS JSON Serialization: "signatures" excludes top-level "signature" and "protected".',
         "ERR_JWS_INVALID_SERIALIZATION",
       );
     }
@@ -597,7 +590,7 @@ function _normalizeSerialization(
   }
 
   throw new JWTError(
-    "Invalid JWS JSON Serialization: missing both signatures[] and flattened signature.",
+    'Invalid JWS JSON Serialization: missing "signatures" or "signature".',
     "ERR_JWS_INVALID_SERIALIZATION",
   );
 }

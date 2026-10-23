@@ -17,11 +17,11 @@ const publicOnly = expect.objectContaining({
 });
 const epkOwned = expect.objectContaining({
   code: "ERR_INVALID_OPTION",
-  message: expect.stringContaining('"epk" is written by the ECDH-ES key agreement'),
+  message: expect.stringContaining('"epk" is not a header option'),
 });
 const cnfPublic = expect.objectContaining({
   code: "ERR_JWT_CLAIM_INVALID",
-  message: 'Invalid JWT "cnf" (Confirmation) Claim: "jwk" must be a public JWK (RFC 7800 §3.2).',
+  message: 'Invalid JWT "cnf": "jwk" must be a public JWK.',
 });
 
 // A caller has to defeat the types to reach these paths.

@@ -349,7 +349,7 @@ describe.concurrent("JWE Utilities", () => {
     it("should throw if alg is missing", async () => {
       const key = keys["A128KW"].key as CryptoKey;
       await expect(encrypt(plaintextString, key, { enc: "A128GCM" } as never)).rejects.toThrow(
-        'JWE "alg" (Key Management Algorithm) must be provided in options',
+        'JWE "alg" must be provided in options',
       );
     });
 
@@ -596,7 +596,7 @@ describe.concurrent("JWE Utilities", () => {
       const error = await decrypt(jwe, jwk).catch((e) => e);
       expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
       expect(error.message).toBe(
-        'JWK "alg" is "A256GCM" but "dir" requires a key declared as "dir" or as the token\'s "enc" (A128CBC-HS256).',
+        'JWK "alg" is "A256GCM" but "dir" requires "dir" or the token\'s "enc".',
       );
     });
 
@@ -754,7 +754,7 @@ describe.concurrent("JWE Utilities", () => {
 
     it("should throw if JWE has incorrect number of parts", async () => {
       await expect(decrypt("a.b.c.d", key)).rejects.toThrow(
-        "Invalid JWE: Must contain five sections (RFC7516, section-3).",
+        "Invalid JWE: Must contain five sections.",
       );
     });
 
@@ -763,7 +763,7 @@ describe.concurrent("JWE Utilities", () => {
       const parts = jwe.split(".");
       parts[0] = invalidHeader;
       await expect(decrypt(parts.join("."), key)).rejects.toThrow(
-        'Invalid JWE: Protected header must be an object with "alg" and "enc" properties.',
+        'Invalid JWE: Protected header must carry "alg" and "enc".',
       );
     });
 
@@ -1018,7 +1018,7 @@ describe.concurrent("JWE Utilities", () => {
           protectedHeader: { cty: "application/json" },
         });
 
-        await expect(decrypt(token, key)).rejects.toThrow("Token has expired");
+        await expect(decrypt(token, key)).rejects.toThrow('JWT "exp" is in the past');
       });
 
       it("rejects non-numeric exp as ERR_JWT_CLAIM_INVALID", async () => {
@@ -1027,7 +1027,7 @@ describe.concurrent("JWE Utilities", () => {
         const err = await decrypt(token, key).catch((e) => e);
         expect(isJWTError(err)).toBe(true);
         expect((err as JWTError).code).toBe("ERR_JWT_CLAIM_INVALID");
-        expect((err as Error).message).toContain('"exp" (Expiration Time) Claim must be a number');
+        expect((err as Error).message).toContain('JWT "exp" must be a number');
       });
 
       it("should throw if JWT has expired", async () => {
@@ -1044,9 +1044,7 @@ describe.concurrent("JWE Utilities", () => {
           decrypt(token, key, {
             currentDate: new Date(61_000),
           }),
-        ).rejects.toThrow(
-          `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: 1970-01-01T00:01:00.000Z)`,
-        );
+        ).rejects.toThrow(`JWT "exp" is in the past (1970-01-01T00:01:00.000Z)`);
       });
 
       it("should throw JWTError with ERR_JWT_EXPIRED code and cause for expired `exp`", async () => {
@@ -1616,7 +1614,7 @@ describe.concurrent("JWE Utilities", () => {
       );
       expect(isJWTError(error, "ERR_JWE_INVALID")).toBe(true);
       expect(error.message).toBe(
-        'Invalid JWE: the protected header carries no "typ"; expected "at+jwt".',
+        'Invalid JWE: the protected header carries no "typ", expected "at+jwt".',
       );
     });
   });
@@ -1688,8 +1686,7 @@ describe.concurrent("JWE payload typing", () => {
 });
 
 describe.concurrent("JWE string keys are passwords only", () => {
-  const message =
-    "String keys are not accepted: pass an oct JWK or a Uint8Array secret, or import PEM text with importPEM().";
+  const message = "Key must be a JWK, CryptoKey or Uint8Array, not a string.";
 
   it("derives a PBES2 key from a password on both sides", async () => {
     const jwe = await encrypt({ sub: "u" }, "correct horse battery staple", {
@@ -1857,7 +1854,7 @@ describe.concurrent("JWE producer option gates", () => {
     }).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
     expect(error.message).toBe(
-      'ECDH-ES ephemeral key curve "X25519" does not match the recipient key curve "P-256".',
+      'ECDH-ES ephemeral key curve "X25519" does not match recipient curve "P-256".',
     );
   });
 

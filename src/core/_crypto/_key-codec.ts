@@ -111,10 +111,7 @@ function subtleMapping(
           break;
         }
         default: {
-          throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(alg)}.`,
-            "ERR_JWK_INVALID",
-          );
+          throw new JWTError(`Invalid JWK "alg" ${quoteTokenValue(alg)}.`, "ERR_JWK_INVALID");
         }
       }
       break;
@@ -140,10 +137,7 @@ function subtleMapping(
           break;
         }
         default: {
-          throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(alg)}.`,
-            "ERR_JWK_INVALID",
-          );
+          throw new JWTError(`Invalid JWK "alg" ${quoteTokenValue(alg)}.`, "ERR_JWK_INVALID");
         }
       }
       break;
@@ -165,17 +159,14 @@ function subtleMapping(
           break;
         }
         default: {
-          throw new JWTError(
-            `Invalid or unsupported JWK "alg" (Algorithm) Parameter value: ${quoteTokenValue(alg)}.`,
-            "ERR_JWK_INVALID",
-          );
+          throw new JWTError(`Invalid JWK "alg" ${quoteTokenValue(alg)}.`, "ERR_JWK_INVALID");
         }
       }
       break;
     }
     default: {
       throw new JWTError(
-        `Invalid or unsupported JWK "kty" (Key Type) Parameter value: ${quoteTokenValue((jwk as { kty?: unknown }).kty)}.`,
+        `Invalid JWK "kty" ${quoteTokenValue((jwk as { kty?: unknown }).kty)}.`,
         "ERR_JWK_INVALID",
       );
     }
@@ -189,7 +180,7 @@ function requireCurve(jwk: JWK, allowed: readonly string[]): string {
   const crv: unknown = "crv" in jwk ? jwk.crv : undefined;
   if (typeof crv !== "string" || !allowed.includes(crv)) {
     throw new JWTError(
-      `Invalid or unsupported JWK "crv" (Curve) Parameter value: ${quoteTokenValue(crv)}. Expected one of: ${allowed.join(", ")}.`,
+      `Invalid JWK "crv" ${quoteTokenValue(crv)}, expected ${allowed.join(", ")}.`,
       "ERR_JWK_INVALID",
     );
   }

@@ -732,9 +732,9 @@ describe("adapter h3 v1", () => {
 
         expect(accessHooks.onExpire).toHaveBeenCalledTimes(1);
         expect(refreshChecks).toEqual([second.body.refresh.id]);
-        expect(accessErrors.some((error) => String(error).includes("Token has expired"))).toBe(
-          true,
-        );
+        expect(
+          accessErrors.some((error) => String(error).includes('JWT "exp" is in the past')),
+        ).toBe(true);
         expect(refreshedAccessCookie).toBeTruthy();
         expect(refreshedAccessCookie).not.toEqual(accessCookie);
         expect(second.body.access.id).not.toEqual(first.body.access.id);

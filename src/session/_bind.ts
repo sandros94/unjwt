@@ -115,6 +115,6 @@ function claimSessionName(
   }
   if (held === family) return;
   throw invalidConfigError(
-    `${prefix} Session name "${name}" is already used by a ${held.toUpperCase()} session on this request; a name is one cookie, so give this session a "name" of its own.`,
+    `${prefix} Session name "${name}" is already used by a ${held.toUpperCase()} session on this request.`,
   );
 }

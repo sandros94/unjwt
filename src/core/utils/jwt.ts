@@ -51,7 +51,7 @@ export function parseDurationSeconds(value: Duration): number {
     const match = value.match(DURATION_REGEX);
     if (!match || !match[1]) {
       throw new JWTError(
-        "Invalid duration format. Must be an integer or a string like '10m', '2h', '7D', etc.",
+        "Duration must be an integer or a string like '10m' or '7D'.",
         "ERR_INVALID_OPTION",
       );
     }
@@ -79,7 +79,7 @@ export function computeDurationInSeconds(duration: Duration): number {
 
 /** The `ERR_JWT_EXPIRED` message for a token whose `exp` (NumericDate seconds) has passed. */
 export function expiredClaimMessage(exp: number): string {
-  return `JWT "exp" (Expiration Time) Claim validation failed: Token has expired (exp: ${new Date(exp * 1000).toISOString()})`;
+  return `JWT "exp" is in the past (${new Date(exp * 1000).toISOString()}).`;
 }
 
 /**
@@ -119,15 +119,15 @@ export function validateJwtClaims(
     }
   }
 
-  _assertNumericDate(jwtClaims.exp, "exp", "Expiration Time");
-  _assertNumericDate(jwtClaims.nbf, "nbf", "Not Before");
-  _assertNumericDate(jwtClaims.iat, "iat", "Issued At");
+  _assertNumericDate(jwtClaims.exp, "exp");
+  _assertNumericDate(jwtClaims.nbf, "nbf");
+  _assertNumericDate(jwtClaims.iat, "iat");
 
   if (options.issuer !== undefined) {
     const expectedIssuers = maybeArray(options.issuer);
     if (!jwtClaims.iss || !expectedIssuers.includes(jwtClaims.iss)) {
       throw new JWTError(
-        `Invalid JWT "iss" (Issuer) Claim: Expected ${expectedIssuers.join(" or ")}, got ${jwtClaims.iss}`,
+        `Invalid JWT "iss": expected ${expectedIssuers.join(" or ")}, got ${jwtClaims.iss}`,
         "ERR_JWT_CLAIM_INVALID",
       );
     }
@@ -135,7 +135,7 @@ export function validateJwtClaims(
 
   if (options.subject !== undefined && jwtClaims.sub !== options.subject) {
     throw new JWTError(
-      `Invalid JWT "sub" (Subject) Claim: Expected ${options.subject}, got ${jwtClaims.sub}`,
+      `Invalid JWT "sub": expected ${options.subject}, got ${jwtClaims.sub}`,
       "ERR_JWT_CLAIM_INVALID",
     );
   }
@@ -145,7 +145,7 @@ export function validateJwtClaims(
     const claimAudience = maybeArray(jwtClaims.aud || []);
     if (!claimAudience.some((aud) => expectedAudiences.includes(aud))) {
       throw new JWTError(
-        `Invalid JWT "aud" (Audience) Claim: Expected ${expectedAudiences.join(" or ")}, got ${claimAudience.join(", ")}`,
+        `Invalid JWT "aud": expected ${expectedAudiences.join(" or ")}, got ${claimAudience.join(", ")}`,
         "ERR_JWT_CLAIM_INVALID",
       );
     }
@@ -153,7 +153,7 @@ export function validateJwtClaims(
 
   if (typeof jwtClaims.nbf === "number" && jwtClaims.nbf > currentTime + clockTolerance) {
     throw new JWTError(
-      `JWT "nbf" (Not Before) Claim validation failed: Token is not yet valid (nbf: ${new Date(jwtClaims.nbf * 1000).toISOString()})`,
+      `JWT "nbf" is in the future (${new Date(jwtClaims.nbf * 1000).toISOString()}).`,
       "ERR_JWT_NBF",
     );
   }
@@ -169,13 +169,13 @@ export function validateJwtClaims(
   if (options.maxTokenAge !== undefined) {
     if (typeof jwtClaims.iat !== "number") {
       throw new JWTError(
-        'JWT "iat" (Issued At) Claim must be a number when maxTokenAge is set.',
+        'JWT "iat" must be a number when maxTokenAge is set.',
         "ERR_JWT_CLAIM_INVALID",
       );
     }
     if (jwtClaims.iat > currentTime + clockTolerance) {
       throw new JWTError(
-        `JWT "iat" (Issued At) Claim validation failed: Token was issued in the future (iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
+        `JWT "iat" is in the future (${new Date(jwtClaims.iat * 1000).toISOString()}).`,
         "ERR_JWT_CLAIM_INVALID",
       );
     }
@@ -184,7 +184,7 @@ export function validateJwtClaims(
       currentTime - computeDurationInSeconds(options.maxTokenAge) - clockTolerance
     ) {
       throw new JWTError(
-        `JWT "iat" (Issued At) Claim validation failed: Token is too old (maxTokenAge: ${options.maxTokenAge}, iat: ${new Date(jwtClaims.iat * 1000).toISOString()})`,
+        `JWT "iat" is older than maxTokenAge ${options.maxTokenAge}.`,
         "ERR_JWT_EXPIRED",
         { jti: jwtClaims.jti, iat: jwtClaims.iat, exp: jwtClaims.exp },
       );
@@ -253,17 +253,14 @@ function _isNonEmptyString(value: unknown): value is string {
 }
 
 /** RFC 7519 §2 — a NumericDate is a finite, non-negative number (fractions allowed). */
-function _assertNumericDate(value: unknown, claim: string, label: string): void {
+function _assertNumericDate(value: unknown, claim: string): void {
   if (value === undefined) return;
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new JWTError(
-      `JWT "${claim}" (${label}) Claim must be a number.`,
-      "ERR_JWT_CLAIM_INVALID",
-    );
+    throw new JWTError(`JWT "${claim}" must be a number.`, "ERR_JWT_CLAIM_INVALID");
   }
   if (value < 0) {
     throw new JWTError(
-      `JWT "${claim}" (${label}) Claim must be a non-negative NumericDate.`,
+      `JWT "${claim}" must be a non-negative NumericDate.`,
       "ERR_JWT_CLAIM_INVALID",
     );
   }

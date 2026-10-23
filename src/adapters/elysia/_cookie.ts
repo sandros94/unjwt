@@ -57,7 +57,7 @@ function reactiveCookie(jar: ChunkableCookieJar, name: string): ChunkableCookie 
   const cookie = jar[name];
   if (!cookie || typeof cookie.set !== "function") {
     throw invalidConfigError(
-      `${PREFIX} Session cookie jar must expose a reactive cookie at "${name}" with a set() method — pass Elysia's own \`cookie\` context property.`,
+      `${PREFIX} Session cookie jar has no reactive cookie at "${name}", pass Elysia's \`cookie\`.`,
     );
   }
   return cookie;

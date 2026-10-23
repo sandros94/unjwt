@@ -172,8 +172,7 @@ extractability but never raises it.
 guessing between them is how PEM armour became a valid HMAC secret:
 
 ```
-String keys are not accepted: pass an oct JWK or a Uint8Array secret,
-or import PEM text with importPEM().   // ERR_JWK_INVALID
+Key must be a JWK, CryptoKey or Uint8Array, not a string.   // ERR_JWK_INVALID
 ```
 
 - PEM text → `importPEM(pem, alg)`

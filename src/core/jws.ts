@@ -65,7 +65,10 @@ export {
 export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from "./jws-multi.ts";
 export { DEFAULT_JOSE_LIMITS } from "./_internal.ts";
 
-/** Creates a JWS Compact Serialization; an object payload is JSON-serialized, `alg` is required unless the JWK carries one. */
+/**
+ * Creates a JWS Compact Serialization; an object payload is JSON-serialized, `alg` is required unless the JWK carries one.
+ * An unencoded (`b64: false`) compact payload cannot contain "." (RFC 7797 §5.2).
+ */
 export async function sign(
   payload: JOSEPayload,
   key: JWSSignJWK,
@@ -93,10 +96,7 @@ export async function sign(
     if (isJWK(key) && key.alg) {
       alg = key.alg;
     } else {
-      throw new JWTError(
-        'JWS "alg" (Algorithm) must be provided in options',
-        "ERR_JWS_ALG_MISSING",
-      );
+      throw new JWTError('JWS "alg" must be provided in options', "ERR_JWS_ALG_MISSING");
     }
   }
 
@@ -131,7 +131,7 @@ export async function sign(
     payloadEncoded = parsePayloadText(payloadBytes);
     if (payloadEncoded.includes(".")) {
       throw new JWTError(
-        'Invalid JWS: unencoded compact payload must not contain "." (RFC 7797 §5.2).',
+        'Invalid JWS: unencoded compact payload must not contain ".".',
         "ERR_JWS_INVALID",
       );
     }
