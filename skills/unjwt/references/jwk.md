@@ -16,14 +16,14 @@ Every JWK the library emits (generation, `exportJWK`, `importPEM`, password deri
 
 Generates a cryptographic key. The return type is narrowed by `alg` and `options.toJWK`:
 
-| Algorithm family                                  | `toJWK: false` (default)                               | `toJWK: true`                                                |
-| ------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------ |
-| `HS*`, `A*KW`, `A*GCM`, `A*GCMKW`                 | `CryptoKey`                                            | `JWK_oct`                                                    |
-| `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512` | `Uint8Array<ArrayBuffer>` (composite AES + HMAC bytes) | `JWK_oct` (composite bytes serialised as one `oct` key)      |
-| `RS*`, `PS*`, `RSA-OAEP*`                         | `CryptoKeyPair`                                        | `{ privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }` |
-| `ES*`                                             | `CryptoKeyPair`                                        | `{ privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }`   |
-| `Ed25519`, `EdDSA`                                | `CryptoKeyPair`                                        | `{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }` |
-| `ECDH-ES*`                                        | `CryptoKeyPair`                                        | `JWK_EC` **or** `JWK_OKP` pair, depending on `namedCurve`    |
+| Algorithm family | `toJWK: false` (default) | `toJWK: true` |
+| --- | --- | --- |
+| `HS*`, `A*KW`, `A*GCM`, `A*GCMKW` | `CryptoKey` | `JWK_oct` |
+| `A128CBC-HS256`, `A192CBC-HS384`, `A256CBC-HS512` | `Uint8Array<ArrayBuffer>` (composite AES + HMAC bytes) | `JWK_oct` (composite bytes serialised as one `oct` key) |
+| `RS*`, `PS*`, `RSA-OAEP*` | `CryptoKeyPair` | `{ privateKey: JWK_RSA_Private; publicKey: JWK_RSA_Public }` |
+| `ES*` | `CryptoKeyPair` | `{ privateKey: JWK_EC_Private; publicKey: JWK_EC_Public }` |
+| `Ed25519`, `EdDSA` | `CryptoKeyPair` | `{ privateKey: JWK_OKP_Private; publicKey: JWK_OKP_Public }` |
+| `ECDH-ES*` | `CryptoKeyPair` | `JWK_EC` **or** `JWK_OKP` pair, depending on `namedCurve` |
 
 **Return types follow the option.** The table is two exported maps keyed by algorithm: `GeneratedKeyMap[alg]` without `toJWK` (or with `toJWK: false`), `GeneratedJWKMap[alg]` with `toJWK: true` — each JWK there also carries `alg` (the literal) and `kid: string` (none under `kid: false`, `kid?: string` for a non-literal `kid` option; `GeneratedJWKMap<false>` names that map). A non-literal `alg` (e.g. a `GenerateKeyAlgorithm` variable) returns the union of its entries, and a `toJWK` that is not a literal (a `boolean`, a `GenerateKeyOptions` object) returns both maps' entries, so no cast is needed at the call site. `GenerateKeyReturn<TAlg, TOptions>` names the same type.
 
@@ -33,8 +33,7 @@ Generates a cryptographic key. The return type is narrowed by `alg` and `options
   - `kid?: string | false` — read only with `toJWK`: a string is set verbatim, `false` sets no `kid`; either skips the thumbprint, a SHA-256 digest about as costly as generating an HMAC key. Anything else throws `ERR_INVALID_OPTION`
   - `extractable?: boolean` — default `true`; ignored when `toJWK: true` (the JWK output requires exporting the intermediate key)
   - `keyUsage?: KeyUsage[]` — narrows the usages derived from `alg`, for every algorithm including `ECDH-ES*` (which admits `deriveBits` / `deriveKey`). A JWK output carries the usages each key keeps as its `key_ops`: `generateJWK("ES256", { keyUsage: ["sign", "verify"] })` gives `["sign"]` on the private half and `["verify"]` on the public one. A usage the algorithm cannot serve throws `ERR_INVALID_OPTION`. A key pair splits the list between its halves — private takes `sign` / `decrypt` / `unwrapKey` / `deriveBits` / `deriveKey`, public takes `verify` / `encrypt` / `wrapKey` — so a narrowing that empties a half the algorithm would have populated is `ERR_INVALID_OPTION` as well: `generateJWK("ES256", { keyUsage: ["sign"] })` would emit a public JWK with `key_ops: []` that no `verify` accepts. `ECDH-ES*` is complete with its private half alone, since ECDH public keys carry no usage
-  - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw
-    `ERR_INVALID_OPTION` (RFC 7518 §3.3 / §3.5 set 2048 as the floor for `RS*`, `PS*` and `RSA-OAEP*`)
+  - `modulusLength?: number` — RSA only, default `2048`. Values below `2048` bits throw `ERR_INVALID_OPTION` (RFC 7518 §3.3 / §3.5 set 2048 as the floor for `RS*`, `PS*` and `RSA-OAEP*`)
   - `publicExponent?: Uint8Array` — RSA only, the exponent's big-endian bytes, default `0x010001`. Anything that is not a non-empty `Uint8Array` throws `ERR_INVALID_OPTION`
   - `namedCurve?` — EC/OKP only. `"P-256" | "P-384" | "P-521" | "X25519" | "Ed25519"`. `ES256` / `ES384` / `ES512` are defined over `P-256` / `P-384` / `P-521` and `Ed25519` over its own curve, so a `namedCurve` contradicting them throws `ERR_INVALID_OPTION`; `EdDSA` accepts `Ed25519` alone (anything else, `Ed448` included, is `ERR_JWK_UNSUPPORTED`) and `ECDH-ES*` (`P-256` default) chooses among `P-256` / `P-384` / `P-521` / `X25519`. `Ed448` / `X448` are not supported anywhere in the library
 
@@ -42,11 +41,7 @@ PBES2 is not a key-generation algorithm — use `deriveKeyFromPassword` / `deriv
 
 To return JWK with extra parameters (e.g. `use`, `x5c`), use `generateJWK()` instead of `toJWK: true`.
 
-> **Extractability.** Generated keys default to `extractable: true` (the JWK-first model needs
-> export). For long-lived asymmetric private keys that should never leave the runtime — a
-> signing key held in a server process — generate a `CryptoKey` with `extractable: false`
-> (omit `toJWK`, which forces extractable). The key still signs/decrypts via Web Crypto, but
-> its material can no longer be exported, so a compromised process cannot exfiltrate it.
+> **Extractability.** Generated keys default to `extractable: true` (the JWK-first model needs export). For long-lived asymmetric private keys that should never leave the runtime — a signing key held in a server process — generate a `CryptoKey` with `extractable: false` (omit `toJWK`, which forces extractable). The key still signs/decrypts via Web Crypto, but its material can no longer be exported, so a compromised process cannot exfiltrate it.
 
 ### `generateJWK(alg, options?)`
 
@@ -55,9 +50,7 @@ Always returns JWK format with a `kid` — the key's `thumbprint()` (RFC 7638) w
 Returns `GeneratedJWKMap[alg]` (also named `GenerateJWKReturn<alg>`; `GenerateJWKReturn<alg, false>` under `kid: false`); a non-literal `alg` returns the union of its entries.
 
 - `alg: GenerateKeyAlgorithm`
-- `options?` — `GenerateJWKOptions` (`GenerateKeyOptions` minus `toJWK` / `extractable`, with
-  `kid?: string | false`) and JWK metadata (`use`, `x5c`, etc.). `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot be
-  overridden here — the generated key wins over anything passed in.
+- `options?` — `GenerateJWKOptions` (`GenerateKeyOptions` minus `toJWK` / `extractable`, with `kid?: string | false`) and JWK metadata (`use`, `x5c`, etc.). `alg`, `kty`, `key_ops`, and `ext` are managed by the library and cannot be overridden here — the generated key wins over anything passed in.
 
 ```ts
 import { generateKey, generateJWK } from "unjwt/jwk";
@@ -124,52 +117,26 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 - `CryptoKey` → returned as-is (subject to `expect` validation if supplied)
 - `JWK_oct` → `k` decoded to `Uint8Array` (default)
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
-- Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`; `{ extractable?: boolean }` overrides
-  the default of non-extractable for private key material, extractable for public)
-- `algOrOptions` is a `JWKAlgorithm` (the shorthand) or `{ alg?: JWKAlgorithm; expect?; extractable? }`;
-  an `alg` outside the union is a type error, not a runtime surprise
+- Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`; `{ extractable?: boolean }` overrides the default of non-extractable for private key material, extractable for public)
+- `algOrOptions` is a `JWKAlgorithm` (the shorthand) or `{ alg?: JWKAlgorithm; expect?; extractable? }`; an `alg` outside the union is a type error, not a runtime surprise
 
-**Return types follow the input.** `importKey(key)` returns `ImportedKey<typeof key>`, an entry of
-`ImportedKeyMap` keyed by input kind: `bytes` and `oct` → `Uint8Array<ArrayBuffer>`, `cryptoKey` and
-`asymmetric` → `CryptoKey`. A union input (`JWK`, `CryptoKey | JWK_oct`) returns the union of its
-entries; `asCryptoKey: true` always returns `CryptoKey`.
+**Return types follow the input.** `importKey(key)` returns `ImportedKey<typeof key>`, an entry of `ImportedKeyMap` keyed by input kind: `bytes` and `oct` → `Uint8Array<ArrayBuffer>`, `cryptoKey` and `asymmetric` → `CryptoKey`. A union input (`JWK`, `CryptoKey | JWK_oct`) returns the union of its entries; `asCryptoKey: true` always returns `CryptoKey`.
 
-For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it is never assumed
-from `alg`. `EC` + `ECDH-ES*` accepts `P-256` / `P-384` / `P-521`; `OKP` + `Ed25519` / `EdDSA`
-accepts `Ed25519`; `OKP` + `ECDH-ES*` accepts `X25519`. Any other `crv` (`Ed448`, `X448`, …)
-throws `ERR_JWK_INVALID` before Web Crypto is reached. The same rule applies to `importPEM`,
-which reads the curve OID out of the key body.
+For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it is never assumed from `alg`. `EC` + `ECDH-ES*` accepts `P-256` / `P-384` / `P-521`; `OKP` + `Ed25519` / `EdDSA` accepts `Ed25519`; `OKP` + `ECDH-ES*` accepts `X25519`. Any other `crv` (`Ed448`, `X448`, …) throws `ERR_JWK_INVALID` before Web Crypto is reached. The same rule applies to `importPEM`, which reads the curve OID out of the key body.
 
-`oct` key lengths are validated against the algorithm of the operation (the positional hint or
-`options.alg`, falling back to the JWK's own `alg`) at import: HS\* require at least the hash
-output size (32/48/64 bytes, RFC 7518 §3.2); A\*KW, A\*GCMKW, A\*GCM, and A\*CBC-HS\* require their
-exact key size. `asCryptoKey` with an HMAC `algorithm` enforces the same minimum. Throws
-`ERR_JWK_INVALID`; algorithms whose key size cannot be known from `alg` alone (e.g. `"dir"`,
-absent `alg`) are not checked — for `"dir"` the length is checked against the token's `enc`
-during decryption instead.
+`oct` key lengths are validated against the algorithm of the operation (the positional hint or `options.alg`, falling back to the JWK's own `alg`) at import: HS\* require at least the hash output size (32/48/64 bytes, RFC 7518 §3.2); A\*KW, A\*GCMKW, A\*GCM, and A\*CBC-HS\* require their exact key size. `asCryptoKey` with an HMAC `algorithm` enforces the same minimum. Throws `ERR_JWK_INVALID`; algorithms whose key size cannot be known from `alg` alone (e.g. `"dir"`, absent `alg`) are not checked — for `"dir"` the length is checked against the token's `enc` during decryption instead.
 
 #### The JWK's `alg` is authoritative
 
-When the JWK carries an `alg` and the operation asks for a different one, the import throws
-`JWTError('JWK "alg" is "<jwk.alg>" but the operation requires "<alg>".', "ERR_JWK_INVALID")`
-— neither side silently wins. The single exception is the JWE symmetric role mapping: an `oct`
-JWK whose `alg` is a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is the CEK that
-`alg: "dir"` consumes, and `decrypt` additionally requires the token's `enc` to equal that `alg`
-(see `jwe.md`).
+When the JWK carries an `alg` and the operation asks for a different one, the import throws `JWTError('JWK "alg" is "<jwk.alg>" but the operation requires "<alg>".', "ERR_JWK_INVALID")` — neither side silently wins. The single exception is the JWE symmetric role mapping: an `oct` JWK whose `alg` is a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is the CEK that `alg: "dir"` consumes, and `decrypt` additionally requires the token's `enc` to equal that `alg` (see `jwe.md`).
 
 #### `key_ops` and `ext`
 
-A JWK's `key_ops` is intersected with the usages the operation needs — it narrows them, never
-widens them — and a `key_ops` permitting none of them throws
-`JWTError('JWK "key_ops" does not permit <usage>.', "ERR_JWK_INVALID")` rather than importing a
-key that fails inside Web Crypto. `ext` follows the caller: private key material imports
-non-extractable unless `{ extractable: true }` is passed, and a JWK's `ext: false` may lower
-extractability but never raises it.
+A JWK's `key_ops` is intersected with the usages the operation needs — it narrows them, never widens them — and a `key_ops` permitting none of them throws `JWTError('JWK "key_ops" does not permit <usage>.', "ERR_JWK_INVALID")` rather than importing a key that fails inside Web Crypto. `ext` follows the caller: private key material imports non-extractable unless `{ extractable: true }` is passed, and a JWK's `ext: false` may lower extractability but never raises it.
 
 #### Strings are rejected
 
-`importKey` takes no `string`. A string reaches it as one of three different things and
-guessing between them is how PEM armour became a valid HMAC secret:
+`importKey` takes no `string`. A string reaches it as one of three different things and guessing between them is how PEM armour became a valid HMAC secret:
 
 ```
 Key must be a JWK, CryptoKey or Uint8Array, not a string.   // ERR_JWK_INVALID
@@ -177,18 +144,13 @@ Key must be a JWK, CryptoKey or Uint8Array, not a string.   // ERR_JWK_INVALID
 
 - PEM text → `importPEM(pem, alg)`
 - Shared secret → an `oct` JWK (`generateJWK("HS256")`) or a `Uint8Array`
-- Password → `deriveJWKFromPassword()`, or pass it straight to `encrypt`/`decrypt`, where
-  PBES2 derives a key from it (the only place JOSE accepts a string as key material)
+- Password → `deriveJWKFromPassword()`, or pass it straight to `encrypt`/`decrypt`, where PBES2 derives a key from it (the only place JOSE accepts a string as key material)
 
 #### `expect` option
 
-Pass `{ expect: "public" | "private" }` to validate the caller's intent against the key's
-shape **before** the import. A private JWK or CryptoKey passed with `expect: "public"` throws
-`ERR_JWK_INVALID` instead of silently importing the private material — and vice versa.
-`expect` is a no-op for symmetric (`oct`) JWKs and `"secret"`-type CryptoKeys.
+Pass `{ expect: "public" | "private" }` to validate the caller's intent against the key's shape **before** the import. A private JWK or CryptoKey passed with `expect: "public"` throws `ERR_JWK_INVALID` instead of silently importing the private material — and vice versa. `expect` is a no-op for symmetric (`oct`) JWKs and `"secret"`-type CryptoKeys.
 
-`verify` / `decrypt` pin `expect: "public"` and `expect: "private"` respectively, so the
-common paths are correct by default. Callers using `importKey` directly opt in explicitly.
+`verify` / `decrypt` pin `expect: "public"` and `expect: "private"` respectively, so the common paths are correct by default. Callers using `importKey` directly opt in explicitly.
 
 ```ts
 // Default: JWK_oct returns raw bytes
@@ -207,23 +169,13 @@ const recipientPub = await importKey(recipientJwk, { alg: "RSA-OAEP-256", expect
 
 ### `exportJWK(key, jwkParams?)`
 
-Exports a `CryptoKey` to JWK format. `jwkParams` optionally merges metadata fields
-(`kid`, `use`, `x5c`, etc.) onto the result. Web Crypto's `ext` and `key_ops` are not written:
-they describe the `CryptoKey`, and an import decides both from `alg` and its own options.
+Exports a `CryptoKey` to JWK format. `jwkParams` optionally merges metadata fields (`kid`, `use`, `x5c`, etc.) onto the result. Web Crypto's `ext` and `key_ops` are not written: they describe the `CryptoKey`, and an import decides both from `alg` and its own options.
 
-`jwkParams` may only decorate the key, never redescribe it: passing `kty`, `alg`, `key_ops`,
-`ext`, or any key-material member (`k`, `d`, `n`, `e`, `p`, `q`, `dp`, `dq`, `qi`, `x`, `y`,
-`crv`) throws `ERR_INVALID_OPTION` naming the offending members. The key's own values come
-from Web Crypto's authoritative export.
+`jwkParams` may only decorate the key, never redescribe it: passing `kty`, `alg`, `key_ops`, `ext`, or any key-material member (`k`, `d`, `n`, `e`, `p`, `q`, `dp`, `dq`, `qi`, `x`, `y`, `crv`) throws `ERR_INVALID_OPTION` naming the offending members. The key's own values come from Web Crypto's authoritative export.
 
-The `alg` is the one Web Crypto holds, which knows nothing of JOSE roles: an AES-GCM key
-generated for `A128GCMKW` exports as `alg: "A128GCM"` — the CEK role — and
-`importKey(jwk, { alg: "A128GCMKW" })` then refuses it, since a JWK's `alg` is authoritative.
-Mint key-wrapping keys with `generateJWK(alg)` or `generateKey(alg, { toJWK: true })`, which
-stamp the `alg` that was asked for.
+The `alg` is the one Web Crypto holds, which knows nothing of JOSE roles: an AES-GCM key generated for `A128GCMKW` exports as `alg: "A128GCM"` — the CEK role — and `importKey(jwk, { alg: "A128GCMKW" })` then refuses it, since a JWK's `alg` is authoritative. Mint key-wrapping keys with `generateJWK(alg)` or `generateKey(alg, { toJWK: true })`, which stamp the `alg` that was asked for.
 
-Returns `Promise<JWK>`. A `CryptoKey` carries no key type the compiler can read, so a caller who
-knows it narrows with the type parameter: `exportJWK<JWK_EC_Public>(publicKey)`.
+Returns `Promise<JWK>`. A `CryptoKey` carries no key type the compiler can read, so a caller who knows it narrows with the type parameter: `exportJWK<JWK_EC_Public>(publicKey)`.
 
 ## Key Wrapping
 
@@ -232,13 +184,10 @@ knows it narrows with the type parameter: `exportJWK<JWK_EC_Public>(publicKey)`.
 Wraps a Content Encryption Key using the specified key management algorithm.
 
 - `keyToWrap: CryptoKey | Uint8Array`
-- `wrappingKey: CryptoKey | JWK | string | Uint8Array` — a `string` is a PBES2 password and is
-  rejected with `ERR_JWK_INVALID` under any other `alg`
+- `wrappingKey: CryptoKey | JWK | string | Uint8Array` — a `string` is a PBES2 password and is rejected with `ERR_JWK_INVALID` under any other `alg`
 - `options: WrapKeyOptions`
   - `alg: KeyManagementAlgorithm` — **required**; including `"dir"` (returns empty `encryptedKey`)
-  - `iv?` — AES-GCMKW initialization vector; auto-generated when omitted (always omit in
-    production — reusing an IV under the same key breaks AES-GCM; intended only for tests
-    and known-vector reproduction, never derive it from external input)
+  - `iv?` — AES-GCMKW initialization vector; auto-generated when omitted (always omit in production — reusing an IV under the same key breaks AES-GCM; intended only for tests and known-vector reproduction, never derive it from external input)
   - `p2s?`, `p2c?` — PBES2 salt and iteration count; both **required** under a PBES2 `alg` (there is no default here — the defaults belong to `encrypt`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `600_000`, the bounds `unwrapKey` enforces by default, or `ERR_INVALID_OPTION`
   - `ecdh?` — ECDH-ES options:
     - `ephemeralKey?` — custom ephemeral key (`CryptoKey`, `CryptoKeyPair`, `JWK_EC_Private` / `JWK_OKP_Private`, or a `{ publicKey, privateKey }` pair of either); generated automatically on the recipient's curve if omitted. An ephemeral JWK is accepted whatever ECDH-ES `alg` it declares (`"ECDH-ES+A256KW"` included), as in `encrypt`; a curve other than the recipient key's is `ERR_JWK_INVALID`
@@ -285,12 +234,7 @@ Unwraps a CEK.
   - `minIterations?`, `maxIterations?` — PBES2 `p2c` bounds. Default floor `1000` (RFC 7518 §4.8.1.2), default ceiling `600_000` (the `p2c` `encrypt` mints by default)
   - `epk?`, `apu?`, `apv?`, `enc?` — ECDH-ES
 
-An unwrap that does not succeed is one verdict under every algorithm:
-`ERR_JWE_DECRYPTION_FAILED` (`"JWE decryption failed."`), carrying nothing that separates a key
-the CEK was not wrapped to from a corrupt encrypted key or a forged authentication tag
-(RFC 7516 §11.5). What the caller can still fix names itself: a `wrappedKey` that is not bytes
-or an `options` that is not an object are `ERR_INVALID_OPTION`, and missing or malformed
-algorithm parameters (`iv`/`tag`, `p2s`/`p2c`, `epk`) are `ERR_JWE_INVALID`.
+An unwrap that does not succeed is one verdict under every algorithm: `ERR_JWE_DECRYPTION_FAILED` (`"JWE decryption failed."`), carrying nothing that separates a key the CEK was not wrapped to from a corrupt encrypted key or a forged authentication tag (RFC 7516 §11.5). What the caller can still fix names itself: a `wrappedKey` that is not bytes or an `options` that is not an object are `ERR_INVALID_OPTION`, and missing or malformed algorithm parameters (`iv`/`tag`, `p2s`/`p2c`, `epk`) are `ERR_JWE_INVALID`.
 
 ```ts
 // Returns CryptoKey by default
@@ -310,8 +254,7 @@ Low-level ECDH-ES key derivation (Concat KDF, NIST SP 800-56A). Useful for multi
 - `privateKey: CryptoKey | JWK_EC_Private` — sender's ephemeral private key (sender side), or recipient's static private key (recipient side)
 - `options`
   - `enc: JWK_ECDH_ES | ContentEncryptionAlgorithm` — **required**; used as the `AlgorithmID` in the KDF info structure, and as the algorithm a JWK input is imported under, so a key from `generateJWK("ECDH-ES+A256KW")` — whose `alg` is authoritative — works as written
-  - `keyLength?: number` — derived key length in bits; required when `enc` is `"ECDH-ES"`, inferred
-    otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
+  - `keyLength?: number` — derived key length in bits; required when `enc` is `"ECDH-ES"`, inferred otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
   - `partyUInfo?`, `partyVInfo?` — agreement party info
 
 Returns `Promise<Uint8Array>` — the derived key material.
@@ -338,37 +281,24 @@ for (const recipient of recipients) {
 
 ### `importPEM<Alg, Type>(pem, alg, options?)`
 
-Imports a PEM-encoded key and returns it as a JWK. The PEM type is inferred from the
-`-----BEGIN <X>-----` label (`PRIVATE KEY` → `pkcs8`, `PUBLIC KEY` → `spki`, `CERTIFICATE` → `x509`).
-The result is `ImportedPEMJWK<Alg, Type>`: the family `alg` names (RSA / EC / OKP) with `alg` as a
-literal, private for `pemType: "pkcs8"`, public for `"spki"` / `"x509"`, their union when the type
-is read from the label (`importPEM(pkcs8, "ES256", { pemType: "pkcs8" })` is `JWK_EC_Private<"ES256">`).
+Imports a PEM-encoded key and returns it as a JWK. The PEM type is inferred from the `-----BEGIN <X>-----` label (`PRIVATE KEY` → `pkcs8`, `PUBLIC KEY` → `spki`, `CERTIFICATE` → `x509`). The result is `ImportedPEMJWK<Alg, Type>`: the family `alg` names (RSA / EC / OKP) with `alg` as a literal, private for `pemType: "pkcs8"`, public for `"spki"` / `"x509"`, their union when the type is read from the label (`importPEM(pkcs8, "ES256", { pemType: "pkcs8" })` is `JWK_EC_Private<"ES256">`).
 
 - `alg: Alg extends JWKPEMAlgorithm`
 - `options?`
   - `pemType?: Type extends "pkcs8" | "spki" | "x509"` — inferred from the PEM label when omitted
-  - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`); the
-    reserved members listed under `exportJWK` throw `ERR_INVALID_OPTION`
+  - `jwkParams?` — additional JWK properties merged into the result (e.g. `kid`, `use`); the reserved members listed under `exportJWK` throw `ERR_INVALID_OPTION`
 
-The returned JWK always contains the key material in plain JavaScript. To obtain a
-non-extractable `CryptoKey`, pass the result to `importKey(jwk, { extractable: false })`.
+The returned JWK always contains the key material in plain JavaScript. To obtain a non-extractable `CryptoKey`, pass the result to `importKey(jwk, { extractable: false })`.
 
-**Exactly one armoured block.** The input must contain a single `-----BEGIN <LABEL>-----` /
-`-----END <LABEL>-----` pair. Text before it is ignored (RFC 7468 §2); nothing but whitespace may
-follow it. A bundle of two blocks, or trailing data, is `ERR_JWK_INVALID` instead of silently
-importing the first key.
+**Exactly one armoured block.** The input must contain a single `-----BEGIN <LABEL>-----` / `-----END <LABEL>-----` pair. Text before it is ignored (RFC 7468 §2); nothing but whitespace may follow it. A bundle of two blocks, or trailing data, is `ERR_JWK_INVALID` instead of silently importing the first key.
 
-Throws `ERR_JWK_INVALID` when the PEM has no recognisable label and `pemType` is not supplied,
-when the label does not match the requested/inferred type, or when the body is not a key the
-requested `alg` can import (a truncated certificate included).
+Throws `ERR_JWK_INVALID` when the PEM has no recognisable label and `pemType` is not supplied, when the label does not match the requested/inferred type, or when the body is not a key the requested `alg` can import (a truncated certificate included).
 
 Returns `Promise<JWK>`.
 
 ### `exportPEM(jwk, options?)`
 
-Exports a JWK to a PEM-encoded string. The PEM format is inferred from the JWK shape
-(presence of `d` → `pkcs8`, otherwise `spki`). X.509 certificate export is intentionally not
-supported: a certificate requires metadata and a CA signature that a JWK cannot provide.
+Exports a JWK to a PEM-encoded string. The PEM format is inferred from the JWK shape (presence of `d` → `pkcs8`, otherwise `spki`). X.509 certificate export is intentionally not supported: a certificate requires metadata and a CA signature that a JWK cannot provide.
 
 - `options?`
   - `pemFormat?: "pkcs8" | "spki"` — inferred from the JWK shape when omitted
@@ -402,11 +332,7 @@ Returns `CryptoKey` or `JWK_oct` based on `toJWK`.
 
 ### `deriveJWKFromPassword(password, { alg, ...options })`
 
-Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 algorithm and
-derivation knobs (`alg`, `salt`, `iterations`, `keyUsage`) with JWK metadata fields (`kid`,
-`use`, …). The resulting JWK's `alg`, `kty`, `key_ops`, and `ext` are managed by the library,
-and `kid` defaults to the derived key's `thumbprint()`; a string `kid` is set verbatim and
-`kid: false` sets none, either skipping the digest.
+Convenience wrapper that always returns `JWK_oct`. `options` combines the PBES2 algorithm and derivation knobs (`alg`, `salt`, `iterations`, `keyUsage`) with JWK metadata fields (`kid`, `use`, …). The resulting JWK's `alg`, `kty`, `key_ops`, and `ext` are managed by the library, and `kid` defaults to the derived key's `thumbprint()`; a string `kid` is set verbatim and `kid: false` sets none, either skipping the digest.
 
 ```ts
 const jwk = await deriveJWKFromPassword("my-password", {
@@ -419,11 +345,7 @@ const jwk = await deriveJWKFromPassword("my-password", {
 
 ## Key Lookup Function
 
-`JWKLookupFunction<TReturn, THeader>` is defined in `unjwt/jwk`. `verify` takes a `JWSKeyLookup`
-(`THeader = JWSHeaderParameters`, from `unjwt/jws`) and `decrypt` a `JWEKeyLookup`
-(`THeader = JWEHeaderParameters`, from `unjwt/jwe`); a function written against the generic
-`JWKLookupFunctionHeader` is accepted by both. The header a lookup receives has already passed the
-algorithm checks, so its `alg` / `enc` are the closed unions, never a bare string.
+`JWKLookupFunction<TReturn, THeader>` is defined in `unjwt/jwk`. `verify` takes a `JWSKeyLookup` (`THeader = JWSHeaderParameters`, from `unjwt/jws`) and `decrypt` a `JWEKeyLookup` (`THeader = JWEHeaderParameters`, from `unjwt/jwe`); a function written against the generic `JWKLookupFunctionHeader` is accepted by both. The header a lookup receives has already passed the algorithm checks, so its `alg` / `enc` are the closed unions, never a bare string.
 
 ```ts
 type JWKLookupFunctionHeader = {
@@ -507,10 +429,7 @@ interface JWKCacheAdapter {
 
 ## Errors
 
-`wrapKey`, `unwrapKey`, `deriveKeyFromPassword`, `deriveJWKFromPassword`, `deriveSharedSecret`,
-`importPEM`, `exportPEM` and `thumbprint` name the argument that was wrong rather than letting a
-`TypeError` out: `null`, `undefined` or a value of the wrong shape in any of their key, `pem`,
-`password` or `options` positions throws `ERR_INVALID_OPTION` quoting the parameter name.
+`wrapKey`, `unwrapKey`, `deriveKeyFromPassword`, `deriveJWKFromPassword`, `deriveSharedSecret`, `importPEM`, `exportPEM` and `thumbprint` name the argument that was wrong rather than letting a `TypeError` out: `null`, `undefined` or a value of the wrong shape in any of their key, `pem`, `password` or `options` positions throws `ERR_INVALID_OPTION` quoting the parameter name.
 
 Every JOSE operation in this module throws `JWTError` — a single `instanceof` is enough. When the root cause is one of the bundled [`unsecure`](https://github.com/sandros94/unsecure) primitives (base64url codec, JSON parse), it is preserved as `cause`:
 
@@ -527,14 +446,7 @@ if (isJWTError(error, "ERR_JWK_INVALID") && isUnsecureError(error.cause, "MALFOR
 
 ## JWK Types
 
-Every concrete JWK interface takes an `Alg` type parameter bounded to, and defaulting to, the
-algorithm family legal for that key type: an `oct` JWK cannot carry `"RS256"`, an RSA JWK cannot
-carry `"HS256"`. There is no open-string escape: the unions are exactly the algorithms this
-version implements, which is also what the runtime accepts (anything else throws), so a wider
-type would only move a compile-time error to a runtime one. The umbrella types (`JWK<Alg>`,
-`JWK_Public<Alg>`, `JWK_Private<Alg>`, `JWK_Asymmetric<Alg>`) distribute by family, so
-`JWK<"RS256">` is the two RSA shapes and nothing else. Sign/verify/encrypt/decrypt accept the
-narrowed union aliases (`JWSSignJWK`, `JWEEncryptJWK`, …) — see the JWS/JWE references for those.
+Every concrete JWK interface takes an `Alg` type parameter bounded to, and defaulting to, the algorithm family legal for that key type: an `oct` JWK cannot carry `"RS256"`, an RSA JWK cannot carry `"HS256"`. There is no open-string escape: the unions are exactly the algorithms this version implements, which is also what the runtime accepts (anything else throws), so a wider type would only move a compile-time error to a runtime one. The umbrella types (`JWK<Alg>`, `JWK_Public<Alg>`, `JWK_Private<Alg>`, `JWK_Asymmetric<Alg>`) distribute by family, so `JWK<"RS256">` is the two RSA shapes and nothing else. Sign/verify/encrypt/decrypt accept the narrowed union aliases (`JWSSignJWK`, `JWEEncryptJWK`, …) — see the JWS/JWE references for those.
 
 ```ts
 interface JWKParameters<Alg extends JWKAlgorithm = JWKAlgorithm> {
@@ -693,8 +605,7 @@ type JWKLookupFunction<
 
 ### Algorithm mapped types
 
-Used by `wrapKey` / `unwrapKey` to narrow their `wrappingKey` / `unwrappingKey` parameter
-against the selected `alg`:
+Used by `wrapKey` / `unwrapKey` to narrow their `wrappingKey` / `unwrappingKey` parameter against the selected `alg`:
 
 ```ts
 type WrappingKeyFor<Alg extends KeyManagementAlgorithm> = Alg extends JWK_RSA_ENC

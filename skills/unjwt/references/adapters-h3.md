@@ -14,158 +14,63 @@ Peer dep: `h3`
 
 ## JWE vs JWS
 
-|                 | JWE (Encrypted)                                 | JWS (Signed)                                     |
-| --------------- | ----------------------------------------------- | ------------------------------------------------ |
-| Data visibility | Encrypted, not readable by client               | Base64URL-encoded, readable by anyone            |
-| Default cookie  | `httpOnly: true, secure: true, sameSite: "lax"` | `httpOnly: false, secure: true, sameSite: "lax"` |
-| Key types       | Symmetric JWK, asymmetric keypair, `CryptoKey`  | Symmetric JWK, asymmetric keypair, `CryptoKey`   |
-| Use when        | Session data is sensitive                       | Data is non-sensitive, clients need to read it   |
+|  | JWE (Encrypted) | JWS (Signed) |
+| --- | --- | --- |
+| Data visibility | Encrypted, not readable by client | Base64URL-encoded, readable by anyone |
+| Default cookie | `httpOnly: true, secure: true, sameSite: "lax"` | `httpOnly: false, secure: true, sameSite: "lax"` |
+| Key types | Symmetric JWK, asymmetric keypair, `CryptoKey` | Symmetric JWK, asymmetric keypair, `CryptoKey` |
+| Use when | Session data is sensitive | Data is non-sensitive, clients need to read it |
 
 ## Security notes
 
-- **Pin algorithms.** Set `jws.signOptions.alg` (JWS) or `jwe.encryptOptions.alg` + `enc`
-  (JWE) in the session config: signing/sealing uses them, and verification/unsealing then
-  accepts only those values. Without them, accepted algorithms are inferred from the key's
-  metadata.
-- **Key material only.** `key` is a JWK, a `{ privateKey, publicKey }` pair, or a
-  `CryptoKey`. A JWE session also takes a private JWK alone as `{ privateKey }` (`importPEM()`
-  output, say) and seals with its own public half; a private `CryptoKey` has none to derive, so
-  it comes with `publicKey`. A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with
-  `deriveJWKFromPassword()`. A `CryptoKey` carries no algorithm, so it also requires
-  `jws.signOptions.alg` (or `jwe.encryptOptions.alg` + `enc`), else
-  `ERR_SESSION_CONFIG_INVALID`. A configured JWK is imported when the session is opened: one the
-  session cannot use (undecodable `k`, wrong AES key length for its `alg`) throws
-  `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`.
-  A pair half that is not the half it is named after — for a JWS `publicKey` list or set, any
-  entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or
-  `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
-- **Reserved claims.** `jti`, `iat`, `exp` and `nbf` are adapter-owned. They are stripped
-  from every `update()` payload (object and updater-function form alike), dropped from
-  `session.data` on every issue even when written there directly, and never read back out
-  of `session.data`. An incoming token whose `iat` is later than now plus `clockTolerance`
-  is refused (`ERR_SESSION_TOKEN_INVALID`) whether or not a `maxAge` is set. A token's lifetime comes only from `maxAge` — on the config,
-  or on one call via `session.update(data, { maxAge })`. Update data that is not a plain object
-  (a string, an array), or a `__proto__`, `constructor` or `prototype` key in it, throws
-  `ERR_INVALID_OPTION`. Data travels as JSON: the writing request keeps the values as given,
-  later reads get their JSON round trip (`Date` → ISO string, `NaN`/`±Infinity` → `null`,
-  `undefined` members dropped).
-- **Foreign tokens.** An incoming token is only a session when it carries the session `typ`
-  (`signOptions.protectedHeader.typ` / `encryptOptions.protectedHeader.typ`, default
-  `"session+jwt"`, compared as a media type; RFC 8725 §3.11). No `cty` is written or required.
-  With `maxAge` set it must also carry `exp`. That `exp` alone bounds
-  its life (no `maxTokenAge`), so a token issued with `update(data, { maxAge })` keeps its own
-  lifetime past the config's `maxAge`. Anything else is `ERR_SESSION_TOKEN_INVALID`, whose
-  `cause` is the failure underneath — an expired token that is not a session included, so it
-  reaches `onError`, never `onExpire`.
-- **Token source.** The cookie is read first; the session header is consulted only when the
-  cookie carries no token. The header carries the bare token or `Bearer <token>` (scheme
-  case-insensitive); any other value — blank, another scheme such as `Basic …`, a `Bearer` with
-  no token — carries none, so it never hides the cookie nor reaches `onError`. A `sessionHeader`
-  that is not a header name (RFC 7230 token) throws `ERR_SESSION_CONFIG_INVALID` when the
-  session is opened. `sessionHeader: true` names `x-<name>-session`; left unset, a session with
-  cookies still reads that header, and so does one with `cookie: false`. `cookie: false` plus
-  `sessionHeader: false` is a token-only session: `use()` and `token()` throw
-  `ERR_SESSION_CONFIG_INVALID`, while `issue()` and `open()` work (magic links, email
-  verification). Once `clear()` has written its deletion, `token(event)` returns `undefined` for
-  the rest of the request, header token included.
-- **Cookie lifetime.** A session with a lifetime (config `maxAge` or `update(data, { maxAge })`)
-  sets the cookie's `expires` to the token's `exp` and drops a configured `cookie.maxAge`
-  (`Max-Age` beats `Expires`, RFC 6265 §5.3). Without a lifetime, `cookie.expires` /
-  `cookie.maxAge` are written as configured.
-  `clear()` and an expired read write `Max-Age=0` plus an epoch `Expires` on the cookie and every
-  chunk.
-- **Names.** Prefer a `__Host-` name (`"__Host-session"`): every adapter reads the first cookie
-  of a name, so a sibling subdomain could otherwise plant one that shadows the session; the
-  defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix, and the prefix rules are
-  enforced when the session is opened, on every adapter: a `__Host-` name with `domain`, a `path` other than
-  `/` or `secure: false`, or a `__Secure-` name with `secure: false`, throws
-  `ERR_SESSION_CONFIG_INVALID` (RFC 6265bis §4.1.3). The default session header
-  drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and
-  digits (`app.1`) spells a chunk cookie of another session and throws
-  `ERR_SESSION_CONFIG_INVALID`.
+- **Pin algorithms.** Set `jws.signOptions.alg` (JWS) or `jwe.encryptOptions.alg` + `enc` (JWE) in the session config: signing/sealing uses them, and verification/unsealing then accepts only those values. Without them, accepted algorithms are inferred from the key's metadata.
+- **Key material only.** `key` is a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`. A JWE session also takes a private JWK alone as `{ privateKey }` (`importPEM()` output, say) and seals with its own public half; a private `CryptoKey` has none to derive, so it comes with `publicKey`. A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with `deriveJWKFromPassword()`. A `CryptoKey` carries no algorithm, so it also requires `jws.signOptions.alg` (or `jwe.encryptOptions.alg` + `enc`), else `ERR_SESSION_CONFIG_INVALID`. A configured JWK is imported when the session is opened: one the session cannot use (undecodable `k`, wrong AES key length for its `alg`) throws `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`. A pair half that is not the half it is named after — for a JWS `publicKey` list or set, any entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
+- **Reserved claims.** `jti`, `iat`, `exp` and `nbf` are adapter-owned. They are stripped from every `update()` payload (object and updater-function form alike), dropped from `session.data` on every issue even when written there directly, and never read back out of `session.data`. An incoming token whose `iat` is later than now plus `clockTolerance` is refused (`ERR_SESSION_TOKEN_INVALID`) whether or not a `maxAge` is set. A token's lifetime comes only from `maxAge` — on the config, or on one call via `session.update(data, { maxAge })`. Update data that is not a plain object (a string, an array), or a `__proto__`, `constructor` or `prototype` key in it, throws `ERR_INVALID_OPTION`. Data travels as JSON: the writing request keeps the values as given, later reads get their JSON round trip (`Date` → ISO string, `NaN`/`±Infinity` → `null`, `undefined` members dropped).
+- **Foreign tokens.** An incoming token is only a session when it carries the session `typ` (`signOptions.protectedHeader.typ` / `encryptOptions.protectedHeader.typ`, default `"session+jwt"`, compared as a media type; RFC 8725 §3.11). No `cty` is written or required. With `maxAge` set it must also carry `exp`. That `exp` alone bounds its life (no `maxTokenAge`), so a token issued with `update(data, { maxAge })` keeps its own lifetime past the config's `maxAge`. Anything else is `ERR_SESSION_TOKEN_INVALID`, whose `cause` is the failure underneath — an expired token that is not a session included, so it reaches `onError`, never `onExpire`.
+- **Token source.** The cookie is read first; the session header is consulted only when the cookie carries no token. The header carries the bare token or `Bearer <token>` (scheme case-insensitive); any other value — blank, another scheme such as `Basic …`, a `Bearer` with no token — carries none, so it never hides the cookie nor reaches `onError`. A `sessionHeader` that is not a header name (RFC 7230 token) throws `ERR_SESSION_CONFIG_INVALID` when the session is opened. `sessionHeader: true` names `x-<name>-session`; left unset, a session with cookies still reads that header, and so does one with `cookie: false`. `cookie: false` plus `sessionHeader: false` is a token-only session: `use()` and `token()` throw `ERR_SESSION_CONFIG_INVALID`, while `issue()` and `open()` work (magic links, email verification). Once `clear()` has written its deletion, `token(event)` returns `undefined` for the rest of the request, header token included.
+- **Cookie lifetime.** A session with a lifetime (config `maxAge` or `update(data, { maxAge })`) sets the cookie's `expires` to the token's `exp` and drops a configured `cookie.maxAge` (`Max-Age` beats `Expires`, RFC 6265 §5.3). Without a lifetime, `cookie.expires` / `cookie.maxAge` are written as configured. `clear()` and an expired read write `Max-Age=0` plus an epoch `Expires` on the cookie and every chunk.
+- **Names.** Prefer a `__Host-` name (`"__Host-session"`): every adapter reads the first cookie of a name, so a sibling subdomain could otherwise plant one that shadows the session; the defaults (`secure`, `path: "/"`, no `domain`) satisfy the prefix, and the prefix rules are enforced when the session is opened, on every adapter: a `__Host-` name with `domain`, a `path` other than `/` or `secure: false`, or a `__Secure-` name with `secure: false`, throws `ERR_SESSION_CONFIG_INVALID` (RFC 6265bis §4.1.3). The default session header drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another session and throws `ERR_SESSION_CONFIG_INVALID`.
 
 ## Cookie chunking
 
-A token longer than `cookie.chunkMaxLength` (default 4000) is split: the base cookie holds
-`__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks
-(beyond which the write throws `ERR_SESSION_CONFIG_INVALID`). h3 v1 and h3 v2 write the same
-layout — h3 v2 and h3 v1 each through the adapter's own chunk layer
-(`src/session/_chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by
-the others. Cleanup of a previous chunk set is bounded by the same 16-chunk limit, so a
-forged marker cannot inflate the number of `Set-Cookie` headers on a response. The previous
-set is the one the response already wrote, else the request's, so a set that shrinks within one
-request expires the chunks it no longer uses.
+A token longer than `cookie.chunkMaxLength` (default 4000) is split: the base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks (beyond which the write throws `ERR_SESSION_CONFIG_INVALID`). h3 v1 and h3 v2 write the same layout — h3 v2 and h3 v1 each through the adapter's own chunk layer (`src/session/_chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by the others. Cleanup of a previous chunk set is bounded by the same 16-chunk limit, so a forged marker cannot inflate the number of `Set-Cookie` headers on a response. The previous set is the one the response already wrote, else the request's, so a set that shrinks within one request expires the chunks it no longer uses.
 
 ## Error codes
 
 Every error the adapters throw is a `JWTError`:
 
-| Code                         | Raised when                                                                                          |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `ERR_SESSION_TOKEN_INVALID`  | incoming token failed verification/decryption; `cause` is the original                               |
+| Code | Raised when |
+| --- | --- |
+| `ERR_SESSION_TOKEN_INVALID` | incoming token failed verification/decryption; `cause` is the original |
 | `ERR_SESSION_READONLY_EVENT` | `update()` on an event that takes no cookie; `update()`/`clear()` once the response was sent (h3 v1) |
-| `ERR_SESSION_KEY_INVALID`    | `key` missing, a password string, the wrong shape, or not importable                                 |
-| `ERR_SESSION_CONFIG_INVALID` | config combination that cannot work (no token source, unpinned CryptoKey)                            |
-| `ERR_INVALID_OPTION`         | `update()` data not a plain object, or a `__proto__`-like key in it                                  |
-| `ERR_JWT_EXPIRED`            | the token's `exp` has passed — surfaced through `onExpire`                                           |
+| `ERR_SESSION_KEY_INVALID` | `key` missing, a password string, the wrong shape, or not importable |
+| `ERR_SESSION_CONFIG_INVALID` | config combination that cannot work (no token source, unpinned CryptoKey) |
+| `ERR_INVALID_OPTION` | `update()` data not a plain object, or a `__proto__`-like key in it |
+| `ERR_JWT_EXPIRED` | the token's `exp` has passed — surfaced through `onExpire` |
 
 ## Drift from h3 core sessions
 
 Forked from h3's `useSession`, then deliberately diverged:
 
-- **Every `update()` issues a new JWT** — fresh `jti`, `iat`, `exp`. RFC 7519: `jti` names one
-  token, `iat` is that token's issue time. h3 keeps `id`/`createdAt` for the session's life;
-  unjwt does not, so a rotated token stays distinguishable from a compromised one.
-- **`maxAge` counts from the latest issue**, not first creation. Lineage across rotations is
-  the application's job (e.g. record the previous `jti` in `onUpdate`).
-- **No `idleTimeout` / `lastSeenAt`.** Sliding expiration = `rolling: true` (reissue on every
-  read) or `rolling: "15m"` (reissue once the token is at least that old, so at most one
-  re-sign per 15 minutes); needs `maxAge`, and the duration must be shorter than it.
-- **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement (both drop the
-  cookie; a key lookup that threw keeps it), hooks, `Bearer `
-  prefix on the session header, JWS cookies default `httpOnly: false`.
-- **`clear()` is final for the request.** The context slot is left holding an empty session,
-  so a later `use(event)` on the same event does not restore the request cookie.
-- **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders`
-  (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless
-  an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
-- **Events without a response, and after it was sent**: `update()` throws
-  `ERR_SESSION_READONLY_EVENT` on an event that takes no cookie; `clear()` only empties the
-  request's session there. On h3 v1 a handled response (`isEvent(event) && !event.handled`,
-  h3's own getter) refuses both (`Cannot update/clear session: the response was already
-  sent.`) and leaves the session as it was. h3 v2 guards on `event.res` only, as upstream, and
-  never probes the runtime, so a write made after the handler returned is accepted but never
-  sent: write inside the handler, before it returns. A read there only observes: an expired
-  or unreadable token reaches `onExpire`/`onError` without its cookie being dropped and `rolling` does not reissue;
-  the next request, carrying the same token, does both.
+- **Every `update()` issues a new JWT** — fresh `jti`, `iat`, `exp`. RFC 7519: `jti` names one token, `iat` is that token's issue time. h3 keeps `id`/`createdAt` for the session's life; unjwt does not, so a rotated token stays distinguishable from a compromised one.
+- **`maxAge` counts from the latest issue**, not first creation. Lineage across rotations is the application's job (e.g. record the previous `jti` in `onUpdate`).
+- **No `idleTimeout` / `lastSeenAt`.** Sliding expiration = `rolling: true` (reissue on every read) or `rolling: "15m"` (reissue once the token is at least that old, so at most one re-sign per 15 minutes); needs `maxAge`, and the duration must be shorter than it.
+- **Lazy first cookie**, `onExpire`/`onError` instead of silent replacement (both drop the cookie; a key lookup that threw keeps it), hooks, `Bearer ` prefix on the session header, JWS cookies default `httpOnly: false`.
+- **`clear()` is final for the request.** The context slot is left holding an empty session, so a later `use(event)` on the same event does not restore the request cookie.
+- **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders` (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
+- **Events without a response, and after it was sent**: `update()` throws `ERR_SESSION_READONLY_EVENT` on an event that takes no cookie; `clear()` only empties the request's session there. On h3 v1 a handled response (`isEvent(event) && !event.handled`, h3's own getter) refuses both (`Cannot update/clear session: the response was already sent.`) and leaves the session as it was. h3 v2 guards on `event.res` only, as upstream, and never probes the runtime, so a write made after the handler returned is accepted but never sent: write inside the handler, before it returns. A read there only observes: an expired or unreadable token reaches `onExpire`/`onError` without its cookie being dropped and `rolling` does not reissue; the next request, carrying the same token, does both.
 
-Both h3 adapters, the Elysia one and `unjwt/session` run the same session core
-(`src/session/_core.ts`) over a JWS/JWE codec and a per-framework driver
-(`session/_shared.ts`), so the lifecycle, hook order and error codes are the same everywhere;
-only cookie writing, per-request state and the `res.errHeaders` staging differ per framework.
+Both h3 adapters, the Elysia one and `unjwt/session` run the same session core (`src/session/_core.ts`) over a JWS/JWE codec and a per-framework driver (`session/_shared.ts`), so the lifecycle, hook order and error codes are the same everywhere; only cookie writing, per-request state and the `res.errHeaders` staging differ per framework.
 
 ## WebSockets
 
-Nitro hands crossws hooks a request without a response. h3 v1 (crossws 0.3): `upgrade(request)`
-gets a request-like `{ url, headers, context }`, passed as is to `use(request)`; `message(peer)`
-uses `use({ headers: peer.request.headers, context: peer.context })`. h3 v2 (crossws 0.4):
-`upgrade(request)` gets the `Request`, passed as `use({ req: request })`; `message(peer)` uses
-`use({ req: peer.request })`.
+Nitro hands crossws hooks a request without a response. h3 v1 (crossws 0.3): `upgrade(request)` gets a request-like `{ url, headers, context }`, passed as is to `use(request)`; `message(peer)` uses `use({ headers: peer.request.headers, context: peer.context })`. h3 v2 (crossws 0.4): `upgrade(request)` gets the `Request`, passed as `use({ req: request })`; `message(peer)` uses `use({ req: peer.request })`.
 
-- The upgrade object takes no cookie: `update()` throws `ERR_SESSION_READONLY_EVENT`, while
-  `clear()` empties the session for the rest of the connection and leaves the cookie to the next
-  HTTP request. `onRead` revocation needs no gate: `if (await revoked.has(session.id)) await
-  session.clear();`. A hook that needs `event.node`/`event.res` gates on `isEvent(event)` from `h3`.
-- `upgrade` wraps `use()` in `try/catch` and returns `new Response(…, { status: 401 })` itself
-  (also when `!session.id`): crossws rethrows anything that is not a `Response`.
-- `message` is a cache hit on the upgrade's read (`onRead` does not fire again): on v1
-  `peer.context` is the upgrade's context (pass `context: {}` to re-read per message); on v2
-  `peer.request` is the upgrade's `Request`. The v2 `defineWebSocketHandler((event) => hooks)`
-  factory hands the upgrade a full `H3Event`.
-- A `cookie: false, sessionHeader: false` session is not read by `use()`; over a socket exchange
-  its tokens with `open()` / `issue()` in `message`, no event involved.
-- `clear()` expires the cookie, it does not invalidate the token: a copy stays valid until `exp`.
-  Revocation is `onRead` plus your own store.
+- The upgrade object takes no cookie: `update()` throws `ERR_SESSION_READONLY_EVENT`, while `clear()` empties the session for the rest of the connection and leaves the cookie to the next HTTP request. `onRead` revocation needs no gate: `if (await revoked.has(session.id)) await session.clear();`. A hook that needs `event.node`/`event.res` gates on `isEvent(event)` from `h3`.
+- `upgrade` wraps `use()` in `try/catch` and returns `new Response(…, { status: 401 })` itself (also when `!session.id`): crossws rethrows anything that is not a `Response`.
+- `message` is a cache hit on the upgrade's read (`onRead` does not fire again): on v1 `peer.context` is the upgrade's context (pass `context: {}` to re-read per message); on v2 `peer.request` is the upgrade's `Request`. The v2 `defineWebSocketHandler((event) => hooks)` factory hands the upgrade a full `H3Event`.
+- A `cookie: false, sessionHeader: false` session is not read by `use()`; over a socket exchange its tokens with `open()` / `issue()` in `message`, no event involved.
+- `clear()` expires the cookie, it does not invalidate the token: a copy stays valid until `exp`. Revocation is `onRead` plus your own store.
 
 ## SessionManager Interface
 
@@ -244,8 +149,7 @@ interface SessionJWE<
 
 ## defineJWESession / defineJWSSession
 
-Define a session once, at module scope, from its config; nothing is validated or read until a
-member runs. `use(event)` serves every request.
+Define a session once, at module scope, from its config; nothing is validated or read until a member runs. `use(event)` serves every request.
 
 ```ts
 const useSession = defineJWESession<MyData>(config); // or defineJWSSession
@@ -286,24 +190,17 @@ type OpenedSessionState<T, MaxAge> = {
 };
 ```
 
-| Member                  | Reads request | Writes cookie                                     | Hooks                                                |
-| ----------------------- | ------------- | ------------------------------------------------- | ---------------------------------------------------- |
-| `use(event)`            | once          | on `update()`/`clear()`, `rolling`, expired token | `onRead`/`onExpire`/`onError`, `onUpdate`, `onClear` |
-| `token(event)`          | yes           | no                                                | none                                                 |
-| `issue(data, options?)` | no            | no                                                | none                                                 |
-| `open(token)`           | no            | no                                                | key lookup only, without `event`                     |
+| Member | Reads request | Writes cookie | Hooks |
+| --- | --- | --- | --- |
+| `use(event)` | once | on `update()`/`clear()`, `rolling`, expired token | `onRead`/`onExpire`/`onError`, `onUpdate`, `onClear` |
+| `token(event)` | yes | no | none |
+| `issue(data, options?)` | no | no | none |
+| `open(token)` | no | no | key lookup only, without `event` |
 
-- `use(event)`: two calls on one request (same family and `name`) share one state, whatever
-  definition they come from.
-- `token(event)`: cookie this response wrote, then request cookie (chunks joined), then the
-  session header; `undefined` without one; checks nothing.
-- `issue(data, { maxAge })`: no request needed, works on a token-only config; reserved claims
-  `jti`/`iat`/`exp`/`nbf` are stripped from `data`, a `__proto__`/`constructor`/`prototype` key
-  throws `ERR_INVALID_OPTION`; writes no cookie, fires no hook.
-- `open(token)`: same checks as reading a cookie; resolves to `{ id, createdAt, expiresAt, data }`;
-  throws `ERR_SESSION_TOKEN_INVALID` (`cause` the failure) or `ERR_JWT_EXPIRED`;
-  `onVerifyKeyLookup` / `onUnsealKeyLookup` get the header and the config, no `event`. Writes
-  nothing.
+- `use(event)`: two calls on one request (same family and `name`) share one state, whatever definition they come from.
+- `token(event)`: cookie this response wrote, then request cookie (chunks joined), then the session header; `undefined` without one; checks nothing.
+- `issue(data, { maxAge })`: no request needed, works on a token-only config; reserved claims `jti`/`iat`/`exp`/`nbf` are stripped from `data`, a `__proto__`/`constructor`/`prototype` key throws `ERR_INVALID_OPTION`; writes no cookie, fires no hook.
+- `open(token)`: same checks as reading a cookie; resolves to `{ id, createdAt, expiresAt, data }`; throws `ERR_SESSION_TOKEN_INVALID` (`cause` the failure) or `ERR_JWT_EXPIRED`; `onVerifyKeyLookup` / `onUnsealKeyLookup` get the header and the config, no `event`. Writes nothing.
 
 ### SessionConfigJWE
 
@@ -497,13 +394,13 @@ interface SessionHooksJWE<
 
 ### Hook lifecycle guarantees
 
-| Hook       | When it fires                                                                                                                                                                                                                                                                                                                            | Mutually exclusive with |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `onRead`   | Once per request, when the session is read from a valid token (`id` and `token` set); later reads in the request are silent                                                                                                                                                                                                              | `onExpire`, `onError`   |
-| `onUpdate` | After seal/sign and the cookie write succeed; a hook that throws makes `update()` reject with its error, the new session staying in place (no rollback, no `onError`)                                                                                                                                                                    | —                       |
-| `onClear`  | After explicit `session.clear()` call                                                                                                                                                                                                                                                                                                    | `onExpire`              |
-| `onExpire` | Token's `exp` claim is in the past                                                                                                                                                                                                                                                                                                       | `onRead`, `onClear`     |
-| `onError`  | A read-path failure other than expiry, and a write-path sign/seal failure — the read-path `error` is always an `ERR_SESSION_TOKEN_INVALID` `JWTError` whose `cause` is the underlying failure, while the write-path `error` is the issue failure itself (e.g. `ERR_INVALID_OPTION`) and `session` is rolled back to its pre-update state | `onRead` (read path)    |
+| Hook | When it fires | Mutually exclusive with |
+| --- | --- | --- |
+| `onRead` | Once per request, when the session is read from a valid token (`id` and `token` set); later reads in the request are silent | `onExpire`, `onError` |
+| `onUpdate` | After seal/sign and the cookie write succeed; a hook that throws makes `update()` reject with its error, the new session staying in place (no rollback, no `onError`) | — |
+| `onClear` | After explicit `session.clear()` call | `onExpire` |
+| `onExpire` | Token's `exp` claim is in the past | `onRead`, `onClear` |
+| `onError` | A read-path failure other than expiry, and a write-path sign/seal failure — the read-path `error` is always an `ERR_SESSION_TOKEN_INVALID` `JWTError` whose `cause` is the underlying failure, while the write-path `error` is the issue failure itself (e.g. `ERR_INVALID_OPTION`) and `session` is rolled back to its pre-update state | `onRead` (read path) |
 
 Every hook is dispatched with the session state already settled, so a hook may read the same session again — through `definition.use(event)` — and gets the same session without `onRead` firing again. `session` in `onRead`, `onUpdate` and `onError` is the manager, so `session.update()` / `session.clear()` work in place.
 

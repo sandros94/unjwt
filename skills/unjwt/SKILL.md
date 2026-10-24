@@ -31,19 +31,19 @@ The following is a list of reference files:
 
 ## Export Paths
 
-| Path                    | Purpose                                                                                                                                                         |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unjwt`                 | Flat barrel: all public functions and types from `jws`, `jwe`, `jwk`, `utils`                                                                                   |
-| `unjwt/jws`             | `sign()`, `verify()` (Compact) — `signMulti()`, `verifyMulti()` (General JSON Serialization)                                                                    |
-| `unjwt/jwe`             | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization)                                                            |
-| `unjwt/jwk`             | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils                                                                                  |
-| `unjwt/utils`           | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`, `digestUrl`                                                                    |
-| `unjwt/internal`        | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use                                                                     |
-| `unjwt/adapters/h3`     | H3 session adapter (aliases h3v2) — `defineJWSSession`/`defineJWESession`                                                                                       |
-| `unjwt/adapters/h3v1`   | H3 v1 session adapter (Nuxt v4, Nitro v2) — `defineJWSSession`/`defineJWESession`                                                                               |
-| `unjwt/adapters/h3v2`   | H3 v2 session adapter (Nuxt v5, Nitro v3) — `defineJWSSession`/`defineJWESession`                                                                               |
-| `unjwt/adapters/elysia` | Elysia session adapter — `jwsSession`/`jweSession` plugins, `defineJWSSession`/`defineJWESession` (`^1.4.29`)                                                   |
-| `unjwt/session`         | Web standard sessions (`{ req, res, context }` event as h3 v2 / `nuxt/server` hand it, a `Request`, or a token in hand) and the driver API — no peer dependency |
+| Path | Purpose |
+| --- | --- |
+| `unjwt` | Flat barrel: all public functions and types from `jws`, `jwe`, `jwk`, `utils` |
+| `unjwt/jws` | `sign()`, `verify()` (Compact) — `signMulti()`, `verifyMulti()` (General JSON Serialization) |
+| `unjwt/jwe` | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
+| `unjwt/jwk` | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils |
+| `unjwt/utils` | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`, `digestUrl` |
+| `unjwt/internal` | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use |
+| `unjwt/adapters/h3` | H3 session adapter (aliases h3v2) — `defineJWSSession`/`defineJWESession` |
+| `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2) — `defineJWSSession`/`defineJWESession` |
+| `unjwt/adapters/h3v2` | H3 v2 session adapter (Nuxt v5, Nitro v3) — `defineJWSSession`/`defineJWESession` |
+| `unjwt/adapters/elysia` | Elysia session adapter — `jwsSession`/`jweSession` plugins, `defineJWSSession`/`defineJWESession` (`^1.4.29`) |
+| `unjwt/session` | Web standard sessions (`{ req, res, context }` event as h3 v2 / `nuxt/server` hand it, a `Request`, or a token in hand) and the driver API — no peer dependency |
 
 Session entry exports (as each `index.ts` exports them):
 

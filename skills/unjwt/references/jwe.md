@@ -38,10 +38,7 @@ Produces a JWE Compact Serialization token.
 
 - `payload` — `string | Uint8Array | Record<string, any>`
 - `key`
-  - `string` → PBES2 password, and nothing else (infers `alg = "PBES2-HS256+A128KW"`). A string under any
-    other `alg` — `"dir"`, `"A256KW"`, … — throws `ERR_JWK_INVALID` (`"Key must be a JWK, CryptoKey or Uint8Array, not a string."`)
-    rather than being used as raw key bytes. JWE is the only family that takes a string at all, and PBKDF2
-    is the only thing it does with one
+  - `string` → PBES2 password, and nothing else (infers `alg = "PBES2-HS256+A128KW"`). A string under any other `alg` — `"dir"`, `"A256KW"`, … — throws `ERR_JWK_INVALID` (`"Key must be a JWK, CryptoKey or Uint8Array, not a string."`) rather than being used as raw key bytes. JWE is the only family that takes a string at all, and PBKDF2 is the only thing it does with one
   - `JWEEncryptJWK` → infers `alg`/`enc` from key properties. Narrows by family: `JWK_oct` with a JWE symmetric `alg` (AES-KW, AES-GCM, AES-GCM-KW, AES-CBC-HMAC, PBES2, `"dir"`) or an asymmetric _public_ JWK whose `alg` is RSA-OAEP or ECDH-ES. HMAC / signing-family JWKs are rejected at the type level.
   - `CryptoKey | Extract<JWEEncryptJWK, { kty: "oct" }> | Uint8Array` with `alg: "dir"` → used directly as the CEK. An `oct` JWK whose `alg` is a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) _is_ a CEK: it infers `alg: "dir"` with that same algorithm as `enc`, and serves no other `enc`. One declaring a key wrapping `alg` is refused
   - `Uint8Array` → infers nothing; bytes carry no role, so `alg` is required and `encrypt` throws `ERR_JWE_ALG_MISSING` without one. The matching `decrypt` must then be given the same `algorithms: [alg]`

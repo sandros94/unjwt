@@ -53,22 +53,19 @@ Concatenates multiple `Uint8Array<ArrayBuffer>` instances into one contiguous bu
 
 ## Type Guards
 
-| Function               | Returns                 | Checks                                                  |
-| ---------------------- | ----------------------- | ------------------------------------------------------- |
-| `isJWK(key)`           | `key is JWK`            | Modelled JWK (`kty` is `oct`/`RSA`/`EC`/`OKP`)          |
-| `isJWKSet(key)`        | `key is JWKSet`         | Object with `keys` array                                |
-| `isCryptoKey(key)`     | `key is CryptoKey`      | CryptoKey instance                                      |
-| `isCryptoKeyPair(key)` | `key is CryptoKeyPair`  | Object with `publicKey` + `privateKey` CryptoKeys       |
-| `isSymmetricJWK(key)`  | `key is JWK_oct`        | JWK with `kty: "oct"` and `k` property                  |
-| `isAsymmetricJWK(key)` | `key is JWK_Asymmetric` | JWK that is not `oct`                                   |
-| `isPrivateJWK(key)`    | `key is JWK_Private`    | **Asymmetric** JWK with `d` (returns `false` for `oct`) |
-| `isPublicJWK(key)`     | `key is JWK_Public`     | Asymmetric JWK without `d` component                    |
-| `assertCryptoKey(key)` | assertion               | Throws if not CryptoKey                                 |
+| Function | Returns | Checks |
+| --- | --- | --- |
+| `isJWK(key)` | `key is JWK` | Modelled JWK (`kty` is `oct`/`RSA`/`EC`/`OKP`) |
+| `isJWKSet(key)` | `key is JWKSet` | Object with `keys` array |
+| `isCryptoKey(key)` | `key is CryptoKey` | CryptoKey instance |
+| `isCryptoKeyPair(key)` | `key is CryptoKeyPair` | Object with `publicKey` + `privateKey` CryptoKeys |
+| `isSymmetricJWK(key)` | `key is JWK_oct` | JWK with `kty: "oct"` and `k` property |
+| `isAsymmetricJWK(key)` | `key is JWK_Asymmetric` | JWK that is not `oct` |
+| `isPrivateJWK(key)` | `key is JWK_Private` | **Asymmetric** JWK with `d` (returns `false` for `oct`) |
+| `isPublicJWK(key)` | `key is JWK_Public` | Asymmetric JWK without `d` component |
+| `assertCryptoKey(key)` | assertion | Throws if not CryptoKey |
 
-> **Sharing keys safely.** `!isPrivateJWK(key)` is _not_ a "safe to publish" check —
-> `isPrivateJWK` only detects asymmetric `d`, so it returns `false` for every `oct` key,
-> whose `k` is always secret. Use `isPublicJWK(key)` (true only for asymmetric public keys)
-> to filter keys that are safe to share; treat any `isSymmetricJWK(key)` as secret.
+> **Sharing keys safely.** `!isPrivateJWK(key)` is _not_ a "safe to publish" check — `isPrivateJWK` only detects asymmetric `d`, so it returns `false` for every `oct` key, whose `k` is always secret. Use `isPublicJWK(key)` (true only for asymmetric public keys) to filter keys that are safe to share; treat any `isSymmetricJWK(key)` as secret.
 
 ## JWT Utilities
 
@@ -140,39 +137,22 @@ Wraps a value in an array if it isn't one already.
 
 ### `isJWTContent(header)`
 
-Returns `true` when headers indicate JWT/JSON content: a `typ` naming JWT, or a JSON `cty`. A
-non-string `typ`/`cty` indicates nothing (returns `false`, never throws). Informational only —
-`verify()` and `decrypt()` read the payload under the caller's `payload` option and never consult
-`typ`/`cty`.
+Returns `true` when headers indicate JWT/JSON content: a `typ` naming JWT, or a JSON `cty`. A non-string `typ`/`cty` indicates nothing (returns `false`, never throws). Informational only — `verify()` and `decrypt()` read the payload under the caller's `payload` option and never consult `typ`/`cty`.
 
 ## Internal plumbing (`unjwt/internal`)
 
-**Internal: for tests and tooling only. No semver guarantee — any export may change or disappear in
-any release. Not for production use.** Production code uses `unjwt/jws`, `unjwt/jwe`, `unjwt/utils`.
-Not re-exported from the root `unjwt`.
+**Internal: for tests and tooling only. No semver guarantee — any export may change or disappear in any release. Not for production use.** Production code uses `unjwt/jws`, `unjwt/jwe`, `unjwt/utils`. Not re-exported from the root `unjwt`.
 
 Import: `import { ... } from "unjwt/internal"`
 
-- `applyTypDefault(header, payload)` — sets `typ: "JWT"` on an object payload's header when it
-  has none; never adds a `cty`; mutates the header in place.
-- `parsePayloadBytes(bytes, options?)` / `parsePayloadSegment(segment, options?)` — a
-  verified/decrypted payload under a declared mode; the return type follows `options.payload`
-  (`parsePayloadBytes<MyClaims>(bytes)` names the JSON shape, as `verify<MyClaims>` does). `options.payload?: "json" | "string" | "bytes"`
-  — `"json"` (default) requires UTF-8 JSON naming a non-null, non-array object; `"string"` requires
-  valid UTF-8; `"bytes"` returns the input. `options.family?: "JWS" | "JWE"` picks the rejection code
-  (`ERR_JWS_INVALID` by default). Options type: `ParsePayloadOptions`.
+- `applyTypDefault(header, payload)` — sets `typ: "JWT"` on an object payload's header when it has none; never adds a `cty`; mutates the header in place.
+- `parsePayloadBytes(bytes, options?)` / `parsePayloadSegment(segment, options?)` — a verified/decrypted payload under a declared mode; the return type follows `options.payload` (`parsePayloadBytes<MyClaims>(bytes)` names the JSON shape, as `verify<MyClaims>` does). `options.payload?: "json" | "string" | "bytes"` — `"json"` (default) requires UTF-8 JSON naming a non-null, non-array object; `"string"` requires valid UTF-8; `"bytes"` returns the input. `options.family?: "JWS" | "JWE"` picks the rejection code (`ERR_JWS_INVALID` by default). Options type: `ParsePayloadOptions`.
 - `parsePayloadText(bytes, options?)` — payload bytes as UTF-8 text, `options.family` as above.
-- `getPlaintextBytes(payload)` — `string | Uint8Array | object` to bytes; a
-  non-serializable object is `ERR_INVALID_OPTION`.
-- `computeJwtTimeClaims(payload, options?)` — `iat` plus `exp`/`nbf` from
-  `issuedAt`/`expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`, an alias of
-  `JWTTimeClaimOptions` — the base `JWSSignOptions` and `JWEEncryptOptions` extend).
-- `validateCriticalHeadersJWS(header, recognized?)` / `validateCriticalHeadersJWE(header, recognized?)`
-  — RFC 7515 §4.1.11 / RFC 7516 §4.1.13 `crit` processing.
-- `assertCritShape(crit, { family, code? })` — `crit` is a non-empty string array naming no
-  registered header parameter.
-- `expiredClaimMessage(exp)` — the `ERR_JWT_EXPIRED` message for an `exp` (NumericDate, seconds)
-  that has passed; the session adapters raise the same text for an in-memory expiry.
+- `getPlaintextBytes(payload)` — `string | Uint8Array | object` to bytes; a non-serializable object is `ERR_INVALID_OPTION`.
+- `computeJwtTimeClaims(payload, options?)` — `iat` plus `exp`/`nbf` from `issuedAt`/`expiresIn`/`expiresAt`/`notBeforeIn`/`notBeforeAt` (`ComputeJwtTimeClaimsOptions`, an alias of `JWTTimeClaimOptions` — the base `JWSSignOptions` and `JWEEncryptOptions` extend).
+- `validateCriticalHeadersJWS(header, recognized?)` / `validateCriticalHeadersJWE(header, recognized?)` — RFC 7515 §4.1.11 / RFC 7516 §4.1.13 `crit` processing.
+- `assertCritShape(crit, { family, code? })` — `crit` is a non-empty string array naming no registered header parameter.
+- `expiredClaimMessage(exp)` — the `ERR_JWT_EXPIRED` message for an `exp` (NumericDate, seconds) that has passed; the session adapters raise the same text for an in-memory expiry.
 
 ## Utility Types
 

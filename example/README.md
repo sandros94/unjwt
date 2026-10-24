@@ -1,7 +1,6 @@
 # unjwt example
 
-A minimal h3 app with a JWE refresh-token session and a JWS access-token session that
-refreshes itself from the former on expiry. Install with any package manager, then:
+A minimal h3 app with a JWE refresh-token session and a JWS access-token session that refreshes itself from the former on expiry. Install with any package manager, then:
 
 ```sh
 npm run dev

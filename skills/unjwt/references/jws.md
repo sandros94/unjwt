@@ -26,12 +26,9 @@ Creates a JWS Compact Serialization token.
 
 - `payload` — `JOSEPayload` = `string | Uint8Array | object` (objects are JSON-serialized; interfaces welcome)
 - `key` — `CryptoKey | JWSSignJWK | Uint8Array`
-  - `JWSSignJWK` narrows by family: `JWK_oct<JWK_HMAC>` | asymmetric private JWK with a signing `alg`.
-    A JWK whose `alg` points at a non-signing family (`"RSA-OAEP"`, `"A256KW"`, …) is rejected at the type level.
+  - `JWSSignJWK` narrows by family: `JWK_oct<JWK_HMAC>` | asymmetric private JWK with a signing `alg`. A JWK whose `alg` points at a non-signing family (`"RSA-OAEP"`, `"A256KW"`, …) is rejected at the type level.
   - JWK keys infer `alg` automatically; CryptoKey/Uint8Array require `options.alg`
-  - A `string` is never a key: every JWS entry point throws `ERR_JWK_INVALID`
-    (`"Key must be a JWK, CryptoKey or Uint8Array, not a string."`).
-    Without it, `sign(payload, pemText, { alg: "HS256" })` would HMAC over the PEM armour.
+  - A `string` is never a key: every JWS entry point throws `ERR_JWK_INVALID` (`"Key must be a JWK, CryptoKey or Uint8Array, not a string."`). Without it, `sign(payload, pemText, { alg: "HS256" })` would HMAC over the PEM armour.
 - `options?: JWSSignOptions`
   - `alg?: JWSAlgorithm` — required when key is CryptoKey or Uint8Array
   - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`, `jwk`). A `jwk` must be a public JWK (`isPublicJWK`): a private key or an `oct` secret there is `ERR_INVALID_OPTION`, in every tier of `signMulti` too. A JSON payload whose `cnf.jwk` is not a public JWK is `ERR_JWT_CLAIM_INVALID` (RFC 7800 §3.2), in every producer

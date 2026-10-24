@@ -1,8 +1,6 @@
 # unjwt
 
-[![npm version](https://npmx.dev/api/registry/badge/version/unjwt?name=true)](https://npmx.dev/package/unjwt)
-[![npm downloads](https://npmx.dev/api/registry/badge/downloads/unjwt)](https://npmx.dev/package/unjwt)
-[![bundle size](https://npmx.dev/api/registry/badge/size/unjwt)](https://npmx.dev/package/unjwt)
+[![npm version](https://npmx.dev/api/registry/badge/version/unjwt?name=true)](https://npmx.dev/package/unjwt) [![npm downloads](https://npmx.dev/api/registry/badge/downloads/unjwt)](https://npmx.dev/package/unjwt) [![bundle size](https://npmx.dev/api/registry/badge/size/unjwt)](https://npmx.dev/package/unjwt)
 
 A collection of JWT utilities based on the Web Crypto API, in a single zero-dependency package.
 
@@ -80,12 +78,7 @@ Originally visioned by [Johann Schopplich](https://github.com/johannschopplich/u
 
 <!-- automd:contributors license=MIT -->
 
-Published under the [MIT](https://github.com/sandros94/unjwt/blob/main/LICENSE) license.
-Made by [community](https://github.com/sandros94/unjwt/graphs/contributors) 💛
-<br><br>
-<a href="https://github.com/sandros94/unjwt/graphs/contributors">
-<img src="https://contrib.rocks/image?repo=sandros94/unjwt" />
-</a>
+Published under the [MIT](https://github.com/sandros94/unjwt/blob/main/LICENSE) license. Made by [community](https://github.com/sandros94/unjwt/graphs/contributors) 💛 <br><br> <a href="https://github.com/sandros94/unjwt/graphs/contributors"> <img src="https://contrib.rocks/image?repo=sandros94/unjwt" /> </a>
 
 <!-- /automd -->
 
