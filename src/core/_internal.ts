@@ -1,4 +1,4 @@
-import { safeJsonParse } from "unsecure/sanitize";
+import { safeJsonParse, sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlParse } from "./utils/base64.ts";
 
@@ -33,14 +33,16 @@ import {
   inferJWSAllowedAlgorithms,
   isContentEncryptionAlgorithm,
   isECDHESAlgorithm,
-  isEd25519Signature,
   isJWSAlgorithm,
   isKeyManagementAlgorithm,
   isPBES2Algorithm,
+  isSameAlgorithm,
+  jwkAlgServes,
 } from "./utils/algorithms.ts";
 import { quoteTokenValue } from "./utils/_text.ts";
 import {
   assertPlainObject,
+  hasSymmetricSecret,
   isCryptoKey,
   isCryptoKeyPair,
   isJWK,
@@ -308,7 +310,7 @@ const JWK_SET_KEY_OPS: Readonly<Record<JWKSetOperation, readonly string[]>> =
     enc: ["unwrapKey", "decrypt", "deriveBits", "deriveKey"],
   });
 
-/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; `oct` entries only with `allowSymmetric`. */
+/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; entries carrying `k` only with `allowSymmetric`. */
 export function buildJWKSetFilter(
   header: { kid?: string; alg?: JWKAlgorithm } | undefined,
   options: { op: JWKSetOperation; allowSymmetric?: boolean },
@@ -320,9 +322,9 @@ export function buildJWKSetFilter(
   const keyOps = JWK_SET_KEY_OPS[op];
   return (k) => {
     if (!isJWK(k)) return false;
-    if (k.kty === "oct" && !allowSymmetric) return false;
+    if (!allowSymmetric && hasSymmetricSecret(k)) return false;
     if (kid && k.kid !== kid) return false;
-    if (k.alg && k.alg !== alg) return false;
+    if (k.alg && !(alg && jwkAlgServes({ kty: k.kty, alg: k.alg }, alg))) return false;
     if (k.use !== undefined && k.use !== use) return false;
     const ops = k.key_ops;
     if (ops !== undefined && !(Array.isArray(ops) && ops.some((o) => keyOps.includes(o)))) {
@@ -543,8 +545,7 @@ export function checkAlgAllowed<A extends JWKAlgorithm>(
     return algorithms.includes(alg) ? undefined : notAllowed(alg, ctx);
   }
   if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
-    const served = key.alg === alg || (isEd25519Signature(key.alg) && isEd25519Signature(alg));
-    return served ? undefined : notAllowed(alg, ctx);
+    return isSameAlgorithm(key.alg, alg) ? undefined : notAllowed(alg, ctx);
   }
   const inferred = ctx.infer(key, { allowSymmetric });
   if (!inferred) {
@@ -683,6 +684,15 @@ export function asJWTError(
 ): JWTError {
   if (error instanceof JWTError) return error;
   return new JWTError(options.message, options.code, error);
+}
+
+/** A sanitized deep copy of a JSON object; a value JSON cannot carry (a `Date`, a `Map`, a class instance) is the given error, the refusal as `cause`. */
+export function copyJsonObject<T>(value: T, options: { code: JWTErrorCode; message: string }): T {
+  try {
+    return sanitizeObjectCopy(value);
+  } catch (error) {
+    throw asJWTError(error, options);
+  }
 }
 
 /** RFC 7516 §11.5 — a failed unwrap or decryption says only that it failed. */

@@ -338,6 +338,13 @@ describe.concurrent("JWK Utilities", () => {
       expect((await decrypt(jwe, recipient.privateKey)).payload).toEqual({ secret: 1 });
     });
 
+    it('drops a "k" member', async () => {
+      const { publicKey } = await generateJWK("ES256");
+      const derived = toPublicJWK({ ...publicKey, k: "c2VjcmV0" } as JWK_EC_Public);
+      expect(derived).toEqual(publicKey);
+      expect(derived).not.toHaveProperty("k");
+    });
+
     it("returns an equal copy of a public JWK", async () => {
       const { publicKey } = await generateJWK("ES256");
       const copy = toPublicJWK(publicKey);
@@ -556,6 +563,19 @@ describe.concurrent("JWK Utilities", () => {
       const key1 = await importKey(jwk, "ES256");
       const key2 = await importKey(jwk, "ES256");
       expect(key1).toBe(key2);
+    });
+
+    it('rejects a "k" member on a non-oct JWK', async () => {
+      const { k } = await generateJWK("HS256");
+      const key = { kty: "EC", alg: "HS256", k } as unknown as JWK;
+      const error = await importKey(key, "HS256").catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+      expect(error.message).toBe('JWK "k" is defined only for "oct" keys, not "EC".');
+
+      const withPublicMembers = { ...(await generateJWK("ES256")).publicKey, k } as JWK;
+      await expect(importKey(withPublicMembers, "ES256")).rejects.toMatchObject({
+        code: "ERR_JWK_INVALID",
+      });
     });
 
     it("should import symmetric JWK (oct) to Uint8Array", async () => {
@@ -3129,3 +3149,23 @@ function pemBlock(label: string, bytes: Uint8Array<ArrayBuffer>): string {
 async function ecdhPair(namedCurve: "P-256" | "P-384"): Promise<CryptoKeyPair> {
   return await generateKey("ECDH-ES", { namedCurve });
 }
+
+describe("JSON-only JWK input", () => {
+  it("reports JWK parameters JSON cannot carry as ERR_INVALID_OPTION", async () => {
+    const { publicKey } = await generateKey("ES256");
+    await expect(exportJWK(publicKey, { when: new Date(0) } as never)).rejects.toMatchObject({
+      code: "ERR_INVALID_OPTION",
+      cause: { code: "INVALID_TYPE" },
+    });
+  });
+
+  it("reports a JWK member JSON cannot carry as ERR_JWK_INVALID", async () => {
+    const { privateKey } = await generateJWK("ES256");
+    expect(() => toPublicJWK({ ...privateKey, when: new Date(0) } as never)).toThrowError(
+      expect.objectContaining({
+        code: "ERR_JWK_INVALID",
+        cause: expect.objectContaining({ code: "INVALID_TYPE" }),
+      }),
+    );
+  });
+});

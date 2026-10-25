@@ -1,4 +1,3 @@
-import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64.ts";
 
@@ -57,6 +56,7 @@ import {
   checkJWEEncAllowed,
   assertJWEEncSupported,
   checkJWEZip,
+  copyJsonObject,
   createPBES2Budget,
   decodeProtectedHeader,
   exportReturnedCek,
@@ -372,7 +372,10 @@ function _buildJWEHeader(
   keyManagementParams: JWEHeaderParameters | undefined,
   payload: unknown,
 ): JWEHeaderParameters {
-  const safeHeader = sanitizeObjectCopy<JWEHeaderParameters | undefined>(userHeader);
+  const safeHeader = copyJsonObject<JWEHeaderParameters | undefined>(userHeader, {
+    code: "ERR_INVALID_OPTION",
+    message: '"protectedHeader" must hold only JSON values.',
+  });
   // Precedence: top-level `alg`/`enc` > key management params > user header > JWK `kid`.
   const header = {} as JWEHeaderParameters;
   if (isJWK(key) && key.kid) header.kid = key.kid;

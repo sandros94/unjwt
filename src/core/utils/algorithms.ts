@@ -7,7 +7,7 @@ import type {
   KeyManagementAlgorithm,
 } from "../types/index.ts";
 import { hashNameOf, lengthOf, namedCurveOf } from "../_crypto/_key-algorithm.ts";
-import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
+import { hasSymmetricSecret, isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
 
 /** RFC 7518 §4.8 — the password-based key management algorithms. */
 export const PBES2_ALGORITHMS: readonly JWK_PBES2[] = [
@@ -146,7 +146,7 @@ function unionFromJWKSet<T extends string>(
   const algs = new Set<T>();
   for (const k of keys) {
     if (!isJWK(k)) continue;
-    if (k.kty === "oct" && !options?.allowSymmetric) continue;
+    if (!options?.allowSymmetric && hasSymmetricSecret(k)) continue;
     const mapped = mapper(k);
     if (!mapped) continue;
     for (const a of mapped) algs.add(a);
@@ -157,6 +157,19 @@ function unionFromJWKSet<T extends string>(
 /** RFC 8037 `EdDSA` and the fully-specified `Ed25519` name the same signature over an Ed25519 key. */
 export function isEd25519Signature(alg: string): boolean {
   return alg === "EdDSA" || alg === "Ed25519";
+}
+
+/** Whether two `alg` values name the same algorithm, `EdDSA` and `Ed25519` being one. */
+export function isSameAlgorithm(a: string, b: string): boolean {
+  return a === b || (isEd25519Signature(a) && isEd25519Signature(b));
+}
+
+/** RFC 7517 §4.4: a JWK's `alg` serves an operation's `alg` when they are the same, or when an `oct` content key (`A256GCM`, …) is used with `dir`. */
+export function jwkAlgServes(jwk: { kty: string; alg: string }, alg: string): boolean {
+  return (
+    isSameAlgorithm(jwk.alg, alg) ||
+    (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg))
+  );
 }
 
 function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {

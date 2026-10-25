@@ -12,6 +12,7 @@ import type { JWTErrorCode } from "./error.ts";
 import { JWTError } from "./error.ts";
 import { base64UrlParse } from "./utils/base64.ts";
 import { isPlainObject } from "./utils/guards.ts";
+import { quoteTokenValue } from "./utils/_text.ts";
 import { computeDurationInSeconds, parseDurationSeconds } from "./utils/jwt.ts";
 
 /** Set `typ: "JWT"` on a header without `typ` when the payload is an object (not a `Uint8Array`). */
@@ -157,7 +158,7 @@ export function computeJwtTimeClaims(
   const wantsIat = hasIatHint && (!("iat" in payload) || payload.iat === undefined);
   if (!wantsExp && !wantsNbf && !wantsIat) return undefined;
 
-  const now = Math.round((currentDate ?? new Date()).getTime() / 1000);
+  const now = Math.floor((currentDate ?? new Date()).getTime() / 1000);
   const claims: JWTClaims = { ...payload };
   claims.iat ||=
     issuedAt instanceof Date ? Math.floor(_instantOf(issuedAt, "issuedAt") / 1000) : now;
@@ -298,13 +299,13 @@ function validateCriticalHeaders(
   for (const param of crit) {
     if (!Object.hasOwn(protectedHeader, param)) {
       throw new JWTError(
-        `Critical header parameter "${param}" is missing from the protected header.`,
+        `Critical header parameter ${quoteTokenValue(param)} is missing from the protected header.`,
         `ERR_${family}_INVALID`,
       );
     }
     if (!recognizedHeaders.includes(param) && !BASE_PROCESSED[family].includes(param)) {
       throw new JWTError(
-        `Unprocessed critical header parameters: ${param}`,
+        `Unprocessed critical header parameters: ${quoteTokenValue(param)}`,
         `ERR_${family}_INVALID`,
       );
     }

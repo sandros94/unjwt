@@ -700,6 +700,33 @@ describe.concurrent("JWE Utilities", () => {
 
       await expect(decrypt(jwe, set, { allowSymmetricJWKSet: true })).resolves.toBeDefined();
     });
+
+    it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+      const kw = await generateJWK("A256KW");
+      const jwe = await encrypt(plaintextObj, kw, { alg: "A256KW", enc: "A256GCM" });
+      const disguised = { kty: "EC", alg: "A256KW", kid: kw.kid, k: kw.k } as unknown as JWK;
+      const set = { keys: [disguised] };
+
+      const error = await decrypt(jwe, set).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+
+      const admitted = await decrypt(jwe, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+      expect(isJWTError(admitted, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+      expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+    });
+
+    it('matches an "oct" content key tagged with its "enc" to a "dir" token', async () => {
+      const previous = await generateJWK("A256GCM");
+      const current = await generateJWK("A256GCM");
+      const jwe = await encrypt(plaintextObj, current, { alg: "dir", enc: "A256GCM" });
+      const set = { keys: [previous, current] };
+
+      const { payload } = await decrypt(jwe, set, { allowSymmetricJWKSet: true });
+      expect(payload).toEqual(plaintextObj);
+      await expect(
+        decrypt(jwe, { keys: [previous] }, { allowSymmetricJWKSet: true }),
+      ).rejects.toHaveProperty("code", "ERR_JWK_KEY_NOT_FOUND");
+    });
   });
 
   describe("decrypt specific options and errors", () => {
@@ -837,7 +864,7 @@ describe.concurrent("JWE Utilities", () => {
         protectedHeader: { crit: ["unknownParam"], unknownParam: true },
       });
       await expect(decrypt(jweUnknownCrit, key)).rejects.toThrow(
-        "Unprocessed critical header parameters: unknownParam",
+        'Unprocessed critical header parameters: "unknownParam"',
       );
       await expect(jose.compactDecrypt(jweUnknownCrit, joseKey)).rejects.toThrow(
         'Extension Header Parameter "unknownParam" is not recognized',
@@ -2026,3 +2053,19 @@ function replaceHeader(token: string, header: Record<string, unknown>): string {
 function readHeader(token: string): Record<string, unknown> {
   return JSON.parse(base64UrlParse(token.split(".")[0]));
 }
+
+describe("JSON-only header input", () => {
+  it("reports a protectedHeader value JSON cannot carry as ERR_INVALID_OPTION", async () => {
+    const key = await generateJWK("A256GCM");
+    await expect(
+      encrypt({ a: 1 }, key, {
+        alg: "dir",
+        enc: "A256GCM",
+        protectedHeader: { when: new Date(0) },
+      }),
+    ).rejects.toMatchObject({ code: "ERR_INVALID_OPTION", cause: { code: "INVALID_TYPE" } });
+    expect(await encrypt({ when: new Date(0) }, key, { alg: "dir", enc: "A256GCM" })).toEqual(
+      expect.any(String),
+    );
+  });
+});

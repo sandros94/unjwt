@@ -103,6 +103,18 @@ export function setCookieName(setCookie: string): string | undefined {
   return setCookiePair(setCookie)?.name;
 }
 
+/** Replaces the `Set-Cookie` lines of `name` in `to` with those `from` holds; every other line of `to` stays. */
+export function mirrorSetCookie(name: string, headers: { from: Headers; to: Headers }): void {
+  const { from, to } = headers;
+  const isThisCookie = (line: string) => setCookieName(line) === name;
+  const lines = [
+    ...to.getSetCookie().filter((line) => !isThisCookie(line)),
+    ...from.getSetCookie().filter((line) => isThisCookie(line)),
+  ];
+  to.delete("set-cookie");
+  for (const line of lines) to.append("set-cookie", line);
+}
+
 export function chunkName(name: string, index: number): string {
   return `${name}.${index}`;
 }

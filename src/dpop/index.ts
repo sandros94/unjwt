@@ -6,7 +6,14 @@ import type {
 } from "./types.ts";
 import { sign, verify } from "../core/jws.ts";
 import { JWTError } from "../core/error.ts";
-import { assertCompactToken, decodeProtectedHeader } from "../core/_internal.ts";
+import {
+  JWS_ALG_CTX,
+  asJWTError,
+  assertCompactToken,
+  checkAlgAllowed,
+  decodeProtectedHeader,
+} from "../core/_internal.ts";
+import { jwkTokey } from "../core/_crypto/_key-codec.ts";
 import { thumbprint } from "../core/_crypto/_thumbprint.ts";
 import { assertPlainObject, isCryptoKey } from "../core/utils/guards.ts";
 import {
@@ -19,7 +26,14 @@ import {
 } from "./_validation.ts";
 import { publicKeyForProof, projectPublicKey, resolveProofAlgorithm } from "./_key.ts";
 import { normalizeTargetURI } from "./_uri.ts";
-import { consumeValidatedProof, validateProofClaims, validateVerifyOptions } from "./_verify.ts";
+import {
+  asProofError,
+  assertExpectedNonce,
+  consumeValidatedProof,
+  validateProofClaims,
+  validateVerifyOptions,
+  type VerifyContext,
+} from "./_verify.ts";
 import type { DPoPPayload } from "./types.ts";
 
 export type * from "./types.ts";
@@ -74,44 +88,68 @@ export async function createDPoPProof(
   }
 }
 
-/** Authenticate and bind a proof; replay storage and access-token validation belong to the caller. */
+/**
+ * Authenticate and bind a proof; replay storage and access-token validation belong to the caller.
+ * A proof failure is `ERR_DPOP_INVALID` or `ERR_DPOP_CLAIM_INVALID` (a core error kept as `cause`);
+ * a missing or different expected nonce, checked last, is `ERR_DPOP_NONCE_INVALID`.
+ */
 export async function verifyDPoPProof(
   proof: string,
   target: DPoPTarget,
   options: DPoPVerifyOptions,
 ): Promise<DPoPVerifyResult> {
+  let context: VerifyContext;
   try {
-    const context = validateVerifyOptions(target, options);
-    assertCompactToken(proof, "JWS");
-    const header = decodeProtectedHeader(proof.split(".")[0], "JWS");
-    assertDPoPAlgorithm(header.alg, "ERR_DPOP_INVALID");
-    if (header.b64 === false) {
-      throw new JWTError("DPoP JWT payloads must use base64url encoding.", "ERR_DPOP_INVALID");
-    }
-    const jwk = projectPublicKey(header.jwk, { algorithm: header.alg, code: "ERR_DPOP_INVALID" });
-    const { payload } = await verify<Record<string, unknown>>(proof, jwk, {
-      algorithms: options.algorithms,
-      typ: "dpop+jwt",
-      currentDate: new Date(context.now * 1000),
-      clockTolerance: context.tolerance,
-    });
-    validateProofClaims(payload, options, context);
-    const keyThumbprint = await thumbprint(jwk);
-    if (
-      options.accessToken &&
-      (keyThumbprint !== options.accessToken.thumbprint ||
-        payload.ath !== (await accessTokenHash(options.accessToken.token)))
-    ) {
-      throw new JWTError(
-        "DPoP access token hash or public key binding does not match.",
-        "ERR_DPOP_CLAIM_INVALID",
-      );
-    }
-    const result = { payload, thumbprint: keyThumbprint };
-    if (options.consumeProof) await consumeValidatedProof(result, options.consumeProof);
-    return result;
+    context = validateVerifyOptions(target, options);
   } catch (cause) {
-    if (cause instanceof JWTError) throw cause;
-    throw new JWTError("DPoP proof verification failed.", "ERR_DPOP_INVALID", cause);
+    throw asJWTError(cause, {
+      code: "ERR_INVALID_OPTION",
+      message: "DPoP verification options are invalid.",
+    });
   }
+  let result: DPoPVerifyResult;
+  try {
+    result = await authenticateProof(proof, context);
+  } catch (cause) {
+    throw asProofError(cause);
+  }
+  if (context.consumeProof) await consumeValidatedProof(result, context.consumeProof);
+  return result;
+}
+
+async function authenticateProof(proof: string, context: VerifyContext): Promise<DPoPVerifyResult> {
+  assertCompactToken(proof, "JWS");
+  const header = decodeProtectedHeader(proof.split(".")[0], "JWS");
+  assertDPoPAlgorithm(header.alg, "ERR_DPOP_INVALID");
+  if (header.b64 === false) {
+    throw new JWTError("DPoP JWT payloads must use base64url encoding.", "ERR_DPOP_INVALID");
+  }
+  const jwk = projectPublicKey(header.jwk, { algorithm: header.alg, code: "ERR_DPOP_INVALID" });
+  const algError = checkAlgAllowed(header.alg, jwk, {
+    ctx: JWS_ALG_CTX,
+    algorithms: context.algorithms,
+  });
+  if (algError) throw algError;
+  const key = await jwkTokey(jwk, { alg: header.alg });
+  const { payload } = await verify<Record<string, unknown>>(proof, key, {
+    algorithms: context.algorithms,
+    typ: "dpop+jwt",
+    currentDate: new Date(context.now * 1000),
+    clockTolerance: context.tolerance,
+  });
+  validateProofClaims(payload, context);
+  const keyThumbprint = await thumbprint(jwk);
+  const { accessToken } = context;
+  if (
+    accessToken &&
+    (keyThumbprint !== accessToken.thumbprint ||
+      payload.ath !== (await accessTokenHash(accessToken.token)))
+  ) {
+    throw new JWTError(
+      "DPoP access token hash or public key binding does not match.",
+      "ERR_DPOP_CLAIM_INVALID",
+    );
+  }
+  assertExpectedNonce(payload, context.nonce);
+  return { payload, thumbprint: keyThumbprint };
 }

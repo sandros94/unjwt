@@ -12,7 +12,7 @@ import {
   getCookie,
   setCookie,
 } from "h3";
-import { setCookieName, setCookieValues } from "../../../session/_chunked-cookie.ts";
+import { mirrorSetCookie, setCookieValues } from "../../../session/_chunked-cookie.ts";
 import type { CookieJar, SessionDriver } from "../../../session/_driver.ts";
 import type { CookieSerializeOptions } from "../_cookie.ts";
 
@@ -32,13 +32,14 @@ export const h3SessionDriver: SessionDriver<HTTPEvent> = {
     hasResponse(event) ? responseCookieJar(event) : { read: (name) => getCookie(event, name) },
 };
 
+/** Each write is mirrored into `res.errHeaders`, the only headers h3 v2 sends for a thrown handler. */
 function responseCookieJar(event: H3Event): CookieJar<CookieSerializeOptions> {
   return {
     read: (name) => getCookie(event, name),
     written: (name) => setCookieValues(event.res.headers.getSetCookie())[name],
     write: (name, value, attrs) => {
       setCookie(event, name, value, attrs);
-      stageErrCookie(event, name);
+      mirrorSetCookie(name, { from: event.res.headers, to: event.res.errHeaders });
     },
   };
 }
@@ -46,16 +47,4 @@ function responseCookieJar(event: H3Event): CookieJar<CookieSerializeOptions> {
 /** Whether the event carries an h3 response the session can stage cookies on. */
 function hasResponse(event: HTTPEvent): event is H3Event {
   return "res" in event && Boolean(event.res);
-}
-
-/** Mirror a cookie's `Set-Cookie` into `res.errHeaders`, the only headers h3 v2 sends for a thrown handler. */
-function stageErrCookie(event: H3Event, cookieName: string): void {
-  const isThisCookie = (cookie: string) => setCookieName(cookie) === cookieName;
-  const errHeaders = event.res.errHeaders;
-  const staged = [
-    ...errHeaders.getSetCookie().filter((cookie) => !isThisCookie(cookie)),
-    ...event.res.headers.getSetCookie().filter((cookie) => isThisCookie(cookie)),
-  ];
-  errHeaders.delete("set-cookie");
-  for (const cookie of staged) errHeaders.append("set-cookie", cookie);
 }

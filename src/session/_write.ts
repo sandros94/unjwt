@@ -4,7 +4,7 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
-import { sanitizeObjectCopy } from "unsecure/sanitize";
+import { safeJsonParse } from "unsecure/sanitize";
 import type { ExpiresIn } from "../core/types/index.ts";
 import type {
   SessionIssueOptions,
@@ -158,8 +158,7 @@ export function sessionManager<
       return (state() ?? blankSession<T, MaxAge>()).data;
     },
     get token() {
-      const session = state();
-      return session ? session.token : sessionToken(binding);
+      return sessionToken(binding);
     },
     update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
       await issueSession<T, MaxAge, TEvent, Config>(binding, update, options);
@@ -187,7 +186,7 @@ export function sessionActions<TEvent, Config extends SessionCoreConfig>(): Sess
   };
 }
 
-/** A session with a deep copy of its data, unaffected by later changes to the live one. */
+/** A session with a deep copy of its data as a token carries it, unaffected by later changes to the live one. */
 function snapshotSession<S extends { data: Record<string, unknown> }>(session: S): S {
-  return { ...session, data: sanitizeObjectCopy(session.data) };
+  return { ...session, data: safeJsonParse(JSON.stringify(session.data)) };
 }

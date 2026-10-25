@@ -8,7 +8,7 @@ import type {
 } from "./types/index.ts";
 import { decodeSegment, stringKeyError } from "./_internal.ts";
 import { isCryptoKey, isJWK, isJWKSet } from "./utils/guards.ts";
-import { isContentEncryptionAlgorithm, isEd25519Signature } from "./utils/algorithms.ts";
+import { jwkAlgServes } from "./utils/algorithms.ts";
 import { JWTError } from "./error.ts";
 import { jwkTokey, assertOctKeyLength } from "./_crypto/index.ts";
 
@@ -133,8 +133,14 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
+    if (key.kty !== "oct" && Object.hasOwn(key, "k")) {
+      throw new JWTError(
+        `JWK "k" is defined only for "oct" keys, not "${key.kty}".`,
+        "ERR_JWK_INVALID",
+      );
+    }
     assertJWKAlgAuthority(key, alg);
-    if ("k" in key && typeof key.k === "string") {
+    if (key.kty === "oct" && typeof key.k === "string") {
       const rawBytes = decodeSegment(key.k, { family: "JWK", what: '"k"' });
       assertOctKeyLength(rawBytes, alg ?? key.alg);
       if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {
@@ -192,9 +198,7 @@ export async function importKey(
 
 /** RFC 7517 §4.4: a JWK's `alg` is authoritative, except an `oct` CEK consumed by `dir`. */
 function assertJWKAlgAuthority(jwk: JWK, alg: JWKAlgorithm | undefined): void {
-  if (!alg || !jwk.alg || jwk.alg === alg) return;
-  if (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg)) return;
-  if (isEd25519Signature(jwk.alg) && isEd25519Signature(alg)) return;
+  if (!alg || !jwk.alg || jwkAlgServes({ kty: jwk.kty, alg: jwk.alg }, alg)) return;
   throw new JWTError(
     `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
     "ERR_JWK_INVALID",

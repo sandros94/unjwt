@@ -1,4 +1,4 @@
-import { describe, it, expect, expectTypeOf } from "vitest";
+import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { secureRandomBytes, textEncoder } from "unsecure";
 import {
   base64UrlStringify,
@@ -35,7 +35,7 @@ import {
 } from "../src/core/internal.ts";
 import { generateJWK, generateKey, thumbprint } from "../src/core/jwk.ts";
 import { sign, verify } from "../src/core/jws.ts";
-import { isJWTError } from "../src/core/error.ts";
+import { isJWTError, type JWTError } from "../src/core/error.ts";
 import type {
   JOSEPayloadMode,
   JWTClaims,
@@ -115,6 +115,18 @@ describe.concurrent("Utility Functions", () => {
       expect(claims.iat).toBe(1000);
       expect(claims).toHaveProperty("exp");
       expect(claims.exp).toBe(now + 60);
+    });
+
+    it("writes the clock as whole seconds rounded down", () => {
+      const currentDate = new Date(1792065600_999);
+      expect(computeJwtTimeClaims({}, { expiresIn: 60, notBeforeIn: 0, currentDate })).toEqual({
+        iat: 1792065600,
+        nbf: 1792065600,
+        exp: 1792065660,
+      });
+      expect(
+        computeJwtTimeClaims({}, { issuedAt: true, currentDate: new Date(1792065600_500) }),
+      ).toEqual({ iat: 1792065600 });
     });
 
     it("writes iat alone from issuedAt", () => {
@@ -309,6 +321,11 @@ describe("type guards", () => {
       expect(isPublicJWK(key)).toBe(false);
     });
 
+    it('returns false for EC JWK carrying "k"', () => {
+      const key = { kty: "EC", crv: "P-256", x: "abc", y: "def", k: "secret" } as JWK_EC_Public;
+      expect(isPublicJWK(key)).toBe(false);
+    });
+
     it("returns true for OKP public JWK (x, no d)", () => {
       const key: JWK_OKP_Public = { kty: "OKP", crv: "Ed25519", x: "abc" };
       expect(isPublicJWK(key)).toBe(true);
@@ -429,7 +446,7 @@ describe("type guards", () => {
 describe("validateCriticalHeadersJWE (direct)", () => {
   it("throws when crit is present but understoodFromOptions is undefined", () => {
     expect(() => validateCriticalHeadersJWE({ crit: ["someParam"], someParam: "value" })).toThrow(
-      "Unprocessed critical header parameters: someParam",
+      'Unprocessed critical header parameters: "someParam"',
     );
   });
 
@@ -720,24 +737,90 @@ describe("base64 tooling", () => {
       expect(base64UrlStringify(new Uint8Array(0))).toBe("");
     });
 
-    it("parses canonical unpadded input, mirroring the input type", () => {
+    it("parses canonical unpadded input as text or bytes", () => {
       expect(base64UrlParse("aGVsbG8")).toBe("hello");
+      expect(base64UrlParse("aGVsbG8", { returnAs: "string" })).toBe("hello");
       expect(base64UrlParse("-__-", { returnAs: "uint8array" })).toEqual(bytes);
-      expect(base64UrlParse(textEncoder.encode("aGVsbG8"))).toEqual(textEncoder.encode("hello"));
-      expect(base64UrlParse(textEncoder.encode("aGVsbG8"), { returnAs: "string" })).toBe("hello");
+      expect(base64UrlParse("-__-", { returnAs: "bytes" })).toEqual(bytes);
+      expect(base64UrlParse("", { returnAs: "bytes" })).toEqual(new Uint8Array(0));
     });
 
-    it("rejects padding, the standard alphabet, whitespace and stray bits", () => {
-      for (const bad of ["aGVsbG8=", "+__+", "aGVs bG8", "aGVsbG9", "aGVsb"]) {
+    it("rejects padding, the standard alphabet, whitespace, stray bits and non-text input", () => {
+      for (const bad of [
+        "aGVsbG8=",
+        "+__+",
+        "aGVs bG8",
+        "aGVsbG9",
+        "aGVsb",
+        "aGVsbG8\n",
+        "aGVsbG8\u00ff",
+      ]) {
         expect(() => base64UrlParse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }
+      expect(() => base64UrlParse("_w")).toThrow(
+        expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
+      );
+      expect(base64UrlParse("_w", { returnAs: "bytes" })).toEqual(new Uint8Array([0xff]));
+      expect(() => base64UrlParse(textEncoder.encode("aGVsbG8") as never)).toThrow(
+        expect.objectContaining({ name: "UnsecureError", code: "INVALID_TYPE" }),
+      );
     });
 
-    it("loose drops what it cannot use", () => {
-      expect(base64UrlParse("aGVs bG8=", { loose: true })).toBe("hello");
-      expect(base64UrlParse("+__+", { loose: true, returnAs: "bytes" })).toEqual(bytes);
+    it("round-trips every byte length through the backends", () => {
+      for (let length = 0; length < 70; length++) {
+        const input = new Uint8Array(length).map((_, i) => (i * 73 + length) & 0xff);
+        const text = base64UrlStringify(input);
+        expect(text).not.toMatch(/[+/=]/);
+        expect(base64UrlParse(text, { returnAs: "bytes" })).toEqual(input);
+        expect(base64UrlParse(text, { returnAs: "bytes" })).toEqual(
+          Uint8Array.from(Buffer.from(text, "base64url")),
+        );
+      }
+    });
+
+    it("encodes the same text whichever backend the runtime offers", () => {
+      const nodeBuffer = Buffer;
+      const whole = new Uint8Array(200).map((_, i) => (i * 31) & 0xff);
+      const view = whole.subarray(3, 131);
+      const expected = {
+        url: nodeBuffer.from(view).toString("base64url"),
+        std: nodeBuffer.from(view).toString("base64"),
+      };
+      const check = () => {
+        expect(base64UrlStringify(view)).toBe(expected.url);
+        expect(base64Stringify(view)).toBe(expected.std);
+        expect(base64UrlStringify(new Uint8Array(0))).toBe("");
+      };
+      check();
+      vi.stubGlobal("Buffer", undefined);
+      try {
+        const proto = Uint8Array.prototype as { toBase64?: unknown };
+        const native = Object.hasOwn(proto, "toBase64");
+        if (!native) {
+          Object.defineProperty(proto, "toBase64", {
+            configurable: true,
+            value(
+              this: Uint8Array,
+              options: { alphabet: "base64" | "base64url"; omitPadding: boolean },
+            ) {
+              const text = nodeBuffer
+                .from(this.buffer, this.byteOffset, this.byteLength)
+                .toString(options.alphabet);
+              return options.omitPadding ? text.replace(/=+$/, "") : text;
+            },
+          });
+        }
+        try {
+          check();
+        } finally {
+          if (!native) delete proto.toBase64;
+        }
+        check();
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 
@@ -750,12 +833,17 @@ describe("base64 tooling", () => {
     it("parses only padded canonical input", () => {
       expect(base64Parse("aGVsbG8=")).toBe("hello");
       expect(base64Parse("+//+", { returnAs: "uint8array" })).toEqual(bytes);
-      for (const bad of ["aGVsbG8", "-__-", "aGVsbG8=="]) {
+      for (const bad of ["aGVsbG8", "-__-", "aGVsbG8==", "aGVs bG8=", "aGVsbG9=", "aGVsb==="]) {
         expect(() => base64Parse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }
-      expect(base64Parse("aGVsbG8", { loose: true })).toBe("hello");
+      for (let length = 0; length < 70; length++) {
+        const input = new Uint8Array(length).map((_, i) => (i * 59 + length) & 0xff);
+        const text = base64Stringify(input);
+        expect(text).toBe(Buffer.from(input).toString("base64"));
+        expect(base64Parse(text, { returnAs: "bytes" })).toEqual(input);
+      }
     });
   });
 
@@ -822,7 +910,7 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
 
   it.each([
     [{ crit: ["app"] }, 'Critical header parameter "app" is missing from the protected header'],
-    [{ crit: ["app"], app: "web" }, "Unprocessed critical header parameters: app"],
+    [{ crit: ["app"], app: "web" }, 'Unprocessed critical header parameters: "app"'],
   ])("reports the same crit violation for JWS and JWE (%j)", (header, message) => {
     expect(() => validateCriticalHeadersJWS(header)).toThrow(message);
     expect(() => validateCriticalHeadersJWE(header)).toThrow(message);
@@ -835,17 +923,66 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
   it("keeps the recognized / missing semantics for extension parameters", () => {
     expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
     expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" })).toThrow(
-      "Unprocessed critical header parameters: app",
+      'Unprocessed critical header parameters: "app"',
     );
     expect(() => validateCriticalHeadersJWE({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
     expect(() => validateCriticalHeadersJWE({ crit: ["app"] }, ["app"])).toThrow(
       'Critical header parameter "app" is missing from the protected header',
     );
   });
+
+  it("quotes and bounds a crit name in both messages", () => {
+    const param = `x\r\nInjected: ${"a".repeat(200)}`;
+    for (const header of [{ crit: [param] }, { crit: [param], [param]: 1 }]) {
+      for (const validate of [validateCriticalHeadersJWS, validateCriticalHeadersJWE]) {
+        const error = catchError(() => validate(header)) as Error;
+        expect(isJWTError(error)).toBe(true);
+        expect(error.message).not.toMatch(/[\r\n]/);
+        expect(error.message).toContain(JSON.stringify(`${param.slice(0, 64)}…`));
+        expect(error.message).not.toContain("a".repeat(65));
+      }
+    }
+  });
 });
 
 describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
   const now = Math.floor(Date.now() / 1000);
+
+  describe("error text and cause", () => {
+    it("carries a non-string jti as undefined in the ERR_JWT_EXPIRED cause", () => {
+      const jti = { id: "t-1" } as unknown as string;
+      const expired = catchError(() => validateJwtClaims({ jti, iat: now - 120, exp: now - 60 }));
+      expect(isJWTError(expired, "ERR_JWT_EXPIRED")).toBe(true);
+      expect((expired as JWTError).cause).toStrictEqual({
+        jti: undefined,
+        iat: now - 120,
+        exp: now - 60,
+      });
+
+      const aged = catchError(() =>
+        validateJwtClaims({ jti, iat: now - 3600 }, { maxTokenAge: 60 }),
+      );
+      expect(isJWTError(aged, "ERR_JWT_EXPIRED")).toBe(true);
+      expect((aged as JWTError).cause).toHaveProperty("jti", undefined);
+
+      const named = catchError(() => validateJwtClaims({ jti: "t-1", exp: now - 60 }));
+      expect((named as JWTError).cause).toHaveProperty("jti", "t-1");
+    });
+
+    it("prints a NumericDate beyond the Date range as a number", () => {
+      const nbf = catchError(() => validateJwtClaims({ nbf: 1e300 }));
+      expect(isJWTError(nbf, "ERR_JWT_NBF")).toBe(true);
+      expect((nbf as Error).message).toBe('JWT "nbf" is in the future (1e+300).');
+
+      const iat = catchError(() => validateJwtClaims({ iat: 1e300 }, { maxTokenAge: 60 }));
+      expect(isJWTError(iat, "ERR_JWT_CLAIM_INVALID")).toBe(true);
+      expect((iat as Error).message).toBe('JWT "iat" is in the future (1e+300).');
+
+      expect(catchError(() => validateJwtClaims({ nbf: 0 }))).toBeUndefined();
+      const inRange = catchError(() => validateJwtClaims({ nbf: 4102444800 })) as Error;
+      expect(inRange.message).toBe('JWT "nbf" is in the future (2100-01-01T00:00:00.000Z).');
+    });
+  });
 
   describe("clockTolerance", () => {
     it("accepts a Duration string and normalizes it to seconds", () => {
@@ -901,6 +1038,41 @@ describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
 
     it("keeps fractional NumericDate values valid (RFC 7519 §2)", () => {
       expect(() => validateJwtClaims({ exp: now + 60.5, nbf: now - 60.5 })).not.toThrow();
+    });
+  });
+
+  describe("exact clock", () => {
+    const T = 1792065600;
+    const at = (seconds: number) => ({ currentDate: new Date(seconds * 1000), clockTolerance: 0 });
+    const codeOf = (claims: JWTClaims, seconds: number) => {
+      const error = catchError(() => validateJwtClaims(claims, at(seconds)));
+      return isJWTError(error) ? error.code : undefined;
+    };
+
+    it("expires an integer exp at its second, not half a second early", () => {
+      expect(codeOf({ exp: T }, T - 0.5)).toBeUndefined();
+      expect(codeOf({ exp: T }, T - 0.001)).toBeUndefined();
+      expect(codeOf({ exp: T }, T)).toBe("ERR_JWT_EXPIRED");
+      expect(codeOf({ exp: T }, T + 0.499)).toBe("ERR_JWT_EXPIRED");
+    });
+
+    it("expires a fractional exp at its exact instant", () => {
+      expect(codeOf({ exp: T + 0.4 }, T + 0.399)).toBeUndefined();
+      expect(codeOf({ exp: T + 0.4 }, T + 0.4)).toBe("ERR_JWT_EXPIRED");
+      expect(codeOf({ exp: T + 0.4 }, T + 0.499)).toBe("ERR_JWT_EXPIRED");
+      expect(codeOf({ exp: T + 0.5 }, T + 0.499)).toBeUndefined();
+      expect(codeOf({ exp: T + 0.5 }, T + 0.5)).toBe("ERR_JWT_EXPIRED");
+    });
+
+    it("refuses an integer nbf until its second, not half a second early", () => {
+      expect(codeOf({ nbf: T }, T - 0.5)).toBe("ERR_JWT_NBF");
+      expect(codeOf({ nbf: T }, T - 0.001)).toBe("ERR_JWT_NBF");
+      expect(codeOf({ nbf: T }, T)).toBeUndefined();
+    });
+
+    it("refuses a fractional nbf until its exact instant", () => {
+      expect(codeOf({ nbf: T + 0.5 }, T + 0.499)).toBe("ERR_JWT_NBF");
+      expect(codeOf({ nbf: T + 0.5 }, T + 0.5)).toBeUndefined();
     });
   });
 

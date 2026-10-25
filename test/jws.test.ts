@@ -155,6 +155,26 @@ describe.concurrent("JWS Utilities", () => {
       ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_ALG_NOT_ALLOWED"));
     });
 
+    it("matches EdDSA and Ed25519 as one algorithm when selecting from a JWK Set", async () => {
+      const fully = await generateJWK("Ed25519");
+      const rfc8037 = await generateJWK("EdDSA");
+
+      const viaEdDSA = await sign(payloadObj, fully.privateKey, { alg: "EdDSA" });
+      await expect(verify(viaEdDSA, { keys: [fully.publicKey] })).resolves.toMatchObject({
+        payload: payloadObj,
+      });
+
+      const viaEd25519 = await sign(payloadObj, rfc8037.privateKey, { alg: "Ed25519" });
+      await expect(verify(viaEd25519, { keys: [rfc8037.publicKey] })).resolves.toMatchObject({
+        payload: payloadObj,
+      });
+
+      const mistagged = { ...fully.publicKey, alg: "ES256" } as unknown as JWK;
+      await expect(
+        verify(viaEdDSA, { keys: [mistagged] }, { algorithms: ["EdDSA"] }),
+      ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWK_KEY_NOT_FOUND"));
+    });
+
     it("should sign with Ed25519", async () => {
       const { privateKey, publicKey } = await generateKey("Ed25519");
       const jws = await sign(payloadObj, privateKey, { alg: "Ed25519" });
@@ -363,6 +383,21 @@ describe.concurrent("JWS Utilities", () => {
       ).rejects.toThrow(/zero or a positive/i);
     });
 
+    it("verifies at once a token minted past the half second", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const currentDate = new Date(1792065600_600);
+      const options = { currentDate, clockTolerance: 0 };
+
+      const notBefore = await sign({ sub: "x" }, key, { currentDate, notBeforeIn: 0 });
+      const { payload } = await verify(notBefore, key, options);
+      expect(payload).toMatchObject({ iat: 1792065600, nbf: 1792065600 });
+
+      const issued = await sign({ sub: "x" }, key, { currentDate, issuedAt: true });
+      await expect(verify(issued, key, { ...options, maxTokenAge: "1s" })).resolves.toMatchObject({
+        payload: { iat: 1792065600 },
+      });
+    });
+
     it("should include computed `exp` and throw because it is expired", async () => {
       const date = new Date();
       const creationDate = new Date(date.getTime() - 60 * 2 * 1000);
@@ -381,7 +416,7 @@ describe.concurrent("JWS Utilities", () => {
       );
       const [_headerEncoded, payloadEncoded] = jws.split(".");
       const payload = JSON.parse(base64UrlParse(payloadEncoded));
-      expect(payload.exp).toEqual(Math.round(creationDate.getTime() / 1000) + 60);
+      expect(payload.exp).toEqual(Math.floor(creationDate.getTime() / 1000) + 60);
 
       await expect(
         jose.jwtVerify(jws, key, {
@@ -725,6 +760,30 @@ describe.concurrent("JWS Utilities", () => {
         expect(payload.sub).toBe("admin");
       });
 
+      it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+        const { publicKey } = rsaPair;
+        const attackerSecret = await generateJWK("HS256");
+        const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
+        const { kid, k } = attackerSecret;
+        const disguised = { kty: "EC", alg: "HS256", kid, k } as unknown as JWK;
+        const poisoned: JWKSet = { keys: [publicKey, disguised] };
+
+        const error = await verify(forgery, poisoned).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+
+        const admitted = await verify(forgery, poisoned, {
+          allowSymmetricJWKSet: true,
+          algorithms: ["HS256"],
+        }).catch((e) => e);
+        expect(isJWTError(admitted, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+        expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+
+        const single = await verify(forgery, disguised as JWSVerifyJWK, {
+          algorithms: ["HS256"],
+        }).catch((e) => e);
+        expect(isJWTError(single, "ERR_JWK_INVALID")).toBe(true);
+      });
+
       it('skips a "use"/"key_ops" mismatched key ordered before the signing key', async () => {
         const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);
@@ -826,7 +885,7 @@ describe.concurrent("JWS Utilities", () => {
           protectedHeader: { crit: ["unknownHeader"], unknownHeader: "value" },
         });
         await expect(verify(jws, hs256Key)).rejects.toThrow(
-          "Unprocessed critical header parameters: unknownHeader",
+          'Unprocessed critical header parameters: "unknownHeader"',
         );
 
         await expect(jose.compactVerify(jws, hs256Key)).rejects.toThrow(
@@ -1356,7 +1415,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
       await expect(verify(jws, hs256Key)).rejects.toThrow(
-        "Unprocessed critical header parameters: exp",
+        'Unprocessed critical header parameters: "exp"',
       );
     });
 
@@ -1479,6 +1538,13 @@ describe.concurrent("JWS Utilities", () => {
       const error = await verify(jws, hs256Key).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWT_NBF")).toBe(true);
+    });
+
+    it("ERR_JWT_NBF — nbf beyond the Date range", async () => {
+      const jws = await sign({ nbf: 1e300 }, hs256Key, { alg: "HS256" });
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWT_NBF")).toBe(true);
+      expect(error.message).toBe('JWT "nbf" is in the future (1e+300).');
     });
 
     it("ERR_JWT_CLAIM_MISSING — required claim absent", async () => {
@@ -2261,3 +2327,13 @@ async function signRawHeader(
 function failingKeyLookup(_header: { kid?: string; alg?: string }): never {
   throw new Error("Key lookup failed");
 }
+
+describe("JSON-only header input", () => {
+  it("reports a protectedHeader value JSON cannot carry as ERR_INVALID_OPTION", async () => {
+    const key = await generateJWK("HS256");
+    await expect(
+      sign({ a: 1 }, key, { protectedHeader: { when: new Date(0) } }),
+    ).rejects.toMatchObject({ code: "ERR_INVALID_OPTION", cause: { code: "INVALID_TYPE" } });
+    expect(await sign({ when: new Date(0) }, key)).toEqual(expect.any(String));
+  });
+});

@@ -6,31 +6,30 @@ Import: `import { ... } from "unjwt/utils"`
 
 Every name below is also a named export of the root entry point `unjwt` — it re-exports this whole module flat, no namespace objects.
 
-`secureRandomBytes`, the sanitizers and `textEncoder`/`textDecoder` are re-exported from the [`unsecure`](https://github.com/sandros94/unsecure) package; the Base64 helpers are thin unjwt wrappers over unsecure's `base64Stringify`/`base64Parse` with the alphabet fixed. Failures inside them surface as unsecure's `UnsecureError` (`code`: `MALFORMED`, `INVALID_TYPE`, …), not native `TypeError`/`SyntaxError`.
+`secureRandomBytes`, the sanitizers and `textEncoder`/`textDecoder` are re-exported from the [`unsecure`](https://github.com/sandros94/unsecure) package. Failures in the base64 codecs surface as `UnsecureError` (`code`: `MALFORMED`, `INVALID_TYPE`, …), not native `TypeError`/`SyntaxError`.
 
 `UnsecureError`, `UnsecureErrorCode` and `isUnsecureError` are re-exported from this module (and from `unjwt`, `unjwt/jws`, `unjwt/jwe`, `unjwt/jwk`). Because `unsecure` is inlined into unjwt's dist, a consumer-installed `unsecure` exposes a _different_ class — `instanceof` only matches unjwt's re-export. These primitives throw `UnsecureError` directly; the JOSE operations (`verify`, `decrypt`, `importKey`, `unwrapKey`, `importPEM`, …) wrap it in a `JWTError` and keep the original as `cause`.
 
 ## Encoding / Decoding
 
-unjwt's own base64 helpers, built on [`unsecure`](https://github.com/sandros94/unsecure)'s `base64Stringify`/`base64Parse` with the alphabet and padding policy fixed. Strict: decoding accepts only the canonical encoding of a byte string and throws `UnsecureError` (`code: "MALFORMED"`; `"INVALID_TYPE"` for a non text/bytes input) otherwise. `{ loose: true }` drops what cannot be used — application data only, never token material; `verify`/`decrypt` have no such option.
+The codecs `verify`/`decrypt` and `importPEM` apply. Strict: decoding accepts only the canonical encoding of a byte string and throws `UnsecureError` (`code: "MALFORMED"`; `"INVALID_TYPE"` for a non-string input) otherwise. There is no lenient mode.
 
-### `base64UrlStringify(data)` / `base64UrlParse(data, options?)`
+### `base64UrlStringify(data)` / `base64UrlParse(text, options?)`
 
-base64url per RFC 7515 §2: URL-safe alphabet, **no `=` padding** (padded input is rejected), no whitespace. `data`: `string | ArrayBuffer | ArrayBufferView`.
+base64url per RFC 7515 §2: URL-safe alphabet, **no `=` padding** (padded input is rejected), no whitespace. `data`: `string | Uint8Array` (a string is UTF-8 encoded first). `text`: the encoded `string`.
 
-- Without `options` the return type **mirrors the input**: `string` → `string` (must be valid UTF-8), `Uint8Array` → `Uint8Array<ArrayBuffer>`.
-- `{ returnAs: "uint8array" }` (alias `"bytes"`) forces bytes, `{ returnAs: "string" }` forces a UTF-8 string.
+- Without `options` `base64UrlParse` returns a UTF-8 `string` (must be valid UTF-8).
+- `{ returnAs: "uint8array" }` (alias `"bytes"`) returns `Uint8Array<ArrayBuffer>`, `{ returnAs: "string" }` the default.
 
 ```ts
 base64UrlParse("SGVsbG8"); // → "Hello"
 base64UrlParse("SGVsbG8", { returnAs: "uint8array" }); // → Uint8Array<ArrayBuffer>
-base64UrlParse(bytesInput); // → Uint8Array<ArrayBuffer>
 base64UrlParse("SGVsbG8="); // throws UnsecureError MALFORMED
 ```
 
-### `base64Stringify(data)` / `base64Parse(data, options?)`
+### `base64Stringify(data)` / `base64Parse(text, options?)`
 
-Standard base64 per RFC 4648 §4: `+/` alphabet, **`=` padding required**. Same options as the URL-safe pair.
+Standard base64 per RFC 4648 §4: `+/` alphabet, **`=` padding required** on parse and always written. Same `returnAs` option as the URL-safe pair; the alphabet PEM bodies use.
 
 ### `secureRandomBytes(length)`
 
@@ -62,7 +61,7 @@ Concatenates multiple `Uint8Array<ArrayBuffer>` instances into one contiguous bu
 | `isSymmetricJWK(key)` | `key is JWK_oct` | JWK with `kty: "oct"` and `k` property |
 | `isAsymmetricJWK(key)` | `key is JWK_Asymmetric` | JWK that is not `oct` |
 | `isPrivateJWK(key)` | `key is JWK_Private` | **Asymmetric** JWK with `d` (returns `false` for `oct`) |
-| `isPublicJWK(key)` | `key is JWK_Public` | Asymmetric JWK without `d` component |
+| `isPublicJWK(key)` | `key is JWK_Public` | Asymmetric JWK with its public members, without `d` or `k` |
 | `assertCryptoKey(key)` | assertion | Throws if not CryptoKey |
 
 > **Sharing keys safely.** `!isPrivateJWK(key)` is _not_ a "safe to publish" check — `isPrivateJWK` only detects asymmetric `d`, so it returns `false` for every `oct` key, whose `k` is always secret. Use `isPublicJWK(key)` (true only for asymmetric public keys) to filter keys that are safe to share; treat any `isSymmetricJWK(key)` as secret.

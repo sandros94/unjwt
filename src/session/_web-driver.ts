@@ -24,9 +24,7 @@ export const webSessionDriver: SessionDriver<WebSessionEvent> = {
 
   /** The Web exposes no response-sent signal: the jar takes writes while there is a `res`. */
   cookies: (event) =>
-    isHanded(event)
-      ? { read: () => undefined }
-      : webCookieJar(requestHeaders(event), event.res?.headers),
+    isHanded(event) ? { read: () => undefined } : webCookieJar(requestHeaders(event), event.res),
 
   handed: (event) => (isHanded(event) ? { token: event.token } : undefined),
 };

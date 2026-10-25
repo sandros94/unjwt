@@ -1,4 +1,5 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
+import { type H3Event, H3, HTTPError } from "h3";
 
 import type { ExpiresIn, JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/core/error.ts";
@@ -333,6 +334,266 @@ describe("unjwt/session over a Web request", () => {
   });
 });
 
+describe("unjwt/session with res.errHeaders", () => {
+  it.each(FAMILIES)(
+    "$family: mirrors every cookie write and drop into errHeaders",
+    async ({ define }) => {
+      const session = define({ cookie: { chunkMaxLength: 64 } });
+      const headers = new Headers();
+      const errHeaders = new Headers();
+      errHeaders.append("set-cookie", "other=1; Path=/");
+      errHeaders.append("set-cookie", "web.theme=dark; Path=/");
+      const manager = await session.use({ req: get(), res: { headers, errHeaders } });
+
+      await manager.update({ pad: "x".repeat(200) });
+      const sessionLines = (target: Headers) =>
+        target.getSetCookie().filter((line) => /^web(\.\d+)?=/.test(line));
+      expect(chunkCount(headers)).toBeGreaterThan(1);
+      expect(sessionLines(errHeaders)).toEqual(sessionLines(headers));
+
+      await manager.update({ pad: "" });
+      expect(sessionLines(errHeaders)).toEqual(sessionLines(headers));
+
+      await manager.clear();
+      expect(linesOf(errHeaders, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+      expect(sessionLines(errHeaders)).toEqual(sessionLines(headers));
+      expect(errHeaders.getSetCookie()).toContain("other=1; Path=/");
+      expect(errHeaders.getSetCookie()).toContain("web.theme=dark; Path=/");
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: an h3 v2 handler that throws after a write still sends the cookie",
+    async ({ define }) => {
+      const session = define();
+      const app = new H3()
+        .post("/login", async (event) => {
+          await (await session.use(event)).update({ user: "ada" });
+          throw new HTTPError({ status: 418 });
+        })
+        .post("/logout", async (event) => {
+          await (await session.use(event)).clear();
+          throw new HTTPError({ status: 401 });
+        });
+
+      const login = await app.request("/login", { method: "POST" });
+      expect(login.status).toBe(418);
+      const [issued = ""] = linesOf(login.headers, "web");
+      expect(issued).toMatch(/^web=ey/);
+
+      const logout = await app.request("/logout", {
+        method: "POST",
+        headers: { cookie: issued.split(";", 1)[0] ?? "" },
+      });
+      expect(logout.status).toBe(401);
+      expect(linesOf(logout.headers, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+    },
+  );
+});
+
+describe("unjwt/session token sources", () => {
+  it.each(FAMILIES)(
+    "$family: a session header the request presents wins over the cookie",
+    async ({ define }) => {
+      const session = define({ sessionHeader: true });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const fromHeader = await session.issue({ who: "header" });
+
+      const manager = await session.use({
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": `Bearer ${fromHeader}` }),
+        res: { headers: new Headers() },
+      });
+      expect(manager.data).toEqual({ who: "header" });
+      expect(manager.token).toBe(fromHeader);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a malformed session header is a token failure that leaves the cookie alone",
+    async ({ define }) => {
+      const onError = vi.fn();
+      const onRead = vi.fn();
+      const session = define({ sessionHeader: true, hooks: { onError, onRead } });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const headers = new Headers();
+      const event = {
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": "Basic dXNlcjpwYXNz" }),
+        res: { headers },
+      };
+
+      const manager = await session.use(event);
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBeUndefined();
+      expect(onRead).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledOnce();
+      const [{ error }] = onError.mock.calls[0] as [{ error: unknown }];
+      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a session read from the header rolls onto session.token, never a cookie",
+    async ({ define }) => {
+      const onUpdate = vi.fn();
+      const session = define({ maxAge: 3600, rolling: true, hooks: { onUpdate } });
+      const fromHeader = await session.issue({ who: "header" });
+      const headers = new Headers();
+
+      const manager = await session.use({
+        req: get({ "x-web-session": fromHeader }),
+        res: { headers },
+      });
+      expect(manager.data).toEqual({ who: "header" });
+      expect(manager.token).toBeTypeOf("string");
+      expect(manager.token).not.toBe(fromHeader);
+      expect(onUpdate).toHaveBeenCalledOnce();
+      expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
+      expect(headers.getSetCookie()).toEqual([]);
+      expect((await session.open(String(manager.token))).data).toEqual({ who: "header" });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: update() and clear() on a header session write no cookie",
+    async ({ define }) => {
+      const onClear = vi.fn();
+      const session = define({ hooks: { onClear } });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const fromHeader = await session.issue({ who: "header" });
+      const headers = new Headers();
+      const event = {
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": fromHeader }),
+        res: { headers },
+      };
+
+      const manager = await session.use(event);
+      await manager.update({ who: "updated" });
+      expect(manager.token).not.toBe(fromHeader);
+      expect(session.token(event)).toBe(manager.token);
+      expect((await session.open(String(manager.token))).data).toEqual({ who: "updated" });
+      expect(headers.getSetCookie()).toEqual([]);
+
+      await manager.clear();
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBeUndefined();
+      expect(onClear).toHaveBeenCalledOnce();
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a header session updates without response headers",
+    async ({ define }) => {
+      const session = define();
+      const fromHeader = await session.issue({ who: "header" });
+
+      const manager = await session.use({ req: get({ "x-web-session": fromHeader }) });
+      await manager.update({ who: "updated" });
+      expect((await session.open(String(manager.token))).data).toEqual({ who: "updated" });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: without the session header the cookie is read",
+    async ({ define }) => {
+      const session = define({ sessionHeader: true });
+      const fromCookie = await session.issue({ who: "cookie" });
+
+      const manager = await session.use({ req: get({ cookie: `web=${fromCookie}` }) });
+      expect(manager.data).toEqual({ who: "cookie" });
+    },
+  );
+});
+
+describe("unjwt/session bounds a token by maxAge", () => {
+  const HOUR = 3600;
+  const DAY = 24 * HOUR;
+
+  it.each(FAMILIES)(
+    "$family: a token past iat + maxAge is expired whatever its exp",
+    async ({ family, define }) => {
+      const onExpire = vi.fn();
+      const onRead = vi.fn();
+      const session = define({ maxAge: "1h", hooks: { onExpire, onRead } });
+      const iat = nowSeconds() - 2 * HOUR;
+      const token = await foreignToken(family, { jti: "long", iat, exp: iat + 10 * DAY });
+      const headers = new Headers();
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(onRead).not.toHaveBeenCalled();
+      expect(onExpire).toHaveBeenCalledOnce();
+      const [{ session: expired, error }] = onExpire.mock.calls[0] as [
+        { session: { id: string; createdAt: number; expiresAt: number }; error: unknown },
+      ];
+      expect(expired).toMatchObject({ id: "long", createdAt: iat * 1000 });
+      expect(expired.expiresAt).toBe((iat + HOUR) * 1000);
+      expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+      expect(linesOf(headers, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+
+      const opened = await caught(session.open(token));
+      expect(isJWTError(opened, "ERR_JWT_EXPIRED")).toBe(true);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a token within maxAge ends at iat + maxAge, not at its exp",
+    async ({ family, define }) => {
+      const session = define({ maxAge: "1h" });
+      const iat = nowSeconds() - 30 * 60;
+      const token = await foreignToken(family, {
+        jti: "long",
+        iat,
+        exp: iat + 10 * DAY,
+        user: "ada",
+      });
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }) });
+      expect(manager.id).toBe("long");
+      expect(manager.data).toEqual({ user: "ada" });
+      expect(manager.expiresAt).toBe((iat + HOUR) * 1000);
+      expect((await session.open(token)).expiresAt).toBe((iat + HOUR) * 1000);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a reissue under rolling writes the cookie from the fresh lifetime",
+    async ({ family, define }) => {
+      const session = define({ maxAge: "1h", rolling: true });
+      const iat = nowSeconds() - 30 * 60;
+      const token = await foreignToken(family, { jti: "long", iat, exp: iat + 10 * DAY });
+      const headers = new Headers();
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+      const expiresAt = Number(manager.expiresAt);
+      expect(manager.id).not.toBe("long");
+      expect(expiresAt - manager.createdAt).toBe(HOUR * 1000);
+      const [line = ""] = linesOf(headers, "web");
+      expect(line).toContain(`Expires=${new Date(expiresAt).toUTCString()}`);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: without maxAge the token's exp alone decides",
+    async ({ family, define }) => {
+      const session = define();
+      const iat = nowSeconds() - 2 * HOUR;
+      const token = await foreignToken(family, { jti: "long", iat, exp: iat + 10 * DAY });
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }) });
+      expect(manager.id).toBe("long");
+      expect(manager.expiresAt).toBe((iat + 10 * DAY) * 1000);
+    },
+  );
+});
+
 describe("unjwt/session with a token in hand", () => {
   const CONFIGS = [
     { label: "token only", config: { cookie: false, sessionHeader: false } },
@@ -521,6 +782,11 @@ describe("unjwt/session types", () => {
     expectTypeOf<{ req: Request; headers: Headers }>().toExtend<SessionRequestEvent>();
     expectTypeOf<Request>().toExtend<SessionRequestEvent>();
     expectTypeOf<{ res: { headers: Headers } }>().not.toExtend<SessionRequestEvent>();
+    expectTypeOf<{
+      req: Request;
+      res: { headers: Headers; errHeaders: Headers };
+    }>().toExtend<SessionRequestEvent>();
+    expectTypeOf<H3Event>().toExtend<SessionRequestEvent>();
     expectTypeOf<{ token: string }>().toExtend<SessionHandedToken>();
     expectTypeOf<{ token: undefined }>().toExtend<SessionHandedToken>();
     expectTypeOf<{}>().not.toExtend<WebSessionEvent>();

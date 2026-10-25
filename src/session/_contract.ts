@@ -42,11 +42,13 @@ export function readOnlyEventError(message: string): JWTError<"ERR_SESSION_READO
 /** Shaped like the core claim failure so `onExpire` gets the same error on both expiry paths. */
 export function expiredSessionError(options: {
   id: string | undefined;
+  createdAt?: number;
   expiresAt: number;
 }): JWTError<"ERR_JWT_EXPIRED"> {
-  const { id, expiresAt } = options;
+  const { id, createdAt, expiresAt } = options;
   const exp = Math.floor(expiresAt / 1000);
-  return new JWTError(expiredClaimMessage(exp), "ERR_JWT_EXPIRED", { jti: id, exp });
+  const iat = createdAt === undefined ? undefined : Math.floor(createdAt / 1000);
+  return new JWTError(expiredClaimMessage(exp), "ERR_JWT_EXPIRED", { jti: id, iat, exp });
 }
 
 /** Whether a read failure is the token's own: everything but a key lookup that threw, which says nothing about the token. */

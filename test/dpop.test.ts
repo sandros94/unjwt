@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as jose from "jose";
-import { createDPoPProof, verifyDPoPProof } from "../src/dpop/index.ts";
-import { generateJWK, generateKey } from "../src/core/jwk.ts";
+import { JWTError, createDPoPProof, verifyDPoPProof } from "../src/dpop/index.ts";
+import { clearJWKCache, configureJWKCache, generateJWK, generateKey } from "../src/core/jwk.ts";
 import { digestUrl } from "../src/core/utils/digest.ts";
 import { base64UrlStringify } from "../src/core/utils/base64.ts";
 import type {
@@ -144,14 +144,14 @@ describe("DPoP", () => {
     const proof = await createDPoPProof(target, { ...creation, nbf: iat + 10, exp: iat + 20 });
     await expect(
       verifyDPoPProof(proof, target, { ...verification, consumeProof }),
-    ).rejects.toHaveProperty("code", "ERR_JWT_NBF");
+    ).rejects.toMatchObject({ code: "ERR_DPOP_CLAIM_INVALID", cause: { code: "ERR_JWT_NBF" } });
     await expect(
       verifyDPoPProof(proof, target, {
         ...verification,
         currentDate: new Date((iat + 20) * 1000),
         consumeProof,
       }),
-    ).rejects.toHaveProperty("code", "ERR_JWT_EXPIRED");
+    ).rejects.toMatchObject({ code: "ERR_DPOP_CLAIM_INVALID", cause: { code: "ERR_JWT_EXPIRED" } });
     expect(consumeProof).not.toHaveBeenCalled();
     await expect(
       verifyDPoPProof(proof, target, {
@@ -382,7 +382,7 @@ describe("DPoP", () => {
         nonce: "required",
         consumeProof,
       }),
-    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    ).rejects.toHaveProperty("code", "ERR_DPOP_NONCE_INVALID");
     expect(consumeProof).not.toHaveBeenCalled();
     await verifyDPoPProof(await foreignProof(), target, { ...verification, consumeProof });
     expect(consumeProof).toHaveBeenCalledOnce();
@@ -472,7 +472,7 @@ describe("DPoP", () => {
     async (payload) => {
       await expect(
         verifyDPoPProof(await foreignProof(payload), target, verification),
-      ).rejects.toHaveProperty("code", "ERR_JWT_CLAIM_INVALID");
+      ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
     },
   );
 
@@ -503,9 +503,13 @@ describe("DPoP", () => {
     ["https://server.example", "https://server.example/"],
     ["https://server.example/%74oken", "https://server.example/token"],
     ["https://server.example/a/../token", "https://server.example/token"],
+    ["https://server.example/a/%2e%2e/token", "https://server.example/token"],
+    ["https://server.example/a/%2E%2e/token", "https://server.example/a/b/%2e%2E/../token"],
     ["https://server.example/a%2fb", "https://server.example/a%2Fb"],
     ["https://server.example/token?bad=%xx#ignored", "https://server.example/token?other=%yy"],
     ["http://server.example:80/token", "http://server.example/token"],
+    ["https://B\u00fccher.example/token", "https://xn--bcher-kva.example/token"],
+    ["https://[0:0::1]:443/token", "https://[::1]/token"],
   ])("normalizes equivalent URIs %s and %s", async (htu, url) => {
     await expect(
       verifyDPoPProof(await foreignProof({ htu }), { ...target, url }, verification),
@@ -532,6 +536,10 @@ describe("DPoP", () => {
     "https://server.example/%xx",
     " https://server.example/token",
     "https://server.example/a b",
+    "https://server.example:%34%34%33/token",
+    "https://server.ex%41mple/token",
+    "https://%73erver.example/token",
+    "https://[%3A%3A1]/token",
   ])("refuses repaired or malformed target %j", async (url) => {
     await expect(createDPoPProof({ ...target, url }, creation)).rejects.toHaveProperty(
       "code",
@@ -595,6 +603,48 @@ describe("DPoP", () => {
     ).rejects.toHaveProperty("code", "ERR_DPOP_INVALID");
   });
 
+  it.each([
+    ["RS256", "n"],
+    ["ES256", "x"],
+    ["ES256", "y"],
+    ["Ed25519", "x"],
+  ] as const)("rejects a non-canonical %s jwk %s member", async (algorithm, member) => {
+    const keyPair = await generateJWK(algorithm);
+    const publicKey: Record<string, unknown> = { ...keyPair.publicKey };
+    const value = String(publicKey[member]);
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const flipped = value.slice(0, -1) + alphabet[alphabet.indexOf(value.at(-1)!) ^ 1];
+    const jwk = { ...publicKey, [member]: flipped };
+    const signingKey = await jose.importJWK(keyPair.privateKey, algorithm);
+    const proof = await new jose.SignJWT({ jti: "id", iat, htm: target.method, htu: target.url })
+      .setProtectedHeader({ alg: algorithm, typ: "dpop+jwt", jwk })
+      .sign(signingKey);
+    const options = { ...verification, algorithms: [algorithm] };
+    await expect(verifyDPoPProof(proof, target, options)).rejects.toHaveProperty(
+      "code",
+      "ERR_DPOP_INVALID",
+    );
+    await expect(
+      createDPoPProof(target, {
+        ...creation,
+        algorithm,
+        keyPair: { ...keyPair, publicKey: jwk },
+      } as unknown as DPoPCreateOptions),
+    ).rejects.toHaveProperty("code", "ERR_INVALID_OPTION");
+    const canonical = await new jose.SignJWT({
+      jti: "id",
+      iat,
+      htm: target.method,
+      htu: target.url,
+    })
+      .setProtectedHeader({ alg: algorithm, typ: "dpop+jwt", jwk: keyPair.publicKey })
+      .sign(signingKey);
+    await expect(verifyDPoPProof(canonical, target, options)).resolves.toHaveProperty(
+      "thumbprint",
+      await jose.calculateJwkThumbprint(keyPair.publicKey),
+    );
+  });
+
   it("rejects a public key incompatible with the protected algorithm", async () => {
     const other = await generateJWK("ES384");
     await expect(
@@ -614,10 +664,10 @@ describe("DPoP", () => {
       ...creation,
       keyPair: { ...creation.keyPair, publicKey: other.publicKey },
     } as DPoPCreateOptions);
-    await expect(verifyDPoPProof(proof, target, verification)).rejects.toHaveProperty(
-      "code",
-      "ERR_JWS_SIGNATURE_INVALID",
-    );
+    await expect(verifyDPoPProof(proof, target, verification)).rejects.toMatchObject({
+      code: "ERR_DPOP_INVALID",
+      cause: { code: "ERR_JWS_SIGNATURE_INVALID" },
+    });
   });
 
   it.each([undefined, "JWT", "not-dpop+jwt"])(
@@ -625,7 +675,7 @@ describe("DPoP", () => {
     async (typ) => {
       await expect(
         verifyDPoPProof(await foreignProof({}, { typ }), target, verification),
-      ).rejects.toHaveProperty("code", "ERR_JWS_INVALID");
+      ).rejects.toHaveProperty("code", "ERR_DPOP_INVALID");
     },
   );
 
@@ -670,7 +720,10 @@ describe("DPoP", () => {
         extension: true,
       })
       .sign(privateKey, { crit: { extension: true } });
-    await expect(verifyDPoPProof(critical, target, verification)).rejects.toBeInstanceOf(Error);
+    await expect(verifyDPoPProof(critical, target, verification)).rejects.toHaveProperty(
+      "code",
+      "ERR_DPOP_INVALID",
+    );
   });
 
   it.each([
@@ -726,7 +779,105 @@ describe("DPoP", () => {
   it("checks algorithm policy before accepting a signature", async () => {
     await expect(
       verifyDPoPProof(await foreignProof(), target, { ...verification, algorithms: ["ES384"] }),
-    ).rejects.toHaveProperty("code", "ERR_JWS_ALG_NOT_ALLOWED");
+    ).rejects.toMatchObject({
+      code: "ERR_DPOP_INVALID",
+      cause: { code: "ERR_JWS_ALG_NOT_ALLOWED" },
+    });
+  });
+
+  it("imports the embedded proof key without the JWK import cache", async () => {
+    const get = vi.fn(() => undefined);
+    const set = vi.fn();
+    const proof = await foreignProof();
+    const signature = proof.split(".")[2];
+    const tampered =
+      proof.slice(0, -signature.length) + (signature[0] === "A" ? "B" : "A") + signature.slice(1);
+    configureJWKCache({ get, set });
+    try {
+      await expect(verifyDPoPProof(proof, target, verification)).resolves.toHaveProperty(
+        "payload.jti",
+        "foreign-proof",
+      );
+      await expect(verifyDPoPProof(tampered, target, verification)).rejects.toHaveProperty(
+        "code",
+        "ERR_DPOP_INVALID",
+      );
+    } finally {
+      clearJWKCache();
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("reads each verification option once, before the first await", async () => {
+    const once = <T, U>(first: T, later: U) => {
+      let reads = 0;
+      return () => (reads++ === 0 ? first : later);
+    };
+    const withGetter = (name: string, get: () => unknown) =>
+      Object.defineProperty({ ...verification }, name, { get, enumerable: true });
+    const token = "access-token";
+    const keyThumbprint = await jose.calculateJwkThumbprint(publicJWK);
+    const proof = await foreignProof({ ath: await digestUrl(token) });
+    await expect(
+      verifyDPoPProof(
+        await foreignProof({ iat: iat - 100 }),
+        target,
+        withGetter("maxTokenAge", once(60, NaN)),
+      ),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    await expect(
+      verifyDPoPProof(proof, target, withGetter("nonce", once("required", undefined))),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_NONCE_INVALID");
+    await expect(
+      verifyDPoPProof(
+        proof,
+        target,
+        withGetter(
+          "consumeProof",
+          once(() => false, undefined),
+        ),
+      ),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_REPLAY");
+    await expect(
+      verifyDPoPProof(
+        proof,
+        target,
+        withGetter(
+          "accessToken",
+          once({ token: "other-token", thumbprint: keyThumbprint }, undefined),
+        ),
+      ),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    const accessToken = { thumbprint: keyThumbprint };
+    Object.defineProperty(accessToken, "token", {
+      get: once("other-token", token),
+      enumerable: true,
+    });
+    await expect(
+      verifyDPoPProof(proof, target, {
+        ...verification,
+        accessToken: accessToken as { token: string; thumbprint: string },
+      }),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    const algorithms: DPoPVerifyOptions["algorithms"] = ["ES256"];
+    const pending = verifyDPoPProof(proof, target, { ...verification, algorithms });
+    algorithms[0] = "ES384";
+    await expect(pending).resolves.toHaveProperty("thumbprint", keyThumbprint);
+  });
+
+  it("isolates the returned result from the replay callback", async () => {
+    const proof = await foreignProof();
+    const result = await verifyDPoPProof(proof, target, {
+      ...verification,
+      consumeProof: (accepted) => {
+        accepted.payload.jti = "changed";
+        accepted.thumbprint = "changed";
+        return true;
+      },
+    });
+    expect(result.payload.jti).toBe("foreign-proof");
+    expect(result.thumbprint).toBe(await jose.calculateJwkThumbprint(publicJWK));
   });
 
   it("never consumes proofs failing signature, binding, claims, or policy checks", async () => {
@@ -754,6 +905,65 @@ describe("DPoP", () => {
       ).rejects.toBeInstanceOf(Error);
     }
     expect(consumeProof).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing or different expected nonce only once every other check passes", async () => {
+    const consumeProof = vi.fn(() => true);
+    const binding = { token: "token", thumbprint: await jose.calculateJwkThumbprint(publicJWK) };
+    const cases: [string, Partial<DPoPVerifyOptions>, string][] = [
+      [await foreignProof(), {}, "ERR_DPOP_NONCE_INVALID"],
+      [await foreignProof({ nonce: "other" }), {}, "ERR_DPOP_NONCE_INVALID"],
+      [await foreignProof({ nonce: "with space" }), {}, "ERR_DPOP_CLAIM_INVALID"],
+      [await foreignProof({ iat: iat - 100 }), {}, "ERR_DPOP_CLAIM_INVALID"],
+      [await foreignProof(), { accessToken: binding }, "ERR_DPOP_CLAIM_INVALID"],
+      [await foreignProof({}, { typ: "JWT" }), {}, "ERR_DPOP_INVALID"],
+    ];
+    for (const [proof, options, code] of cases) {
+      await expect(
+        verifyDPoPProof(proof, target, {
+          ...verification,
+          ...options,
+          nonce: "required",
+          consumeProof,
+        }),
+      ).rejects.toHaveProperty("code", code);
+    }
+    expect(consumeProof).not.toHaveBeenCalled();
+  });
+
+  it("throws only DPoP codes for proof failures, keeping the core error as cause", async () => {
+    const proof = await foreignProof();
+    const [header, payload] = proof.split(".");
+    const resign = async (claims: Record<string, unknown>) =>
+      new jose.CompactSign(new TextEncoder().encode(JSON.stringify(claims)))
+        .setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk: publicJWK })
+        .sign(privateKey);
+    const invalid = {
+      code: "ERR_DPOP_INVALID",
+      cause: { code: expect.stringMatching(/^ERR_JWS_/) },
+    };
+    const claim = {
+      code: "ERR_DPOP_CLAIM_INVALID",
+      cause: { code: expect.stringMatching(/^ERR_JWT_/) },
+    };
+    const claims = { jti: "id", iat, htm: "POST", htu: target.url };
+    const cases: [unknown, object][] = [
+      [1, invalid],
+      [`${header}.${payload}`, invalid],
+      [`${header}.${payload}.AA`, invalid],
+      [`${header}.%%%.${proof.split(".")[2]}`, invalid],
+      [await resign({ ...claims, exp: "soon" }), claim],
+      [await resign({ ...claims, exp: iat }), claim],
+      [await resign({ ...claims, nbf: iat + 1 }), claim],
+    ];
+    for (const [token, expected] of cases) {
+      const rejection = verifyDPoPProof(token as string, target, verification);
+      await expect(rejection).rejects.toBeInstanceOf(JWTError);
+      await expect(rejection).rejects.toMatchObject(expected);
+      await expect(rejection.catch((error: JWTError) => error.cause)).resolves.toBeInstanceOf(
+        JWTError,
+      );
+    }
   });
 
   it("fails closed for replay callback rejection, nonboolean return and thrown cause", async () => {
@@ -791,11 +1001,23 @@ describe("DPoP", () => {
   });
 
   it("preserves unexpected delegated failures as typed errors with their cause", async () => {
+    const throwing = {
+      get method(): string {
+        throw new RangeError("unexpected");
+      },
+      url: target.url,
+    };
+    await expect(
+      verifyDPoPProof(await foreignProof(), throwing, verification),
+    ).rejects.toMatchObject({
+      code: "ERR_INVALID_OPTION",
+      cause: expect.any(RangeError),
+    });
     await expect(
       verifyDPoPProof(await foreignProof({ nbf: 1e308 }), target, verification),
     ).rejects.toMatchObject({
-      code: "ERR_DPOP_INVALID",
-      cause: expect.any(RangeError),
+      code: "ERR_DPOP_CLAIM_INVALID",
+      cause: expect.objectContaining({ code: "ERR_JWT_NBF" }),
     });
   });
 
@@ -808,7 +1030,7 @@ describe("DPoP", () => {
     ).resolves.toBeDefined();
     await expect(
       verifyDPoPProof(proof, target, { ...verification, nonce: "Nonce", accessToken: binding }),
-    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    ).rejects.toHaveProperty("code", "ERR_DPOP_NONCE_INVALID");
     const other = await generateJWK("ES256");
     await expect(
       verifyDPoPProof(proof, target, {
@@ -821,7 +1043,10 @@ describe("DPoP", () => {
   it.each(["", "a.b", "a.b.c.d", "e30.e30.", "[].e30.AA", "eyJhbGciOiJFUzI1NiJ9.***.AA"])(
     "rejects malformed compact proof %j",
     async (proof) => {
-      await expect(verifyDPoPProof(proof, target, verification)).rejects.toHaveProperty("code");
+      await expect(verifyDPoPProof(proof, target, verification)).rejects.toHaveProperty(
+        "code",
+        "ERR_DPOP_INVALID",
+      );
     },
   );
 
@@ -831,7 +1056,7 @@ describe("DPoP", () => {
       .sign(privateKey);
     await expect(verifyDPoPProof(proof, target, verification)).rejects.toHaveProperty(
       "code",
-      "ERR_JWS_INVALID",
+      "ERR_DPOP_INVALID",
     );
   });
 

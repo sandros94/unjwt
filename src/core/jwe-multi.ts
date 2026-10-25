@@ -1,4 +1,3 @@
-import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64.ts";
 
@@ -56,6 +55,7 @@ import {
   checkAlgAllowed,
   checkJWEAlgSupported,
   checkJWEContentSegments,
+  copyJsonObject,
   checkJWEDirectEncryptedKey,
   checkJWEEncAllowed,
   checkJWEEncSupported,
@@ -134,8 +134,14 @@ export async function encryptMulti(
     }
   }
 
-  const userProtected = sanitizeObjectCopy(options.protectedHeader);
-  const sharedUnprotected = sanitizeObjectCopy(options.sharedUnprotectedHeader);
+  const userProtected = copyJsonObject(options.protectedHeader, {
+    code: "ERR_INVALID_OPTION",
+    message: '"protectedHeader" must hold only JSON values.',
+  });
+  const sharedUnprotected = copyJsonObject(options.sharedUnprotectedHeader, {
+    code: "ERR_INVALID_OPTION",
+    message: '"sharedUnprotectedHeader" must hold only JSON values.',
+  });
 
   const protectedHeader = {} as JWEHeaderParameters;
   if (userProtected) Object.assign(protectedHeader, userProtected);
@@ -276,7 +282,10 @@ export async function decryptMulti(
 
   const protectedHeaderEncoded = general.protected ?? "";
   const protectedHeader = decodeProtectedHeader(protectedHeaderEncoded || undefined, "JWE");
-  const sharedUnprotected = sanitizeObjectCopy(general.unprotected);
+  const sharedUnprotected = copyJsonObject(general.unprotected, {
+    code: "ERR_JWE_INVALID",
+    message: 'Invalid JWE JSON Serialization: "unprotected" must hold only JSON values.',
+  });
 
   const sharedError =
     checkJWEZip(protectedHeader) ??
@@ -331,7 +340,10 @@ export async function decryptMulti(
       continue;
     }
     const wireRecipient = general.recipients[i];
-    const recipientHeader = sanitizeObjectCopy(wireRecipient.header);
+    const recipientHeader = copyJsonObject(wireRecipient.header, {
+      code: "ERR_JWE_INVALID",
+      message: 'Invalid JWE JSON Serialization: a recipient "header" must hold only JSON values.',
+    });
 
     const recipientError = checkJWEUnprotectedCrit(recipientHeader) ?? checkJWEZip(recipientHeader);
     if (recipientError) {
@@ -516,7 +528,10 @@ function _buildPerRecipientHeader(
 ): JWEHeaderParameters {
   const header = {} as JWEHeaderParameters;
   if (recipient.key.kid) header.kid = recipient.key.kid;
-  const userHeader = sanitizeObjectCopy(recipient.header);
+  const userHeader = copyJsonObject(recipient.header, {
+    code: "ERR_INVALID_OPTION",
+    message: 'A recipient "header" must hold only JSON values.',
+  });
   if (userHeader) Object.assign(header, userHeader);
   if (keyMgmtOut) Object.assign(header, keyMgmtOut);
   header.alg = alg;

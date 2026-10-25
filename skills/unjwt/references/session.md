@@ -11,7 +11,10 @@ The session manager, config options, hooks, cookie layout, chunking, lifetime, `
 ## What `use()` takes: `WebSessionEvent`
 
 ```ts
-type SessionRequestEvent = { res?: { headers: Headers }; context?: Record<string, unknown> } & (
+type SessionRequestEvent = {
+  res?: { headers: Headers; errHeaders?: Headers }; // errHeaders: h3 v2's thrown-handler headers
+  context?: Record<string, unknown>;
+} & (
   | { req: Request; headers?: Headers } // an h3 v2 event, Nuxt's RequestEvent
   | { headers: Headers; req?: Request } // a Request itself, a crossws upgrade request
 ); // no res = read-only
@@ -64,14 +67,15 @@ export default {
 };
 ```
 
-- Reads `req.headers`' `Cookie` (parsed once per `use()`), then the session header.
+- Reads the session header when `req.headers` carries it, else the `Cookie` (parsed once per `use()`). A header-read session never writes `Set-Cookie`: `update()`/`rolling` re-mint onto `session.token`, `clear()` empties state.
 - Writes `Set-Cookie` onto `res.headers`, replacing an earlier line of the same name, domain and path (and partition); unrelated lines stay. A second `update()` in one request leaves one line per cookie; `clear()` leaves the `Max-Age=0` line.
+- `res.errHeaders` present (h3 v2): every write and drop also replaces that cookie's lines there, other lines kept, so a handler that throws after `update()`/`clear()` still sends the cookie.
 - Hono: pass `c.req.raw` as `req` and return `new Response(body, { headers })`.
 - Nuxt 4.6+: `defineEventHandler` from `nuxt/server` (not h3's auto-import) hands a `RequestEvent` that goes to `use(event)` as is, on Nitro 2 and 3; key it from `deriveSecret()` of `nuxt/server` (32 HKDF bytes as hex → `oct` JWK, created lazily since it needs the runtime config).
 
 ## Read-only: a `Request`, `{ req }` or `{ headers }` without `res`
 
-Reads work. On a cookie session `update()` throws `ERR_SESSION_READONLY_EVENT` (`Cannot update session on read-only event.`); `clear()` empties the session for the rest of the request, fires `onClear` and resolves, writing nothing (an `onRead` revocation clears with no gate); an expired token fires `onExpire` without dropping the cookie; `rolling` does not reissue. With `cookie: false`, `update()` re-mints onto `session.token`. WebSockets: in `upgrade`, `use(request)` reads (crossws 0.3's plain request and 0.4's `Request` both carry `headers` and `context`); to write, `use({ headers: request.headers, context: request.context, res: { headers } })` then `return { headers }`: the `101` handshake carries a roll, an expired cookie's drop or a `clear()` made during the read. Read once there, copy what the socket needs onto `request.context` (= `peer.context` later); nothing can be written after the upgrade. crossws 0.4 (Nitro 3) merges returned headers with `set`, so keep the session under one cookie there.
+Reads work. On a cookie session `update()` throws `ERR_SESSION_READONLY_EVENT` (`Cannot update session on read-only event.`); `clear()` empties the session for the rest of the request, fires `onClear` and resolves, writing nothing (an `onRead` revocation clears with no gate); an expired token fires `onExpire` without dropping the cookie; `rolling` does not reissue. With `cookie: false`, or a token read from the session header, `update()` re-mints onto `session.token`. WebSockets: in `upgrade`, `use(request)` reads (crossws 0.3's plain request and 0.4's `Request` both carry `headers` and `context`); to write, `use({ headers: request.headers, context: request.context, res: { headers } })` then `return { headers }`: the `101` handshake carries a roll, an expired cookie's drop or a `clear()` made during the read. Read once there, copy what the socket needs onto `request.context` (= `peer.context` later); nothing can be written after the upgrade. crossws 0.4 (Nitro 3) merges returned headers with `set`, so keep the session under one cookie there.
 
 ## Token in hand: `{ token }`
 
@@ -151,11 +155,11 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 - `state(event)` must return an object unique to the request (`event.locals`, `event.context`, a `WeakMap` keyed by the request). A module-level or shared object leaks sessions across requests.
 - `write` must replace, not append: a re-issue in the same request writes the same names again.
 - Writes arrive one cookie at a time: base cookie, chunks `name.1…N`, `Max-Age=0` for surplus.
-- Shipped drivers: h3 (state on `event.context.sessions`, `writable` from Node `headersSent`, v2 stages cookies in `res.errHeaders`), Elysia (state keyed by `Request`, reactive jar, no `written`), `unjwt/session` (state on `event.context.sessions`, else keyed by `req`, the object passed or the `{ token }` object; `handed`).
+- Shipped drivers: h3 (state on `event.context.sessions`, `writable` from Node `headersSent`, v2 stages cookies in `res.errHeaders`), Elysia (state keyed by `Request`, reactive jar, no `written`), `unjwt/session` (state on `event.context.sessions`, else keyed by `req`, the object passed or the `{ token }` object; mirrors writes into `res.errHeaders` when present; `handed`).
 
 ## Frameworks
 
-- h3 v2 (`new H3()`): the `H3Event` goes to `use()` as is. A thrown handler sends `res.errHeaders` only: keep the cookie with `hooks: { onUpdate: stage, onClear: stage }` where `stage` copies `event.res.headers.getSetCookie()` into `event.res.errHeaders` (`{ event }` is the hook arg; `defineJWESession<Data, MaxAge, H3Event>(config)` narrows `event` so it typechecks).
+- h3 v2 (`new H3()`): the `H3Event` goes to `use()` as is. A thrown handler sends `res.errHeaders` only, and every session cookie write and drop is mirrored there, so `clear()` then `throw` signs the client out with no hook.
 - Nitro 3: same event; no auto-imports (`defineHandler`, `defineWebSocketHandler`, `HTTPError` from `nitro`, `readBody` from `nitro/h3`); Nitro's error handler drops prepared headers on a throw.
 - Nuxt 4.6+/5: handlers must come from `nuxt/server` (`defineEventHandler`, `readBody`, `createError`), whose `RequestEvent` goes to `use()` as is on Nitro 2 and 3; h3's auto-imported handler passes the h3 v1 event, refused with `ERR_SESSION_CONFIG_INVALID`. Key from `deriveSecret()` (lazy, needs runtime config). WebSockets: `defineWebSocketHandler` is h3's; read once in `upgrade` with `{ headers: request.headers, context: request.context, res: { headers } }`, `return { headers }` (+ `context` on crossws 0.4 / Nitro 3, thrown `Response` to refuse; written onto `request.context`, returned `Response` to refuse on crossws 0.3 / Nitro 2).
 

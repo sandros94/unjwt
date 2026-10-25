@@ -27,7 +27,7 @@ export interface SessionManager<
 > {
   readonly id: string | undefined;
   readonly createdAt: number;
-  /** Expiry in ms — always a number when the session has a `maxAge`. */
+  /** Expiry in ms: `exp`, or `iat + maxAge` when sooner; always a number when the session has a `maxAge`. */
   readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined;
   readonly data: SessionData<T>;
   readonly token: string | undefined;
@@ -45,7 +45,7 @@ export interface SessionManager<
 
 /** The config members every session shares, whether it signs or seals its token. */
 export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined> {
-  /** Sets `exp = iat + maxAge`, requires `exp` on incoming tokens, drives cookie expiry; unset never expires. */
+  /** Sets `exp = iat + maxAge`, requires `exp` on incoming tokens and ends them at `iat + maxAge` at the latest, drives cookie expiry; unset never expires. */
   maxAge?: MaxAge;
   /**
    * Reissue the session when it is read, needs `maxAge`.
@@ -66,6 +66,7 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   name?: string;
   /**
    * Header carrying a bare or `Bearer` token: a header name, `true` for `x-<name>-session` (cookie prefix stripped), or `false` for none.
+   * A request that carries it is read from it and never from the cookie, and writes no cookie back; any other value is a token failure (`onError`).
    * Left unset, a session with cookies still reads `x-<name>-session`, and so does one with `cookie: false`.
    */
   sessionHeader?: boolean | string;
@@ -82,7 +83,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
   onRead?: (
     args: TArgs & { session: TManager & { id: string; token: string }; config: TConfig },
   ) => void | Promise<void>;
-  /** Fires after a token is issued and its cookie written, by `update()` or by `rolling`; a throw rejects without rollback. */
+  /** Fires after a token is issued and, on a cookie session, its cookie written, by `update()` or by `rolling`; a throw rejects without rollback. */
   onUpdate?: (
     args: TArgs & {
       session: TManager & { id: string; token: string };
@@ -125,7 +126,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
 
 /** Per-issue overrides for a single `update()` call. */
 export interface SessionIssueOptions {
-  /** Lifetime for this issue only, overriding the config's `maxAge`. */
+  /** Lifetime for this issue only, overriding the config's `maxAge`; a read under that `maxAge` still ends the session at `iat + maxAge`. */
   maxAge?: ExpiresIn;
 }
 
@@ -135,7 +136,7 @@ export interface SessionState<T extends SessionRecord, MaxAge extends ExpiresIn 
   id: string | undefined;
   /** In ms; mirrors the JWT `iat` claim (seconds). */
   createdAt: number;
-  /** In ms; mirrors the JWT `exp` claim (seconds). */
+  /** In ms; mirrors the JWT `exp` claim (seconds), or `iat + maxAge` when sooner. */
   expiresAt: MaxAge extends ExpiresIn ? number : number | undefined;
   data: SessionData<T>;
   token: string | undefined;
@@ -158,7 +159,7 @@ export interface SessionDefinition<
 > {
   /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
   use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
-  /** The token the request carries (this response's own write first), unopened. */
+  /** The session's token once `use()` read or wrote it, else the one the request carries (the session header before the cookie), unopened. */
   token: (event: TEvent) => string | undefined;
   /** Mints a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it); reads and writes nothing. */
   issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;
@@ -167,8 +168,11 @@ export interface SessionDefinition<
 }
 
 interface SessionRequestBase {
-  /** The response being prepared; without it the session is read-only. */
-  readonly res?: { readonly headers: Headers };
+  /**
+   * The response being prepared; without it the session is read-only.
+   * With `errHeaders` too (h3 v2, which sends only those for a thrown handler), every cookie write lands in both.
+   */
+  readonly res?: { readonly headers: Headers; readonly errHeaders?: Headers };
   /** Per-request state shared with the framework, where `sessions` is kept; without it state is keyed on `req`, else on this object. */
   readonly context?: Record<string, unknown>;
 }

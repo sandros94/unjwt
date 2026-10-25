@@ -1,11 +1,11 @@
 import { secureRandomBytes } from "unsecure/random";
-import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import {
   MAX_PARTY_INFO_BYTES,
   asDecryptionError,
   assertDirectKeyRole,
   buildECDHAgreementParams,
+  copyJsonObject,
   decodeSegment,
   resolvePasswordKey,
   assertJWEEncSupported,
@@ -395,7 +395,10 @@ export async function exportJWK<T extends JWK = JWK>(
   }
   const exportedJwk = await keyToJWK<T>(key);
   if (jwkParams) {
-    const extraParams = sanitizeObjectCopy(jwkParams);
+    const extraParams = copyJsonObject(jwkParams, {
+      code: "ERR_INVALID_OPTION",
+      message: "JWK parameters must hold only JSON values.",
+    });
     assertNoReservedJWKParams(extraParams);
     return { ...exportedJwk, ...extraParams };
   }
@@ -415,7 +418,7 @@ export async function exportKey<T extends JWK = JWK>(
  *
  * @param jwk An asymmetric JWK (EC, OKP, RSA) with a private scalar (`d`).
  * @throws `ERR_JWK_INVALID` if the input is not an asymmetric JWK.
- * @returns A JWK with the same public members, without the private scalar.
+ * @returns A JWK with the same public members, without the private scalar or a `k` member.
  */
 export function toPublicJWK<T extends JWK_Asymmetric>(jwk: T): ToPublicJWKReturn<T>;
 export function toPublicJWK(jwk: JWK_Asymmetric): JWK_Public {
@@ -425,7 +428,10 @@ export function toPublicJWK(jwk: JWK_Asymmetric): JWK_Public {
       "ERR_JWK_INVALID",
     );
   }
-  const copy: Record<string, unknown> = sanitizeObjectCopy({ ...jwk });
+  const copy: Record<string, unknown> = copyJsonObject(
+    { ...jwk },
+    { code: "ERR_JWK_INVALID", message: "A JWK must hold only JSON values." },
+  );
   const {
     d: _d,
     p: _p,
@@ -434,6 +440,7 @@ export function toPublicJWK(jwk: JWK_Asymmetric): JWK_Public {
     dq: _dq,
     qi: _qi,
     oth: _oth,
+    k: _k,
     key_ops,
     ...publicMembers
   } = copy;
