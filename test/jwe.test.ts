@@ -2053,3 +2053,19 @@ function replaceHeader(token: string, header: Record<string, unknown>): string {
 function readHeader(token: string): Record<string, unknown> {
   return JSON.parse(base64UrlParse(token.split(".")[0]));
 }
+
+describe("JSON-only header input", () => {
+  it("reports a protectedHeader value JSON cannot carry as ERR_INVALID_OPTION", async () => {
+    const key = await generateJWK("A256GCM");
+    await expect(
+      encrypt({ a: 1 }, key, {
+        alg: "dir",
+        enc: "A256GCM",
+        protectedHeader: { when: new Date(0) },
+      }),
+    ).rejects.toMatchObject({ code: "ERR_INVALID_OPTION", cause: { code: "INVALID_TYPE" } });
+    expect(await encrypt({ when: new Date(0) }, key, { alg: "dir", enc: "A256GCM" })).toEqual(
+      expect.any(String),
+    );
+  });
+});

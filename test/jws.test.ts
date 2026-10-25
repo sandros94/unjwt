@@ -2327,3 +2327,13 @@ async function signRawHeader(
 function failingKeyLookup(_header: { kid?: string; alg?: string }): never {
   throw new Error("Key lookup failed");
 }
+
+describe("JSON-only header input", () => {
+  it("reports a protectedHeader value JSON cannot carry as ERR_INVALID_OPTION", async () => {
+    const key = await generateJWK("HS256");
+    await expect(
+      sign({ a: 1 }, key, { protectedHeader: { when: new Date(0) } }),
+    ).rejects.toMatchObject({ code: "ERR_INVALID_OPTION", cause: { code: "INVALID_TYPE" } });
+    expect(await sign({ when: new Date(0) }, key)).toEqual(expect.any(String));
+  });
+});

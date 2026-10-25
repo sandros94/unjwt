@@ -1,4 +1,4 @@
-import { safeJsonParse } from "unsecure/sanitize";
+import { safeJsonParse, sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlParse } from "./utils/base64.ts";
 
@@ -684,6 +684,15 @@ export function asJWTError(
 ): JWTError {
   if (error instanceof JWTError) return error;
   return new JWTError(options.message, options.code, error);
+}
+
+/** A sanitized deep copy of a JSON object; a value JSON cannot carry (a `Date`, a `Map`, a class instance) is the given error, the refusal as `cause`. */
+export function copyJsonObject<T>(value: T, options: { code: JWTErrorCode; message: string }): T {
+  try {
+    return sanitizeObjectCopy(value);
+  } catch (error) {
+    throw asJWTError(error, options);
+  }
 }
 
 /** RFC 7516 §11.5 — a failed unwrap or decryption says only that it failed. */

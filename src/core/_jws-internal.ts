@@ -1,5 +1,3 @@
-import { sanitizeObjectCopy } from "unsecure/sanitize";
-
 import type { JWK, JWKSet } from "./types/jwk.ts";
 import type { JWSAlgorithm, JWSHeaderParameters, JWSProtectedHeader } from "./types/jws.ts";
 import { importKey, getJWKsFromSet } from "./_import-key.ts";
@@ -13,6 +11,7 @@ import {
   assertJWKSetCandidates,
   assertProducerCrit,
   buildJWKSetFilter,
+  copyJsonObject,
   resolveSigningKey,
 } from "./_internal.ts";
 
@@ -23,7 +22,10 @@ export function buildJWSProtectedHeader(
   userHeader: JWSHeaderParameters | undefined,
   options: { payload: unknown; b64?: boolean },
 ): JWSProtectedHeader {
-  const safeHeader = sanitizeObjectCopy<JWSHeaderParameters | undefined>(userHeader);
+  const safeHeader = copyJsonObject<JWSHeaderParameters | undefined>(userHeader, {
+    code: "ERR_INVALID_OPTION",
+    message: '"protectedHeader" must hold only JSON values.',
+  });
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `alg` is assigned below, before the header leaves this function
   const header = {} as JWSProtectedHeader;
   if (isJWK(key) && key.kid) header.kid = key.kid;

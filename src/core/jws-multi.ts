@@ -1,4 +1,3 @@
-import { sanitizeObjectCopy } from "unsecure/sanitize";
 import { textEncoder } from "unsecure/utils";
 import { base64UrlStringify } from "./utils/base64.ts";
 
@@ -51,6 +50,7 @@ import {
   checkAlgAllowed,
   checkJWSAlgSupported,
   checkJWSB64,
+  copyJsonObject,
   assertNotStringKey,
   decodeJWSPayload,
   decodeProtectedHeader,
@@ -114,7 +114,10 @@ export async function signMulti(
       payload,
       b64,
     });
-    const unprotectedHeader = sanitizeObjectCopy(signer.unprotectedHeader);
+    const unprotectedHeader = copyJsonObject(signer.unprotectedHeader, {
+      code: "ERR_INVALID_OPTION",
+      message: '"unprotectedHeader" must hold only JSON values.',
+    });
 
     _assertDisjointHeaders(protectedHeader, unprotectedHeader);
 
@@ -432,13 +435,14 @@ function _readSignatureHeaders(entry: JWSGeneralSignature, index: number): Signa
   }
 
   let protectedHeader: JWSHeaderParameters;
+  let unprotectedHeader: JWSHeaderParameters | undefined;
   try {
     protectedHeader = decodeProtectedHeader(wireSig.protected, "JWS");
+    unprotectedHeader = copyJsonObject(wireSig.header, INVALID_JWS);
   } catch (err) {
     return { error: asJWTError(err, INVALID_JWS) };
   }
 
-  const unprotectedHeader = sanitizeObjectCopy(wireSig.header);
   const failed = (error: JWTError): SignatureHeaders => ({
     error,
     protectedHeader,

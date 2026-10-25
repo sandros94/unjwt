@@ -3149,3 +3149,23 @@ function pemBlock(label: string, bytes: Uint8Array<ArrayBuffer>): string {
 async function ecdhPair(namedCurve: "P-256" | "P-384"): Promise<CryptoKeyPair> {
   return await generateKey("ECDH-ES", { namedCurve });
 }
+
+describe("JSON-only JWK input", () => {
+  it("reports JWK parameters JSON cannot carry as ERR_INVALID_OPTION", async () => {
+    const { publicKey } = await generateKey("ES256");
+    await expect(exportJWK(publicKey, { when: new Date(0) } as never)).rejects.toMatchObject({
+      code: "ERR_INVALID_OPTION",
+      cause: { code: "INVALID_TYPE" },
+    });
+  });
+
+  it("reports a JWK member JSON cannot carry as ERR_JWK_INVALID", async () => {
+    const { privateKey } = await generateJWK("ES256");
+    expect(() => toPublicJWK({ ...privateKey, when: new Date(0) } as never)).toThrowError(
+      expect.objectContaining({
+        code: "ERR_JWK_INVALID",
+        cause: expect.objectContaining({ code: "INVALID_TYPE" }),
+      }),
+    );
+  });
+});
