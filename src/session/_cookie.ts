@@ -1,20 +1,28 @@
 import { parse, parseSetCookie, serialize } from "cookie-es";
-import { setCookieName, setCookieValues } from "./_chunked-cookie.ts";
+import { mirrorSetCookie, setCookieName, setCookieValues } from "./_chunked-cookie.ts";
 import type { CookieAttributes } from "./_cookie-attributes.ts";
 import type { CookieJar } from "./_driver.ts";
 
 export type { CookieAttributes };
 
-/** The cookies a request's `Headers` carry, and those of the response's `Headers` when there are any. */
-export function webCookieJar(request: Headers, headers?: Headers): CookieJar<CookieAttributes> {
+/**
+ * The cookies a request's `Headers` carry, and those of the response's `Headers` when there are any.
+ * A response that also has `errHeaders` (h3 v2 sends only those for a thrown handler) gets each write there too.
+ */
+export function webCookieJar(
+  request: Headers,
+  response?: { headers: Headers; errHeaders?: Headers },
+): CookieJar<CookieAttributes> {
   let cookies: Record<string, string | undefined> | undefined;
   const jar: CookieJar<CookieAttributes> = {
     read: (name) => (cookies ||= requestCookies(request))[name],
   };
-  if (headers) {
+  if (response) {
+    const { headers, errHeaders } = response;
     jar.written = (name) => setCookieValues(headers.getSetCookie())[name];
     jar.write = (name, value, attrs) => {
       setCookie(headers, { name, value, ...attrs });
+      if (errHeaders) mirrorSetCookie(name, { from: headers, to: errHeaders });
     };
   }
   return jar;

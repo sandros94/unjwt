@@ -1,4 +1,5 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
+import { type H3Event, H3, HTTPError } from "h3";
 
 import type { ExpiresIn, JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/core/error.ts";
@@ -331,6 +332,63 @@ describe("unjwt/session over a Web request", () => {
     expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
     expect((await jwe.use({ req: get() })).id).toBeUndefined();
   });
+});
+
+describe("unjwt/session with res.errHeaders", () => {
+  it.each(FAMILIES)(
+    "$family: mirrors every cookie write and drop into errHeaders",
+    async ({ define }) => {
+      const session = define({ cookie: { chunkMaxLength: 64 } });
+      const headers = new Headers();
+      const errHeaders = new Headers();
+      errHeaders.append("set-cookie", "other=1; Path=/");
+      errHeaders.append("set-cookie", "web.theme=dark; Path=/");
+      const manager = await session.use({ req: get(), res: { headers, errHeaders } });
+
+      await manager.update({ pad: "x".repeat(200) });
+      const sessionLines = (target: Headers) =>
+        target.getSetCookie().filter((line) => /^web(\.\d+)?=/.test(line));
+      expect(chunkCount(headers)).toBeGreaterThan(1);
+      expect(sessionLines(errHeaders)).toEqual(sessionLines(headers));
+
+      await manager.update({ pad: "" });
+      expect(sessionLines(errHeaders)).toEqual(sessionLines(headers));
+
+      await manager.clear();
+      expect(linesOf(errHeaders, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+      expect(sessionLines(errHeaders)).toEqual(sessionLines(headers));
+      expect(errHeaders.getSetCookie()).toContain("other=1; Path=/");
+      expect(errHeaders.getSetCookie()).toContain("web.theme=dark; Path=/");
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: an h3 v2 handler that throws after a write still sends the cookie",
+    async ({ define }) => {
+      const session = define();
+      const app = new H3()
+        .post("/login", async (event) => {
+          await (await session.use(event)).update({ user: "ada" });
+          throw new HTTPError({ status: 418 });
+        })
+        .post("/logout", async (event) => {
+          await (await session.use(event)).clear();
+          throw new HTTPError({ status: 401 });
+        });
+
+      const login = await app.request("/login", { method: "POST" });
+      expect(login.status).toBe(418);
+      const [issued = ""] = linesOf(login.headers, "web");
+      expect(issued).toMatch(/^web=ey/);
+
+      const logout = await app.request("/logout", {
+        method: "POST",
+        headers: { cookie: issued.split(";", 1)[0] ?? "" },
+      });
+      expect(logout.status).toBe(401);
+      expect(linesOf(logout.headers, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+    },
+  );
 });
 
 describe("unjwt/session token sources", () => {
@@ -724,6 +782,11 @@ describe("unjwt/session types", () => {
     expectTypeOf<{ req: Request; headers: Headers }>().toExtend<SessionRequestEvent>();
     expectTypeOf<Request>().toExtend<SessionRequestEvent>();
     expectTypeOf<{ res: { headers: Headers } }>().not.toExtend<SessionRequestEvent>();
+    expectTypeOf<{
+      req: Request;
+      res: { headers: Headers; errHeaders: Headers };
+    }>().toExtend<SessionRequestEvent>();
+    expectTypeOf<H3Event>().toExtend<SessionRequestEvent>();
     expectTypeOf<{ token: string }>().toExtend<SessionHandedToken>();
     expectTypeOf<{ token: undefined }>().toExtend<SessionHandedToken>();
     expectTypeOf<{}>().not.toExtend<WebSessionEvent>();

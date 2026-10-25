@@ -168,8 +168,11 @@ export interface SessionDefinition<
 }
 
 interface SessionRequestBase {
-  /** The response being prepared; without it the session is read-only. */
-  readonly res?: { readonly headers: Headers };
+  /**
+   * The response being prepared; without it the session is read-only.
+   * With `errHeaders` too (h3 v2, which sends only those for a thrown handler), every cookie write lands in both.
+   */
+  readonly res?: { readonly headers: Headers; readonly errHeaders?: Headers };
   /** Per-request state shared with the framework, where `sessions` is kept; without it state is keyed on `req`, else on this object. */
   readonly context?: Record<string, unknown>;
 }

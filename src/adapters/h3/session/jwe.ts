@@ -35,7 +35,7 @@ const hookArgs = (event: HTTPEvent) => ({ event });
 
 /**
  * Session state for the current request, mirroring the claims of its JWE token.
- * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is and mirrors cookie writes into `res.errHeaders` as this adapter does.
  */
 export interface SessionJWE<
   T extends SessionRecord = SessionClaims,
@@ -44,7 +44,7 @@ export interface SessionJWE<
 
 /**
  * JWE session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token.
- * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is and mirrors cookie writes into `res.errHeaders` as this adapter does.
  */
 export interface SessionHooksJWE<
   T extends SessionRecord = SessionClaims,
@@ -59,7 +59,7 @@ export interface SessionHooksJWE<
 
 /**
  * Configuration for a JWE-backed (encrypted) session.
- * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is and mirrors cookie writes into `res.errHeaders` as this adapter does.
  */
 export interface SessionConfigJWE<
   T extends SessionRecord = SessionClaims,
@@ -73,7 +73,7 @@ export interface SessionConfigJWE<
 
 /**
  * Defines a JWE (encrypted) session once; its `use`, `token`, `issue` and `open` serve every request.
- * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is; a handler that throws after a write keeps its cookie through an `onUpdate`/`onClear` hook that copies `res.headers.getSetCookie()` into `res.errHeaders`.
+ * @deprecated `unjwt/adapters/h3` (and `h3v2`) is removed in 0.9.0. `unjwt/session` takes the h3 v2 event as it is and mirrors cookie writes into `res.errHeaders` as this adapter does.
  */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
