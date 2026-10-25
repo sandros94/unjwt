@@ -19,6 +19,7 @@ export { UnsecureError, type UnsecureErrorCode };
  *   ERR_JWS_*  — RFC 7515 JSON Web Signature
  *   ERR_JWE_*  — RFC 7516 JSON Web Encryption
  *   ERR_JWK_*  — RFC 7517 JSON Web Key
+ *   ERR_DPOP_* — RFC 9449 proof validation
  *   ERR_SESSION_* — the framework session adapters
  *
  * Use this type where a typo must not compile — {@link isJWTError} takes it,
@@ -57,6 +58,10 @@ export type KnownJWTErrorCode =
   | "ERR_JWK_INVALID" // malformed or unsupported key material
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set
   | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
+  // DPoP (RFC 9449)
+  | "ERR_DPOP_INVALID" // malformed proof or unsupported proof header
+  | "ERR_DPOP_CLAIM_INVALID" // proof claims do not match the supplied target, nonce, or token
+  | "ERR_DPOP_REPLAY" // replay callback rejected the proof or failed
   // Session adapters
   | "ERR_SESSION_TOKEN_INVALID" // an incoming session token failed verification or decryption
   | "ERR_SESSION_READONLY_EVENT" // update on a context that takes no cookie, update / clear once the response was sent

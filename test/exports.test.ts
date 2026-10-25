@@ -2,6 +2,7 @@ import { describe, it, expect, expectTypeOf } from "vitest";
 import * as root from "../src/index.ts";
 import * as utils from "../src/core/utils/index.ts";
 import * as internal from "../src/core/internal.ts";
+import * as dpop from "../src/dpop/index.ts";
 import type * as jws from "../src/core/jws.ts";
 import type * as jwe from "../src/core/jwe.ts";
 import type * as jwk from "../src/core/jwk.ts";
@@ -139,6 +140,21 @@ describe("internal plumbing (unjwt/internal)", () => {
   ] as const)("still exports %s from unjwt/utils as an alias", (name, binding) => {
     expect(Reflect.get(utils, name)).toBe(binding);
     expect(Reflect.get(root, name)).toBe(binding);
+  });
+});
+
+describe("optional DPoP module (unjwt/dpop)", () => {
+  it("exposes proof helpers only through its own entry", () => {
+    for (const name of ["createDPoPProof", "verifyDPoPProof"]) {
+      expect(dpop).toHaveProperty(name);
+      expect(root).not.toHaveProperty(name);
+      expect(utils).not.toHaveProperty(name);
+    }
+  });
+
+  it("shares the core error identity", () => {
+    expect(dpop.JWTError).toBe(root.JWTError);
+    expect(dpop.isJWTError).toBe(root.isJWTError);
   });
 });
 

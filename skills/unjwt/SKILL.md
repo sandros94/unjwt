@@ -22,6 +22,7 @@ Implements JWS (RFC 7515), JWE (RFC 7516), and JWK (RFC 7517).
 The following is a list of reference files:
 
 - `references/jws.md`: `sign()`, `verify()`, `signMulti()`, `verifyMulti()`, `verifyMultiAll()`, `generalToFlattenedJWS()`, `JWSSignOptions`, `JWSVerifyOptions`, `JWSMultiSignOptions`, `JWSMultiVerifyOptions`, `JWSMultiVerifyAllOptions`, `JWSMultiVerifyOutcome`, `JWSGeneralSerialization`, `JWSFlattenedSerialization`, `JWSMultiSigner`
+- `references/dpop.md`: `unjwt/dpop`, `createDPoPProof()`, `verifyDPoPProof()`, explicit key pairs and proof fields, token binding, nonce expectations and optional replay callback
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `encryptMulti()`, `decryptMulti()`, `generalToFlattened()`, `JWEEncryptOptions`, `JWEDecryptOptions`, `JWEMultiEncryptOptions`, `JWEMultiDecryptOptions`, `JWEGeneralSerialization`, `JWEFlattenedSerialization`, `JWEMultiRecipient`
 - `references/jwk.md`: `generateKey()`, `generateJWK()`, `toPublicJWK()`, `thumbprint()`, `importKey()`, `exportJWK()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
 - `references/utils.md`: `base64UrlStringify`/`base64UrlParse`, `base64Stringify`/`base64Parse`, `secureRandomBytes`, `digestUrl`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
@@ -38,6 +39,7 @@ The following is a list of reference files:
 | `unjwt/jwe` | `encrypt()`, `decrypt()` (Compact) — `encryptMulti()`, `decryptMulti()` (General JSON Serialization) |
 | `unjwt/jwk` | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils |
 | `unjwt/utils` | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`, `digestUrl` |
+| `unjwt/dpop` | Optional DPoP proof creation and verification; no HTTP or storage |
 | `unjwt/internal` | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use |
 | `unjwt/adapters/h3` | H3 session adapter (aliases h3v2) — `defineJWSSession`/`defineJWESession` |
 | `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2) — `defineJWSSession`/`defineJWESession` |

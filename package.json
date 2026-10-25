@@ -69,6 +69,10 @@
       "types": "./dist/session/index.d.mts",
       "default": "./dist/session/index.mjs"
     },
+    "./dpop": {
+      "types": "./dist/dpop/index.d.mts",
+      "default": "./dist/dpop/index.mjs"
+    },
     "./internal": {
       "types": "./dist/core/internal.d.mts",
       "default": "./dist/core/internal.mjs"

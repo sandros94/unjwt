@@ -16,6 +16,7 @@ export default defineBuildConfig({
         "./src/adapters/h3v1/index",
         "./src/adapters/elysia/index",
         "./src/session/index",
+        "./src/dpop/index",
       ],
       rolldown: {
         platform: "neutral",

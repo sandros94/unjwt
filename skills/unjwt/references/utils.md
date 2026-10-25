@@ -40,7 +40,7 @@ Returns a cryptographically secure `Uint8Array<ArrayBuffer>` of the specified le
 
 ### `digestUrl(data, hash?)`
 
-Base64url digest of text (UTF-8) or `Uint8Array` under `hash: "SHA-256" | "SHA-384" | "SHA-512"` (`DigestHash`, default `"SHA-256"`); the last step of `thumbprint()`. DPoP (RFC 9449): the access token carries `cnf: { jkt: await thumbprint(publicKey) }`; each proof is `sign({ jti, htm, htu, ath: await digestUrl(accessToken) }, privateKey, { issuedAt: true, protectedHeader: { typ: "dpop+jwt", jwk: publicKey } })`; the resource server verifies it with `verify(proof, (header) => header.jwk, { algorithms, typ: "dpop+jwt", maxTokenAge })`, then checks `ath` against the presented token and `thumbprint(header.jwk)` against the token's `cnf.jkt`.
+Base64url digest of text (UTF-8) or `Uint8Array` under `hash: "SHA-256" | "SHA-384" | "SHA-512"` (`DigestHash`, default `"SHA-256"`); the last step of `thumbprint()`. DPoP proof creation and verification are available through `unjwt/dpop`; see [dpop.md](dpop.md). `cnf.jkt` is the public key thumbprint; `ath` is the exact access token digest.
 
 ### `concatUint8Arrays(...arrays)`
 

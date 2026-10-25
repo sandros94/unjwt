@@ -42,6 +42,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
 - `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), `secureRandomBytes`
 - `unjwt/internal` — JOSE plumbing (`parsePayloadBytes`, `computeJwtTimeClaims`, `crit` checks, …) for tests and tooling; no semver guarantee, not re-exported from `unjwt`
+- `unjwt/dpop` — RFC 9449 proof creation and verification; explicit key pair and verification policy, optional replay callback; no HTTP or storage, no root re-export
 - `unjwt/adapters/h3` (= `h3v2`) and `unjwt/adapters/h3v1` — `defineJWSSession()`, `defineJWESession()` session definitions (`use`/`token`/`issue`/`open`) for cookie-based JWT sessions; both deprecated, removed in 0.9.0 in favour of `unjwt/session`
 - `unjwt/adapters/elysia` — `jwsSession()`/`jweSession()` Elysia plugins (ambient `ctx.session`, `requireSession` guard macro) over `defineJWSSession()`/`defineJWESession()` (the definition plus `plugin()`)
 - `unjwt/session` (`src/session/`) — `defineJWSSession()`/`defineJWESession()` over a Web `Request` + response `Headers` or a token in hand, plus `defineSessionDriver()` and the `SessionDriver`/`CookieJar` types for a framework of your own (`{ driver }` option); no peer dependency
@@ -51,6 +52,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 ```
 src/
   index.ts              # root entry: flat named re-exports of the core modules
+  dpop/                 # optional DPoP entry; proof creation, verification, types and internal checks
   core/
     jws.ts              # sign/verify (compact); re-exports the multi-recipient API
     jwe.ts              # encrypt/decrypt (compact); re-exports the multi-recipient API
@@ -102,6 +104,7 @@ src/
 
 ### Key design patterns
 
+- **Optional protocol modules:** DPoP imports core helpers; core and sessions never import DPoP. Downstream owns HTTP, access-token validation, nonce issuance and replay storage. `createDPoPProof` takes an explicit key pair and infers the signing algorithm from JWK metadata or an unambiguous key shape (explicit for CryptoKey pairs); proof ID defaults to a fresh UUID v4 and creation time to the current Unix second, both overridable. Optional `exp`/`nbf` are absolute Unix timestamps with no defaults. `createDPoPProof(target, options)` and `verifyDPoPProof(proof, target, options)` both accept an `accessToken` object (`{ token }` for creation, `{ token, thumbprint }` for verification). Verification takes an algorithm allowlist and age limit; its optional replay callback runs only after every proof check succeeds.
 - **Dual-version peer deps:** `h3` v2 is installed as itself; h3 v1 only as the `h3v1` alias in devDependencies, which `build.config.ts` rewrites to `h3` in dist output for the deprecated `h3v1` adapter until 0.9.0 removes it. `elysia` is a plain optional peer dep, marked `external` in the build.
 - **Single multi-input bundle:** all entry points (core subpaths + every adapter) are `input`s of one `type: "bundle"` in `build.config.ts`, so rolldown code-splits shared core into `dist/_chunks/*` (no per-adapter duplication). Adding an adapter = add its `index` input + any peer dep to `external`; `unjwt/session` (`./src/session/index`) has no peer dep, so nothing of its own is external. `unsecure` and `cookie-es` stay bundled (inlined → zero runtime deps).
 - **`src/core/_crypto/`** originated as a fork of [`panva/jose`](https://github.com/panva/jose) primitives but is now maintained as part of this codebase — modify and fix it like any other module (bug fixes, lint, type-safety). It is excluded from test coverage; adding tests there is optional, not required.

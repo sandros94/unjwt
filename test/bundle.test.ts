@@ -60,6 +60,7 @@ const MARKERS = {
   cookieEs: "cookie-es",
   h3Import: 'from"h3',
   elysiaImport: 'from"elysia"',
+  dpop: "ERR_DPOP_",
 } as const;
 
 interface Entry {
@@ -140,6 +141,24 @@ const ENTRIES: ReadonlyArray<Entry> = [
   },
   // --- use cases: what one consumer ships ---
   {
+    imports: ["createDPoPProof"],
+    module: "dpop/index.ts",
+    measured: { min: 28281, gzip: 9416 },
+    absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "ERR_DPOP_REPLAY"],
+  },
+  {
+    imports: ["verifyDPoPProof"],
+    module: "dpop/index.ts",
+    measured: { min: 34225, gzip: 11200 },
+    absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "randomUUID"],
+  },
+  {
+    imports: ["createDPoPProof", "verifyDPoPProof"],
+    module: "dpop/index.ts",
+    measured: { min: 42689, gzip: 13373 },
+    absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes],
+  },
+  {
     imports: ["sign", "verify"],
     module: "core/jws.ts",
     measured: { min: 33113, gzip: 10679 },
@@ -217,7 +236,10 @@ describe("tree-shaking", () => {
           Math.abs(gzip - entry.measured.gzip),
           `${name} bundles to ${gzip} bytes gzipped, measured ${entry.measured.gzip}; re-measure with \`pnpm size\` and update the row if the change is deliberate`,
         ).toBeLessThanOrEqual(slack(entry.measured.gzip));
-        for (const marker of entry.absent) {
+        const absent = entry.module.startsWith("dpop/")
+          ? entry.absent
+          : [...entry.absent, MARKERS.dpop];
+        for (const marker of absent) {
           expect(code, `${name} bundle must not contain ${marker}`).not.toContain(marker);
         }
       },
