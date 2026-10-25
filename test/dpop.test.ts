@@ -503,9 +503,13 @@ describe("DPoP", () => {
     ["https://server.example", "https://server.example/"],
     ["https://server.example/%74oken", "https://server.example/token"],
     ["https://server.example/a/../token", "https://server.example/token"],
+    ["https://server.example/a/%2e%2e/token", "https://server.example/token"],
+    ["https://server.example/a/%2E%2e/token", "https://server.example/a/b/%2e%2E/../token"],
     ["https://server.example/a%2fb", "https://server.example/a%2Fb"],
     ["https://server.example/token?bad=%xx#ignored", "https://server.example/token?other=%yy"],
     ["http://server.example:80/token", "http://server.example/token"],
+    ["https://B\u00fccher.example/token", "https://xn--bcher-kva.example/token"],
+    ["https://[0:0::1]:443/token", "https://[::1]/token"],
   ])("normalizes equivalent URIs %s and %s", async (htu, url) => {
     await expect(
       verifyDPoPProof(await foreignProof({ htu }), { ...target, url }, verification),
@@ -532,6 +536,10 @@ describe("DPoP", () => {
     "https://server.example/%xx",
     " https://server.example/token",
     "https://server.example/a b",
+    "https://server.example:%34%34%33/token",
+    "https://server.ex%41mple/token",
+    "https://%73erver.example/token",
+    "https://[%3A%3A1]/token",
   ])("refuses repaired or malformed target %j", async (url) => {
     await expect(createDPoPProof({ ...target, url }, creation)).rejects.toHaveProperty(
       "code",
