@@ -143,19 +143,19 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["createDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 28281, gzip: 9416 },
+    measured: { min: 28691, gzip: 9548 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "ERR_DPOP_REPLAY"],
   },
   {
     imports: ["verifyDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 34225, gzip: 11200 },
+    measured: { min: 35181, gzip: 11563 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "randomUUID"],
   },
   {
     imports: ["createDPoPProof", "verifyDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 42689, gzip: 13373 },
+    measured: { min: 43664, gzip: 13769 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes],
   },
   {

@@ -122,9 +122,6 @@ export function validateProofClaims(
     throw new JWTError("DPoP proof does not match the request method and URI.", code);
   }
   if (payload.nonce !== undefined) assertNonce(payload.nonce, code);
-  if (context.nonce !== undefined && payload.nonce !== context.nonce) {
-    throw new JWTError("DPoP nonce does not match the expected nonce.", code);
-  }
   if (payload.ath !== undefined && !isSHA256Digest(payload.ath)) {
     throw new JWTError("DPoP ath must be a base64url SHA-256 access token hash.", code);
   }
@@ -136,17 +133,38 @@ export function validateProofClaims(
   }
 }
 
+export function assertExpectedNonce(payload: DPoPPayload, expected: string | undefined): void {
+  if (expected !== undefined && payload.nonce !== expected) {
+    throw new JWTError(
+      "DPoP nonce is missing or does not match the expected nonce.",
+      "ERR_DPOP_NONCE_INVALID",
+    );
+  }
+}
+
 export async function consumeValidatedProof(
   result: DPoPVerifyResult,
   consumeProof: NonNullable<DPoPVerifyOptions["consumeProof"]>,
 ): Promise<void> {
   let accepted: unknown;
   try {
-    accepted = await consumeProof(result);
+    accepted = await consumeProof({
+      payload: structuredClone(result.payload),
+      thumbprint: result.thumbprint,
+    });
   } catch (cause) {
     throw new JWTError("DPoP replay consumption failed.", "ERR_DPOP_REPLAY", cause);
   }
   if (accepted !== true) {
     throw new JWTError("DPoP proof was rejected by replay consumption.", "ERR_DPOP_REPLAY");
   }
+}
+
+export function asProofError(error: unknown): JWTError {
+  if (!(error instanceof JWTError)) {
+    return new JWTError("DPoP proof verification failed.", "ERR_DPOP_INVALID", error);
+  }
+  if (error.code.startsWith("ERR_DPOP_")) return error;
+  const code = error.code.startsWith("ERR_JWT_") ? "ERR_DPOP_CLAIM_INVALID" : "ERR_DPOP_INVALID";
+  return new JWTError(error.message, code, error);
 }

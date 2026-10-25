@@ -59,8 +59,9 @@ export type KnownJWTErrorCode =
   | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set
   | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
   // DPoP (RFC 9449)
-  | "ERR_DPOP_INVALID" // malformed proof or unsupported proof header
-  | "ERR_DPOP_CLAIM_INVALID" // proof claims do not match the supplied target, nonce, or token
+  | "ERR_DPOP_INVALID" // proof form, header, key, algorithm or signature rejected
+  | "ERR_DPOP_CLAIM_INVALID" // proof claims fail the time, target or token-binding checks
+  | "ERR_DPOP_NONCE_INVALID" // the expected nonce is missing or different
   | "ERR_DPOP_REPLAY" // replay callback rejected the proof or failed
   // Session adapters
   | "ERR_SESSION_TOKEN_INVALID" // an incoming session token failed verification or decryption
