@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { generateJWK } from "../src/core/jwk/index.ts";
 import type {
-  JWEEncryptJWK,
+  JWK_oct,
   JWEAsymmetricPrivateJWK,
   JWEAsymmetricPublicJWK,
 } from "../src/core/types/index.ts";
+import { isJWTError } from "../src/error.ts";
 import {
   createJWESession,
   type SessionConfigJWE,
@@ -56,7 +57,7 @@ function liveCookies(store: Map<string, MockEntry>): Record<string, string> {
 }
 
 describe("elysia JWE session core", () => {
-  let jweKey: JWEEncryptJWK;
+  let jweKey: JWK_oct<"A256GCMKW">;
   let rsa: { privateKey: JWEAsymmetricPrivateJWK; publicKey: JWEAsymmetricPublicJWK };
 
   beforeAll(async () => {
@@ -217,17 +218,32 @@ describe("elysia JWE session core", () => {
     expect(onClear.mock.calls[0][0].oldSession.id).toBe(idBefore);
   });
 
-  it("works with an asymmetric key pair (public seals, private unseals)", async () => {
-    const cfg: SessionConfigJWE = { key: { privateKey: rsa.privateKey, publicKey: rsa.publicKey } };
-    const first = makeContext();
-    const s1 = await createJWESession(first.context, cfg);
+  it("refuses an asymmetric key pair, or its private half alone, on first use", async () => {
+    for (const key of [rsa, { privateKey: rsa.privateKey }, rsa.privateKey]) {
+      const error = await createJWESession(makeContext().context, {
+        key: key as never,
+      }).catch((error_: unknown) => error_);
+
+      expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+      expect((error as Error).message).toContain("an asymmetric key seals with its public half");
+    }
+  });
+
+  it("opens a token minted under a key of its rotation set, and issues under current", async () => {
+    const current = { ...(await generateJWK("A256GCMKW")), kid: "current" };
+    const former = { ...jweKey, kid: "former" };
+    const minted = makeContext();
+    const s1 = await createJWESession(minted.context, { key: former });
     await s1.update({ user: "grace" });
 
-    const second = makeContext({ cookies: liveCookies(first.store) });
+    const cfg: SessionConfigJWE = { key: { current, keys: [former] } };
+    const second = makeContext({ cookies: liveCookies(minted.store) });
     const s2 = await createJWESession(second.context, cfg);
-
     expect(s2.id).toBe(s1.id);
     expect(s2.data.user).toBe("grace");
+
+    await s2.update({ user: "grace" });
+    expect(JSON.parse(atob(s2.token!.split(".")[0])).kid).toBe("current");
   });
 
   it("omits exp when maxAge is unset and enforces it when set", async () => {

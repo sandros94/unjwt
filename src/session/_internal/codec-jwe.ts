@@ -1,29 +1,26 @@
 import { encrypt, decrypt } from "../../core/jwe/index.ts";
 import { DEFAULT_PBES2_ITERATIONS } from "../../core/_internal/limits.ts";
 import {
+  isAsymmetricJWK,
   isCryptoKey,
   isJWK,
-  isPrivateJWK,
-  isPublicJWK,
+  isJWKSet,
   isSymmetricJWK,
 } from "../../utils/guards.ts";
-import { toPublicJWK } from "../../core/jwk/export.ts";
 import type {
   ExpiresIn,
-  JWEEncryptJWK,
   JWEDecryptJWK,
   JWEDecryptOptions,
-  JWEAsymmetricPublicJWK,
-  JWEAsymmetricPrivateJWK,
   JWEEncryptOptions,
   JWEHeaderParameters,
   JWEKeyLookup,
+  JWKSet,
 } from "../../core/types/index.ts";
 import type { StrictOmit } from "../../utils/types.ts";
+import type { JWTError } from "../../error.ts";
 import { assertKeyMaterial, invalidKeyError } from "./contract.ts";
 import {
   type SessionPayload,
-  assertKeyPair,
   assertPinnedCryptoKey,
   createSessionCodec,
   isKeyPair,
@@ -33,42 +30,26 @@ import {
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
+/** An `oct` JWK admissible for JWE key management. */
+export type JWESessionOctJWK = Extract<JWEDecryptJWK, { kty: "oct" }>;
+
+/** One symmetric key: an `oct` JWK, or a secret `CryptoKey` (requires pinned `alg` and `enc`). */
+export type JWESessionSecret = JWESessionOctJWK | CryptoKey;
+
 /**
- * A symmetric `oct` JWK, or a `CryptoKey` (requires pinned `alg` and `enc`): the one key seals and unseals.
- *
- * The `{ privateKey, publicKey? }` pair members are deprecated: a pair seals with its public half,
- * so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or
- * `defineJWSSession` for a key pair.
+ * A symmetric key that seals and unseals, or a rotation set: `current` seals (its `kid` goes into
+ * the header) and opens, `keys` open too, picked by the token's `kid`. An asymmetric key is refused
+ * with `ERR_SESSION_KEY_INVALID`: a pair seals with its public half, so anyone holding that half could
+ * mint a session the server accepts; `defineJWSSession` takes a key pair.
  */
 export type JWESessionKey =
-  | CryptoKey
-  | JWEEncryptJWK
+  | JWESessionSecret
   | {
-      /**
-       * Unseals; a private JWK alone seals with its own public half.
-       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
-       */
-      privateKey: JWEAsymmetricPrivateJWK;
-      /**
-       * Seals.
-       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
-       */
-      publicKey?: JWEAsymmetricPublicJWK | CryptoKey;
-    }
-  | {
-      /**
-       * Unseals; a private `CryptoKey` has no public half to derive, so it comes with one.
-       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
-       */
-      privateKey: CryptoKey;
-      /**
-       * Seals.
-       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
-       */
-      publicKey: JWEAsymmetricPublicJWK | CryptoKey;
+      /** Seals every token, and opens. */
+      current: JWESessionSecret;
+      /** Open as well; `current` need not be repeated. With a `CryptoKey` `current`, a token whose `kid` names none of them opens with `current`. */
+      keys: JWESessionOctJWK[] | JWKSet<JWESessionOctJWK[]>;
     };
-
-type JWESessionKeyPair = Extract<JWESessionKey, { privateKey: unknown }>;
 
 /** JWE decrypt overrides, minus the options the adapter owns. */
 export type SessionDecryptOptions = StrictOmit<
@@ -126,7 +107,11 @@ export interface JWECodecConfig extends SessionCoreConfig {
   };
 }
 
-type JWEOpenKey = JWEDecryptJWK | CryptoKey | JWEKeyLookup<JWEDecryptJWK>;
+type JWEOpenKey =
+  | JWEDecryptJWK
+  | JWKSet
+  | CryptoKey
+  | JWEKeyLookup<JWEDecryptJWK | JWKSet | CryptoKey>;
 
 export const JWE_DEFAULT_COOKIE = {
   path: "/",
@@ -142,7 +127,7 @@ export function createJWECodec(options: {
 }): SessionCodec<JWECodecConfig> {
   const { prefix, defaultName } = options;
 
-  return createSessionCodec<JWECodecConfig, JWEEncryptJWK | CryptoKey, JWEOpenKey>({
+  return createSessionCodec<JWECodecConfig, JWESessionSecret, JWEOpenKey>({
     family: "jwe",
     prefix,
     defaultName,
@@ -158,10 +143,14 @@ export function createJWECodec(options: {
       return (header: JWEHeaderParameters) =>
         hooks.onUnsealKeyLookup?.({ header, ...args, config });
     },
+    importable: (_key, config) => {
+      const { current, previous = [] } = sessionKeys(config, prefix);
+      return [current, ...previous];
+    },
 
     issue: (config, payload, key) =>
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a CryptoKey reaches here only with `alg` and `enc` pinned
-      encrypt(payload, key as JWEEncryptJWK, sessionIssueOptions(config.jwe?.encryptOptions)),
+      encrypt(payload, key as JWESessionOctJWK, sessionIssueOptions(config.jwe?.encryptOptions)),
 
     open: async (config, sealed, key) => {
       const { decryptOptions, encryptOptions } = config.jwe ?? {};
@@ -186,84 +175,94 @@ export function createJWECodec(options: {
 function sessionMaxIterations(config: JWECodecConfig): number | undefined {
   const configured = config.jwe?.decryptOptions?.maxIterations;
   if (configured !== undefined) return configured;
-  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(config.key) ? config.key.alg : undefined);
+  const key = rotationSet(config.key)?.current ?? config.key;
+  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(key) ? key.alg : undefined);
   return typeof alg === "string" && alg.startsWith("PBES2")
     ? (config.jwe?.encryptOptions?.p2c ?? DEFAULT_PBES2_ITERATIONS)
     : undefined;
 }
 
-function getEncryptKey(config: JWECodecConfig, prefix: string): JWEEncryptJWK | CryptoKey {
-  const key = config.key;
-  assertKeyMaterial(key, { prefix });
-
-  let resolved: JWEEncryptJWK | CryptoKey | undefined;
-  if (isCryptoKey(key) || isSymmetricJWK(key)) {
-    resolved = key;
-  } else if (isKeyPair(key)) {
-    resolved = jweKeyPair(key, prefix).publicKey;
-  }
-
-  if (!resolved) {
-    throw invalidKeyError(`${prefix} Invalid JWE key, expected a JWK or a CryptoKey.`, key);
-  }
-
-  assertPinnedAlgEnc(resolved, config, prefix);
-  return resolved;
+function getEncryptKey(config: JWECodecConfig, prefix: string): JWESessionSecret {
+  const { current } = sessionKeys(config, prefix);
+  assertPinnedAlgEnc(current, config, prefix);
+  return current;
 }
 
-function getDecryptKey(config: JWECodecConfig, prefix: string): JWEDecryptJWK | CryptoKey {
-  const key = config.key;
-  assertKeyMaterial(key, { prefix });
-
-  let resolved: JWEDecryptJWK | CryptoKey | undefined;
-  if (isCryptoKey(key) || isSymmetricJWK(key)) {
-    resolved = key;
-  } else if (isKeyPair(key)) {
-    resolved = jweKeyPair(key, prefix).privateKey;
+/** `current` alone; with a rotation set, a JWK Set of `current` and `keys`, or with a `CryptoKey` `current`, `keys` for a token whose `kid` names one of them. */
+function getDecryptKey(config: JWECodecConfig, prefix: string): JWEOpenKey {
+  const { current, previous } = sessionKeys(config, prefix);
+  assertPinnedAlgEnc(current, config, prefix);
+  if (!previous) return current;
+  if (!isCryptoKey(current)) {
+    return { keys: [current, ...previous.filter((key) => key !== current)] };
   }
+  const set = { keys: previous };
+  return (header: JWEHeaderParameters) =>
+    header.kid !== undefined && previous.some((key) => key.kid === header.kid) ? set : current;
+}
 
-  if (!resolved) {
+/** The configured key, refusing asymmetric material: a public half that seals lets its holder mint sessions. */
+function sessionKeys(
+  config: JWECodecConfig,
+  prefix: string,
+): { current: JWESessionSecret; previous?: JWESessionOctJWK[] } {
+  const key: unknown = config.key;
+  assertKeyMaterial(key, { prefix });
+  const set = rotationSet(key);
+  if (!set) return { current: sessionSecret(key, { prefix, what: "" }) };
+
+  const previous: unknown = isJWKSet(set.keys) ? set.keys.keys : set.keys;
+  if (!Array.isArray(previous)) {
     throw invalidKeyError(
-      `${prefix} Invalid JWE key, expected a JWK, a private JWK or a CryptoKey.`,
+      `${prefix} Invalid JWE session key: "keys" must be a list or a JWK Set of "oct" JWKs.`,
       key,
     );
   }
-
-  assertPinnedAlgEnc(resolved, config, prefix);
-  return resolved;
-}
-
-/** Both halves of the pair, the public one derived from a private JWK when the config carries none. */
-function jweKeyPair(
-  key: JWESessionKeyPair,
-  prefix: string,
-): {
-  privateKey: JWEAsymmetricPrivateJWK | CryptoKey;
-  publicKey: JWEAsymmetricPublicJWK | CryptoKey;
-} {
-  const pair = {
-    privateKey: key.privateKey,
-    publicKey: key.publicKey ?? derivedPublicHalf(key.privateKey, prefix),
+  return {
+    current: sessionSecret(set.current, { prefix, what: '"current"' }),
+    previous: previous.map((entry: unknown) => {
+      if (isOctJWK(entry)) return entry;
+      throw keyError(entry, { prefix, expected: '"keys" must hold "oct" JWKs' });
+    }),
   };
-  assertKeyPair(pair, {
-    prefix,
-    family: "JWE",
-    isPublic: (half) => isCryptoKey(half) || isPublicJWK(half),
-    publicHalf: "a public JWK or a CryptoKey",
-  });
-  return pair;
 }
 
-/** A private JWK carries its public members; a private `CryptoKey` does not, so it needs the public half spelled out. */
-function derivedPublicHalf(
-  privateKey: JWEAsymmetricPrivateJWK | CryptoKey,
-  prefix: string,
-): JWEAsymmetricPublicJWK | CryptoKey {
-  if (isPrivateJWK(privateKey)) return toPublicJWK(privateKey);
-  throw invalidKeyError(
-    `${prefix} Invalid JWE key: a CryptoKey "privateKey" needs its "publicKey".`,
-    privateKey,
-  );
+function sessionSecret(key: unknown, options: { prefix: string; what: string }): JWESessionSecret {
+  if (isOctJWK(key)) return key;
+  if (isCryptoKey(key) && key.type === "secret") return key;
+  const expected = options.what
+    ? `${options.what} must be an "oct" JWK or a secret CryptoKey`
+    : 'expected an "oct" JWK, a secret CryptoKey or { current, keys }';
+  throw keyError(key, { prefix: options.prefix, expected });
+}
+
+function keyError(
+  key: unknown,
+  options: { prefix: string; expected: string },
+): JWTError<"ERR_SESSION_KEY_INVALID"> {
+  const asymmetric = isCryptoKey(key)
+    ? key.type !== "secret"
+    : isAsymmetricJWK(key) || (isObject(key) && isKeyPair(key));
+  if (asymmetric) {
+    return invalidKeyError(
+      `${options.prefix} Invalid JWE session key: an asymmetric key seals with its public half, so anyone holding that half could mint sessions. Use an "oct" JWK, or defineJWSSession for a key pair.`,
+      key,
+    );
+  }
+  return invalidKeyError(`${options.prefix} Invalid JWE session key: ${options.expected}.`, key);
+}
+
+/** An `oct` JWK; an `alg` outside JWE fails as the key is imported. */
+function isOctJWK(key: unknown): key is JWESessionOctJWK {
+  return isSymmetricJWK(key);
+}
+
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function rotationSet(key: unknown): { current: unknown; keys?: unknown } | undefined {
+  return isObject(key) && "current" in key ? key : undefined;
 }
 
 function assertPinnedAlgEnc(key: unknown, config: JWECodecConfig, prefix: string): void {

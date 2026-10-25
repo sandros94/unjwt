@@ -869,7 +869,9 @@ describe("session adapters — shared contract", () => {
         );
 
         expect(body.code).toBe(true);
-        expect(body.message).toMatch(/privateKey/);
+        expect(body.message).toMatch(
+          port.family === "jws" ? /privateKey/ : /an asymmetric key seals with its public half/,
+        );
         expect(onError).not.toHaveBeenCalled();
       },
     );
@@ -2186,7 +2188,7 @@ describe("session adapters — shared contract", () => {
         };
       });
 
-    it.each(portFamilyCases())(
+    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
       "$label: names the private half when it is not a private key",
       async (port) => {
         const { publicKey } = rsaPairFor(port);
@@ -2197,7 +2199,7 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
       "$label: names the public half when it is not a public key",
       async (port) => {
         const { privateKey } = rsaPairFor(port);
@@ -2209,31 +2211,17 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(portFamilyCases().filter((port) => port.family === "jwe"))(
-      "$label: a private JWK alone seals with its own public half",
+      "$label: refuses a key pair, or its private half alone, as the session key",
       async (port) => {
-        const { privateKey } = rsaPairFor(port);
-        const body = await port.run(
-          { name: port.name, key: { privateKey }, cookie: { secure: false } },
-          async (open) => {
-            const session = await open();
-            await session.update({ user: "ada" });
-            return { id: session.id ?? null, data: session.data };
-          },
-        );
+        const { privateKey, publicKey } = rsaPairFor(port);
+        const cryptoPair = await generateKey("RSA-OAEP-256");
+        const keys = [{ privateKey, publicKey }, { privateKey }, privateKey, cryptoPair];
 
-        expect(body.id).toEqual(expect.any(String));
-        expect(body.data).toEqual({ user: "ada" });
-      },
-    );
-
-    it.each(portFamilyCases().filter((port) => port.family === "jwe"))(
-      "$label: names the public half when a CryptoKey pair has none",
-      async (port) => {
-        const { privateKey } = await generateKey("RSA-OAEP-256");
-        const body = await refusal(port, { privateKey });
-
-        expect(body.code).toBe(true);
-        expect(body.message).toMatch(/CryptoKey "privateKey" needs its "publicKey"/);
+        for (const key of keys) {
+          const body = await refusal(port, key);
+          expect(body.code).toBe(true);
+          expect(body.message).toMatch(/an asymmetric key seals with its public half/);
+        }
       },
     );
 

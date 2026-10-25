@@ -22,6 +22,12 @@ import {
 } from "../src/session/index.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
+const rotation = await Promise.all(
+  ["current", "previous", "unknown"].map(async (kid) => ({
+    ...(await generateJWK("A256KW")),
+    kid,
+  })),
+);
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -814,44 +820,133 @@ describe("unjwt/session types", () => {
   });
 });
 
-describe("JWE key pair halves", () => {
-  const roundTrip = async (key: JWESessionKey) => {
-    const session = defineJWESession({ name: "web", key });
-    const headers = new Headers();
-    const written = await session.use({ req: get(), res: { headers } });
-    await written.update({ user: "ada" });
-    const read = await session.use({ req: get({ cookie: replay(headers) }) });
-    return { id: read.id, data: read.data, writtenId: written.id };
-  };
+describe("JWE session keys", () => {
+  const asymmetric = (error: unknown) =>
+    isJWTError(error, "ERR_SESSION_KEY_INVALID") &&
+    error.message.includes("an asymmetric key seals with its public half") &&
+    error.message.includes("defineJWSSession");
 
-  it("a private JWK alone seals with its own public half", async () => {
-    const { privateKey } = await generateJWK("RSA-OAEP-256");
-    const result = await roundTrip({ privateKey });
-    expect(result.id).toBe(result.writtenId);
-    expect(result.data).toEqual({ user: "ada" });
-  });
-
-  it("an imported PKCS8 PEM is a session key as it comes", async () => {
-    const privateKey = await importPEM(rsa.pem.pkcs8, "RSA-OAEP-256", { pemType: "pkcs8" });
-    const result = await roundTrip({ privateKey });
-    expect(result.id).toBe(result.writtenId);
-    expect(result.data).toEqual({ user: "ada" });
-  });
-
-  it("a private CryptoKey alone is refused, its public half cannot be derived", async () => {
-    const { privateKey } = await generateKey("RSA-OAEP-256");
-    const session = defineJWESession({ name: "web", key: { privateKey } as never });
-    const error = await session
+  const firstUse = (key: unknown) =>
+    defineJWESession({ name: "web", key: key as JWESessionKey })
       .use({ req: get(), res: { headers: new Headers() } })
-      .catch((e) => e);
-    expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
-    expect((error as Error).message).toContain('a CryptoKey "privateKey" needs its "publicKey"');
+      .catch((error: unknown) => error);
+
+  it("refuses a key pair, a lone private or public JWK and a non-secret CryptoKey on first use", async () => {
+    const [jwkPair, cryptoPair] = await Promise.all([
+      generateJWK("RSA-OAEP-256"),
+      generateKey("RSA-OAEP-256"),
+    ]);
+    const pem = await importPEM(rsa.pem.pkcs8, "RSA-OAEP-256", { pemType: "pkcs8" });
+    const refused = [
+      jwkPair,
+      { privateKey: jwkPair.privateKey },
+      jwkPair.privateKey,
+      jwkPair.publicKey,
+      cryptoPair,
+      { privateKey: cryptoPair.privateKey },
+      cryptoPair.publicKey,
+      pem,
+      { current: jweKey, keys: [jwkPair.privateKey] },
+      { current: cryptoPair.privateKey, keys: [] },
+    ];
+
+    for (const key of refused) expect(asymmetric(await firstUse(key))).toBe(true);
   });
 
-  it("types: a private JWK may come alone, a private CryptoKey may not", () => {
-    expectTypeOf<{ privateKey: JWEAsymmetricPrivateJWK }>().toExtend<JWESessionKey>();
-    expectTypeOf<{ privateKey: CryptoKey }>().not.toExtend<JWESessionKey>();
-    expectTypeOf<{ privateKey: CryptoKey; publicKey: CryptoKey }>().toExtend<JWESessionKey>();
+  it("refuses a rotation set whose keys are not a list or a JWK Set of oct JWKs", async () => {
+    for (const keys of [undefined, "keys", [{ kty: "oct" }]]) {
+      const error = await firstUse({ current: jweKey, keys });
+      expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+      expect((error as Error).message).toContain('"keys"');
+    }
+  });
+
+  it("never opens a token sealed with the public half of a former pair", async () => {
+    const { publicKey } = await generateJWK("RSA-OAEP-256");
+    const onError = vi.fn();
+    const session = defineJWESession({ name: "web", key: jweKey, hooks: { onError } });
+    const forged = await encrypt({ jti: "forged", iat: nowSeconds(), user: "mallory" }, publicKey, {
+      protectedHeader: { typ: "session+jwt" },
+    });
+
+    const manager = await session.use({ req: get({ cookie: `web=${forged}` }) });
+    expect(manager.id).toBeUndefined();
+    expect(manager.data).toEqual({});
+    expect(onError).toHaveBeenCalledOnce();
+    await expect(session.open(forged)).rejects.toSatisfy((error) =>
+      isJWTError(error, "ERR_SESSION_TOKEN_INVALID"),
+    );
+  });
+
+  describe("rotation set", () => {
+    const [current, previous, unknown] = rotation;
+    const mint = (key: unknown) =>
+      defineJWESession({ name: "web", key: key as JWESessionKey }).issue({ user: "ada" });
+
+    it.each([
+      { shape: "a list", keys: [previous] },
+      { shape: "a JWK Set", keys: { keys: [previous] } },
+      { shape: "a list repeating current", keys: [current, previous] },
+    ])("issues under current and opens a token minted under $shape", async ({ keys }) => {
+      const session = defineJWESession({ name: "web", key: { current, keys } });
+      const issued = await session.issue({ user: "ada" });
+      const formerToken = await mint(previous);
+
+      expect(JSON.parse(atob(issued.split(".")[0])).kid).toBe("current");
+      expect((await session.open(issued)).data).toEqual({ user: "ada" });
+      expect((await session.open(formerToken)).data).toEqual({ user: "ada" });
+      const read = await session.use({ req: get({ cookie: `web=${formerToken}` }) });
+      expect(read.data).toEqual({ user: "ada" });
+    });
+
+    it("a token minted under a key outside the set is a token failure", async () => {
+      const onError = vi.fn();
+      const session = defineJWESession({
+        name: "web",
+        key: { current, keys: [previous] },
+        hooks: { onError },
+      });
+      const stranger = await mint(unknown);
+
+      const read = await session.use({ req: get({ cookie: `web=${stranger}` }) });
+      expect(read.id).toBeUndefined();
+      expect(onError).toHaveBeenCalledOnce();
+      const [{ error }] = onError.mock.calls[0] as [{ error: unknown }];
+      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+    });
+
+    it("a secret CryptoKey current opens its own tokens, and the keys by kid", async () => {
+      const secret = await generateKey("A256KW");
+      const pinned = { jwe: { encryptOptions: { alg: "A256KW", enc: "A256GCM" } } } as const;
+      const session = defineJWESession({
+        name: "web",
+        key: { current: secret, keys: [previous] },
+        ...pinned,
+      });
+      const issued = await session.issue({ user: "ada" });
+      const formerToken = await defineJWESession({ name: "web", key: previous, ...pinned }).issue({
+        user: "ada",
+      });
+
+      expect((await session.open(issued)).data).toEqual({ user: "ada" });
+      expect((await session.open(formerToken)).data).toEqual({ user: "ada" });
+      await expect(session.open(await mint(unknown))).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_SESSION_TOKEN_INVALID"),
+      );
+    });
+  });
+
+  it("types: symmetric keys and rotation sets, never a pair", () => {
+    expectTypeOf<typeof jweKey>().toExtend<JWESessionKey>();
+    expectTypeOf<CryptoKey>().toExtend<JWESessionKey>();
+    expectTypeOf<{ current: typeof jweKey; keys: (typeof jweKey)[] }>().toExtend<JWESessionKey>();
+    expectTypeOf<{
+      current: CryptoKey;
+      keys: { keys: (typeof jweKey)[] };
+    }>().toExtend<JWESessionKey>();
+    expectTypeOf<{ privateKey: JWEAsymmetricPrivateJWK }>().not.toExtend<JWESessionKey>();
+    expectTypeOf<{ privateKey: CryptoKey; publicKey: CryptoKey }>().not.toExtend<JWESessionKey>();
+    expectTypeOf<JWEAsymmetricPrivateJWK>().not.toExtend<JWESessionKey>();
   });
 });
 

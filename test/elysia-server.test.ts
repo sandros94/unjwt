@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { Elysia, t } from "elysia";
 import { generateJWK } from "../src/core/jwk/index.ts";
-import type { JWK_oct, JWK_HMAC, JWEEncryptJWK } from "../src/core/types/index.ts";
+import type { JWK_oct, JWK_HMAC } from "../src/core/types/index.ts";
 import { createJWSSession, jwsSession } from "../src/adapters/elysia/session/jws.ts";
 import { createJWESession, jweSession } from "../src/adapters/elysia/session/jwe.ts";
 
@@ -22,7 +22,7 @@ function post(path: string, body: unknown, headers: Record<string, string> = {})
 
 describe("elysia session — running server via app.handle", () => {
   let jwsKey: JWK_oct<JWK_HMAC>;
-  let jweKey: JWEEncryptJWK;
+  let jweKey: JWK_oct<"A256GCMKW">;
 
   beforeAll(async () => {
     jwsKey = await generateJWK("HS256");
@@ -145,7 +145,7 @@ describe("elysia session — running server via app.handle", () => {
 
 describe("elysia session — plugin API (jwsSession / jweSession)", () => {
   let jwsKey: JWK_oct<JWK_HMAC>;
-  let jweKey: JWEEncryptJWK;
+  let jweKey: JWK_oct<"A256GCMKW">;
 
   beforeAll(async () => {
     jwsKey = await generateJWK("HS256");
@@ -268,8 +268,8 @@ describe("elysia session — plugin API (jwsSession / jweSession)", () => {
 
 describe("elysia session — multiple sessions on one app", () => {
   let hsKey: JWK_oct<JWK_HMAC>;
-  let jweKey1: JWEEncryptJWK;
-  let jweKey2: JWEEncryptJWK;
+  let jweKey1: JWK_oct<"A256GCMKW">;
+  let jweKey2: JWK_oct<"A256GCMKW">;
 
   beforeAll(async () => {
     hsKey = await generateJWK("HS256");

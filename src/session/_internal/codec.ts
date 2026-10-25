@@ -1,6 +1,6 @@
 import type { ExpiresIn, JWTClaims, Duration, JWKAlgorithm } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
-import { isCryptoKey, isPrivateJWK, isSymmetricJWK } from "../../utils/guards.ts";
+import { isCryptoKey, isPrivateJWK } from "../../utils/guards.ts";
 import {
   RESERVED_CLAIMS,
   assertImportableKey,
@@ -31,7 +31,7 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   openKey: (config: Config) => OpenKey;
   lookup: (config: Config, args: Record<string, unknown>) => OpenKey | undefined;
   /** The JWKs of an open key to import up front. */
-  importable?: (key: OpenKey) => readonly unknown[];
+  importable?: (key: OpenKey, config: Config) => readonly unknown[];
   issue: (config: Config, payload: Record<string, unknown>, key: IssueKey) => Promise<string>;
   open: (config: Config, token: string, key: OpenKey) => Promise<SessionPayload>;
 }
@@ -62,7 +62,7 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
   const assertOpenKey = async (config: Config): Promise<void> => {
     if (spec.lookup(config, {})) return;
     const key = spec.openKey(config);
-    for (const candidate of spec.importable ? spec.importable(key) : [key]) {
+    for (const candidate of spec.importable ? spec.importable(key, config) : [key]) {
       await assertImportableKey(candidate, { alg: alg(config), prefix });
     }
   };
@@ -82,7 +82,7 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
     assertKeys: async (config) => {
       const key = spec.issueKey(config);
       await assertImportableKey(key, { alg: alg(config), prefix });
-      if (!isSymmetricJWK(key)) await assertOpenKey(config);
+      await assertOpenKey(config);
     },
 
     opener: (config, args) => {
