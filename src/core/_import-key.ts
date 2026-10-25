@@ -133,8 +133,14 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
+    if (key.kty !== "oct" && Object.hasOwn(key, "k")) {
+      throw new JWTError(
+        `JWK "k" is defined only for "oct" keys, not "${key.kty}".`,
+        "ERR_JWK_INVALID",
+      );
+    }
     assertJWKAlgAuthority(key, alg);
-    if ("k" in key && typeof key.k === "string") {
+    if (key.kty === "oct" && typeof key.k === "string") {
       const rawBytes = decodeSegment(key.k, { family: "JWK", what: '"k"' });
       assertOctKeyLength(rawBytes, alg ?? key.alg);
       if (typeof algOrOptions === "object" && algOrOptions.asCryptoKey) {

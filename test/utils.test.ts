@@ -309,6 +309,11 @@ describe("type guards", () => {
       expect(isPublicJWK(key)).toBe(false);
     });
 
+    it('returns false for EC JWK carrying "k"', () => {
+      const key = { kty: "EC", crv: "P-256", x: "abc", y: "def", k: "secret" } as JWK_EC_Public;
+      expect(isPublicJWK(key)).toBe(false);
+    });
+
     it("returns true for OKP public JWK (x, no d)", () => {
       const key: JWK_OKP_Public = { kty: "OKP", crv: "Ed25519", x: "abc" };
       expect(isPublicJWK(key)).toBe(true);

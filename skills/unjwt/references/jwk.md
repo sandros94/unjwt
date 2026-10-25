@@ -76,7 +76,7 @@ const bare = await generateJWK("HS256", { kid: false }); // typed without `kid`
 The public half of an asymmetric JWK, synchronous. Advanced use: `generateJWK()`/`generateKey()` already return both halves, so keep the pair; reach for this when a deployment persists the private JWK alone (one secret in the environment, public half derived at boot).
 
 - `jwk: JWK_Asymmetric` — RSA, EC or OKP, private or public. Returns `ToPublicJWKReturn<typeof jwk>`: the public interface of the input's family and `alg` (`JWK_EC_Private<"ES256">` → `JWK_EC_Public<"ES256">`), keeping a typed `kid`
-- Drops `d` and the RSA CRT members; a `key_ops`, when present, is mapped to the public operations (`sign` → `verify`, `decrypt` → `encrypt`, `unwrapKey` → `wrapKey`, ECDH derivations dropped); every other member is kept. Equals the pair's `publicKey` for every algorithm
+- Drops `d`, any `k` and the RSA CRT members; a `key_ops`, when present, is mapped to the public operations (`sign` → `verify`, `decrypt` → `encrypt`, `unwrapKey` → `wrapKey`, ECDH derivations dropped); every other member is kept. Equals the pair's `publicKey` for every algorithm
 - A public JWK returns an equal copy; an `oct` JWK, a non-JWK, or a JWK missing its public members throws `ERR_JWK_INVALID`
 
 ```ts
@@ -117,7 +117,7 @@ Normalizes various key formats into `CryptoKey` or `Uint8Array`.
 - `CryptoKey` → returned as-is (subject to `expect` validation if supplied)
 - `JWK_oct` → `k` decoded to `Uint8Array` (default)
 - `JWK_oct` + `{ asCryptoKey: true, algorithm, usage, extractable? }` → imported as non-extractable `CryptoKey`
-- Asymmetric `JWK` → imported to `CryptoKey` (requires `alg`; `{ extractable?: boolean }` overrides the default of non-extractable for private key material, extractable for public)
+- Asymmetric `JWK` → imported to `CryptoKey` (a `k` member throws `ERR_JWK_INVALID`, it belongs to `oct` alone; requires `alg`; `{ extractable?: boolean }` overrides the default of non-extractable for private key material, extractable for public)
 - `algOrOptions` is a `JWKAlgorithm` (the shorthand) or `{ alg?: JWKAlgorithm; expect?; extractable? }`; an `alg` outside the union is a type error, not a runtime surprise
 
 **Return types follow the input.** `importKey(key)` returns `ImportedKey<typeof key>`, an entry of `ImportedKeyMap` keyed by input kind: `bytes` and `oct` → `Uint8Array<ArrayBuffer>`, `cryptoKey` and `asymmetric` → `CryptoKey`. A union input (`JWK`, `CryptoKey | JWK_oct`) returns the union of its entries; `asCryptoKey: true` always returns `CryptoKey`.

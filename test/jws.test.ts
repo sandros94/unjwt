@@ -725,6 +725,30 @@ describe.concurrent("JWS Utilities", () => {
         expect(payload.sub).toBe("admin");
       });
 
+      it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+        const { publicKey } = rsaPair;
+        const attackerSecret = await generateJWK("HS256");
+        const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
+        const { kid, k } = attackerSecret;
+        const disguised = { kty: "EC", alg: "HS256", kid, k } as unknown as JWK;
+        const poisoned: JWKSet = { keys: [publicKey, disguised] };
+
+        const error = await verify(forgery, poisoned).catch((e) => e);
+        expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+
+        const admitted = await verify(forgery, poisoned, {
+          allowSymmetricJWKSet: true,
+          algorithms: ["HS256"],
+        }).catch((e) => e);
+        expect(isJWTError(admitted, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+        expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+
+        const single = await verify(forgery, disguised as JWSVerifyJWK, {
+          algorithms: ["HS256"],
+        }).catch((e) => e);
+        expect(isJWTError(single, "ERR_JWK_INVALID")).toBe(true);
+      });
+
       it('skips a "use"/"key_ops" mismatched key ordered before the signing key', async () => {
         const { publicKey, privateKey } = rsaPair;
         const jws = await sign(payloadObj, privateKey);

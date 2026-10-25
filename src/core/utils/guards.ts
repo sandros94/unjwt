@@ -100,10 +100,14 @@ export function isPublicJWK<T extends JWK>(
 ): key is Exclude<Extract<T, JWK_EC_Public | JWK_OKP_Public | JWK_RSA_Public>, JWK_Private>;
 export function isPublicJWK(key: unknown): key is JWK_Public;
 export function isPublicJWK(key: unknown): boolean {
-  if (!isJWK(key) || key.kty === "oct" || ("d" in key && typeof key.d === "string")) {
-    return false;
-  }
+  if (!isJWK(key) || key.kty === "oct" || Object.hasOwn(key, "k")) return false;
+  if ("d" in key && typeof key.d === "string") return false;
   if (key.kty === "EC") return typeof key.x === "string" && typeof key.y === "string";
   if (key.kty === "OKP") return typeof key.x === "string";
   return typeof key.n === "string" && typeof key.e === "string";
+}
+
+/** Whether the JWK carries a shared secret: an `oct` key, or any key with an own `k` member. */
+export function hasSymmetricSecret(key: JWK): boolean {
+  return key.kty === "oct" || Object.hasOwn(key, "k");
 }

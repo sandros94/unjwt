@@ -100,7 +100,7 @@ Decrypts a JWE token.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
-  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"enc"`, and its `key_ops` is absent or contains one of `unwrapKey` / `decrypt` / `deriveBits` / `deriveKey`
+  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` and has no `k` member (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"enc"`, and its `key_ops` is absent or contains one of `unwrapKey` / `decrypt` / `deriveBits` / `deriveKey`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, no retry)
     - Token has no `kid` — every candidate is tried in order; first to succeed wins
     - A candidate that cannot open the token — unusable key material as much as a failed unwrap — only means "try the next one"; when none succeeds, `ERR_JWE_DECRYPTION_FAILED` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`

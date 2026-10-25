@@ -415,7 +415,7 @@ export async function exportKey<T extends JWK = JWK>(
  *
  * @param jwk An asymmetric JWK (EC, OKP, RSA) with a private scalar (`d`).
  * @throws `ERR_JWK_INVALID` if the input is not an asymmetric JWK.
- * @returns A JWK with the same public members, without the private scalar.
+ * @returns A JWK with the same public members, without the private scalar or a `k` member.
  */
 export function toPublicJWK<T extends JWK_Asymmetric>(jwk: T): ToPublicJWKReturn<T>;
 export function toPublicJWK(jwk: JWK_Asymmetric): JWK_Public {
@@ -434,6 +434,7 @@ export function toPublicJWK(jwk: JWK_Asymmetric): JWK_Public {
     dq: _dq,
     qi: _qi,
     oth: _oth,
+    k: _k,
     key_ops,
     ...publicMembers
   } = copy;

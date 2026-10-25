@@ -41,6 +41,7 @@ import {
 import { quoteTokenValue } from "./utils/_text.ts";
 import {
   assertPlainObject,
+  hasSymmetricSecret,
   isCryptoKey,
   isCryptoKeyPair,
   isJWK,
@@ -308,7 +309,7 @@ const JWK_SET_KEY_OPS: Readonly<Record<JWKSetOperation, readonly string[]>> =
     enc: ["unwrapKey", "decrypt", "deriveBits", "deriveKey"],
   });
 
-/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; `oct` entries only with `allowSymmetric`. */
+/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; entries carrying `k` only with `allowSymmetric`. */
 export function buildJWKSetFilter(
   header: { kid?: string; alg?: JWKAlgorithm } | undefined,
   options: { op: JWKSetOperation; allowSymmetric?: boolean },
@@ -320,7 +321,7 @@ export function buildJWKSetFilter(
   const keyOps = JWK_SET_KEY_OPS[op];
   return (k) => {
     if (!isJWK(k)) return false;
-    if (k.kty === "oct" && !allowSymmetric) return false;
+    if (!allowSymmetric && hasSymmetricSecret(k)) return false;
     if (kid && k.kid !== kid) return false;
     if (k.alg && k.alg !== alg) return false;
     if (k.use !== undefined && k.use !== use) return false;

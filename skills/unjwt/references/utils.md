@@ -62,7 +62,7 @@ Concatenates multiple `Uint8Array<ArrayBuffer>` instances into one contiguous bu
 | `isSymmetricJWK(key)` | `key is JWK_oct` | JWK with `kty: "oct"` and `k` property |
 | `isAsymmetricJWK(key)` | `key is JWK_Asymmetric` | JWK that is not `oct` |
 | `isPrivateJWK(key)` | `key is JWK_Private` | **Asymmetric** JWK with `d` (returns `false` for `oct`) |
-| `isPublicJWK(key)` | `key is JWK_Public` | Asymmetric JWK without `d` component |
+| `isPublicJWK(key)` | `key is JWK_Public` | Asymmetric JWK with its public members, without `d` or `k` |
 | `assertCryptoKey(key)` | assertion | Throws if not CryptoKey |
 
 > **Sharing keys safely.** `!isPrivateJWK(key)` is _not_ a "safe to publish" check — `isPrivateJWK` only detects asymmetric `d`, so it returns `false` for every `oct` key, whose `k` is always secret. Use `isPublicJWK(key)` (true only for asymmetric public keys) to filter keys that are safe to share; treat any `isSymmetricJWK(key)` as secret.

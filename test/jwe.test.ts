@@ -700,6 +700,20 @@ describe.concurrent("JWE Utilities", () => {
 
       await expect(decrypt(jwe, set, { allowSymmetricJWKSet: true })).resolves.toBeDefined();
     });
+
+    it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+      const kw = await generateJWK("A256KW");
+      const jwe = await encrypt(plaintextObj, kw, { alg: "A256KW", enc: "A256GCM" });
+      const disguised = { kty: "EC", alg: "A256KW", kid: kw.kid, k: kw.k } as unknown as JWK;
+      const set = { keys: [disguised] };
+
+      const error = await decrypt(jwe, set).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+
+      const admitted = await decrypt(jwe, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+      expect(isJWTError(admitted, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+      expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+    });
   });
 
   describe("decrypt specific options and errors", () => {

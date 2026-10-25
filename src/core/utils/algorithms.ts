@@ -7,7 +7,7 @@ import type {
   KeyManagementAlgorithm,
 } from "../types/index.ts";
 import { hashNameOf, lengthOf, namedCurveOf } from "../_crypto/_key-algorithm.ts";
-import { isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
+import { hasSymmetricSecret, isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
 
 /** RFC 7518 §4.8 — the password-based key management algorithms. */
 export const PBES2_ALGORITHMS: readonly JWK_PBES2[] = [
@@ -146,7 +146,7 @@ function unionFromJWKSet<T extends string>(
   const algs = new Set<T>();
   for (const k of keys) {
     if (!isJWK(k)) continue;
-    if (k.kty === "oct" && !options?.allowSymmetric) continue;
+    if (!options?.allowSymmetric && hasSymmetricSecret(k)) continue;
     const mapped = mapper(k);
     if (!mapped) continue;
     for (const a of mapped) algs.add(a);
