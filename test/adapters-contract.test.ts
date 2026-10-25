@@ -563,7 +563,7 @@ describe("session adapters — shared contract", () => {
   // #region cookie attribute parity
   describe("cookie attributes", () => {
     const expected = {
-      jws: { path: "/", secure: true, httpOnly: false, sameSite: "lax" },
+      jws: { path: "/", secure: true, httpOnly: true, sameSite: "lax" },
       jwe: { path: "/", secure: true, httpOnly: true, sameSite: "lax" },
     } as const;
 

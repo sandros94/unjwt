@@ -57,7 +57,7 @@ const FAMILIES: FamilyCase[] = [
 describe("unjwt/session over a Web request", () => {
   it.each(FAMILIES)(
     "$family: writes the cookie with the codec defaults and reads it back",
-    async ({ family, define }) => {
+    async ({ define }) => {
       const session = define();
       const headers = new Headers();
       const written = await session.use({ req: get(), res: { headers } });
@@ -68,11 +68,24 @@ describe("unjwt/session over a Web request", () => {
       expect(line).toContain("Path=/");
       expect(line).toContain("Secure");
       expect(line).toContain("SameSite=Lax");
-      expect(line.includes("HttpOnly")).toBe(family === "jwe");
+      expect(line.includes("HttpOnly")).toBe(true);
 
       const read = await session.use({ req: get({ cookie: replay(headers) }) });
       expect(read.id).toBe(written.id);
       expect(read.data).toEqual({ user: "ada" });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: cookie.httpOnly false is the explicit opt-out of HttpOnly",
+    async ({ define }) => {
+      const session = define({ cookie: { httpOnly: false } });
+      const headers = new Headers();
+      await (await session.use({ req: get(), res: { headers } })).update({ user: "ada" });
+
+      const [line = ""] = headers.getSetCookie();
+      expect(line).toContain("Secure");
+      expect(line.includes("HttpOnly")).toBe(false);
     },
   );
 

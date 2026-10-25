@@ -64,7 +64,7 @@ const app = new Elysia()
   .get("/me", ({ session }) => session.data);
 ```
 
-`ctx.session` is typed (the plugin's scoped `resolve` populates it per request). Cookie defaults match the rest of the library: JWE `httpOnly: true`, JWS `httpOnly: false`, both `secure: true`, `path: "/"`, `sameSite: "lax"`.
+`ctx.session` is typed (the plugin's scoped `resolve` populates it per request). Cookie defaults match the rest of the library: `httpOnly: true` (JWS opts out with `cookie: { httpOnly: false }` when page scripts must read the payload), `secure: true`, `path: "/"`, `sameSite: "lax"`.
 
 ## Guard macro
 

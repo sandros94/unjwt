@@ -62,7 +62,7 @@ export interface JWSSessionConfig<
 > extends SessionBaseConfig<MaxAge> {
   /** Key used for signing — see {@link JWSSessionKey}. */
   key: JWSSessionKey;
-  /** `false` to disable. Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: false` (payload is client-readable). */
+  /** `false` to disable. Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`; `httpOnly: false` lets page scripts read the (signed, not encrypted) payload. */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
   /** Pinned `signOptions.alg` restricts verification; `protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). */
   jws?: JWSSessionOptions;
@@ -98,7 +98,7 @@ type JWSOpenKey = JWSVerifyJWK | JWKSet | CryptoKey | JWSKeyLookup<JWKSet | JWSV
 export const JWS_DEFAULT_COOKIE = {
   path: "/",
   secure: true,
-  httpOnly: false,
+  httpOnly: true,
   sameSite: "lax",
 } as const;
 

@@ -54,7 +54,7 @@ describe("elysia session — running server via app.handle", () => {
     const login = await app.handle(post("/login", { user: "alice" }));
     const setCookies = login.headers.getSetCookie();
     expect(setCookies.some((c) => c.startsWith("elysia-jws="))).toBe(true);
-    expect(setCookies.every((c) => !/HttpOnly/i.test(c))).toBe(true); // JWS payload is client-readable
+    expect(setCookies.every((c) => /HttpOnly/i.test(c))).toBe(true);
 
     const cookie = cookieHeader(setCookies);
     const me = await app.handle(new Request("http://localhost/me", { headers: { cookie } }));
@@ -329,8 +329,8 @@ describe("elysia session — multiple sessions on one app", () => {
     const setCookies = login.headers.getSetCookie();
     const at = setCookies.find((c) => c.startsWith("at="))!;
     const rt = setCookies.find((c) => c.startsWith("rt="))!;
-    expect(/HttpOnly/i.test(at)).toBe(false); // JWS access — client-readable
-    expect(/HttpOnly/i.test(rt)).toBe(true); // JWE refresh — httpOnly
+    expect(/HttpOnly/i.test(at)).toBe(true);
+    expect(/HttpOnly/i.test(rt)).toBe(true);
 
     const cookie = cookieHeader(setCookies);
     const me = await app.handle(new Request("http://localhost/me", { headers: { cookie } }));
