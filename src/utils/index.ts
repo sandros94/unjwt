@@ -32,11 +32,7 @@ export {
   isPublicJWK,
 } from "./guards.ts";
 
-export {
-  type InferAlgorithmsOptions,
-  inferJWSAllowedAlgorithms,
-  inferJWEAllowedAlgorithms,
-} from "./algorithms.ts";
+export { inferJWSAllowedAlgorithms, inferJWEAllowedAlgorithms } from "./algorithms.ts";
 export { isJWTContent, computeDurationInSeconds, validateJwtClaims } from "./jwt.ts";
 export type * from "./types.ts";
 

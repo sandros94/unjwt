@@ -107,7 +107,7 @@ export function isPublicJWK(key: unknown): boolean {
   return typeof key.n === "string" && typeof key.e === "string";
 }
 
-/** Whether the JWK carries a shared secret: an `oct` key, or any key with an own `k` member. */
-export function hasSymmetricSecret(key: JWK): boolean {
-  return key.kty === "oct" || Object.hasOwn(key, "k");
+/** Whether a non-`oct` JWK carries an own `k` member, which only `oct` keys define (RFC 7518 §6.4.1). */
+export function hasMisplacedSecret(key: JWK): boolean {
+  return key.kty !== "oct" && Object.hasOwn(key, "k");
 }

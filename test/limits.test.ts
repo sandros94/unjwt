@@ -133,11 +133,10 @@ describe("limits", () => {
     it("rejects one candidate over the limit before importing a key", async () => {
       const jwe = await encrypt({ sub: "u1" }, octKeys[2], { enc: "A256GCM" });
       const set: JWKSet = { keys: [octKeys[0], octKeys[1], octKeys[2]] };
-      await expect(
-        decrypt(jwe, set, { allowSymmetricJWKSet: true, limits: { keyCandidates: 2 } }),
-      ).rejects.toSatisfy((error) => isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"));
+      await expect(decrypt(jwe, set, { limits: { keyCandidates: 2 } })).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+      );
       const { payload } = await decrypt<{ sub: string }>(jwe, set, {
-        allowSymmetricJWKSet: true,
         limits: { keyCandidates: 3 },
       });
       expect(payload.sub).toBe("u1");
@@ -146,11 +145,10 @@ describe("limits", () => {
     it("applies to decryptMulti", async () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[2] }], { enc: "A256GCM" });
       const set: JWKSet = { keys: [octKeys[0], octKeys[1], octKeys[2]] };
-      await expect(
-        decryptMulti(jwe, set, { allowSymmetricJWKSet: true, limits: { keyCandidates: 2 } }),
-      ).rejects.toSatisfy((error) => isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"));
+      await expect(decryptMulti(jwe, set, { limits: { keyCandidates: 2 } })).rejects.toSatisfy(
+        (error) => isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+      );
       const { payload } = await decryptMulti<{ sub: string }>(jwe, set, {
-        allowSymmetricJWKSet: true,
         limits: { keyCandidates: 3 },
       });
       expect(payload.sub).toBe("u1");

@@ -153,7 +153,7 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
     // JWSSignOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
     // `protectedHeader.typ` sets the session `typ` (default "session+jwt") incoming tokens must carry
     signOptions?: SessionSignOptions;
-    /** JWSVerifyOptions the adapter does not own (`limits`, `allowSymmetricJWKSet`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
+    /** JWSVerifyOptions the adapter does not own (`limits`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
     verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TContext>;

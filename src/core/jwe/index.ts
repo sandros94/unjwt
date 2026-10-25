@@ -322,7 +322,6 @@ export async function decrypt(
   const algError = checkAlgAllowed(alg, rawKeyMaterial, {
     ctx: JWE_ALG_CTX,
     algorithms: options.algorithms,
-    allowSymmetric: options.allowSymmetricJWKSet,
   });
   if (algError) throw algError;
 
@@ -339,7 +338,6 @@ export async function decrypt(
     tag: contentAuthTagBytes,
     aad: aadBytes,
     kid: protectedHeader.kid,
-    allowSymmetric: options.allowSymmetricJWKSet,
     keyCandidates: keyCandidateLimit,
     pbes2Budget,
   });

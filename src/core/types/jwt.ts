@@ -155,11 +155,6 @@ export interface JWTTimeClaimOptions {
 export interface JOSEConsumerOptions<
   Mode extends JOSEPayloadMode = JOSEPayloadMode,
 > extends JWTClaimValidationOptions {
-  /**
-   * Admit `oct` entries of a JWK Set as key material; only for application-controlled sets. @default false
-   * @deprecated A JWK Set is key material the caller chose to trust, so its `oct` entries count like any other; the option goes away and symmetric entries are admitted without it.
-   */
-  allowSymmetricJWKSet?: boolean;
   /** Payload decoding mode; a mismatch is `ERR_JWS_INVALID` / `ERR_JWE_INVALID`. @default "json" */
   payload?: Mode;
   /**

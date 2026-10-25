@@ -232,9 +232,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       ]);
       const otherHmac = await generateJWK("HS256");
       const set: JWKSet = { keys: [otherHmac, keys.hs256] };
-      const { payload, signerIndex } = await verifyMulti(jws, set, {
-        allowSymmetricJWKSet: true,
-      });
+      const { payload, signerIndex } = await verifyMulti(jws, set);
       expect(payload.sub).toBe("u1");
       expect(signerIndex).toBe(1);
     });

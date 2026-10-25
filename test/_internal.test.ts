@@ -78,10 +78,14 @@ describe.concurrent("_internal helpers", () => {
       expect(filter(wrongAlg)).toBe(false);
     });
 
-    it("drops oct entries unless the caller admits symmetric material", () => {
+    it("keeps oct entries like any other", () => {
       const header = { kid: "a", alg: "RS256" } as const;
-      expect(buildJWKSetFilter(header, { op: "sig" })(octKey)).toBe(false);
-      expect(buildJWKSetFilter(header, { op: "sig", allowSymmetric: true })(octKey)).toBe(true);
+      expect(buildJWKSetFilter(header, { op: "sig" })(octKey)).toBe(true);
+    });
+
+    it('drops a non-oct entry carrying "k" as malformed', () => {
+      const disguised = { kty: "EC", crv: "P-256", x: "x", y: "y", k: "x" } as unknown as JWK;
+      expect(buildJWKSetFilter({ alg: "ES256" }, { op: "sig" })(disguised)).toBe(false);
     });
 
     it("drops entries that are not JWKs", () => {
@@ -465,17 +469,9 @@ describe.concurrent("_internal helpers", () => {
     describe("JWK Set inference", () => {
       const rsaEntry: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RS256" };
 
-      it("ignores oct entries unless symmetric material is admitted", () => {
+      it("counts oct entries toward inference", () => {
         const set = { keys: [rsaEntry, { kty: "oct", k: "x", alg: "HS256" } as JWK] };
-        expect(
-          isJWTError(
-            checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX })!,
-            "ERR_JWS_ALG_NOT_ALLOWED",
-          ),
-        ).toBe(true);
-        expect(
-          checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX, allowSymmetric: true }),
-        ).toBeUndefined();
+        expect(checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX })).toBeUndefined();
       });
 
       it("skips entries it cannot infer instead of failing the whole set", () => {

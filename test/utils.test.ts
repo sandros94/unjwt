@@ -645,15 +645,15 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
   });
 
-  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
+  it("counts oct entries of a JWKSet and skips a non-oct entry carrying k", () => {
     const set = {
       keys: [
         { kty: "EC", crv: "P-256", x: "", y: "" },
         { kty: "oct", k: "x", alg: "HS256" },
+        { kty: "EC", crv: "P-384", x: "", y: "", k: "x" },
       ],
     };
-    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
-    expect(inferJWSAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["ES256", "HS256"]);
+    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256", "HS256"]);
   });
 });
 
@@ -702,10 +702,14 @@ describe("inferJWEAllowedAlgorithms", () => {
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x" })).toBeUndefined();
   });
 
-  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
-    const set = { keys: [{ kty: "oct", k: "x", alg: "A256KW" }] };
-    expect(inferJWEAllowedAlgorithms(set)).toBeUndefined();
-    expect(inferJWEAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["A256KW"]);
+  it("counts oct entries of a JWKSet and skips a non-oct entry carrying k", () => {
+    const set = {
+      keys: [
+        { kty: "oct", k: "x", alg: "A256KW" },
+        { kty: "RSA", n: "x", e: "AQAB", alg: "RSA-OAEP-256", k: "x" },
+      ],
+    };
+    expect(inferJWEAllowedAlgorithms(set)).toEqual(["A256KW"]);
   });
 
   it("infers from CryptoKeys across JWE alg families (delegates to privateKey on pairs)", async () => {

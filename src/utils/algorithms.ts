@@ -7,7 +7,7 @@ import type {
   KeyManagementAlgorithm,
 } from "../core/types/index.ts";
 import { hashNameOf, lengthOf, namedCurveOf } from "../core/_crypto/_key-algorithm.ts";
-import { hasSymmetricSecret, isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
+import { hasMisplacedSecret, isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
 
 /** RFC 7518 §4.8 — the password-based key management algorithms. */
 export const PBES2_ALGORITHMS: readonly JWK_PBES2[] = [
@@ -88,26 +88,17 @@ export function isECDHESAlgorithm(alg: string): alg is JWK_ECDH_ES {
   return ECDH_ES_ALGORITHM_SET.has(alg);
 }
 
-/** How a JWK Set's entries are read during algorithm inference. */
-export interface InferAlgorithmsOptions {
-  /** Admit `oct` entries of a JWK Set. Defaults to `false`. */
-  allowSymmetric?: boolean;
-}
-
 /**
  * Infer the JWS algorithms a key unambiguously supports, or `undefined` when it cannot
  * (raw bytes, ambiguous JWK, lookup function) and `options.algorithms` must be passed.
  */
-export function inferJWSAllowedAlgorithms(
-  key: unknown,
-  options?: InferAlgorithmsOptions,
-): JWSAlgorithm[] | undefined {
+export function inferJWSAllowedAlgorithms(key: unknown): JWSAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
   if (typeof key === "string" || key instanceof Uint8Array) return undefined;
   if (typeof key !== "object") return undefined;
 
   if (isCryptoKeyPair(key)) return inferJWSAllowedAlgorithms(key.publicKey);
-  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jwsAlgsFromJWK, options);
+  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jwsAlgsFromJWK);
   if (isCryptoKey(key)) return jwsAlgsFromCryptoKey(key);
   if (isJWK(key)) return jwsAlgsFromJWK(key);
 
@@ -118,10 +109,7 @@ export function inferJWSAllowedAlgorithms(
  * Infer the JWE key management algorithms a key unambiguously supports, or `undefined`
  * when it cannot; a password string infers the PBES2 variants, raw bytes nothing.
  */
-export function inferJWEAllowedAlgorithms(
-  key: unknown,
-  options?: InferAlgorithmsOptions,
-): KeyManagementAlgorithm[] | undefined {
+export function inferJWEAllowedAlgorithms(key: unknown): KeyManagementAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
   if (typeof key === "string") {
     return [...PBES2_ALGORITHMS];
@@ -130,23 +118,21 @@ export function inferJWEAllowedAlgorithms(
   if (typeof key !== "object") return undefined;
 
   if (isCryptoKeyPair(key)) return inferJWEAllowedAlgorithms(key.privateKey);
-  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jweAlgsFromJWK, options);
+  if (isJWKSet(key)) return unionFromJWKSet(key.keys, jweAlgsFromJWK);
   if (isCryptoKey(key)) return jweAlgsFromCryptoKey(key);
   if (isJWK(key)) return jweAlgsFromJWK(key);
 
   return undefined;
 }
 
-/** Union the algorithms of every usable JWK Set entry; `undefined` when none contributes. */
+/** Union the algorithms of every well-formed JWK Set entry; `undefined` when none contributes. */
 function unionFromJWKSet<T extends string>(
   keys: readonly JWK[],
   mapper: (k: JWK) => T[] | undefined,
-  options: InferAlgorithmsOptions | undefined,
 ): T[] | undefined {
   const algs = new Set<T>();
   for (const k of keys) {
-    if (!isJWK(k)) continue;
-    if (!options?.allowSymmetric && hasSymmetricSecret(k)) continue;
+    if (!isJWK(k) || hasMisplacedSecret(k)) continue;
     const mapped = mapper(k);
     if (!mapped) continue;
     for (const a of mapped) algs.add(a);

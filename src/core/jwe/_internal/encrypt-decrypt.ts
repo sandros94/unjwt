@@ -53,7 +53,6 @@ export interface UnwrapAndDecryptOptions {
   tag: Uint8Array<ArrayBuffer>;
   aad: Uint8Array<ArrayBuffer>;
   kid: string | undefined;
-  allowSymmetric: boolean | undefined;
   keyCandidates: number;
   pbes2Budget: PBES2Budget;
   keyAttempts?: KeyAttemptBudget;
@@ -77,7 +76,6 @@ export async function unwrapAndDecrypt(
     tag,
     aad,
     kid,
-    allowSymmetric,
     keyCandidates,
     pbes2Budget,
     keyAttempts,
@@ -86,7 +84,7 @@ export async function unwrapAndDecrypt(
   if (isJWKSet(rawKeyMaterial)) {
     const candidates = getJWKsFromSet(
       rawKeyMaterial,
-      buildJWKSetFilter({ kid, alg }, { op: "enc", allowSymmetric }),
+      buildJWKSetFilter({ kid, alg }, { op: "enc" }),
     );
     assertJWKSetCandidates(candidates, { limit: keyCandidates, kid });
     const attempts: JWTError[] = [];

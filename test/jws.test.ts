@@ -648,7 +648,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "key2" },
       });
 
-      const { payload } = await verify(jws, jwkSet, { allowSymmetricJWKSet: true });
+      const { payload } = await verify(jws, jwkSet);
       expect(payload).toEqual(payloadObj);
     });
 
@@ -718,7 +718,7 @@ describe.concurrent("JWS Utilities", () => {
         return jwkSet;
       };
 
-      const { payload } = await verify(jws, keyLookup, { allowSymmetricJWKSet: true });
+      const { payload } = await verify(jws, keyLookup);
       expect(payload).toEqual(payloadObj);
     });
 
@@ -728,7 +728,7 @@ describe.concurrent("JWS Utilities", () => {
       const [jwk1, jwk2] = await Promise.all([exportJWK(raw1), exportJWK(raw2)]);
       const jws = await sign(payloadObj, raw2, { alg: "HS256" });
       const set: JWKSet = { keys: [jwk1, jwk2] };
-      const { payload } = await verify(jws, set, { allowSymmetricJWKSet: true });
+      const { payload } = await verify(jws, set);
       expect(payload).toEqual(payloadObj);
     });
 
@@ -739,44 +739,32 @@ describe.concurrent("JWS Utilities", () => {
         [rsaPair, otherRsaPair] = await Promise.all([generateJWK("RS256"), generateJWK("RS256")]);
       });
 
-      it("ignores an injected oct key unless the caller admits symmetric material", async () => {
+      it("counts an oct entry as a candidate and toward inference", async () => {
         const { publicKey, privateKey } = rsaPair;
-        const attackerSecret = await generateJWK("HS256");
-        const genuine = await sign(payloadObj, privateKey);
-        const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
+        const secret = await generateJWK("HS256");
+        const asymmetric = await sign(payloadObj, privateKey);
+        const symmetric = await sign({ ...payloadObj, sub: "admin" }, secret);
 
-        const poisoned: JWKSet = { keys: [publicKey, attackerSecret] };
+        const mixed: JWKSet = { keys: [publicKey, secret] };
 
-        const error = await verify(forgery, poisoned).catch((e) => e);
-        expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
-
-        // The genuine, asymmetric token is unaffected.
-        await expect(verify(genuine, poisoned)).resolves.toBeDefined();
-
-        // The set's owner can opt back in for an HMAC rotation set they control.
-        const { payload } = await verify(forgery, poisoned, {
-          allowSymmetricJWKSet: true,
-        });
+        await expect(verify(asymmetric, mixed)).resolves.toBeDefined();
+        const { payload } = await verify(symmetric, mixed);
         expect(payload.sub).toBe("admin");
       });
 
-      it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+      it('skips a non-oct entry carrying "k" as malformed', async () => {
         const { publicKey } = rsaPair;
-        const attackerSecret = await generateJWK("HS256");
-        const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
-        const { kid, k } = attackerSecret;
+        const secret = await generateJWK("HS256");
+        const forgery = await sign({ ...payloadObj, sub: "admin" }, secret);
+        const { kid, k } = secret;
         const disguised = { kty: "EC", alg: "HS256", kid, k } as unknown as JWK;
         const poisoned: JWKSet = { keys: [publicKey, disguised] };
 
         const error = await verify(forgery, poisoned).catch((e) => e);
         expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
 
-        const admitted = await verify(forgery, poisoned, {
-          allowSymmetricJWKSet: true,
-          algorithms: ["HS256"],
-        }).catch((e) => e);
-        expect(isJWTError(admitted, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
-        expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+        const named = await verify(forgery, poisoned, { algorithms: ["HS256"] }).catch((e) => e);
+        expect(isJWTError(named, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
 
         const single = await verify(forgery, disguised as JWSVerifyJWK, {
           algorithms: ["HS256"],
@@ -1527,7 +1515,7 @@ describe.concurrent("JWS Utilities", () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign(payloadObj, { ...key, kid: "key-1" });
       const jwkSet = { keys: [{ ...key, kid: "other-key" }] };
-      const error = await verify(jws, jwkSet, { allowSymmetricJWKSet: true }).catch((e) => e);
+      const error = await verify(jws, jwkSet).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     });
@@ -2226,7 +2214,7 @@ describe.concurrent("JWS verification option gates", () => {
     const kid = `evil\nInjected: yes ${"x".repeat(200)}`;
     const signed = await sign({ sub: "u" }, { ...key, kid });
     const set: JWKSet = { keys: [{ ...key, kid: "other" }] };
-    const error = await verify(signed, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+    const error = await verify(signed, set).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     expect(error.message).not.toContain("\n");
     expect(error.message).toContain(String.raw`with kid "evil\nInjected: yes x`);

@@ -3213,29 +3213,20 @@ describe("session adapters — shared contract", () => {
   // #region options reaching the token check
   describe("options reaching the token check", () => {
     it.each(portFamilyCases())(
-      "$label: a symmetric key set from the lookup hook opens only with allowSymmetricJWKSet",
+      "$label: a symmetric key set from the lookup hook opens the token",
       async (port) => {
         const token = await mintToken(port, baseConfig(port), { user: "alice" });
         const lookup = () => ({ keys: [port.key] });
         const hooks =
           port.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
 
-        const reads: Record<string, unknown>[] = [];
-        for (const allowSymmetricJWKSet of [false, true]) {
-          reads.push(
-            await port.run(
-              {
-                ...baseConfig(port),
-                ...openOptions(port.family, { allowSymmetricJWKSet }),
-                hooks,
-              },
-              async (open) => ({ user: (await open()).data.user ?? null }),
-              { cookies: { [port.name]: token } },
-            ),
-          );
-        }
+        const read = await port.run(
+          { ...baseConfig(port), hooks },
+          async (open) => ({ user: (await open()).data.user ?? null }),
+          { cookies: { [port.name]: token } },
+        );
 
-        expect(reads).toEqual([{ user: null }, { user: "alice" }]);
+        expect(read).toEqual({ user: "alice" });
       },
     );
 
@@ -3257,10 +3248,7 @@ describe("session adapters — shared contract", () => {
             await port.run(
               {
                 ...baseConfig(port),
-                ...openOptions(port.family, {
-                  allowSymmetricJWKSet: true,
-                  limits: { keyCandidates },
-                }),
+                ...openOptions(port.family, { limits: { keyCandidates } }),
                 hooks,
               },
               async (open) => ({ user: (await open()).data.user ?? null }),
@@ -3274,9 +3262,7 @@ describe("session adapters — shared contract", () => {
     );
 
     it("JWS verify options and JWE decrypt options take the same core options", () => {
-      expectTypeOf<SessionVerifyOptions>().toHaveProperty("allowSymmetricJWKSet");
       expectTypeOf<SessionVerifyOptions>().toHaveProperty("limits");
-      expectTypeOf<SessionDecryptOptions>().toHaveProperty("allowSymmetricJWKSet");
       expectTypeOf<SessionDecryptOptions>().toHaveProperty("limits");
       expectTypeOf<SessionVerifyOptions>().not.toHaveProperty("typ");
       expectTypeOf<SessionVerifyOptions>().not.toHaveProperty("maxTokenAge");

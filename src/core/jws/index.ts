@@ -216,7 +216,6 @@ export async function verify(
   const algError = checkAlgAllowed(alg, keyInput, {
     ctx: JWS_ALG_CTX,
     algorithms: options.algorithms,
-    allowSymmetric: options.allowSymmetricJWKSet,
   });
   if (algError) throw algError;
 
@@ -226,7 +225,6 @@ export async function verify(
     signature: signatureBytes,
     signingInput: signingInputBytes,
     kid: protectedHeader.kid,
-    allowSymmetric: options.allowSymmetricJWKSet,
     keyCandidates: keyCandidateLimit,
   });
   if (!verified) {

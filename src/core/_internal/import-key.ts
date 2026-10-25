@@ -8,7 +8,7 @@ import type {
 } from "../types/index.ts";
 import { decodeSegment } from "./headers.ts";
 import { stringKeyError } from "./keys.ts";
-import { isCryptoKey, isJWK, isJWKSet } from "../../utils/guards.ts";
+import { hasMisplacedSecret, isCryptoKey, isJWK, isJWKSet } from "../../utils/guards.ts";
 import { jwkAlgServes } from "../../utils/algorithms.ts";
 import { JWTError } from "../../error.ts";
 import { jwkTokey, assertOctKeyLength } from "../_crypto/index.ts";
@@ -134,7 +134,7 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
-    if (key.kty !== "oct" && Object.hasOwn(key, "k")) {
+    if (hasMisplacedSecret(key)) {
       throw new JWTError(
         `JWK "k" is defined only for "oct" keys, not "${key.kty}".`,
         "ERR_JWK_INVALID",

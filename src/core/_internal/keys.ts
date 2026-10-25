@@ -13,7 +13,7 @@ import type {
 } from "../types/index.ts";
 import { JWTError } from "../../error.ts";
 import { isPBES2Algorithm, jwkAlgServes } from "../../utils/algorithms.ts";
-import { hasSymmetricSecret, isCryptoKey, isCryptoKeyPair, isJWK } from "../../utils/guards.ts";
+import { hasMisplacedSecret, isCryptoKey, isCryptoKeyPair, isJWK } from "../../utils/guards.ts";
 import { MAX_PARTY_INFO_BYTES } from "./limits.ts";
 import { asKeyLookupError } from "./errors.ts";
 
@@ -42,19 +42,18 @@ const JWK_SET_KEY_OPS: Readonly<Record<JWKSetOperation, readonly string[]>> =
     enc: ["unwrapKey", "decrypt", "deriveBits", "deriveKey"],
   });
 
-/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; entries carrying `k` only with `allowSymmetric`. */
+/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; a non-`oct` entry carrying `k` is malformed and never a candidate. */
 export function buildJWKSetFilter(
   header: { kid?: string; alg?: JWKAlgorithm } | undefined,
-  options: { op: JWKSetOperation; allowSymmetric?: boolean },
+  options: { op: JWKSetOperation },
 ): (k: JWK) => boolean {
   const kid = header?.kid;
   const alg = header?.alg;
-  const { op, allowSymmetric } = options;
+  const { op } = options;
   const use = op;
   const keyOps = JWK_SET_KEY_OPS[op];
   return (k) => {
-    if (!isJWK(k)) return false;
-    if (!allowSymmetric && hasSymmetricSecret(k)) return false;
+    if (!isJWK(k) || hasMisplacedSecret(k)) return false;
     if (kid && k.kid !== kid) return false;
     if (k.alg && !(alg && jwkAlgServes({ kty: k.kty, alg: k.alg }, alg))) return false;
     if (k.use !== undefined && k.use !== use) return false;

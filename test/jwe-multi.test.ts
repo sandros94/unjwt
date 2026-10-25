@@ -251,9 +251,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         { enc: "A256GCM" },
       );
       const set: JWKSet = { keys: [keys.a128kw, keys.a256kw] };
-      const { payload, recipientIndex } = await decryptMulti(jwe, set, {
-        allowSymmetricJWKSet: true,
-      });
+      const { payload, recipientIndex } = await decryptMulti(jwe, set);
       expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
@@ -578,7 +576,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
           ],
         };
         const set: JWKSet = { keys: [anotherA256, keys.a256kw] };
-        const { payload } = await decryptMulti(jweNoKid, set, { allowSymmetricJWKSet: true });
+        const { payload } = await decryptMulti(jweNoKid, set);
         expect(payload.sub).toBe("u1");
       });
 

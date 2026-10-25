@@ -100,7 +100,7 @@ Decrypts a JWE token.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
-  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` and has no `k` member (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"enc"`, and its `key_ops` is absent or contains one of `unwrapKey` / `decrypt` / `deriveBits` / `deriveKey`
+  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases. An entry is a candidate only when it is a JWK (a non-`oct` entry carrying `k` is malformed and skipped; `oct` entries count like any other), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"enc"`, and its `key_ops` is absent or contains one of `unwrapKey` / `decrypt` / `deriveBits` / `deriveKey`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, no retry)
     - Token has no `kid` — every candidate is tried in order; first to succeed wins
     - A candidate that cannot open the token — unusable key material as much as a failed unwrap — only means "try the next one"; when none succeeds, `ERR_JWE_DECRYPTION_FAILED` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
@@ -108,7 +108,6 @@ Decrypts a JWE token.
   - `JWEKeyLookup`: `(header: JWEHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg`/`enc` are already validated
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata. A raw `Uint8Array` is such a key: it declares nothing, so `decrypt(jwe, rawBytes, { algorithms: ["A256KW"] })` names the `alg` the matching `encrypt` call was given. A password `string` still infers the PBES2 family alone
-  - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls, never for one fetched from a `jwks_uri`
 
 A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the thrown value as its `cause`; one that returns `undefined` or `null` is `ERR_JWK_KEY_NOT_FOUND` too. The `kid` named in a key-not-found message is JSON-quoted and cut at 64 characters. A token that is not a string throws `ERR_JWE_INVALID` (`"Invalid JWE: token must be a string."`).
 
@@ -120,7 +119,7 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
 - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `600_000` — the `p2c` a producer mints by default — to cap PBKDF2 DoS potential; raise it to open a token minted at a higher cost. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
 - `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8, narrow them with a "kid".'`) before the first import. `pbes2Iterations` defaults to `2_400_000` — four attempts at the `600_000` `p2c` a producer mints by default, so an envelope written entirely at the defaults is still openable by its fourth PBES2 recipient — and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` falls outside `minIterations`/`maxIterations` throws that bound, and one that no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 2400000 exhausted."`); either spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
-- `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
+- `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
 - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 - Options are checked before the token is read, as on `verify`: an empty `audience` / `issuer` / `subject` / `typ`, a non-string `typ`, `maxTokenAge: 0`, non-object `options` or `limits`, and an `algorithms` / `encryptionAlgorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings throw `ERR_INVALID_OPTION`
@@ -432,7 +431,6 @@ interface JWEDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   recognizedHeaders?: string[];
   // JWE-specific decrypt options
   algorithms?: KeyManagementAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
@@ -572,7 +570,6 @@ interface JWEMultiDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode>
   recognizedHeaders?: string[];
   // JWE decrypt options (inlined from JWEDecryptOptions)
   algorithms?: KeyManagementAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];

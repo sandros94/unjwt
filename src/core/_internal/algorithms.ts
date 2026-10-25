@@ -13,10 +13,7 @@ import type { JWKSetOperation } from "./keys.ts";
 import { buildJWKSetFilter } from "./keys.ts";
 
 export interface AlgCheckContext {
-  infer: (
-    key: unknown,
-    options?: { allowSymmetric?: boolean },
-  ) => readonly JWKAlgorithm[] | undefined;
+  infer: (key: unknown) => readonly JWKAlgorithm[] | undefined;
   /** An `oct` JWK's `alg` names a role, not the header `alg` (JWE). */
   octRoles: boolean;
   errorCode: "ERR_JWS_ALG_NOT_ALLOWED" | "ERR_JWE_ALG_NOT_ALLOWED";
@@ -39,17 +36,16 @@ export function checkAlgAllowed<A extends JWKAlgorithm>(
   options: {
     ctx: AlgCheckContext;
     algorithms?: readonly A[];
-    allowSymmetric?: boolean;
   },
 ): JWTError | undefined {
-  const { ctx, algorithms, allowSymmetric } = options;
+  const { ctx, algorithms } = options;
   if (algorithms !== undefined) {
     return algorithms.includes(alg) ? undefined : notAllowed(alg, ctx);
   }
   if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
     return isSameAlgorithm(key.alg, alg) ? undefined : notAllowed(alg, ctx);
   }
-  const inferred = ctx.infer(key, { allowSymmetric });
+  const inferred = ctx.infer(key);
   if (!inferred) {
     return new JWTError(
       'Cannot infer allowed algorithms from this key, pass "algorithms".',
@@ -67,13 +63,11 @@ function notAllowed(alg: JWKAlgorithm, ctx: AlgCheckContext): JWTError {
 export function keyMatchesHeader(
   header: { alg?: JWKAlgorithm; kid?: string; epk?: { crv?: string } },
   keyMaterial: unknown,
-  options: { ctx: AlgCheckContext; allowSymmetric?: boolean },
+  options: { ctx: AlgCheckContext },
 ): boolean {
-  const { ctx, allowSymmetric } = options;
+  const { ctx } = options;
   if (isJWKSet(keyMaterial)) {
-    const candidates = keyMaterial.keys.filter(
-      buildJWKSetFilter(header, { op: ctx.op, allowSymmetric }),
-    );
+    const candidates = keyMaterial.keys.filter(buildJWKSetFilter(header, { op: ctx.op }));
     return candidates.length === 0 || candidates.some((k) => keyServesHeaderAlg(header, k, ctx));
   }
   if (isJWK(keyMaterial)) return keyServesHeaderAlg(header, keyMaterial, ctx);

@@ -323,7 +323,6 @@ export async function _verifyOneSignature(
   const algError = checkAlgAllowed(alg, rawKeyMaterial, {
     ctx: JWS_ALG_CTX,
     algorithms: options.algorithms,
-    allowSymmetric: options.allowSymmetricJWKSet,
   });
   if (algError) return fail(algError, protectedHeader, unprotectedHeader);
 
@@ -341,7 +340,6 @@ export async function _verifyOneSignature(
       signature: signatureBytes,
       signingInput: signingInputBytes,
       kid: effective.kid,
-      allowSymmetric: options.allowSymmetricJWKSet,
       keyCandidates,
       keyAttempts,
     });

@@ -701,18 +701,16 @@ describe.concurrent("JWE Utilities", () => {
       expect(causes.map((c) => c.code)).toEqual(["ERR_JWK_INVALID", "ERR_JWE_DECRYPTION_FAILED"]);
     });
 
-    it("ignores oct entries unless the caller admits symmetric material", async () => {
+    it("counts an oct entry as a candidate and toward inference", async () => {
       const kw = await generateJWK("A256KW");
       const jwe = await encrypt(plaintextObj, kw, { alg: "A256KW", enc: "A256GCM" });
       const set = { keys: [kw] } as unknown as { keys: JWK[] };
 
-      const error = await decrypt(jwe, set).catch((e) => e);
-      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
-
-      await expect(decrypt(jwe, set, { allowSymmetricJWKSet: true })).resolves.toBeDefined();
+      const { payload } = await decrypt(jwe, set);
+      expect(payload).toEqual(plaintextObj);
     });
 
-    it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+    it('skips a non-oct entry carrying "k" as malformed', async () => {
       const kw = await generateJWK("A256KW");
       const jwe = await encrypt(plaintextObj, kw, { alg: "A256KW", enc: "A256GCM" });
       const disguised = { kty: "EC", alg: "A256KW", kid: kw.kid, k: kw.k } as unknown as JWK;
@@ -721,9 +719,8 @@ describe.concurrent("JWE Utilities", () => {
       const error = await decrypt(jwe, set).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
 
-      const admitted = await decrypt(jwe, set, { allowSymmetricJWKSet: true }).catch((e) => e);
-      expect(isJWTError(admitted, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
-      expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+      const named = await decrypt(jwe, set, { algorithms: ["A256KW"] }).catch((e) => e);
+      expect(isJWTError(named, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     });
 
     it('matches an "oct" content key tagged with its "enc" to a "dir" token', async () => {
@@ -732,11 +729,12 @@ describe.concurrent("JWE Utilities", () => {
       const jwe = await encrypt(plaintextObj, current, { alg: "dir", enc: "A256GCM" });
       const set = { keys: [previous, current] };
 
-      const { payload } = await decrypt(jwe, set, { allowSymmetricJWKSet: true });
+      const { payload } = await decrypt(jwe, set);
       expect(payload).toEqual(plaintextObj);
-      await expect(
-        decrypt(jwe, { keys: [previous] }, { allowSymmetricJWKSet: true }),
-      ).rejects.toHaveProperty("code", "ERR_JWK_KEY_NOT_FOUND");
+      await expect(decrypt(jwe, { keys: [previous] })).rejects.toHaveProperty(
+        "code",
+        "ERR_JWK_KEY_NOT_FOUND",
+      );
     });
   });
 
@@ -759,7 +757,7 @@ describe.concurrent("JWE Utilities", () => {
       const token = await encrypt(plaintextObj, rawKey2, { alg: "A256KW", enc: "A256GCM" });
       const [jwk1, jwk2] = await Promise.all([exportJWK(rawKey1), exportJWK(rawKey2)]);
       const set = { keys: [jwk1, jwk2] };
-      const { payload } = await decrypt(token, set, { allowSymmetricJWKSet: true });
+      const { payload } = await decrypt(token, set);
       expect(payload).toEqual(plaintextObj);
     });
 
@@ -774,7 +772,7 @@ describe.concurrent("JWE Utilities", () => {
       const token = await encrypt(plaintextObj, rawValid, { alg: "A256KW", enc: "A256GCM" });
 
       const set = { keys: [malformedJwk, validJwk] };
-      const { payload } = await decrypt(token, set, { allowSymmetricJWKSet: true });
+      const { payload } = await decrypt(token, set);
       expect(payload).toEqual(plaintextObj);
     });
 
@@ -1944,7 +1942,7 @@ describe.concurrent("JWE decryption option gates", () => {
     const kid = `evil\nInjected: yes ${"x".repeat(200)}`;
     const encrypted = await encrypt({ sub: "u" }, { ...key, kid }, { enc: "A256GCM" });
     const set = { keys: [{ ...key, kid: "other" }] };
-    const error = await decrypt(encrypted, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+    const error = await decrypt(encrypted, set).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     expect(error.message).not.toContain("\n");
     expect(error.message).toContain(String.raw`with kid "evil\nInjected: yes x`);

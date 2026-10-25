@@ -81,7 +81,7 @@ Verifies a JWS token and returns its payload.
   - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`. The key is imported with `expect: "public"`, so an asymmetric JWK still carrying `d` throws `ERR_JWK_INVALID` instead of being imported; `sign` mirrors this with `expect: "private"`.
   - `JWKSet` stays fully permissive (`JWK[]`) because JWKS from the wire are heterogeneous; runtime filters candidates per header.
   - `JWSKeyLookup`: `(header: JWSHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg` is already validated
-  - `JWKSet`: multi-key selection with automatic retry. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` and has no `k` member (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (`EdDSA` and `Ed25519` match each other; or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
+  - `JWKSet`: multi-key selection with automatic retry. An entry is a candidate only when it is a JWK (a non-`oct` entry carrying `k` is malformed and skipped; `oct` entries count like any other), its `kid` matches the header (or the header carries none), its `alg` matches (`EdDSA` and `Ed25519` match each other; or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
     - Token has no `kid` — every candidate is tried in order; the first to verify successfully wins
     - A candidate that cannot verify — unusable key material as much as a signature mismatch — only means "try the next one"; when none verifies, `ERR_JWS_SIGNATURE_INVALID` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
@@ -93,11 +93,10 @@ Verifies a JWS token and returns its payload.
 
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWSAllowedAlgorithms`; pass explicitly when the key carries no usable metadata (raw `Uint8Array`, alg-less JWKs, lookup functions returning ambiguous shapes). For a JWK Set the allowlist is the union over its entries, skipping the ones it cannot infer
-  - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls (an HMAC key-rotation set), never for one fetched from a `jwks_uri`
   - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the payload must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWS_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The signed content never decides its own shape, and `typ`/`cty` never pick it — both are signer-controlled. Under RFC 7797 `b64: false` the unencoded segment is the content and the same modes apply
   - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
   - `limits?: { keyCandidates?: number }` — how many JWK Set candidates one token may be tried against after `kid`/`alg`/`use` filtering. Default `8` (`DEFAULT_JOSE_LIMITS.keyCandidates`); a wider set throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8, narrow them with a "kid".'`) before the first import. Must be a positive integer, else `ERR_INVALID_OPTION`
-  - `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
+  - `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
   - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a verifier that configures none; configure `audience` to enforce RFC 7519 §4.1.3
   - Every option is checked before the token is read, and a configured check is never skipped for being empty: `audience: ""` (or a list with an empty entry), `issuer: ""`, `subject: ""`, `typ: ""` or a non-string `typ`, `maxTokenAge: 0`, an `options` that is not an object, `limits` that is not an object, and an `algorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings each throw `ERR_INVALID_OPTION` (`'"algorithms" must be an array of strings.'`). An empty list (`audience: []`, `algorithms: []`) is a check no token passes
@@ -395,7 +394,6 @@ type PayloadOf<Mode extends JOSEPayloadMode, T = JWTClaims> = JOSEPayloadTypeMap
 // `Mode` is the `payload` literal verify reads its return type from.
 interface JWSVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "keyCandidates">;
   payload?: Mode;
   validateClaims?: boolean;
@@ -466,7 +464,6 @@ interface JWSMultiSignOptions {
 
 interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates" | "keyAttempts">;
   payload?: Mode;
   validateClaims?: boolean;
@@ -484,7 +481,6 @@ interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> 
 
 interface JWSMultiVerifyAllOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "signatures" | "keyCandidates" | "keyAttempts">;
   payload?: Mode;
   validateClaims?: boolean;

@@ -42,7 +42,6 @@ export interface VerifyWithKeyOptions {
   signature: Uint8Array<ArrayBuffer>;
   signingInput: Uint8Array<ArrayBuffer>;
   kid: string | undefined;
-  allowSymmetric: boolean | undefined;
   keyCandidates: number;
   keyAttempts?: KeyAttemptBudget;
 }
@@ -65,12 +64,12 @@ async function verifyWithKeyMaterial(
   rawKeyMaterial: VerificationKeyMaterial,
   options: VerifyWithKeyOptions,
 ): Promise<boolean> {
-  const { signature, signingInput, kid, allowSymmetric, keyCandidates, keyAttempts } = options;
+  const { signature, signingInput, kid, keyCandidates, keyAttempts } = options;
 
   if (isJWKSet(rawKeyMaterial)) {
     const candidates = getJWKsFromSet(
       rawKeyMaterial,
-      buildJWKSetFilter({ kid, alg }, { op: "sig", allowSymmetric }),
+      buildJWKSetFilter({ kid, alg }, { op: "sig" }),
     );
     assertJWKSetCandidates(candidates, { limit: keyCandidates, kid });
     const attempts: JWTError[] = [];

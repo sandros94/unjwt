@@ -269,7 +269,7 @@ interface SessionConfigJWS<
     // notBeforeAt are not accepted here. `protectedHeader.typ` sets the
     // session `typ` (default "session+jwt") that incoming tokens must carry.
     signOptions?: SessionSignOptions;
-    /** JWSVerifyOptions the adapter does not own (`limits`, `allowSymmetricJWKSet`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
+    /** JWSVerifyOptions the adapter does not own (`limits`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
     verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;

@@ -398,7 +398,6 @@ export async function decryptMulti(
     const algError = checkAlgAllowed(alg, rawKeyMaterial, {
       ctx: JWE_ALG_CTX,
       algorithms: options.algorithms,
-      allowSymmetric: options.allowSymmetricJWKSet,
     });
     if (algError) {
       lastError = algError;
@@ -409,7 +408,6 @@ export async function decryptMulti(
       options.strictRecipientMatch &&
       !keyMatchesHeader(effective, rawKeyMaterial, {
         ctx: JWE_ALG_CTX,
-        allowSymmetric: options.allowSymmetricJWKSet,
       })
     ) {
       continue;
@@ -441,7 +439,6 @@ export async function decryptMulti(
         tag: tagBytes,
         aad: contentAadBytes,
         kid: effective.kid,
-        allowSymmetric: options.allowSymmetricJWKSet,
         keyCandidates,
         pbes2Budget,
         keyAttempts,

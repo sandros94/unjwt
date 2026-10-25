@@ -217,7 +217,6 @@ export async function verifyMulti(
     const algError = checkAlgAllowed(alg, rawKeyMaterial, {
       ctx: JWS_ALG_CTX,
       algorithms: options.algorithms,
-      allowSymmetric: options.allowSymmetricJWKSet,
     });
     if (algError) {
       lastError = algError;
@@ -228,7 +227,6 @@ export async function verifyMulti(
       options.strictSignerMatch &&
       !keyMatchesHeader(effective, rawKeyMaterial, {
         ctx: JWS_ALG_CTX,
-        allowSymmetric: options.allowSymmetricJWKSet,
       })
     ) {
       continue;
@@ -249,7 +247,6 @@ export async function verifyMulti(
         signature: signatureBytes,
         signingInput: signingInputBytes,
         kid: effective.kid,
-        allowSymmetric: options.allowSymmetricJWKSet,
         keyCandidates,
         keyAttempts,
       });
