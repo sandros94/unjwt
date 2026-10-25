@@ -714,6 +714,19 @@ describe.concurrent("JWE Utilities", () => {
       expect(isJWTError(admitted, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
       expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
     });
+
+    it('matches an "oct" content key tagged with its "enc" to a "dir" token', async () => {
+      const previous = await generateJWK("A256GCM");
+      const current = await generateJWK("A256GCM");
+      const jwe = await encrypt(plaintextObj, current, { alg: "dir", enc: "A256GCM" });
+      const set = { keys: [previous, current] };
+
+      const { payload } = await decrypt(jwe, set, { allowSymmetricJWKSet: true });
+      expect(payload).toEqual(plaintextObj);
+      await expect(
+        decrypt(jwe, { keys: [previous] }, { allowSymmetricJWKSet: true }),
+      ).rejects.toHaveProperty("code", "ERR_JWK_KEY_NOT_FOUND");
+    });
   });
 
   describe("decrypt specific options and errors", () => {

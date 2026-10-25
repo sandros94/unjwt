@@ -37,6 +37,7 @@ import {
   isKeyManagementAlgorithm,
   isPBES2Algorithm,
   isSameAlgorithm,
+  jwkAlgServes,
 } from "./utils/algorithms.ts";
 import { quoteTokenValue } from "./utils/_text.ts";
 import {
@@ -323,7 +324,7 @@ export function buildJWKSetFilter(
     if (!isJWK(k)) return false;
     if (!allowSymmetric && hasSymmetricSecret(k)) return false;
     if (kid && k.kid !== kid) return false;
-    if (k.alg && !(alg && isSameAlgorithm(k.alg, alg))) return false;
+    if (k.alg && !(alg && jwkAlgServes({ kty: k.kty, alg: k.alg }, alg))) return false;
     if (k.use !== undefined && k.use !== use) return false;
     const ops = k.key_ops;
     if (ops !== undefined && !(Array.isArray(ops) && ops.some((o) => keyOps.includes(o)))) {

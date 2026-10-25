@@ -164,6 +164,14 @@ export function isSameAlgorithm(a: string, b: string): boolean {
   return a === b || (isEd25519Signature(a) && isEd25519Signature(b));
 }
 
+/** RFC 7517 §4.4: a JWK's `alg` serves an operation's `alg` when they are the same, or when an `oct` content key (`A256GCM`, …) is used with `dir`. */
+export function jwkAlgServes(jwk: { kty: string; alg: string }, alg: string): boolean {
+  return (
+    isSameAlgorithm(jwk.alg, alg) ||
+    (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg))
+  );
+}
+
 function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
   if (jwk.alg && isEd25519Signature(jwk.alg)) return ["EdDSA", "Ed25519"];
   if (jwk.alg) return isJWSAlgorithm(jwk.alg) ? [jwk.alg] : undefined;
