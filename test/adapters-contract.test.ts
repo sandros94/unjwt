@@ -2076,7 +2076,7 @@ describe("session adapters — shared contract", () => {
   // #region token lifetime
   describe("token lifetime on read", () => {
     it.each(portFamilyCases())(
-      "$label: a per-issue lifetime longer than the config's outlives the config maxAge",
+      "$label: a per-issue lifetime longer than the config's ends at the config maxAge",
       async (port) => {
         const onExpire = vi.fn();
         const onError = vi.fn();
@@ -2101,8 +2101,11 @@ describe("session adapters — shared contract", () => {
           { cookies: { [port.name]: token } },
         );
 
-        expect(body).toEqual({ user: "alice" });
-        expect(onExpire).not.toHaveBeenCalled();
+        expect(body).toEqual({ user: null });
+        expect(onExpire).toHaveBeenCalledOnce();
+        expect(onExpire.mock.calls[0]?.[0].session.expiresAt).toBe(
+          Math.floor(issuedAt.getTime() / 1000) * 1000 + SECOND,
+        );
         expect(onError).not.toHaveBeenCalled();
       },
     );
@@ -4087,7 +4090,7 @@ describe("session adapters — shared contract", () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         try {
           const hooks = { onRead: vi.fn(), onUpdate: vi.fn(), onError: vi.fn() };
-          const claims = { jti: "live-session", iat: nowSeconds() - 60, exp: nowSeconds() + 60 };
+          const claims = { jti: "live-session", iat: nowSeconds() - 30, exp: nowSeconds() + 60 };
           const recorder = recordingDriver({
             token: await foreignToken(family, claims),
             writable: false,

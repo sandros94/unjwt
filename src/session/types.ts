@@ -27,7 +27,7 @@ export interface SessionManager<
 > {
   readonly id: string | undefined;
   readonly createdAt: number;
-  /** Expiry in ms — always a number when the session has a `maxAge`. */
+  /** Expiry in ms: `exp`, or `iat + maxAge` when sooner; always a number when the session has a `maxAge`. */
   readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined;
   readonly data: SessionData<T>;
   readonly token: string | undefined;
@@ -45,7 +45,7 @@ export interface SessionManager<
 
 /** The config members every session shares, whether it signs or seals its token. */
 export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined> {
-  /** Sets `exp = iat + maxAge`, requires `exp` on incoming tokens, drives cookie expiry; unset never expires. */
+  /** Sets `exp = iat + maxAge`, requires `exp` on incoming tokens and ends them at `iat + maxAge` at the latest, drives cookie expiry; unset never expires. */
   maxAge?: MaxAge;
   /**
    * Reissue the session when it is read, needs `maxAge`.
@@ -125,7 +125,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
 
 /** Per-issue overrides for a single `update()` call. */
 export interface SessionIssueOptions {
-  /** Lifetime for this issue only, overriding the config's `maxAge`. */
+  /** Lifetime for this issue only, overriding the config's `maxAge`; a read under that `maxAge` still ends the session at `iat + maxAge`. */
   maxAge?: ExpiresIn;
 }
 
@@ -135,7 +135,7 @@ export interface SessionState<T extends SessionRecord, MaxAge extends ExpiresIn 
   id: string | undefined;
   /** In ms; mirrors the JWT `iat` claim (seconds). */
   createdAt: number;
-  /** In ms; mirrors the JWT `exp` claim (seconds). */
+  /** In ms; mirrors the JWT `exp` claim (seconds), or `iat + maxAge` when sooner. */
   expiresAt: MaxAge extends ExpiresIn ? number : number | undefined;
   data: SessionData<T>;
   token: string | undefined;

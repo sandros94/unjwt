@@ -4,8 +4,10 @@ import { isCryptoKey, isPrivateJWK, isSymmetricJWK } from "../core/utils/guards.
 import {
   RESERVED_CLAIMS,
   assertImportableKey,
+  expiredSessionError,
   invalidConfigError,
   invalidKeyError,
+  resolveExpiresAt,
   rethrowAsInvalidToken,
   sessionRequiredClaims,
   sessionTyp,
@@ -50,12 +52,11 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
     const payload = await spec
       .open(config, token, key)
       .catch((error: unknown) => rethrowAsInvalidToken(error, { prefix }));
-    assertNotFromTheFuture(payload, {
-      now: now(config),
-      clockTolerance: spec.openOptions(config)?.clockTolerance,
-      prefix,
-    });
-    return openedSession(payload);
+    const clock = { now: now(config), clockTolerance: spec.openOptions(config)?.clockTolerance };
+    assertNotFromTheFuture(payload, { ...clock, prefix });
+    const opened = openedSession(payload, { maxAge: config.maxAge });
+    assertNotPastMaxAge(opened, clock);
+    return opened;
   };
 
   const assertOpenKey = async (config: Config): Promise<void> => {
@@ -120,7 +121,7 @@ export function sessionIssueOptions<O extends { protectedHeader?: { typ?: string
   });
 }
 
-/** Claim validation, session `typ` and pinned `alg`; a token's life is bounded by `exp`, never `maxTokenAge`. */
+/** Claim validation, session `typ` and pinned `alg`; `maxAge` bounds a token's life in the session layer, not through `maxTokenAge`. */
 export function sessionOpenOptions<A extends string>(options: {
   maxAge: ExpiresIn | undefined;
   requiredClaims: string[] | undefined;
@@ -204,25 +205,46 @@ function assertNotFromTheFuture(
   payload: SessionPayload,
   options: { now: number; clockTolerance: number | Duration | undefined; prefix: string },
 ): void {
-  const tolerance =
-    options.clockTolerance === undefined ? 0 : computeDurationInSeconds(options.clockTolerance);
-  if (payload.iat > Math.floor(options.now / 1000) + tolerance) {
+  if (payload.iat > Math.floor(options.now / 1000) + toleranceSeconds(options.clockTolerance)) {
     throw invalidTokenError(
       `${options.prefix} Invalid session token: "iat" is in the future (${new Date(payload.iat * 1000).toISOString()}).`,
     );
   }
 }
 
-function openedSession(payload: SessionPayload): OpenedSession {
+/** A session past `iat + maxAge` is expired whatever its `exp`, as `exp` itself is (RFC 7519 §4.1.4). */
+function assertNotPastMaxAge(
+  opened: OpenedSession,
+  options: { now: number; clockTolerance: number | Duration | undefined },
+): void {
+  const { expiresAt } = opened;
+  if (expiresAt === undefined) return;
+  if (expiresAt <= options.now - toleranceSeconds(options.clockTolerance) * 1000) {
+    throw expiredSessionError({ id: opened.id, createdAt: opened.createdAt, expiresAt });
+  }
+}
+
+function toleranceSeconds(clockTolerance: number | Duration | undefined): number {
+  return clockTolerance === undefined ? 0 : computeDurationInSeconds(clockTolerance);
+}
+
+/** With a `maxAge`, the session ends at `exp` or at `iat + maxAge`, whichever comes first. */
+function openedSession(
+  payload: SessionPayload,
+  options: { maxAge: ExpiresIn | undefined },
+): OpenedSession {
   const data: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(payload)) {
     if (RESERVED_CLAIMS.includes(key)) continue;
     data[key] = payload[key];
   }
+  const createdAt = payload.iat * 1000;
+  const exp = payload.exp ? payload.exp * 1000 : undefined;
+  const bound = resolveExpiresAt(createdAt, options);
   return {
     id: payload.jti,
-    createdAt: payload.iat * 1000,
-    expiresAt: payload.exp ? payload.exp * 1000 : undefined,
+    createdAt,
+    expiresAt: exp === undefined || bound === undefined ? (exp ?? bound) : Math.min(exp, bound),
     data,
   };
 }

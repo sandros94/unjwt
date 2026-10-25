@@ -48,7 +48,11 @@ export async function loadSession<
           expiresAt: session.expiresAt,
           token: session.token,
         },
-        error: expiredSessionError({ id: session.id, expiresAt: session.expiresAt }),
+        error: expiredSessionError({
+          id: session.id,
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt,
+        }),
       });
       return freshSession;
     }

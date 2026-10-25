@@ -333,6 +333,90 @@ describe("unjwt/session over a Web request", () => {
   });
 });
 
+describe("unjwt/session bounds a token by maxAge", () => {
+  const HOUR = 3600;
+  const DAY = 24 * HOUR;
+
+  it.each(FAMILIES)(
+    "$family: a token past iat + maxAge is expired whatever its exp",
+    async ({ family, define }) => {
+      const onExpire = vi.fn();
+      const onRead = vi.fn();
+      const session = define({ maxAge: "1h", hooks: { onExpire, onRead } });
+      const iat = nowSeconds() - 2 * HOUR;
+      const token = await foreignToken(family, { jti: "long", iat, exp: iat + 10 * DAY });
+      const headers = new Headers();
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(onRead).not.toHaveBeenCalled();
+      expect(onExpire).toHaveBeenCalledOnce();
+      const [{ session: expired, error }] = onExpire.mock.calls[0] as [
+        { session: { id: string; createdAt: number; expiresAt: number }; error: unknown },
+      ];
+      expect(expired).toMatchObject({ id: "long", createdAt: iat * 1000 });
+      expect(expired.expiresAt).toBe((iat + HOUR) * 1000);
+      expect(isJWTError(error, "ERR_JWT_EXPIRED")).toBe(true);
+      expect(linesOf(headers, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+
+      const opened = await caught(session.open(token));
+      expect(isJWTError(opened, "ERR_JWT_EXPIRED")).toBe(true);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a token within maxAge ends at iat + maxAge, not at its exp",
+    async ({ family, define }) => {
+      const session = define({ maxAge: "1h" });
+      const iat = nowSeconds() - 30 * 60;
+      const token = await foreignToken(family, {
+        jti: "long",
+        iat,
+        exp: iat + 10 * DAY,
+        user: "ada",
+      });
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }) });
+      expect(manager.id).toBe("long");
+      expect(manager.data).toEqual({ user: "ada" });
+      expect(manager.expiresAt).toBe((iat + HOUR) * 1000);
+      expect((await session.open(token)).expiresAt).toBe((iat + HOUR) * 1000);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a reissue under rolling writes the cookie from the fresh lifetime",
+    async ({ family, define }) => {
+      const session = define({ maxAge: "1h", rolling: true });
+      const iat = nowSeconds() - 30 * 60;
+      const token = await foreignToken(family, { jti: "long", iat, exp: iat + 10 * DAY });
+      const headers = new Headers();
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+      const expiresAt = Number(manager.expiresAt);
+      expect(manager.id).not.toBe("long");
+      expect(expiresAt - manager.createdAt).toBe(HOUR * 1000);
+      const [line = ""] = linesOf(headers, "web");
+      expect(line).toContain(`Expires=${new Date(expiresAt).toUTCString()}`);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: without maxAge the token's exp alone decides",
+    async ({ family, define }) => {
+      const session = define();
+      const iat = nowSeconds() - 2 * HOUR;
+      const token = await foreignToken(family, { jti: "long", iat, exp: iat + 10 * DAY });
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }) });
+      expect(manager.id).toBe("long");
+      expect(manager.expiresAt).toBe((iat + 10 * DAY) * 1000);
+    },
+  );
+});
+
 describe("unjwt/session with a token in hand", () => {
   const CONFIGS = [
     { label: "token only", config: { cookie: false, sessionHeader: false } },
