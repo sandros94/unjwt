@@ -518,8 +518,19 @@ describe.concurrent("JWE Utilities", () => {
       const parts = jwe.split(".");
       expect(parts[1]).toBe(""); // encrypted key field is empty
 
-      const { payload } = await decrypt(jwe, key, { payload: "string" });
+      const { payload } = await decrypt(jwe, key, { payload: "string", algorithms: ["dir"] });
       expect(payload).toBe(plaintext);
+    });
+
+    it("reads a CryptoKey as a wrapping key unless dir is named", async () => {
+      const key = await generateKey("A256GCMKW");
+      const jwe = await encrypt({ sub: "u1" }, key, { alg: "dir", enc: "A256GCM" });
+
+      await expect(decrypt(jwe, key)).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED"),
+      );
+      const { payload } = await decrypt(jwe, key, { algorithms: ["dir"] });
+      expect(payload.sub).toBe("u1");
     });
 
     it("encrypt/decrypt roundtrip with AES-CBC content encryption", async () => {
@@ -1956,8 +1967,13 @@ describe.concurrent("JWE decryption option gates", () => {
       "decrypt",
     ]);
     const encrypted = await encrypt({ sub: "u" }, cekKey, { alg: "dir", enc: "A256GCM" });
-    await expect(decrypt(encrypted, cekKey)).resolves.toHaveProperty("payload", { sub: "u" });
-    const error = await decrypt(encrypted, cekKey, { returnCek: true }).catch((e) => e);
+    await expect(decrypt(encrypted, cekKey, { algorithms: ["dir"] })).resolves.toHaveProperty(
+      "payload",
+      { sub: "u" },
+    );
+    const error = await decrypt(encrypted, cekKey, { algorithms: ["dir"], returnCek: true }).catch(
+      (e) => e,
+    );
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain('"returnCek"');
   });

@@ -262,15 +262,15 @@ function jweAlgsFromCryptoKey(key: CryptoKey): KeyManagementAlgorithm[] | undefi
 
   switch (name) {
     case "AES-KW": {
-      if (length === 128) return ["A128KW", "dir"];
-      if (length === 192) return ["A192KW", "dir"];
-      if (length === 256) return ["A256KW", "dir"];
+      if (length === 128) return ["A128KW"];
+      if (length === 192) return ["A192KW"];
+      if (length === 256) return ["A256KW"];
       return undefined;
     }
     case "AES-GCM": {
-      if (length === 128) return ["A128GCMKW", "dir"];
-      if (length === 192) return ["A192GCMKW", "dir"];
-      if (length === 256) return ["A256GCMKW", "dir"];
+      if (length === 128) return ["A128GCMKW"];
+      if (length === 192) return ["A192GCMKW"];
+      if (length === 256) return ["A256GCMKW"];
       return undefined;
     }
     case "RSA-OAEP": {

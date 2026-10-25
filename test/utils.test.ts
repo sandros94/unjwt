@@ -710,10 +710,10 @@ describe("inferJWEAllowedAlgorithms", () => {
 
   it("infers from CryptoKeys across JWE alg families (delegates to privateKey on pairs)", async () => {
     const kw = await generateKey("A128KW");
-    expect(inferJWEAllowedAlgorithms(kw)).toEqual(["A128KW", "dir"]);
+    expect(inferJWEAllowedAlgorithms(kw)).toEqual(["A128KW"]);
 
     const gcm = await generateKey("A192GCM");
-    expect(inferJWEAllowedAlgorithms(gcm)).toEqual(["A192GCMKW", "dir"]);
+    expect(inferJWEAllowedAlgorithms(gcm)).toEqual(["A192GCMKW"]);
 
     const rsaOaep = await generateKey("RSA-OAEP-384", { modulusLength: 2048 });
     expect(inferJWEAllowedAlgorithms(rsaOaep.privateKey)).toEqual(["RSA-OAEP-384"]);

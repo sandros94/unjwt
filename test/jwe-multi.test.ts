@@ -11,7 +11,7 @@ import {
   isJWTError,
   isUnsecureError,
 } from "../src/core/jwe/index.ts";
-import { generateJWK, wrapKey } from "../src/core/jwk/index.ts";
+import { generateJWK, generateKey, wrapKey } from "../src/core/jwk/index.ts";
 import { base64UrlStringify, base64UrlParse } from "../src/utils/base64.ts";
 import { secureRandomBytes } from "unsecure/random";
 import type {
@@ -1049,6 +1049,23 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
   });
 
   describe("RFC 7516 strictness — recipients, headers and segments", () => {
+    it("does not open a GCMKW-wrapped CEK as dir content under the same CryptoKey", async () => {
+      const key = await generateKey("A256GCMKW");
+      const compact = await encrypt({ sub: "u1" }, key, { alg: "A256GCMKW", enc: "A256GCM" });
+      const [protectedEncoded, encryptedKey] = compact.split(".");
+      const header = JSON.parse(base64UrlParse(protectedEncoded)) as { iv: string; tag: string };
+      const recast: JWEFlattenedSerialization = {
+        unprotected: { alg: "dir", enc: "A256GCM" },
+        iv: header.iv,
+        ciphertext: encryptedKey,
+        tag: header.tag,
+      };
+
+      await expect(decryptMulti(recast, key)).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED"),
+      );
+    });
+
     it("an injected recipient with an overlapping header does not block the holder", async () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: keys.a256kw }], { enc: "A256GCM" });
       const tampered = prependRecipient(jwe, { alg: "A256KW", enc: "A256GCM" });
