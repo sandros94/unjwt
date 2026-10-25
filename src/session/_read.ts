@@ -63,6 +63,10 @@ export async function loadSession<
   const session = emptySession<T, MaxAge, TEvent, Config>(binding);
   store.set(session);
 
+  if (transport.malformed) {
+    await fireError(binding, transport.malformed);
+    return session;
+  }
   const token = transport.read();
   if (!token) return session;
 
@@ -106,12 +110,7 @@ export async function loadSession<
       if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID") && isTokenFailure(failure.error)) {
         dropSessionCookie(binding);
       }
-      await config.hooks?.onError?.({
-        session: binding.actions.manager(binding),
-        ...args,
-        error: failure.error,
-        config,
-      });
+      await fireError(binding, failure.error);
     }
     return session;
   }
@@ -148,6 +147,18 @@ async function rollSession<TEvent, Config extends SessionCoreConfig>(
   }
   if (transport.readonly || !transport.writable()) return;
   await binding.actions.roll(binding);
+}
+
+async function fireError<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
+  error: unknown,
+): Promise<void> {
+  await binding.config.hooks?.onError?.({
+    session: binding.actions.manager(binding),
+    ...binding.args,
+    error,
+    config: binding.config,
+  });
 }
 
 async function fireExpire<TEvent, Config extends SessionCoreConfig>(

@@ -66,6 +66,7 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   name?: string;
   /**
    * Header carrying a bare or `Bearer` token: a header name, `true` for `x-<name>-session` (cookie prefix stripped), or `false` for none.
+   * A request that carries it is read from it and never from the cookie; any other value is a token failure (`onError`).
    * Left unset, a session with cookies still reads `x-<name>-session`, and so does one with `cookie: false`.
    */
   sessionHeader?: boolean | string;
@@ -158,7 +159,7 @@ export interface SessionDefinition<
 > {
   /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
   use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
-  /** The token the request carries (this response's own write first), unopened. */
+  /** The session's token once `use()` read or wrote it, else the one the request carries (the session header before the cookie), unopened. */
   token: (event: TEvent) => string | undefined;
   /** Mints a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it); reads and writes nothing. */
   issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;

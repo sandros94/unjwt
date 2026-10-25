@@ -196,7 +196,7 @@ describe("session adapters — shared contract", () => {
       return app;
     }
 
-    it("reads the cookie in preference to the session header", async () => {
+    it("reads the session header in preference to the cookie", async () => {
       const app = tokenApp();
       const cookieToken = await mintOnH3(app, "cookie");
       const headerToken = await mintOnH3(app, "header");
@@ -208,7 +208,7 @@ describe("session adapters — shared contract", () => {
         },
       });
 
-      expect(await response.json()).toEqual({ who: "cookie" });
+      expect(await response.json()).toEqual({ who: "header" });
     });
 
     it("falls back to the session header when no cookie carries a token", async () => {
@@ -222,7 +222,7 @@ describe("session adapters — shared contract", () => {
       expect(await response.json()).toEqual({ who: "header" });
     });
 
-    it("a blank session header never hides the cookie", async () => {
+    it("a blank session header is a token failure, the cookie unread", async () => {
       const app = tokenApp();
       const cookieToken = await mintOnH3(app, "cookie");
 
@@ -233,7 +233,7 @@ describe("session adapters — shared contract", () => {
         },
       });
 
-      expect(await response.json()).toEqual({ who: "cookie" });
+      expect(await response.json()).toEqual({ who: null });
     });
 
     it("matches the Bearer prefix case-insensitively", async () => {
@@ -990,7 +990,7 @@ describe("session adapters — shared contract", () => {
 
   // #region Elysia
   describe("elysia", () => {
-    it("reads the cookie in preference to the session header", async () => {
+    it("reads the session header in preference to the cookie", async () => {
       const minted = elysiaContext();
       const cookieSession = await createJWSSession(minted.context, { key: jwsKey });
       await cookieSession.update({ who: "cookie" });
@@ -1005,10 +1005,10 @@ describe("session adapters — shared contract", () => {
       });
       const session = await createJWSSession(context, { key: jwsKey, sessionHeader: true });
 
-      expect((session.data as Record<string, unknown>).who).toBe("cookie");
+      expect((session.data as Record<string, unknown>).who).toBe("header");
     });
 
-    it("a blank session header never hides the cookie", async () => {
+    it("a blank session header is a token failure, the cookie unread", async () => {
       const minted = elysiaContext();
       const cookieSession = await createJWSSession(minted.context, { key: jwsKey });
       await cookieSession.update({ who: "cookie" });
@@ -1019,7 +1019,8 @@ describe("session adapters — shared contract", () => {
       });
       const session = await createJWSSession(context, { key: jwsKey, sessionHeader: true });
 
-      expect((session.data as Record<string, unknown>).who).toBe("cookie");
+      expect(session.id).toBeUndefined();
+      expect((session.data as Record<string, unknown>).who).toBeUndefined();
     });
 
     it("rejects a session with neither a cookie nor a header to read from", async () => {
@@ -3067,7 +3068,7 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(portFamilyCases())(
-      "$label: an Authorization header without a Bearer token carries no token",
+      "$label: an Authorization header without a Bearer token is a token failure",
       async (port) => {
         const onError = vi.fn();
         const config = { ...baseConfig(port), sessionHeader: "authorization", hooks: { onError } };
@@ -3081,7 +3082,11 @@ describe("session adapters — shared contract", () => {
         }
 
         expect(bodies).toEqual([{ id: null }, { id: null }, { id: null }, { id: null }]);
-        expect(onError).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledTimes(4);
+        for (const [{ error }] of onError.mock.calls) {
+          expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+          expect((error as Error).message).toContain('the "authorization" header holds neither');
+        }
       },
     );
 
@@ -3105,7 +3110,7 @@ describe("session adapters — shared contract", () => {
           },
         );
 
-        expect(response.body).toEqual({ before: cookieToken, after: null });
+        expect(response.body).toEqual({ before: headerToken, after: null });
       },
     );
   });
@@ -4207,7 +4212,7 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(portFamilyCases())(
-      "$label: token() returns the carried token unopened, the cookie before the header",
+      "$label: token() returns the carried token unopened, the header before the cookie",
       async (port) => {
         const definition = definitionOf(port, baseConfig(port));
         const header = `x-${port.name}-session`;
@@ -4225,7 +4230,16 @@ describe("session adapters — shared contract", () => {
             cookies: { [port.name]: "opaque-cookie" },
             headers: { [header]: "opaque-header" },
           }),
-        ).toEqual({ token: "opaque-cookie" });
+        ).toEqual({ token: "opaque-header" });
+        expect(
+          await read({
+            cookies: { [port.name]: "opaque-cookie" },
+            headers: { [header]: "Basic opaque-header" },
+          }),
+        ).toEqual({ token: null });
+        expect(await read({ cookies: { [port.name]: "opaque-cookie" } })).toEqual({
+          token: "opaque-cookie",
+        });
         expect(await read({ headers: { [header]: "Bearer opaque-header" } })).toEqual({
           token: "opaque-header",
         });

@@ -111,7 +111,7 @@ export async function getJWSSession<
 }
 
 /**
- * Read the raw session token: cookie first, then the session header (default `x-<name>-session`, optional `Bearer`).
+ * Read the raw session token: the session header when the request carries it (default `x-<name>-session`, optional `Bearer`), else the cookie.
  * @deprecated Use `defineJWSSession(config).token(event)`.
  */
 export function getJWSSessionToken<

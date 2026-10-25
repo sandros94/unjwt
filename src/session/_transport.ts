@@ -7,7 +7,8 @@ import {
   writeChunked,
 } from "./_chunked-cookie.ts";
 import type { CookieJar, SessionDriver } from "./_driver.ts";
-import { invalidConfigError, isToken, readOnlyEventError } from "./_contract.ts";
+import type { JWTError } from "../core/error.ts";
+import { invalidConfigError, invalidTokenError, isToken, readOnlyEventError } from "./_contract.ts";
 
 /** Where a session's token can travel. */
 export interface SessionTokenSource {
@@ -25,8 +26,10 @@ export interface SessionCookie {
 
 /** How one session's token reaches the request and leaves with the response. */
 export interface SessionTransport {
-  /** The token this response wrote, else the request cookie's, else the session header's; absent without a token source. */
+  /** The session header's token when the request presents the header, else the cookie this response wrote, else the request's; absent without a token source. */
   read?: () => string | undefined;
+  /** The session header is present but holds neither a bare token nor `Bearer <token>`. */
+  malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID">;
   /** Present while the session keeps its token in a cookie the event can write. */
   write?: (token: string, cookie: SessionCookie) => void;
   /** Present while the session keeps its token in a cookie the event can write. */
@@ -37,7 +40,7 @@ export interface SessionTransport {
   writable: () => boolean;
 }
 
-/** A token the driver hands in, else the cookie and header transports a config asks for, over the driver of one request. */
+/** A token the driver hands in, else the session header the request presents, else the cookie, over the driver of one request. */
 export function resolveTransport<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
@@ -47,21 +50,21 @@ export function resolveTransport<TEvent>(
   if (handed) return { read: () => handed.token, readonly: false, writable: () => true };
 
   const { config, name } = options;
-  const header = headerReader(driver, event, options);
+  const header = presentedHeader(driver, event, options);
   if (config.cookie === false) {
-    return { read: header, readonly: false, writable: () => true };
+    return {
+      read: config.sessionHeader === false ? undefined : () => header?.token,
+      malformed: header?.malformed,
+      readonly: false,
+      writable: () => true,
+    };
   }
 
   const jar = driver.cookies(event);
   const store = responseStore(jar);
   const transport: SessionTransport = {
-    read: () => {
-      const written = jar.written
-        ? readChunked({ read: (key) => jar.written?.(key) }, name)
-        : undefined;
-      if (written === "") return undefined;
-      return (written ?? readChunked(jar, name)) || header?.() || undefined;
-    },
+    read: header ? () => header.token : () => cookieToken(jar, name),
+    malformed: header?.malformed,
     readonly: !store,
     writable: () => driver.writable?.(event) ?? true,
   };
@@ -133,16 +136,34 @@ export function headerToken(value: string | null | undefined): string | undefine
   return words.length === 1 && first ? first : undefined;
 }
 
-/** Reads the session header `sessionHeader` names, else `x-<name>-session`. */
-function headerReader<TEvent>(
+/** The session header `sessionHeader` names, else `x-<name>-session`, when the request carries it; a value without a token is malformed. */
+function presentedHeader<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
   options: { config: SessionTokenSource; name: string },
-): (() => string | undefined) | undefined {
+): { token: string | undefined; malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID"> } | undefined {
   const { config, name } = options;
   if (config.sessionHeader === false) return undefined;
   const header = sessionHeaderName(name, config.sessionHeader);
-  return () => headerToken(driver.header(event, header));
+  const value = driver.header(event, header);
+  if (typeof value !== "string") return undefined;
+  const token = headerToken(value);
+  if (token) return { token };
+  return {
+    token: undefined,
+    malformed: invalidTokenError(
+      `${driver.prefix} Invalid session token: the "${header}" header holds neither a token nor "Bearer <token>".`,
+    ),
+  };
+}
+
+/** The cookie this response wrote (none once deleted), else the request's, chunks joined. */
+function cookieToken(jar: CookieJar, name: string): string | undefined {
+  const written = jar.written
+    ? readChunked({ read: (key) => jar.written?.(key) }, name)
+    : undefined;
+  if (written === "") return undefined;
+  return (written ?? readChunked(jar, name)) || undefined;
 }
 
 /** The jar as the chunked layer writes it, this response's value first; absent when it takes no cookie. */

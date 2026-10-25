@@ -158,8 +158,7 @@ export function sessionManager<
       return (state() ?? blankSession<T, MaxAge>()).data;
     },
     get token() {
-      const session = state();
-      return session ? session.token : sessionToken(binding);
+      return sessionToken(binding);
     },
     update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
       await issueSession<T, MaxAge, TEvent, Config>(binding, update, options);

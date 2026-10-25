@@ -64,7 +64,7 @@ export default {
 };
 ```
 
-- Reads `req.headers`' `Cookie` (parsed once per `use()`), then the session header.
+- Reads the session header when `req.headers` carries it, else the `Cookie` (parsed once per `use()`).
 - Writes `Set-Cookie` onto `res.headers`, replacing an earlier line of the same name, domain and path (and partition); unrelated lines stay. A second `update()` in one request leaves one line per cookie; `clear()` leaves the `Max-Age=0` line.
 - Hono: pass `c.req.raw` as `req` and return `new Response(body, { headers })`.
 - Nuxt 4.6+: `defineEventHandler` from `nuxt/server` (not h3's auto-import) hands a `RequestEvent` that goes to `use(event)` as is, on Nitro 2 and 3; key it from `deriveSecret()` of `nuxt/server` (32 HKDF bytes as hex → `oct` JWK, created lazily since it needs the runtime config).

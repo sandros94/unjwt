@@ -1,4 +1,5 @@
 import type { SessionDriver } from "./_driver.ts";
+import { storedSession } from "./_core.ts";
 import {
   assertCookiePrefix,
   assertRolling,
@@ -59,12 +60,14 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
   };
 }
 
+/** The token of the session this request read or wrote, else the one its transport carries. */
 export function sessionToken<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): string | undefined {
   const { transport } = binding;
   assertTokenSource(transport, { prefix: binding.driver.prefix });
-  return transport.read();
+  const session = storedSession(binding.store);
+  return session ? session.token : transport.read();
 }
 
 /** Session store over a per-request record, one slot per session. */

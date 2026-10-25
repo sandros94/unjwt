@@ -333,6 +333,61 @@ describe("unjwt/session over a Web request", () => {
   });
 });
 
+describe("unjwt/session token sources", () => {
+  it.each(FAMILIES)(
+    "$family: a session header the request presents wins over the cookie",
+    async ({ define }) => {
+      const session = define({ sessionHeader: true });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const fromHeader = await session.issue({ who: "header" });
+
+      const manager = await session.use({
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": `Bearer ${fromHeader}` }),
+        res: { headers: new Headers() },
+      });
+      expect(manager.data).toEqual({ who: "header" });
+      expect(manager.token).toBe(fromHeader);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a malformed session header is a token failure that leaves the cookie alone",
+    async ({ define }) => {
+      const onError = vi.fn();
+      const onRead = vi.fn();
+      const session = define({ sessionHeader: true, hooks: { onError, onRead } });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const headers = new Headers();
+      const event = {
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": "Basic dXNlcjpwYXNz" }),
+        res: { headers },
+      };
+
+      const manager = await session.use(event);
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBeUndefined();
+      expect(onRead).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledOnce();
+      const [{ error }] = onError.mock.calls[0] as [{ error: unknown }];
+      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: without the session header the cookie is read",
+    async ({ define }) => {
+      const session = define({ sessionHeader: true });
+      const fromCookie = await session.issue({ who: "cookie" });
+
+      const manager = await session.use({ req: get({ cookie: `web=${fromCookie}` }) });
+      expect(manager.data).toEqual({ who: "cookie" });
+    },
+  );
+});
+
 describe("unjwt/session bounds a token by maxAge", () => {
   const HOUR = 3600;
   const DAY = 24 * HOUR;
