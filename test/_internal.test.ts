@@ -1,22 +1,17 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { textDecoder, textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "../src/core/utils/base64.ts";
+import { base64UrlStringify } from "../src/utils/base64.ts";
 
-import {
-  JWS_ALG_CTX,
-  JWE_ALG_CTX,
-  asJWTError,
-  buildJWKSetFilter,
-  checkAlgAllowed,
-  decodeJWSPayload,
-  decodeProtectedHeader,
-  parseEphemeralKey,
-  resolveSigningKey,
-  validateClaimsIfJson,
-  resolvePayloadMode,
-} from "../src/core/_internal.ts";
-import { generateKey, generateJWK } from "../src/core/jwk.ts";
-import { isJWTError, JWTError } from "../src/core/error.ts";
+import { JWS_ALG_CTX, checkAlgAllowed } from "../src/core/_internal/algorithms.ts";
+import { JWE_ALG_CTX } from "../src/core/jwe/_internal/algorithms.ts";
+import { asJWTError } from "../src/core/_internal/errors.ts";
+import { buildJWKSetFilter, parseEphemeralKey } from "../src/core/_internal/keys.ts";
+import { decodeJWSPayload } from "../src/core/jws/_internal/b64.ts";
+import { decodeProtectedHeader } from "../src/core/_internal/headers.ts";
+import { resolveSigningKey } from "../src/core/jws/_internal/keys.ts";
+import { validateClaimsIfJson, resolvePayloadMode } from "../src/core/_internal/payload.ts";
+import { generateKey, generateJWK } from "../src/core/jwk/index.ts";
+import { isJWTError, JWTError } from "../src/error.ts";
 import type {
   JWK,
   JWK_EC_Private,
@@ -26,7 +21,7 @@ import type {
   JWK_Symmetric,
   JWTClaims,
 } from "../src/core/types/index.ts";
-import type { JWTErrorCode, KnownJWTErrorCode } from "../src/core/error.ts";
+import type { JWTErrorCode, KnownJWTErrorCode } from "../src/error.ts";
 
 /** Assert that `fn` throws a `JWTError` with the given `code`. */
 function expectThrowsJWTError(fn: () => unknown, code: KnownJWTErrorCode): void {

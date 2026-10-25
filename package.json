@@ -50,20 +50,24 @@
       "default": "./dist/index.mjs"
     },
     "./jwk": {
-      "types": "./dist/core/jwk.d.mts",
-      "default": "./dist/core/jwk.mjs"
+      "types": "./dist/core/jwk/index.d.mts",
+      "default": "./dist/core/jwk/index.mjs"
     },
     "./jws": {
-      "types": "./dist/core/jws.d.mts",
-      "default": "./dist/core/jws.mjs"
+      "types": "./dist/core/jws/index.d.mts",
+      "default": "./dist/core/jws/index.mjs"
     },
     "./jwe": {
-      "types": "./dist/core/jwe.d.mts",
-      "default": "./dist/core/jwe.mjs"
+      "types": "./dist/core/jwe/index.d.mts",
+      "default": "./dist/core/jwe/index.mjs"
     },
     "./utils": {
-      "types": "./dist/core/utils/index.d.mts",
-      "default": "./dist/core/utils/index.mjs"
+      "types": "./dist/utils/index.d.mts",
+      "default": "./dist/utils/index.mjs"
+    },
+    "./error": {
+      "types": "./dist/error.d.mts",
+      "default": "./dist/error.mjs"
     },
     "./session": {
       "types": "./dist/session/index.d.mts",

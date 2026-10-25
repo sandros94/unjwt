@@ -1,7 +1,7 @@
 import { textEncoder } from "unsecure/utils";
 
-import { concatUint8Arrays, uint32be } from "../utils/array.ts";
-import { JWTError } from "../error.ts";
+import { concatUint8Arrays, uint32be } from "../../utils/array.ts";
+import { JWTError } from "../../error.ts";
 import type { ContentEncryptionAlgorithm, JWK_ECDH_ES } from "../types/index.ts";
 import {
   aesBitsOf,

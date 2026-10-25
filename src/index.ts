@@ -1,12 +1,12 @@
 export type * from "./core/types/index.ts";
 
-export { JWTError, isJWTError, UnsecureError, isUnsecureError } from "./core/error.ts";
+export { JWTError, isJWTError, UnsecureError, isUnsecureError } from "./error.ts";
 export type {
   JWTErrorCode,
   KnownJWTErrorCode,
   JWTErrorCauseMap,
   UnsecureErrorCode,
-} from "./core/error.ts";
+} from "./error.ts";
 
 export {
   sign,
@@ -15,9 +15,15 @@ export {
   verifyMulti,
   verifyMultiAll,
   generalToFlattenedJWS,
-} from "./core/jws.ts";
-export { encrypt, decrypt, encryptMulti, decryptMulti, generalToFlattened } from "./core/jwe.ts";
-export { DEFAULT_JOSE_LIMITS } from "./core/_internal.ts";
+} from "./core/jws/index.ts";
+export {
+  encrypt,
+  decrypt,
+  encryptMulti,
+  decryptMulti,
+  generalToFlattened,
+} from "./core/jwe/index.ts";
+export { DEFAULT_JOSE_LIMITS } from "./core/_internal/limits.ts";
 export {
   generateKey,
   generateJWK,
@@ -37,6 +43,6 @@ export {
   WeakMapJWKCache,
   configureJWKCache,
   clearJWKCache,
-} from "./core/jwk.ts";
+} from "./core/jwk/index.ts";
 
-export * from "./core/utils/index.ts";
+export * from "./utils/index.ts";

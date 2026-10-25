@@ -37,7 +37,7 @@ export {
   verifyJWSSession,
 } from "./session/jws.ts";
 export type { SessionSignOptions, SessionVerifyOptions } from "./session/jws.ts";
-export type { CompatEvent } from "./session/_shared.ts";
+export type { CompatEvent } from "./_internal/shared.ts";
 
 export type * from "../../core/types/index.ts";
 export {
@@ -47,4 +47,4 @@ export {
   importPEM,
   exportPEM,
   deriveJWKFromPassword,
-} from "../../core/jwk.ts";
+} from "../../core/jwk/index.ts";

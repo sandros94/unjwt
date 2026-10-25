@@ -4,9 +4,9 @@ import {
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "./_codec-jws.ts";
-import type { CookieAttributes } from "./_cookie-attributes.ts";
-import type { SessionDriver } from "./_driver.ts";
+} from "./_internal/codec-jws.ts";
+import type { CookieAttributes } from "./_internal/cookie-attributes.ts";
+import type { SessionDriver } from "./_internal/driver.ts";
 import type {
   SessionClaims,
   SessionDefinition,
@@ -15,10 +15,10 @@ import type {
   SessionState,
   WebSessionEvent,
 } from "./types.ts";
-import { defineSession } from "./_definition.ts";
-import { webSessionDriver } from "./_web-driver.ts";
+import { defineSession } from "./_internal/definition.ts";
+import { webSessionDriver } from "./_internal/web-driver.ts";
 
-export type { SessionSignOptions, SessionVerifyOptions } from "./_codec-jws.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "./_internal/codec-jws.ts";
 
 /** Session state for the current request, mirroring the claims of its JWS token. */
 export interface SessionJWS<

@@ -1,9 +1,9 @@
-import { base64UrlStringify } from "../utils/base64.ts";
+import { base64UrlStringify } from "../../utils/base64.ts";
 
-import { concatUint8Arrays, uint32be } from "../utils/array.ts";
-import { isCryptoKey } from "../utils/guards.ts";
-import { JWTError } from "../error.ts";
-import { quoteTokenValue } from "../utils/_text.ts";
+import { concatUint8Arrays, uint32be } from "../../utils/array.ts";
+import { isCryptoKey } from "../../utils/guards.ts";
+import { JWTError } from "../../error.ts";
+import { quoteTokenValue } from "../../utils/_internal/text.ts";
 import type {
   ContentEncryptionAlgorithm,
   JWK_AES_CBC_HMAC,

@@ -12,23 +12,26 @@ import {
   type JWESessionConfig,
   type JWESessionHooks,
   createJWECodec,
-} from "../../../session/_codec-jwe.ts";
-import { bindSession } from "../../../session/_bind.ts";
-import type { SessionBinding } from "../../../session/_types.ts";
-import { openSessionToken } from "../../../session/_core.ts";
-import { defineSession } from "../../../session/_definition.ts";
-import { loadSession } from "../../../session/_read.ts";
+} from "../../../session/_internal/codec-jwe.ts";
+import { bindSession } from "../../../session/_internal/bind.ts";
+import type { SessionBinding } from "../../../session/_internal/types.ts";
+import { openSessionToken } from "../../../session/_internal/core.ts";
+import { defineSession } from "../../../session/_internal/definition.ts";
+import { loadSession } from "../../../session/_internal/read.ts";
 import {
   dropSession,
   encodeSession,
   issueSession,
   sessionActions,
-} from "../../../session/_write.ts";
-import type { CookieSerializeOptions } from "../_cookie.ts";
+} from "../../../session/_internal/write.ts";
+import type { CookieSerializeOptions } from "../_internal/cookie.ts";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
-import { type CompatEvent, PREFIX, h3SessionDriver } from "./_shared.ts";
+import { type CompatEvent, PREFIX, h3SessionDriver } from "../_internal/shared.ts";
 
-export type { SessionDecryptOptions, SessionEncryptOptions } from "../../../session/_codec-jwe.ts";
+export type {
+  SessionDecryptOptions,
+  SessionEncryptOptions,
+} from "../../../session/_internal/codec-jwe.ts";
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "h3-jwe" });
 const hookArgs = (event: CompatEvent | H3Event) => ({ event });

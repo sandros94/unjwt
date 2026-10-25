@@ -1,8 +1,8 @@
 import { test } from "vitest";
 import { EncryptJWT, jwtDecrypt } from "jose";
 
-import { generateJWK } from "../../src/core/jwk.ts";
-import { encrypt, decrypt } from "../../src/core/jwe.ts";
+import { generateJWK } from "../../src/core/jwk/index.ts";
+import { encrypt, decrypt } from "../../src/core/jwe/index.ts";
 
 test("Library comparison encryption — RSA-OAEP-256", async ({ bench }) => {
   const keys = await generateJWK("RSA-OAEP-256");

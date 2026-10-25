@@ -1,8 +1,8 @@
 import { test } from "vitest";
 
-import { generateJWK } from "../../src/core/jwk.ts";
-import { sign, verify } from "../../src/core/jws.ts";
-import { encrypt, decrypt } from "../../src/core/jwe.ts";
+import { generateJWK } from "../../src/core/jwk/index.ts";
+import { sign, verify } from "../../src/core/jws/index.ts";
+import { encrypt, decrypt } from "../../src/core/jwe/index.ts";
 
 test("JWK — JWS signing — per algorithm", async ({ bench }) => {
   const [rs256Keys, rs384Keys, rs512Keys, ps256Keys, es256Keys, okpKeys] = await Promise.all([

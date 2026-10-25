@@ -1,7 +1,7 @@
 import supertest from "supertest";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { type App, createApp, createRouter, toNodeListener, eventHandler, readBody } from "h3v1";
-import { base64UrlParse } from "../src/core/utils/base64.ts";
+import { base64UrlParse } from "../src/utils/base64.ts";
 
 import {
   type SessionConfigJWE,
@@ -14,8 +14,8 @@ import {
   updateJWSSession,
   generateJWK,
 } from "../src/adapters/h3v1/index.ts";
-import { encrypt } from "../src/core/jwe.ts";
-import { sign } from "../src/core/jws.ts";
+import { encrypt } from "../src/core/jwe/index.ts";
+import { sign } from "../src/core/jws/index.ts";
 
 // Pre-generate every JWK once per file. Keygen (especially RSA) and PBES2
 // password-based key derivation (600k PBKDF2 iterations) dominate the test

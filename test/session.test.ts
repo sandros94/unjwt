@@ -2,12 +2,12 @@ import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { type H3Event, H3, HTTPError } from "h3";
 
 import type { ExpiresIn, JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
-import { isJWTError } from "../src/core/error.ts";
-import { generateJWK, generateKey, importPEM } from "../src/core/jwk.ts";
-import type { JWESessionKey } from "../src/session/_codec-jwe.ts";
+import { isJWTError } from "../src/error.ts";
+import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
+import type { JWESessionKey } from "../src/session/_internal/codec-jwe.ts";
 import { rsa } from "./keys.ts";
-import { sign } from "../src/core/jws.ts";
-import { encrypt } from "../src/core/jwe.ts";
+import { sign } from "../src/core/jws/index.ts";
+import { encrypt } from "../src/core/jwe/index.ts";
 import {
   type CookieJar,
   type SessionDefinition,

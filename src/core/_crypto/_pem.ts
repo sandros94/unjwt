@@ -1,7 +1,7 @@
-import { base64Stringify, base64Parse } from "../utils/base64.ts";
+import { base64Stringify, base64Parse } from "../../utils/base64.ts";
 
-import { isCryptoKey } from "../utils/guards.ts";
-import { JWTError } from "../error.ts";
+import { isCryptoKey } from "../../utils/guards.ts";
+import { JWTError } from "../../error.ts";
 import type { JWKPEMAlgorithm } from "../types/index.ts";
 import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm.ts";
 

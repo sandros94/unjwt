@@ -266,7 +266,7 @@ const { id, data, expiresAt } = await magicLink.open(token);
 
 ## Notes / gotchas
 
-- `jwsSession`/`jweSession` (and `plugin()`) return an explicitly-typed Elysia plugin (`SessionPlugin<Resolved, GuardName>` in `_plugin.ts`) so the package satisfies `isolatedDeclarations`; the factory body is cast `as unknown as SessionPlugin<…>` because Elysia's `.macro()` expects literal keys while the guard key is computed.
-- The session lifecycle is the shared core in `src/session/_core.ts`, over the JWS/JWE codec and the Elysia driver in `session/_shared.ts` (reactive-jar cookie writes, token reading), so hooks, error codes and claim handling match the h3 adapters exactly.
+- `jwsSession`/`jweSession` (and `plugin()`) return an explicitly-typed Elysia plugin (`SessionPlugin<Resolved, GuardName>` in `src/adapters/elysia/_internal/plugin.ts`) so the package satisfies `isolatedDeclarations`; the factory body is cast `as unknown as SessionPlugin<…>` because Elysia's `.macro()` expects literal keys while the guard key is computed.
+- The session lifecycle is the shared core in `src/session/_internal/core.ts`, over the JWS/JWE codec and the Elysia driver in `src/adapters/elysia/_internal/shared.ts` (reactive-jar cookie writes, token reading), so hooks, error codes and claim handling match the h3 adapters exactly.
 - Build: the adapter is an input of the single multi-input bundle (shared core in `dist/_chunks/`, `elysia` external, `unsecure` inlined) — no core duplication.
 - Testable in vitest+Node via `app.handle(new Request(...))`; no Bun required.

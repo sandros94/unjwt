@@ -1,6 +1,6 @@
-import { base64UrlStringify } from "../utils/base64.ts";
-import { JWTError } from "../error.ts";
-import { quoteTokenValue } from "../utils/_text.ts";
+import { base64UrlStringify } from "../../utils/base64.ts";
+import { JWTError } from "../../error.ts";
+import { quoteTokenValue } from "../../utils/_internal/text.ts";
 import { cryptoKeyCurve, innerKeyWrapAlg } from "./_key-algorithm.ts";
 
 import type {
@@ -15,7 +15,7 @@ import type {
   JWK_EC_Public,
   JWK_OKP_Public,
 } from "../types/index.ts";
-import { isJWK, assertCryptoKey, isCryptoKey } from "../utils/guards.ts";
+import { isJWK, assertCryptoKey, isCryptoKey } from "../../utils/guards.ts";
 import { generateCEK, gcmkwEncrypt, aesKwWrap } from "./_aes.ts";
 import { jwkTokey, keyToJWK } from "./_key-codec.ts";
 import { encryptRSAES } from "./_rsa.ts";

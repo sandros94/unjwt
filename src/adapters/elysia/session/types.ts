@@ -1,4 +1,4 @@
-import type { ChunkableCookieJar } from "../_cookie.ts";
+import type { ChunkableCookieJar } from "../_internal/cookie.ts";
 
 export type {
   OpenedSessionState,

@@ -1,4 +1,4 @@
-import { JWTError } from "../error.ts";
+import { JWTError } from "../../error.ts";
 import type {
   JWK_AES_Algorithm,
   JWK_ECDSA,

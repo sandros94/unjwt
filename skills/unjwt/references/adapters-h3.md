@@ -33,7 +33,7 @@ Peer dep: `h3`
 
 ## Cookie chunking
 
-A token longer than `cookie.chunkMaxLength` (default 4000) is split: the base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks (beyond which the write throws `ERR_SESSION_CONFIG_INVALID`). h3 v1 and h3 v2 write the same layout — h3 v2 and h3 v1 each through the adapter's own chunk layer (`src/session/_chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by the others. Cleanup of a previous chunk set is bounded by the same 16-chunk limit, so a forged marker cannot inflate the number of `Set-Cookie` headers on a response. The previous set is the one the response already wrote, else the request's, so a set that shrinks within one request expires the chunks it no longer uses.
+A token longer than `cookie.chunkMaxLength` (default 4000) is split: the base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks (beyond which the write throws `ERR_SESSION_CONFIG_INVALID`). h3 v1 and h3 v2 write the same layout — h3 v2 and h3 v1 each through the adapter's own chunk layer (`src/session/_internal/chunked-cookie.ts`) over that h3 version's `setCookie` — as does the Elysia adapter, so a cookie written by any of them is readable by the others. Cleanup of a previous chunk set is bounded by the same 16-chunk limit, so a forged marker cannot inflate the number of `Set-Cookie` headers on a response. The previous set is the one the response already wrote, else the request's, so a set that shrinks within one request expires the chunks it no longer uses.
 
 ## Error codes
 
@@ -60,7 +60,7 @@ Forked from h3's `useSession`, then deliberately diverged:
 - **h3 v2 error responses** get the session `Set-Cookie` mirrored into `res.errHeaders` (same as upstream), so throwing after `update()`/`clear()` still reaches the client — unless an app-level `onError` returns a `Response` of its own, which h3 sends without `res.errHeaders`.
 - **Events without a response, and after it was sent**: `update()` throws `ERR_SESSION_READONLY_EVENT` on an event that takes no cookie; `clear()` only empties the request's session there. On h3 v1 a handled response (`isEvent(event) && !event.handled`, h3's own getter) refuses both (`Cannot update/clear session: the response was already sent.`) and leaves the session as it was. h3 v2 guards on `event.res` only, as upstream, and never probes the runtime, so a write made after the handler returned is accepted but never sent: write inside the handler, before it returns. A read there only observes: an expired or unreadable token reaches `onExpire`/`onError` without its cookie being dropped and `rolling` does not reissue; the next request, carrying the same token, does both.
 
-Both h3 adapters, the Elysia one and `unjwt/session` run the same session core (`src/session/_core.ts`) over a JWS/JWE codec and a per-framework driver (`session/_shared.ts`), so the lifecycle, hook order and error codes are the same everywhere; only cookie writing, per-request state and the `res.errHeaders` staging differ per framework.
+Both h3 adapters, the Elysia one and `unjwt/session` run the same session core (`src/session/_internal/core.ts`) over a JWS/JWE codec and a per-framework driver (`src/adapters/<framework>/_internal/shared.ts`), so the lifecycle, hook order and error codes are the same everywhere; only cookie writing, per-request state and the `res.errHeaders` staging differ per framework.
 
 ## WebSockets
 

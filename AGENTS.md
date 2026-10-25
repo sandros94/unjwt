@@ -41,6 +41,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - `unjwt/jwe` — `encrypt()`, `decrypt()` (Compact) plus `encryptMulti()`/`decryptMulti()` (General/Flattened)
 - `unjwt/jwk` — key generation, import/export (CryptoKey, JWK, PEM), wrap/unwrap, PBES2 derivation
 - `unjwt/utils` — base64url encode/decode, type guards (`isJWK`, `isJWKSet`, `isPrivateJWK`, etc.), `secureRandomBytes`
+- `unjwt/error` — `JWTError`/`isJWTError`, `UnsecureError`/`isUnsecureError` and the error code types
 - `unjwt/internal` — JOSE plumbing (`parsePayloadBytes`, `computeJwtTimeClaims`, `crit` checks, …) for tests and tooling; no semver guarantee, not re-exported from `unjwt`
 - `unjwt/dpop` — RFC 9449 proof creation and verification; explicit key pair and verification policy, optional replay callback; no HTTP or storage, no root re-export
 - `unjwt/adapters/h3` (= `h3v2`) and `unjwt/adapters/h3v1` — `defineJWSSession()`, `defineJWESession()` session definitions (`use`/`token`/`issue`/`open`) for cookie-based JWT sessions; both deprecated, removed in 0.9.0 in favour of `unjwt/session`
@@ -52,54 +53,76 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 ```
 src/
   index.ts              # root entry: flat named re-exports of the core modules
-  dpop/                 # optional DPoP entry; proof creation, verification, types and internal checks
+  error.ts              # `unjwt/error`: JWTError class + error codes (ERR_JWT_EXPIRED, …), UnsecureError
+  utils/                # `unjwt/utils`: encoding, type guards, JWT claim validation, sanitization
+    _internal/          # base64 codec, quoted-value text helper
+  dpop/                 # `unjwt/dpop`: proof creation, verification, types
+    _internal/          # key, URI, validation and verification checks
   core/
-    jws.ts              # sign/verify (compact); re-exports the multi-recipient API
-    jwe.ts              # encrypt/decrypt (compact); re-exports the multi-recipient API
-    jws-multi.ts        # signMulti/verifyMulti/verifyMultiAll (General/Flattened JWS)
-    jwe-multi.ts        # encryptMulti/decryptMulti (General/Flattened JWE)
-    jwk.ts              # key management (generateKey, importKey, exportKey, wrapKey, unwrapKey, PEM conversion)
-    _import-key.ts      # importKey + the JWK import cache + getJWKsFromSet: what jws/jwe need from the key module, without wrap/unwrap/PEM/generation
-    _internal.ts        # shared signing-key resolver + JWKSet candidate filter for jws/jwe
-    _jwt-internal.ts    # JOSE plumbing: typ/cty defaults, payload parsing, time claims, crit checks
-    internal.ts         # `unjwt/internal` entry point over _jwt-internal.ts
-    error.ts            # JWTError class + error codes (ERR_JWT_EXPIRED, …)
+    internal.ts         # `unjwt/internal` entry point over _internal/jwt.ts
     types/              # TypeScript types for JWK, JWS, JWE, JWT
-    utils/              # encoding, type guards, JWT claim validation, sanitization
+    _internal/          # plumbing shared by two or more of jws/jwe/jwk/dpop/session
+      jwt.ts            # JOSE plumbing: typ/cty defaults, payload parsing, time claims, crit checks
+      import-key.ts     # importKey + the JWK import cache + getJWKsFromSet: what jws/jwe need from the key module, without wrap/unwrap/PEM/generation
+      limits.ts         # DEFAULT_JOSE_LIMITS, limit resolution, entry and JWK Set candidate bounds
+      headers.ts        # protected header serialize/decode, crit/protected-only/producer checks, consumer options, typ, serialization shape
+      keys.ts           # JWK Set filter, ECDH-ES agreement params, key-lookup and password key resolution, dir key role
+      algorithms.ts     # alg allowlist checks (JWS_ALG_CTX), key/header match, supported-alg and enc checks
+      errors.ts         # JWTError wrapping (key lookup, decryption), JSON object copy
+      payload.ts        # payload mode resolution, JSON claim validation
+    jws/
+      index.ts          # `unjwt/jws`: sign/verify (compact); re-exports the multi-signature API
+      multi.ts          # signMulti/verifyMulti/verifyMultiAll/generalToFlattenedJWS (General/Flattened JWS)
+      _internal/        # sign-verify (protected header, key verification), keys (signing key, RSA modulus), b64 (RFC 7797), algorithms, multi helpers
+    jwe/
+      index.ts          # `unjwt/jwe`: encrypt/decrypt (compact); re-exports the multi-recipient API
+      multi.ts          # encryptMulti/decryptMulti/generalToFlattened (General/Flattened JWE)
+      _internal/        # encrypt-decrypt (key management params, unwrap + decrypt), keys (PBES2 budget, CEK, unwrap options), checks, algorithms (JWE_ALG_CTX), multi helpers
+    jwk/
+      index.ts          # `unjwt/jwk`: re-exports the files below + importKey, thumbprint, the JWK cache, errors
+      generate.ts       # generateKey, generateJWK
+      password.ts       # deriveKeyFromPassword, deriveJWKFromPassword
+      export.ts         # exportJWK, exportKey, toPublicJWK
+      wrap.ts           # wrapKey, unwrapKey
+      pem.ts            # importPEM, exportPEM
+      ecdh.ts           # deriveSharedSecret
+      _internal/        # generate (key params, usages), wrap (argument and segment checks), members (reserved params, kid, key_ops)
     _crypto/            # low-level crypto primitives — originally derived from panva/jose, now maintained in-tree
                         # (_sign-verify, _aes, _ecdh, _pbes2, _rsa, _key-codec, _key-encryption, _pem)
   session/              # `unjwt/session`: the session core, the Web driver, and the public driver API
     index.ts            # the entry: defineJWSSession/defineJWESession (optional `{ driver }`), defineSessionDriver, WebSessionEvent
     jws.ts, jwe.ts      # the two families' define*Session over the Web driver
-    _web-driver.ts      # driver: event.context.sessions or WeakMap state, request headers/cookies, handed token
-    _cookie.ts          # Web cookie jar: cookie-es parse of the Cookie header, Set-Cookie replace on Headers
-    _define-driver.ts   # defineSessionDriver(): the typed identity for a third-party driver
-    _contract.ts        # framework-agnostic session contract (error factories, reserved-claim stripping, name/cookie/rolling checks, typ/exp helpers)
-    _core.ts            # session state and the codec/store/binding contracts every session runs on
-    _bind.ts            # bindSession: config checks, per-request name registry, store and transport of one session
-    _read.ts            # load: token read, open, expiry, onRead/onExpire/onError, rolling
-    _write.ts           # issue/drop/encode with rollback, onUpdate/onClear, the manager's lazy getters
-    _definition.ts      # SessionDefinition + defineSession: one config bound to a driver and a codec (use/token/issue/open)
-    _driver.ts          # SessionDriver/CookieJar: the primitives a framework supplies (state, header, cookies, writable)
-    _transport.ts       # core-owned cookie + header transports over a driver; sessionHeader rules
     types.ts            # the public session types (SessionClaims/Data/Update/Manager/Hooks/State/Definition, WebSessionEvent = SessionRequestEvent | SessionHandedToken)
-    _types.ts           # internal contracts only (PendingSession/StoredSession, SessionCodec/Store/Actions/Binding, core config and hooks)
-    _codec.ts           # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
-    _codec-jws.ts       # JWS half of a session: sign/verify, key resolution, JWS config + cookie defaults
-    _codec-jwe.ts       # JWE half of a session: encrypt/decrypt, key resolution, JWE config + cookie defaults
-    _chunked-cookie.ts  # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
-    _cookie-attributes.ts # CookieAttributes: the Set-Cookie attribute shape shared by the Elysia and Web entries
+    _internal/
+      web-driver.ts     # driver: event.context.sessions or WeakMap state, request headers/cookies, handed token
+      cookie.ts         # Web cookie jar: cookie-es parse of the Cookie header, Set-Cookie replace on Headers
+      define-driver.ts  # defineSessionDriver(): the typed identity for a third-party driver
+      contract.ts       # framework-agnostic session contract (error factories, reserved-claim stripping, name/cookie/rolling checks, typ/exp helpers)
+      core.ts           # session state and the codec/store/binding contracts every session runs on
+      bind.ts           # bindSession: config checks, per-request name registry, store and transport of one session
+      read.ts           # load: token read, open, expiry, onRead/onExpire/onError, rolling
+      write.ts          # issue/drop/encode with rollback, onUpdate/onClear, the manager's lazy getters
+      definition.ts     # SessionDefinition + defineSession: one config bound to a driver and a codec (use/token/issue/open)
+      driver.ts         # SessionDriver/CookieJar: the primitives a framework supplies (state, header, cookies, writable)
+      transport.ts      # core-owned cookie + header transports over a driver; sessionHeader rules
+      types.ts          # internal contracts only (PendingSession/StoredSession, SessionCodec/Store/Actions/Binding, core config and hooks)
+      codec.ts          # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
+      codec-jws.ts      # JWS half of a session: sign/verify, key resolution, JWS config + cookie defaults
+      codec-jwe.ts      # JWE half of a session: encrypt/decrypt, key resolution, JWE config + cookie defaults
+      chunked-cookie.ts # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
+      cookie-attributes.ts # CookieAttributes: the Set-Cookie attribute shape shared by the Elysia and Web entries
   adapters/             # framework entries over `src/session/`: Elysia (plugin + guard macro), and the deprecated h3 ones
     h3v1/               # H3 v1 session adapter (defineJWSSession, defineJWESession)
-      _cookie.ts        # cookie option type + the Node response's Set-Cookie list
-      session/_shared.ts# driver: CompatEvent, context state, request headers/cookies, cookie jar
+      _internal/cookie.ts # cookie option type + the Node response's Set-Cookie list
+      _internal/shared.ts # driver: CompatEvent, context state, request headers/cookies, cookie jar
     h3/                 # H3 v2 session adapter (`unjwt/adapters/h3`, also served as `h3v2`)
-      session/_shared.ts# driver: context state, request headers/cookies, cookie jar with res.errHeaders staging
+      _internal/cookie.ts # cookie option type
+      _internal/shared.ts # driver: context state, request headers/cookies, cookie jar with res.errHeaders staging
     elysia/             # Elysia session adapter
-      _cookie.ts        # chunked-cookie layer over Elysia's reactive cookie jar
-      _plugin.ts        # SessionPlugin<> explicit return type, SessionPluginDefinition, guardName() helper
       session/          # defineJWSSession/defineJWESession, jwsSession/jweSession plugins, shared types
-      session/_shared.ts# driver: per-request state keyed by the Request, request headers, reactive cookie jar
+      _internal/cookie.ts # chunked-cookie layer over Elysia's reactive cookie jar
+      _internal/plugin.ts # SessionPlugin<> explicit return type, SessionPluginDefinition, guardName() helper
+      _internal/shared.ts # driver: per-request state keyed by the Request, request headers, reactive cookie jar
 ```
 
 ### Key design patterns
@@ -112,8 +135,8 @@ src/
 - **Bundled `cookie-es` dependency:** the H3 v1 adapter and `unjwt/session` parse request cookies with [`cookie-es`](https://github.com/unjs/cookie-es) v3 (`unjwt/session` also serializes and parses `Set-Cookie` with it), a devDependency inlined into dist the same way as `unsecure`. Its licence ships in obuild's `dist/THIRD-PARTY-LICENSES.md.gz`. The h3 adapters derive their cookie attribute type from their `h3` version's `setCookie`, and Elysia and `unjwt/session` share `CookieAttributes`, so no `cookie-es` type reaches the published declarations.
 - **Algorithm inference:** When `alg`/`enc` aren't provided, `sign`/`encrypt` try to infer them from JWK properties. Password strings default to PBES2 in JWE.
 - **JWK-first key model:** Functions accept JWK objects directly; `importKey()` normalizes CryptoKey/JWK/Uint8Array/string inputs.
-- **Session adapters** store JWT tokens in chunked cookies — every adapter through the core's cookie transport (`src/session/_transport.ts` over `_chunked-cookie.ts`), which writes through the cookie jar each framework's driver supplies, all writing the same `__chunked__N` + `<name>.1…N` layout. Sessions are lazy — `id` is `undefined` until `session.update()` is called. `jti`/`iat`/`exp`/`nbf` are adapter-owned; the session header is read before the cookie, and a request that presents the header is read from it alone and writes no cookie back; with a `maxAge` a token expires at `exp` or `iat + maxAge`, whichever comes first; every adapter error is a `JWTError` (`ERR_SESSION_*`).
-- **One session core, two codecs, four drivers:** the session core (`src/session/_core.ts`, `_bind.ts`, `_read.ts`, `_write.ts`) owns the whole session lifecycle (token read, expiry, hook dispatch, update with rollback, clear, the manager's lazy getters) and the transports (`_transport.ts`: the chunked cookie and the session header, and two causes a cookie cannot be written: `readonly`, a jar without `write` — `update()` throws, `clear()` only empties state — and `writable()`, the response already sent — both throw). It works through two contracts: a _codec_ (`_codec-jws.ts` / `_codec-jwe.ts`, each a spec over `_codec.ts`) that issues and opens the token and carries the family's defaults, and a _driver_ (`_driver.ts`, implemented by `src/session/_web-driver.ts` and each adapter's `session/_shared.ts`: Web, h3 v1, h3 v2, Elysia) that supplies the framework's primitives for one request _event_ — its state record, a request header, its cookie jar, and whether the response can still change. The hook argument name is not the driver's: each entry passes `hookArgs` to `defineSession`/`bindSession` (`{ event }` on h3 and `unjwt/session`, whatever driver `unjwt/session` is given; `{ context }` on Elysia), so the hook types hold by construction. The same contract is public through `unjwt/session` (`SessionDriver`, `CookieJar`, `defineSessionDriver`), so a third-party driver binds to the codecs with `defineJWSSession(config, { driver })`. `_definition.ts` binds one config to a driver and a codec as a `SessionDefinition`; `src/session/{jws,jwe}.ts` and `src/adapters/<fw>/session/{jws,jwe}.ts` are then the public surface alone: the `define*Session` factories, the config/hook types, and the binding of driver to codec. New session logic belongs in the core, new token rules in a codec, how a token travels in the transport, and anything that touches a framework in its driver.
+- **Session adapters** store JWT tokens in chunked cookies — every adapter through the core's cookie transport (`src/session/_internal/transport.ts` over `chunked-cookie.ts`), which writes through the cookie jar each framework's driver supplies, all writing the same `__chunked__N` + `<name>.1…N` layout. Sessions are lazy — `id` is `undefined` until `session.update()` is called. `jti`/`iat`/`exp`/`nbf` are adapter-owned; the session header is read before the cookie, and a request that presents the header is read from it alone and writes no cookie back; with a `maxAge` a token expires at `exp` or `iat + maxAge`, whichever comes first; every adapter error is a `JWTError` (`ERR_SESSION_*`).
+- **One session core, two codecs, four drivers:** the session core (`src/session/_internal/core.ts`, `bind.ts`, `read.ts`, `write.ts`) owns the whole session lifecycle (token read, expiry, hook dispatch, update with rollback, clear, the manager's lazy getters) and the transports (`transport.ts`: the chunked cookie and the session header, and two causes a cookie cannot be written: `readonly`, a jar without `write` — `update()` throws, `clear()` only empties state — and `writable()`, the response already sent — both throw). It works through two contracts: a _codec_ (`codec-jws.ts` / `codec-jwe.ts`, each a spec over `codec.ts`) that issues and opens the token and carries the family's defaults, and a _driver_ (`driver.ts`, implemented by `src/session/_internal/web-driver.ts` and each adapter's `_internal/shared.ts`: Web, h3 v1, h3 v2, Elysia) that supplies the framework's primitives for one request _event_ — its state record, a request header, its cookie jar, and whether the response can still change. The hook argument name is not the driver's: each entry passes `hookArgs` to `defineSession`/`bindSession` (`{ event }` on h3 and `unjwt/session`, whatever driver `unjwt/session` is given; `{ context }` on Elysia), so the hook types hold by construction. The same contract is public through `unjwt/session` (`SessionDriver`, `CookieJar`, `defineSessionDriver`), so a third-party driver binds to the codecs with `defineJWSSession(config, { driver })`. `definition.ts` binds one config to a driver and a codec as a `SessionDefinition`; `src/session/{jws,jwe}.ts` and `src/adapters/<fw>/session/{jws,jwe}.ts` are then the public surface alone: the `define*Session` factories, the config/hook types, and the binding of driver to codec. New session logic belongs in the core, new token rules in a codec, how a token travels in the transport, and anything that touches a framework in its driver.
 - **Handed token:** a driver's optional `handed(event)` returns `{ token }` when the event carries the token itself (`unjwt/session`'s `{ token }` shape). `resolveTransport` then returns a transport that reads that token, is always writable and has no `write`/`drop`: the full read lifecycle runs (hooks, expiry, `rolling`), `update()` re-mints onto `manager.token` and `clear()` empties the session, whatever `cookie`/`sessionHeader` the config sets. A token presented in the session header travels the same way (`transport.source` is `"handed"`, `"header"` or `"cookie"`; only a cookie transport has `write`/`drop`). The h3 and Elysia drivers do not implement `handed`.
 
 ## Testing conventions
@@ -134,7 +157,7 @@ src/
 - Prefer **Web APIs** over Node.js APIs where possible.
 - Place non-exported/internal helpers at the end of the file.
 - Do not add comments explaining what the line does unless prompted.
-- Split logic across files; avoid long single-file modules (>200 LoC). Use `_*` prefix for internal files.
+- Split logic across files; avoid long single-file modules (>200 LoC). Internal files go in an `_internal/` directory next to their users (shared ones in the nearest common parent), named without a `_` prefix; `src/core/_crypto/` keeps its `_*` names.
 - For multi-arg functions, use an options object as the second parameter.
 - Avoid barrel files (`index.ts` re-exports); import directly from specific modules.
 - Relative imports name the file with its `.ts` extension (`/index.ts` for a directory): the stub `dist` re-exports `src`, and Node resolves nothing else.

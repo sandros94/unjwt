@@ -40,6 +40,7 @@ The following is a list of reference files:
 | `unjwt/jwk` | Key generation, import/export, wrap/unwrap, PEM conversion, PBES2, cache utils |
 | `unjwt/utils` | Base64URL encode/decode, type guards, JWT claim validation, `secureRandomBytes`, `digestUrl` |
 | `unjwt/dpop` | Optional DPoP proof creation and verification; no HTTP or storage |
+| `unjwt/error` | `JWTError`/`isJWTError`, `UnsecureError`/`isUnsecureError` and the error code types |
 | `unjwt/internal` | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use |
 | `unjwt/adapters/h3` | H3 session adapter (aliases h3v2) — `defineJWSSession`/`defineJWESession` |
 | `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2) — `defineJWSSession`/`defineJWESession` |

@@ -1,17 +1,17 @@
 import * as jose from "jose";
 import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
+import { base64UrlStringify, base64UrlParse } from "../src/utils/base64.ts";
 
-import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws.ts";
+import { sign, verify, JWTError, isJWTError, isUnsecureError } from "../src/core/jws/index.ts";
 import type {
   JOSEPayloadMode,
   JOSEPayloadTypeMap,
   JWSVerifyOptions,
   JWSVerifyResult,
   PayloadOf,
-} from "../src/core/jws.ts";
-import { generateKey, generateJWK, exportJWK } from "../src/core/jwk.ts";
+} from "../src/core/jws/index.ts";
+import { generateKey, generateJWK, exportJWK } from "../src/core/jwk/index.ts";
 import type {
   JWTClaims,
   JWK,

@@ -4,9 +4,9 @@ import {
   type JWESessionConfig,
   type JWESessionHooks,
   createJWECodec,
-} from "./_codec-jwe.ts";
-import type { CookieAttributes } from "./_cookie-attributes.ts";
-import type { SessionDriver } from "./_driver.ts";
+} from "./_internal/codec-jwe.ts";
+import type { CookieAttributes } from "./_internal/cookie-attributes.ts";
+import type { SessionDriver } from "./_internal/driver.ts";
 import type {
   SessionClaims,
   SessionDefinition,
@@ -15,10 +15,10 @@ import type {
   SessionState,
   WebSessionEvent,
 } from "./types.ts";
-import { defineSession } from "./_definition.ts";
-import { webSessionDriver } from "./_web-driver.ts";
+import { defineSession } from "./_internal/definition.ts";
+import { webSessionDriver } from "./_internal/web-driver.ts";
 
-export type { SessionDecryptOptions, SessionEncryptOptions } from "./_codec-jwe.ts";
+export type { SessionDecryptOptions, SessionEncryptOptions } from "./_internal/codec-jwe.ts";
 
 /** Session state for the current request, mirroring the claims of its JWE token. */
 export interface SessionJWE<

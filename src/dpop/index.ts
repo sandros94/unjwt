@@ -4,18 +4,14 @@ import type {
   DPoPVerifyOptions,
   DPoPVerifyResult,
 } from "./types.ts";
-import { sign, verify } from "../core/jws.ts";
-import { JWTError } from "../core/error.ts";
-import {
-  JWS_ALG_CTX,
-  asJWTError,
-  assertCompactToken,
-  checkAlgAllowed,
-  decodeProtectedHeader,
-} from "../core/_internal.ts";
+import { sign, verify } from "../core/jws/index.ts";
+import { JWTError } from "../error.ts";
+import { JWS_ALG_CTX, checkAlgAllowed } from "../core/_internal/algorithms.ts";
+import { asJWTError } from "../core/_internal/errors.ts";
+import { assertCompactToken, decodeProtectedHeader } from "../core/_internal/headers.ts";
 import { jwkTokey } from "../core/_crypto/_key-codec.ts";
 import { thumbprint } from "../core/_crypto/_thumbprint.ts";
-import { assertPlainObject, isCryptoKey } from "../core/utils/guards.ts";
+import { assertPlainObject, isCryptoKey } from "../utils/guards.ts";
 import {
   accessTokenHash,
   assertDPoPAlgorithm,
@@ -23,9 +19,9 @@ import {
   assertNumericDate,
   assertMethod,
   assertNonce,
-} from "./_validation.ts";
-import { publicKeyForProof, projectPublicKey, resolveProofAlgorithm } from "./_key.ts";
-import { normalizeTargetURI } from "./_uri.ts";
+} from "./_internal/validation.ts";
+import { publicKeyForProof, projectPublicKey, resolveProofAlgorithm } from "./_internal/key.ts";
+import { normalizeTargetURI } from "./_internal/uri.ts";
 import {
   asProofError,
   assertExpectedNonce,
@@ -33,11 +29,11 @@ import {
   validateProofClaims,
   validateVerifyOptions,
   type VerifyContext,
-} from "./_verify.ts";
+} from "./_internal/verify.ts";
 import type { DPoPPayload } from "./types.ts";
 
 export type * from "./types.ts";
-export { JWTError, isJWTError, type JWTErrorCode, type KnownJWTErrorCode } from "../core/error.ts";
+export { JWTError, isJWTError, type JWTErrorCode, type KnownJWTErrorCode } from "../error.ts";
 
 /** Create a proof with matching private/public signing keys and optional identifier/time overrides. */
 export async function createDPoPProof(

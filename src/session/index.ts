@@ -27,9 +27,9 @@ export {
   type SessionJWE,
   defineJWESession,
 } from "./jwe.ts";
-export { defineSessionDriver } from "./_define-driver.ts";
-export type { CookieJar, SessionDriver } from "./_driver.ts";
-export type { CookieAttributes } from "./_cookie-attributes.ts";
+export { defineSessionDriver } from "./_internal/define-driver.ts";
+export type { CookieJar, SessionDriver } from "./_internal/driver.ts";
+export type { CookieAttributes } from "./_internal/cookie-attributes.ts";
 
 export type * from "../core/types/index.ts";
 export {
@@ -39,4 +39,4 @@ export {
   importPEM,
   exportPEM,
   deriveJWKFromPassword,
-} from "../core/jwk.ts";
+} from "../core/jwk/index.ts";

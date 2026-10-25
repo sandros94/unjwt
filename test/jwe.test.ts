@@ -1,16 +1,16 @@
 import * as jose from "jose";
 import { describe, it, expect, expectTypeOf, beforeAll } from "vitest";
-import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe.ts";
+import { encrypt, decrypt, JWTError, isJWTError, isUnsecureError } from "../src/core/jwe/index.ts";
 import type {
   JOSEPayloadTypeMap,
   JWEDecryptOptions,
   JWEDecryptResult,
   PayloadOf,
-} from "../src/core/jwe.ts";
-import { generateKey, generateJWK, exportJWK, unwrapKey, wrapKey } from "../src/core/jwk.ts";
+} from "../src/core/jwe/index.ts";
+import { generateKey, generateJWK, exportJWK, unwrapKey, wrapKey } from "../src/core/jwk/index.ts";
 import { secureRandomBytes, textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
-import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal.ts";
+import { base64UrlStringify, base64UrlParse } from "../src/utils/base64.ts";
+import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal/limits.ts";
 import type {
   JWK,
   JWK_oct,

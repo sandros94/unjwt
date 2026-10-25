@@ -5,8 +5,8 @@ import {
   isJWTError,
   isUnsecureError,
   type UnsecureErrorCode,
-} from "../src/core/error.ts";
-import { base64UrlParse } from "../src/core/utils/base64.ts";
+} from "../src/error.ts";
+import { base64UrlParse } from "../src/utils/base64.ts";
 
 describe.concurrent("isUnsecureError", () => {
   it("the re-exported class is the one the bundled codecs throw", () => {

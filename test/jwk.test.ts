@@ -7,7 +7,7 @@ import {
   base64UrlParse,
   base64Stringify,
   base64Parse,
-} from "../src/core/utils/base64.ts";
+} from "../src/utils/base64.ts";
 import * as jose from "jose";
 import {
   generateKey,
@@ -30,10 +30,10 @@ import {
   JWTError,
   isJWTError,
   isUnsecureError,
-} from "../src/core/jwk.ts";
-import { sign, verify } from "../src/core/jws.ts";
-import { encrypt, decrypt } from "../src/core/jwe.ts";
-import { isCryptoKey, isCryptoKeyPair } from "../src/core/utils/index.ts";
+} from "../src/core/jwk/index.ts";
+import { sign, verify } from "../src/core/jws/index.ts";
+import { encrypt, decrypt } from "../src/core/jwe/index.ts";
+import { isCryptoKey, isCryptoKeyPair } from "../src/utils/index.ts";
 import type {
   JWEEncryptJWK,
   JWK,

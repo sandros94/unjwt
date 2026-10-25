@@ -8,11 +8,11 @@ import {
   verifyMultiAll,
   DEFAULT_JOSE_LIMITS,
   isJWTError,
-} from "../src/core/jws.ts";
-import { encrypt, decrypt, encryptMulti, decryptMulti } from "../src/core/jwe.ts";
-import { generateJWK } from "../src/core/jwk.ts";
-import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal.ts";
-import { base64UrlParse, base64UrlStringify } from "../src/core/utils/base64.ts";
+} from "../src/core/jws/index.ts";
+import { encrypt, decrypt, encryptMulti, decryptMulti } from "../src/core/jwe/index.ts";
+import { generateJWK } from "../src/core/jwk/index.ts";
+import { DEFAULT_PBES2_ITERATIONS } from "../src/core/_internal/limits.ts";
+import { base64UrlParse, base64UrlStringify } from "../src/utils/base64.ts";
 import { textEncoder } from "unsecure/utils";
 import type {
   JWK_EC_Private,

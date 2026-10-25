@@ -14,12 +14,12 @@ import {
 } from "h3v1";
 import { Elysia } from "elysia";
 
-import { isJWTError } from "../src/core/error.ts";
-import { generateJWK, generateKey } from "../src/core/jwk.ts";
-import { sign, verify } from "../src/core/jws.ts";
-import { encrypt, decrypt } from "../src/core/jwe.ts";
+import { isJWTError } from "../src/error.ts";
+import { generateJWK, generateKey } from "../src/core/jwk/index.ts";
+import { sign, verify } from "../src/core/jws/index.ts";
+import { encrypt, decrypt } from "../src/core/jwe/index.ts";
 import type { ExpiresIn } from "../src/core/types/index.ts";
-import { base64UrlParse } from "../src/core/utils/index.ts";
+import { base64UrlParse } from "../src/utils/index.ts";
 import {
   useJWSSession as useJWSSessionV2,
   useJWESession as useJWESessionV2,
@@ -59,7 +59,11 @@ import {
   type CompatEvent,
   type OpenedSessionState as OpenedSessionStateV1,
 } from "../src/adapters/h3v1/index.ts";
-import { MAX_CHUNK_COUNT, parseChunkCount, readChunked } from "../src/session/_chunked-cookie.ts";
+import {
+  MAX_CHUNK_COUNT,
+  parseChunkCount,
+  readChunked,
+} from "../src/session/_internal/chunked-cookie.ts";
 import {
   createJWSSession,
   defineJWSSession,
@@ -70,21 +74,25 @@ import {
   defineJWESession,
   jweSession,
 } from "../src/adapters/elysia/session/jwe.ts";
-import type { SessionPlugin } from "../src/adapters/elysia/_plugin.ts";
+import type { SessionPlugin } from "../src/adapters/elysia/_internal/plugin.ts";
 import type { SessionContext } from "../src/adapters/elysia/session/types.ts";
 import {
   defineJWSSession as defineJWSSessionWeb,
   defineJWESession as defineJWESessionWeb,
   type WebSessionEvent,
 } from "../src/session/index.ts";
-import type { CookieAttributes } from "../src/adapters/elysia/_cookie.ts";
-import { createJWSCodec } from "../src/session/_codec-jws.ts";
-import { createJWECodec } from "../src/session/_codec-jwe.ts";
-import type { SessionBinding, SessionCodec, SessionCoreConfig } from "../src/session/_types.ts";
-import { bindSession } from "../src/session/_bind.ts";
-import type { CookieJar, SessionDriver } from "../src/session/_driver.ts";
-import { loadSession } from "../src/session/_read.ts";
-import { dropSession, issueSession, sessionActions } from "../src/session/_write.ts";
+import type { CookieAttributes } from "../src/adapters/elysia/_internal/cookie.ts";
+import { createJWSCodec } from "../src/session/_internal/codec-jws.ts";
+import { createJWECodec } from "../src/session/_internal/codec-jwe.ts";
+import type {
+  SessionBinding,
+  SessionCodec,
+  SessionCoreConfig,
+} from "../src/session/_internal/types.ts";
+import { bindSession } from "../src/session/_internal/bind.ts";
+import type { CookieJar, SessionDriver } from "../src/session/_internal/driver.ts";
+import { loadSession } from "../src/session/_internal/read.ts";
+import { dropSession, issueSession, sessionActions } from "../src/session/_internal/write.ts";
 import type { SessionManager } from "../src/session/types.ts";
 
 const [jwsKey, jweKey, rsaSignPair, rsaEncPair] = await Promise.all([

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
-import { generateJWK } from "../src/core/jwk.ts";
+import { generateJWK } from "../src/core/jwk/index.ts";
 import type {
   JWEEncryptJWK,
   JWEAsymmetricPrivateJWK,
@@ -10,7 +10,7 @@ import {
   type SessionConfigJWE,
   type SessionContext,
 } from "../src/adapters/elysia/session/jwe.ts";
-import type { CookieAttributes } from "../src/adapters/elysia/_cookie.ts";
+import type { CookieAttributes } from "../src/adapters/elysia/_internal/cookie.ts";
 
 interface MockEntry {
   value: unknown;

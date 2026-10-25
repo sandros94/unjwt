@@ -1,4 +1,4 @@
-import { JWTError } from "../error.ts";
+import { JWTError } from "../../error.ts";
 import type { JWK_RSA_ENC, JWK_RSA_PSS, JWK_RSA_SIGN } from "../types/index.ts";
 import {
   checkKeyUsage,

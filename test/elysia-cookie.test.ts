@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { Elysia } from "elysia";
-import { isJWTError } from "../src/core/error.ts";
+import { isJWTError } from "../src/error.ts";
 import {
   readChunkedCookie,
   writeChunkedCookie,
   removeChunkedCookie,
   type ChunkableCookieJar,
   type CookieAttributes,
-} from "../src/adapters/elysia/_cookie.ts";
+} from "../src/adapters/elysia/_internal/cookie.ts";
 
 // ChunkableCookieJar is used by the mock-jar unit tests below; the real-Elysia
 // integration block passes ctx.cookie directly to prove structural assignability.

@@ -20,7 +20,7 @@ import { deriveKey as deriveKeyPBES2 } from "../src/core/_crypto/_pbes2.ts";
 import { jwkTokey, keyToJWK } from "../src/core/_crypto/_key-codec.ts";
 import { fromSPKI, fromPKCS8, toPKCS8, toSPKI } from "../src/core/_crypto/_pem.ts";
 import { rsa, ec } from "./keys.ts";
-import { isJWTError } from "../src/core/error.ts";
+import { isJWTError } from "../src/error.ts";
 
 describe.concurrent("_crypto primitives", () => {
   describe("_sign-verify", () => {

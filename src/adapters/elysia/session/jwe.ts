@@ -4,16 +4,23 @@ import {
   type JWESessionConfig,
   type JWESessionHooks,
   createJWECodec,
-} from "../../../session/_codec-jwe.ts";
+} from "../../../session/_internal/codec-jwe.ts";
 import type { SessionDefinition, SessionRecord, SessionState } from "../../../session/types.ts";
-import { defineSession } from "../../../session/_definition.ts";
-import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin.ts";
-import type { CookieAttributes } from "../_cookie.ts";
+import { defineSession } from "../../../session/_internal/definition.ts";
+import {
+  type SessionPlugin,
+  type SessionPluginDefinition,
+  sessionPlugin,
+} from "../_internal/plugin.ts";
+import type { CookieAttributes } from "../_internal/cookie.ts";
 import type { SessionClaims, SessionManager, SessionContext } from "./types.ts";
-import { PREFIX, elysiaSessionDriver } from "./_shared.ts";
+import { PREFIX, elysiaSessionDriver } from "../_internal/shared.ts";
 
 export type { SessionContext };
-export type { SessionDecryptOptions, SessionEncryptOptions } from "../../../session/_codec-jwe.ts";
+export type {
+  SessionDecryptOptions,
+  SessionEncryptOptions,
+} from "../../../session/_internal/codec-jwe.ts";
 
 const codec = createJWECodec({ prefix: PREFIX, defaultName: "elysia-jwe" });
 

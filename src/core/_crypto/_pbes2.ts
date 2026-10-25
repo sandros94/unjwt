@@ -1,8 +1,8 @@
 import { textEncoder } from "unsecure/utils";
-import { base64UrlStringify } from "../utils/base64.ts";
+import { base64UrlStringify } from "../../utils/base64.ts";
 
-import { concatUint8Arrays } from "../utils/array.ts";
-import { JWTError } from "../error.ts";
+import { concatUint8Arrays } from "../../utils/array.ts";
+import { JWTError } from "../../error.ts";
 import type { JWK_PBES2 } from "../types/index.ts";
 import {
   aesBitsOf,

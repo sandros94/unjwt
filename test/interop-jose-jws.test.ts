@@ -1,7 +1,7 @@
 import * as jose from "jose";
 import { describe, it, expect } from "vitest";
 import { textEncoder, textDecoder } from "unsecure";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
+import { base64UrlStringify, base64UrlParse } from "../src/utils/base64.ts";
 import {
   sign,
   verify,
@@ -10,8 +10,8 @@ import {
   verifyMultiAll,
   generalToFlattenedJWS,
   JWTError,
-} from "../src/core/jws.ts";
-import { generateJWK } from "../src/core/jwk.ts";
+} from "../src/core/jws/index.ts";
+import { generateJWK } from "../src/core/jwk/index.ts";
 import type {
   JWK,
   JWK_oct,

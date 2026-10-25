@@ -46,4 +46,4 @@ export {
   importPEM,
   exportPEM,
   deriveJWKFromPassword,
-} from "../../core/jwk.ts";
+} from "../../core/jwk/index.ts";

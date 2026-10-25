@@ -1,9 +1,14 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as jose from "jose";
 import { JWTError, createDPoPProof, verifyDPoPProof } from "../src/dpop/index.ts";
-import { clearJWKCache, configureJWKCache, generateJWK, generateKey } from "../src/core/jwk.ts";
-import { digestUrl } from "../src/core/utils/digest.ts";
-import { base64UrlStringify } from "../src/core/utils/base64.ts";
+import {
+  clearJWKCache,
+  configureJWKCache,
+  generateJWK,
+  generateKey,
+} from "../src/core/jwk/index.ts";
+import { digestUrl } from "../src/utils/digest.ts";
+import { base64UrlStringify } from "../src/utils/base64.ts";
 import type {
   DPoPCreateOptions,
   DPoPKeyPair,

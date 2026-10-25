@@ -1,10 +1,10 @@
-import { base64UrlStringify } from "../utils/base64.ts";
+import { base64UrlStringify } from "../../utils/base64.ts";
 
 import type { JWK, JWKAlgorithm } from "../types/index.ts";
-import { isCryptoKey } from "../utils/guards.ts";
-import { JWTError } from "../error.ts";
+import { isCryptoKey } from "../../utils/guards.ts";
+import { JWTError } from "../../error.ts";
 import { ECDSA_CURVES, jwsHashOf, rsaOaepHashOf } from "./_key-algorithm.ts";
-import { quoteTokenValue } from "../utils/_text.ts";
+import { quoteTokenValue } from "../../utils/_internal/text.ts";
 
 /** Import a JWK for its `alg`; `key_ops` (RFC 7517 §4.3) and `ext` only ever narrow usages and extractability. */
 export async function jwkTokey(

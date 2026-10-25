@@ -1,8 +1,8 @@
 import { test } from "vitest";
 import { SignJWT, jwtVerify } from "jose";
 
-import { generateJWK } from "../../src/core/jwk.ts";
-import { sign, verify } from "../../src/core/jws.ts";
+import { generateJWK } from "../../src/core/jwk/index.ts";
+import { sign, verify } from "../../src/core/jws/index.ts";
 
 test("Library comparison signing — RS256", async ({ bench }) => {
   const rsaKeys = await generateJWK("RS256");

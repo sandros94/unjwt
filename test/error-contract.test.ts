@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 
-import { JWTError, isJWTError } from "../src/core/error.ts";
+import { JWTError, isJWTError } from "../src/error.ts";
 import {
   sign,
   verify,
@@ -8,14 +8,14 @@ import {
   verifyMulti,
   verifyMultiAll,
   generalToFlattenedJWS,
-} from "../src/core/jws.ts";
+} from "../src/core/jws/index.ts";
 import {
   encrypt,
   decrypt,
   encryptMulti,
   decryptMulti,
   generalToFlattened,
-} from "../src/core/jwe.ts";
+} from "../src/core/jwe/index.ts";
 import {
   deriveJWKFromPassword,
   deriveSharedSecret,
@@ -27,8 +27,8 @@ import {
   thumbprint,
   unwrapKey,
   wrapKey,
-} from "../src/core/jwk.ts";
-import { computeDurationInSeconds } from "../src/core/utils/index.ts";
+} from "../src/core/jwk/index.ts";
+import { computeDurationInSeconds } from "../src/utils/index.ts";
 import type {
   ContentEncryptionAlgorithm,
   JWK_EC_Private,

@@ -4,14 +4,21 @@ import {
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "../../../session/_codec-jws.ts";
-export type { SessionSignOptions, SessionVerifyOptions } from "../../../session/_codec-jws.ts";
+} from "../../../session/_internal/codec-jws.ts";
+export type {
+  SessionSignOptions,
+  SessionVerifyOptions,
+} from "../../../session/_internal/codec-jws.ts";
 import type { SessionDefinition, SessionRecord, SessionState } from "../../../session/types.ts";
-import { defineSession } from "../../../session/_definition.ts";
-import { type SessionPlugin, type SessionPluginDefinition, sessionPlugin } from "../_plugin.ts";
-import type { CookieAttributes } from "../_cookie.ts";
+import { defineSession } from "../../../session/_internal/definition.ts";
+import {
+  type SessionPlugin,
+  type SessionPluginDefinition,
+  sessionPlugin,
+} from "../_internal/plugin.ts";
+import type { CookieAttributes } from "../_internal/cookie.ts";
 import type { SessionClaims, SessionManager, SessionContext } from "./types.ts";
-import { PREFIX, elysiaSessionDriver } from "./_shared.ts";
+import { PREFIX, elysiaSessionDriver } from "../_internal/shared.ts";
 
 export type { SessionContext };
 

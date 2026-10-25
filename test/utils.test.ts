@@ -24,7 +24,7 @@ import {
   validateJwtClaims,
   inferJWSAllowedAlgorithms,
   inferJWEAllowedAlgorithms,
-} from "../src/core/utils/index.ts";
+} from "../src/utils/index.ts";
 import {
   computeJwtTimeClaims,
   parsePayloadBytes,
@@ -33,9 +33,9 @@ import {
   validateCriticalHeadersJWE,
   validateCriticalHeadersJWS,
 } from "../src/core/internal.ts";
-import { generateJWK, generateKey, thumbprint } from "../src/core/jwk.ts";
-import { sign, verify } from "../src/core/jws.ts";
-import { isJWTError, type JWTError } from "../src/core/error.ts";
+import { generateJWK, generateKey, thumbprint } from "../src/core/jwk/index.ts";
+import { sign, verify } from "../src/core/jws/index.ts";
+import { isJWTError, type JWTError } from "../src/error.ts";
 import type {
   JOSEPayloadMode,
   JWTClaims,

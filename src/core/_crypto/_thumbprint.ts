@@ -1,9 +1,9 @@
-import { digestUrl } from "../utils/digest.ts";
-import { JWTError } from "../error.ts";
-import { assertPlainObject } from "../utils/guards.ts";
+import { digestUrl } from "../../utils/digest.ts";
+import { JWTError } from "../../error.ts";
+import { assertPlainObject } from "../../utils/guards.ts";
 
 import type { JWK } from "../types/index.ts";
-import type { DigestHash } from "../utils/digest.ts";
+import type { DigestHash } from "../../utils/digest.ts";
 
 /** Hash functions RFC 7638 §3.4 leaves open to the application. */
 export type ThumbprintHash = DigestHash;

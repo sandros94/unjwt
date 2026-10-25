@@ -10,9 +10,9 @@ import {
   JWTError,
   isJWTError,
   isUnsecureError,
-} from "../src/core/jwe.ts";
-import { generateJWK, wrapKey } from "../src/core/jwk.ts";
-import { base64UrlStringify, base64UrlParse } from "../src/core/utils/base64.ts";
+} from "../src/core/jwe/index.ts";
+import { generateJWK, wrapKey } from "../src/core/jwk/index.ts";
+import { base64UrlStringify, base64UrlParse } from "../src/utils/base64.ts";
 import { secureRandomBytes } from "unsecure/random";
 import type {
   JWK,

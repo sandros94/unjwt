@@ -12,22 +12,25 @@ import {
   type JWSSessionConfig,
   type JWSSessionHooks,
   createJWSCodec,
-} from "../../../session/_codec-jws.ts";
-export type { SessionSignOptions, SessionVerifyOptions } from "../../../session/_codec-jws.ts";
-import { bindSession } from "../../../session/_bind.ts";
-import type { SessionBinding } from "../../../session/_types.ts";
-import { openSessionToken } from "../../../session/_core.ts";
-import { defineSession } from "../../../session/_definition.ts";
-import { loadSession } from "../../../session/_read.ts";
+} from "../../../session/_internal/codec-jws.ts";
+export type {
+  SessionSignOptions,
+  SessionVerifyOptions,
+} from "../../../session/_internal/codec-jws.ts";
+import { bindSession } from "../../../session/_internal/bind.ts";
+import type { SessionBinding } from "../../../session/_internal/types.ts";
+import { openSessionToken } from "../../../session/_internal/core.ts";
+import { defineSession } from "../../../session/_internal/definition.ts";
+import { loadSession } from "../../../session/_internal/read.ts";
 import {
   dropSession,
   encodeSession,
   issueSession,
   sessionActions,
-} from "../../../session/_write.ts";
-import type { CookieSerializeOptions } from "../_cookie.ts";
+} from "../../../session/_internal/write.ts";
+import type { CookieSerializeOptions } from "../_internal/cookie.ts";
 import type { SessionClaims, SessionUpdate, SessionManager } from "./types.ts";
-import { PREFIX, h3SessionDriver } from "./_shared.ts";
+import { PREFIX, h3SessionDriver } from "../_internal/shared.ts";
 
 const codec = createJWSCodec({ prefix: PREFIX, defaultName: "h3-jws" });
 const hookArgs = (event: HTTPEvent) => ({ event });

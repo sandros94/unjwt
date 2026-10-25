@@ -1,4 +1,4 @@
-import { JWTError } from "../error.ts";
+import { JWTError } from "../../error.ts";
 import type { JWK_HMAC, JWK_RSA_PSS, JWK_RSA_SIGN, JWSAlgorithm } from "../types/index.ts";
 import {
   ECDSA_CURVES,

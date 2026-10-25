@@ -33,8 +33,8 @@ export type {
   ChunkableCookie,
   ChunkableCookieJar,
   WriteChunkedCookieOptions,
-} from "./_cookie.ts";
-export type { SessionPlugin, SessionPluginDefinition } from "./_plugin.ts";
+} from "./_internal/cookie.ts";
+export type { SessionPlugin, SessionPluginDefinition } from "./_internal/plugin.ts";
 
 export type * from "../../core/types/index.ts";
 export {
@@ -44,4 +44,4 @@ export {
   importPEM,
   exportPEM,
   deriveJWKFromPassword,
-} from "../../core/jwk.ts";
+} from "../../core/jwk/index.ts";

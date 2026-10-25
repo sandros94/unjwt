@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { sign, signMulti } from "../src/core/jws.ts";
-import { encrypt, encryptMulti, decrypt } from "../src/core/jwe.ts";
-import { generateJWK } from "../src/core/jwk.ts";
+import { sign, signMulti } from "../src/core/jws/index.ts";
+import { encrypt, encryptMulti, decrypt } from "../src/core/jwe/index.ts";
+import { generateJWK } from "../src/core/jwk/index.ts";
 import type { JWK_EC_Public } from "../src/core/types/index.ts";
 
 const [ec, rsa, ecdh, oct] = await Promise.all([
