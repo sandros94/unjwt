@@ -48,7 +48,7 @@ function defineJWSSession<
 // defineJWESession: same two signatures over SessionConfigJWE
 ```
 
-`TEvent` is inferred from the driver; without `{ driver }` it is `WebSessionEvent`, or the third generic when given (`defineJWESession<Data, MaxAge, H3Event>(config)`: `use()` then takes that event only). Hooks receive `{ event: TEvent }` whatever the driver: the entry names the hook argument, not the driver. `onVerifyKeyLookup` / `onUnsealKeyLookup` get `event` only from `use()` (typed `event?: TEvent`); `open()` passes none and resolves to `{ id, createdAt, expiresAt, data }`. Default `name`: `"unjwt-jws"` / `"unjwt-jwe"`. `cookie` takes `CookieAttributes & { chunkMaxLength? }`. Error messages start with `[unjwt/session]` (a custom driver's `prefix` otherwise).
+`TEvent` is inferred from the driver; without `{ driver }` it is `WebSessionEvent`, or the third generic when given (`defineJWESession<Data, MaxAge, H3Event>(config)`: `use()` then takes that event only). Hooks receive `{ event: TEvent }` whatever the driver: the entry names the hook argument, not the driver. `onVerifyKeyLookup` / `onUnsealKeyLookup` get `event` only from `use()` (typed `event?: TEvent`); `open()` passes none and resolves to `{ id, createdAt, expiresAt, data }`. Default `name`: `"__Host-unjwt-jws"` / `"__Host-unjwt-jwe"` (session header `x-unjwt-jws-session` / `x-unjwt-jwe-session`). `cookie` takes `CookieAttributes & { chunkMaxLength? }`. Error messages start with `[unjwt/session]` (a custom driver's `prefix` otherwise).
 
 ## A request event: `{ req, res, context? }`
 

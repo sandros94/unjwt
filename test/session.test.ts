@@ -76,6 +76,25 @@ describe("unjwt/session over a Web request", () => {
     },
   );
 
+  it("names the two families __Host-unjwt-jws and __Host-unjwt-jwe, side by side on one request", async () => {
+    const jws = defineJWSSession({ key: jwsKey, sessionHeader: true });
+    const jwe = defineJWESession({ key: jweKey, sessionHeader: true });
+    const headers = new Headers();
+    const event = { req: get(), res: { headers } };
+    await (await jws.use(event)).update({ family: "jws" });
+    await (await jwe.use(event)).update({ family: "jwe" });
+
+    const names = headers.getSetCookie().map((line) => line.split("=", 1)[0]);
+    expect(names).toEqual(["__Host-unjwt-jws", "__Host-unjwt-jwe"]);
+    const cookie = replay(headers);
+    expect((await jws.use({ req: get({ cookie }) })).data).toEqual({ family: "jws" });
+    expect((await jwe.use({ req: get({ cookie }) })).data).toEqual({ family: "jwe" });
+
+    const token = await jws.issue({ via: "header" });
+    const read = await jws.use({ req: get({ "x-unjwt-jws-session": token }) });
+    expect(read.data).toEqual({ via: "header" });
+  });
+
   it.each(FAMILIES)(
     "$family: cookie.httpOnly false is the explicit opt-out of HttpOnly",
     async ({ define }) => {
@@ -748,7 +767,7 @@ describe("defineSessionDriver", () => {
 
     const written = await session.use(plain(cookies));
     await written.update({ user: "ada" });
-    expect(cookies.get(`unjwt-${family}`)).toBe(written.token);
+    expect(cookies.get(`__Host-unjwt-${family}`)).toBe(written.token);
 
     const event = plain(cookies);
     const read = await session.use(event);
@@ -757,7 +776,7 @@ describe("defineSessionDriver", () => {
     expect(onRead.mock.calls[0]?.[0]?.event).toBe(event);
 
     await read.clear();
-    expect(cookies.has(`unjwt-${family}`)).toBe(false);
+    expect(cookies.has(`__Host-unjwt-${family}`)).toBe(false);
   });
 
   it("types the event from the driver, and as WebSessionEvent without one", () => {

@@ -44,7 +44,7 @@ export interface SessionConfigJWS<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent = WebSessionEvent,
 > extends JWSSessionConfig<MaxAge, CookieAttributes> {
-  /** Cookie and session-header name. Default `"unjwt-jws"`; a `.<digits>` suffix throws `ERR_SESSION_CONFIG_INVALID`. */
+  /** Cookie and session-header name. Default `"__Host-unjwt-jws"` (header `x-unjwt-jws-session`); a `.<digits>` suffix throws `ERR_SESSION_CONFIG_INVALID`. */
   name?: string;
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
@@ -72,6 +72,6 @@ export function defineJWSSession<T extends SessionRecord, MaxAge extends Expires
   return defineSession<T, MaxAge, unknown, JWSCodecConfig>(config, {
     driver,
     hookArgs: (event) => ({ event }),
-    codec: createJWSCodec({ prefix: driver.prefix, defaultName: "unjwt-jws" }),
+    codec: createJWSCodec({ prefix: driver.prefix, defaultName: "__Host-unjwt-jws" }),
   });
 }
