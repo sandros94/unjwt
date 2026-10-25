@@ -159,6 +159,11 @@ export function isEd25519Signature(alg: string): boolean {
   return alg === "EdDSA" || alg === "Ed25519";
 }
 
+/** Whether two `alg` values name the same algorithm, `EdDSA` and `Ed25519` being one. */
+export function isSameAlgorithm(a: string, b: string): boolean {
+  return a === b || (isEd25519Signature(a) && isEd25519Signature(b));
+}
+
 function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
   if (jwk.alg && isEd25519Signature(jwk.alg)) return ["EdDSA", "Ed25519"];
   if (jwk.alg) return isJWSAlgorithm(jwk.alg) ? [jwk.alg] : undefined;

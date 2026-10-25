@@ -155,6 +155,26 @@ describe.concurrent("JWS Utilities", () => {
       ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWS_ALG_NOT_ALLOWED"));
     });
 
+    it("matches EdDSA and Ed25519 as one algorithm when selecting from a JWK Set", async () => {
+      const fully = await generateJWK("Ed25519");
+      const rfc8037 = await generateJWK("EdDSA");
+
+      const viaEdDSA = await sign(payloadObj, fully.privateKey, { alg: "EdDSA" });
+      await expect(verify(viaEdDSA, { keys: [fully.publicKey] })).resolves.toMatchObject({
+        payload: payloadObj,
+      });
+
+      const viaEd25519 = await sign(payloadObj, rfc8037.privateKey, { alg: "Ed25519" });
+      await expect(verify(viaEd25519, { keys: [rfc8037.publicKey] })).resolves.toMatchObject({
+        payload: payloadObj,
+      });
+
+      const mistagged = { ...fully.publicKey, alg: "ES256" } as unknown as JWK;
+      await expect(
+        verify(viaEdDSA, { keys: [mistagged] }, { algorithms: ["EdDSA"] }),
+      ).rejects.toSatisfy((e) => isJWTError(e, "ERR_JWK_KEY_NOT_FOUND"));
+    });
+
     it("should sign with Ed25519", async () => {
       const { privateKey, publicKey } = await generateKey("Ed25519");
       const jws = await sign(payloadObj, privateKey, { alg: "Ed25519" });

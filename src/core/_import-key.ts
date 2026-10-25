@@ -8,7 +8,7 @@ import type {
 } from "./types/index.ts";
 import { decodeSegment, stringKeyError } from "./_internal.ts";
 import { isCryptoKey, isJWK, isJWKSet } from "./utils/guards.ts";
-import { isContentEncryptionAlgorithm, isEd25519Signature } from "./utils/algorithms.ts";
+import { isContentEncryptionAlgorithm, isSameAlgorithm } from "./utils/algorithms.ts";
 import { JWTError } from "./error.ts";
 import { jwkTokey, assertOctKeyLength } from "./_crypto/index.ts";
 
@@ -198,9 +198,8 @@ export async function importKey(
 
 /** RFC 7517 §4.4: a JWK's `alg` is authoritative, except an `oct` CEK consumed by `dir`. */
 function assertJWKAlgAuthority(jwk: JWK, alg: JWKAlgorithm | undefined): void {
-  if (!alg || !jwk.alg || jwk.alg === alg) return;
+  if (!alg || !jwk.alg || isSameAlgorithm(jwk.alg, alg)) return;
   if (jwk.kty === "oct" && alg === "dir" && isContentEncryptionAlgorithm(jwk.alg)) return;
-  if (isEd25519Signature(jwk.alg) && isEd25519Signature(alg)) return;
   throw new JWTError(
     `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
     "ERR_JWK_INVALID",

@@ -33,10 +33,10 @@ import {
   inferJWSAllowedAlgorithms,
   isContentEncryptionAlgorithm,
   isECDHESAlgorithm,
-  isEd25519Signature,
   isJWSAlgorithm,
   isKeyManagementAlgorithm,
   isPBES2Algorithm,
+  isSameAlgorithm,
 } from "./utils/algorithms.ts";
 import { quoteTokenValue } from "./utils/_text.ts";
 import {
@@ -323,7 +323,7 @@ export function buildJWKSetFilter(
     if (!isJWK(k)) return false;
     if (!allowSymmetric && hasSymmetricSecret(k)) return false;
     if (kid && k.kid !== kid) return false;
-    if (k.alg && k.alg !== alg) return false;
+    if (k.alg && !(alg && isSameAlgorithm(k.alg, alg))) return false;
     if (k.use !== undefined && k.use !== use) return false;
     const ops = k.key_ops;
     if (ops !== undefined && !(Array.isArray(ops) && ops.some((o) => keyOps.includes(o)))) {
@@ -544,8 +544,7 @@ export function checkAlgAllowed<A extends JWKAlgorithm>(
     return algorithms.includes(alg) ? undefined : notAllowed(alg, ctx);
   }
   if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
-    const served = key.alg === alg || (isEd25519Signature(key.alg) && isEd25519Signature(alg));
-    return served ? undefined : notAllowed(alg, ctx);
+    return isSameAlgorithm(key.alg, alg) ? undefined : notAllowed(alg, ctx);
   }
   const inferred = ctx.infer(key, { allowSymmetric });
   if (!inferred) {
