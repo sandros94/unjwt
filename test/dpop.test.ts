@@ -791,12 +791,21 @@ describe("DPoP", () => {
   });
 
   it("preserves unexpected delegated failures as typed errors with their cause", async () => {
+    const throwing = {
+      get method(): string {
+        throw new RangeError("unexpected");
+      },
+      url: target.url,
+    };
     await expect(
-      verifyDPoPProof(await foreignProof({ nbf: 1e308 }), target, verification),
+      verifyDPoPProof(await foreignProof(), throwing, verification),
     ).rejects.toMatchObject({
       code: "ERR_DPOP_INVALID",
       cause: expect.any(RangeError),
     });
+    await expect(
+      verifyDPoPProof(await foreignProof({ nbf: 1e308 }), target, verification),
+    ).rejects.toMatchObject({ code: "ERR_JWT_NBF" });
   });
 
   it("checks exact nonce and public key binding independently of the correct token hash", async () => {

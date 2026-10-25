@@ -35,7 +35,7 @@ import {
 } from "../src/core/internal.ts";
 import { generateJWK, generateKey, thumbprint } from "../src/core/jwk.ts";
 import { sign, verify } from "../src/core/jws.ts";
-import { isJWTError } from "../src/core/error.ts";
+import { isJWTError, type JWTError } from "../src/core/error.ts";
 import type {
   JOSEPayloadMode,
   JWTClaims,
@@ -446,7 +446,7 @@ describe("type guards", () => {
 describe("validateCriticalHeadersJWE (direct)", () => {
   it("throws when crit is present but understoodFromOptions is undefined", () => {
     expect(() => validateCriticalHeadersJWE({ crit: ["someParam"], someParam: "value" })).toThrow(
-      "Unprocessed critical header parameters: someParam",
+      'Unprocessed critical header parameters: "someParam"',
     );
   });
 
@@ -839,7 +839,7 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
 
   it.each([
     [{ crit: ["app"] }, 'Critical header parameter "app" is missing from the protected header'],
-    [{ crit: ["app"], app: "web" }, "Unprocessed critical header parameters: app"],
+    [{ crit: ["app"], app: "web" }, 'Unprocessed critical header parameters: "app"'],
   ])("reports the same crit violation for JWS and JWE (%j)", (header, message) => {
     expect(() => validateCriticalHeadersJWS(header)).toThrow(message);
     expect(() => validateCriticalHeadersJWE(header)).toThrow(message);
@@ -852,17 +852,66 @@ describe.concurrent('"crit" shape validation (RFC 7515 §4.1.11 / RFC 7516 §4.1
   it("keeps the recognized / missing semantics for extension parameters", () => {
     expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
     expect(() => validateCriticalHeadersJWS({ crit: ["app"], app: "web" })).toThrow(
-      "Unprocessed critical header parameters: app",
+      'Unprocessed critical header parameters: "app"',
     );
     expect(() => validateCriticalHeadersJWE({ crit: ["app"], app: "web" }, ["app"])).not.toThrow();
     expect(() => validateCriticalHeadersJWE({ crit: ["app"] }, ["app"])).toThrow(
       'Critical header parameter "app" is missing from the protected header',
     );
   });
+
+  it("quotes and bounds a crit name in both messages", () => {
+    const param = `x\r\nInjected: ${"a".repeat(200)}`;
+    for (const header of [{ crit: [param] }, { crit: [param], [param]: 1 }]) {
+      for (const validate of [validateCriticalHeadersJWS, validateCriticalHeadersJWE]) {
+        const error = catchError(() => validate(header)) as Error;
+        expect(isJWTError(error)).toBe(true);
+        expect(error.message).not.toMatch(/[\r\n]/);
+        expect(error.message).toContain(JSON.stringify(`${param.slice(0, 64)}…`));
+        expect(error.message).not.toContain("a".repeat(65));
+      }
+    }
+  });
 });
 
 describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
   const now = Math.floor(Date.now() / 1000);
+
+  describe("error text and cause", () => {
+    it("carries a non-string jti as undefined in the ERR_JWT_EXPIRED cause", () => {
+      const jti = { id: "t-1" } as unknown as string;
+      const expired = catchError(() => validateJwtClaims({ jti, iat: now - 120, exp: now - 60 }));
+      expect(isJWTError(expired, "ERR_JWT_EXPIRED")).toBe(true);
+      expect((expired as JWTError).cause).toStrictEqual({
+        jti: undefined,
+        iat: now - 120,
+        exp: now - 60,
+      });
+
+      const aged = catchError(() =>
+        validateJwtClaims({ jti, iat: now - 3600 }, { maxTokenAge: 60 }),
+      );
+      expect(isJWTError(aged, "ERR_JWT_EXPIRED")).toBe(true);
+      expect((aged as JWTError).cause).toHaveProperty("jti", undefined);
+
+      const named = catchError(() => validateJwtClaims({ jti: "t-1", exp: now - 60 }));
+      expect((named as JWTError).cause).toHaveProperty("jti", "t-1");
+    });
+
+    it("prints a NumericDate beyond the Date range as a number", () => {
+      const nbf = catchError(() => validateJwtClaims({ nbf: 1e300 }));
+      expect(isJWTError(nbf, "ERR_JWT_NBF")).toBe(true);
+      expect((nbf as Error).message).toBe('JWT "nbf" is in the future (1e+300).');
+
+      const iat = catchError(() => validateJwtClaims({ iat: 1e300 }, { maxTokenAge: 60 }));
+      expect(isJWTError(iat, "ERR_JWT_CLAIM_INVALID")).toBe(true);
+      expect((iat as Error).message).toBe('JWT "iat" is in the future (1e+300).');
+
+      expect(catchError(() => validateJwtClaims({ nbf: 0 }))).toBeUndefined();
+      const inRange = catchError(() => validateJwtClaims({ nbf: 4102444800 })) as Error;
+      expect(inRange.message).toBe('JWT "nbf" is in the future (2100-01-01T00:00:00.000Z).');
+    });
+  });
 
   describe("clockTolerance", () => {
     it("accepts a Duration string and normalizes it to seconds", () => {

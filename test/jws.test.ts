@@ -885,7 +885,7 @@ describe.concurrent("JWS Utilities", () => {
           protectedHeader: { crit: ["unknownHeader"], unknownHeader: "value" },
         });
         await expect(verify(jws, hs256Key)).rejects.toThrow(
-          "Unprocessed critical header parameters: unknownHeader",
+          'Unprocessed critical header parameters: "unknownHeader"',
         );
 
         await expect(jose.compactVerify(jws, hs256Key)).rejects.toThrow(
@@ -1415,7 +1415,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { crit: ["exp"], exp: 12_345 },
       });
       await expect(verify(jws, hs256Key)).rejects.toThrow(
-        "Unprocessed critical header parameters: exp",
+        'Unprocessed critical header parameters: "exp"',
       );
     });
 
@@ -1538,6 +1538,13 @@ describe.concurrent("JWS Utilities", () => {
       const error = await verify(jws, hs256Key).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWT_NBF")).toBe(true);
+    });
+
+    it("ERR_JWT_NBF — nbf beyond the Date range", async () => {
+      const jws = await sign({ nbf: 1e300 }, hs256Key, { alg: "HS256" });
+      const error = await verify(jws, hs256Key).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWT_NBF")).toBe(true);
+      expect(error.message).toBe('JWT "nbf" is in the future (1e+300).');
     });
 
     it("ERR_JWT_CLAIM_MISSING — required claim absent", async () => {

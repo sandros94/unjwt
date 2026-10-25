@@ -1,6 +1,6 @@
 import type { JWTClaims, JWTClaimValidationOptions, Duration } from "../types/index.ts";
 import { maybeArray } from "./array.ts";
-import { JWTError } from "../error.ts";
+import { JWTError, type JWTErrorCauseMap } from "../error.ts";
 
 /** Whether headers declare JSON content: a string `typ` naming JWT, or a JSON `cty`. */
 export function isJWTContent(header: { typ?: string; cty?: string } | undefined): boolean {
@@ -79,7 +79,7 @@ export function computeDurationInSeconds(duration: Duration): number {
 
 /** The `ERR_JWT_EXPIRED` message for a token whose `exp` (NumericDate seconds) has passed. */
 export function expiredClaimMessage(exp: number): string {
-  return `JWT "exp" is in the past (${new Date(exp * 1000).toISOString()}).`;
+  return `JWT "exp" is in the past (${_formatNumericDate(exp)}).`;
 }
 
 /**
@@ -153,17 +153,17 @@ export function validateJwtClaims(
 
   if (typeof jwtClaims.nbf === "number" && jwtClaims.nbf > currentTime + clockTolerance) {
     throw new JWTError(
-      `JWT "nbf" is in the future (${new Date(jwtClaims.nbf * 1000).toISOString()}).`,
+      `JWT "nbf" is in the future (${_formatNumericDate(jwtClaims.nbf)}).`,
       "ERR_JWT_NBF",
     );
   }
 
   if (typeof jwtClaims.exp === "number" && jwtClaims.exp <= currentTime - clockTolerance) {
-    throw new JWTError(expiredClaimMessage(jwtClaims.exp), "ERR_JWT_EXPIRED", {
-      jti: jwtClaims.jti,
-      iat: jwtClaims.iat,
-      exp: jwtClaims.exp,
-    });
+    throw new JWTError(
+      expiredClaimMessage(jwtClaims.exp),
+      "ERR_JWT_EXPIRED",
+      _expiredCause(jwtClaims),
+    );
   }
 
   if (options.maxTokenAge !== undefined) {
@@ -175,7 +175,7 @@ export function validateJwtClaims(
     }
     if (jwtClaims.iat > currentTime + clockTolerance) {
       throw new JWTError(
-        `JWT "iat" is in the future (${new Date(jwtClaims.iat * 1000).toISOString()}).`,
+        `JWT "iat" is in the future (${_formatNumericDate(jwtClaims.iat)}).`,
         "ERR_JWT_CLAIM_INVALID",
       );
     }
@@ -186,7 +186,7 @@ export function validateJwtClaims(
       throw new JWTError(
         `JWT "iat" is older than maxTokenAge ${options.maxTokenAge}.`,
         "ERR_JWT_EXPIRED",
-        { jti: jwtClaims.jti, iat: jwtClaims.iat, exp: jwtClaims.exp },
+        _expiredCause(jwtClaims),
       );
     }
   }
@@ -264,4 +264,15 @@ function _assertNumericDate(value: unknown, claim: string): void {
       "ERR_JWT_CLAIM_INVALID",
     );
   }
+}
+
+/** A NumericDate as an ISO instant, or as the number when it lies outside the `Date` range. */
+function _formatNumericDate(seconds: number): string {
+  const date = new Date(seconds * 1000);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : String(seconds);
+}
+
+function _expiredCause(claims: JWTClaims): JWTErrorCauseMap["ERR_JWT_EXPIRED"] {
+  const { jti, iat, exp } = claims;
+  return { jti: typeof jti === "string" ? jti : undefined, iat, exp };
 }

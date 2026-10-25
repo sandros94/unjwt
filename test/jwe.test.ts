@@ -851,7 +851,7 @@ describe.concurrent("JWE Utilities", () => {
         protectedHeader: { crit: ["unknownParam"], unknownParam: true },
       });
       await expect(decrypt(jweUnknownCrit, key)).rejects.toThrow(
-        "Unprocessed critical header parameters: unknownParam",
+        'Unprocessed critical header parameters: "unknownParam"',
       );
       await expect(jose.compactDecrypt(jweUnknownCrit, joseKey)).rejects.toThrow(
         'Extension Header Parameter "unknownParam" is not recognized',
