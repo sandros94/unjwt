@@ -1779,9 +1779,12 @@ describe("session adapters — shared contract", () => {
         ).toBe(true);
         expect(response.cookies.some((c) => /;\s*Domain=/i.test(c))).toBe(false);
 
-        const headerOnly = await port.run({ name, key: port.key, cookie: false }, async (open) => ({
-          id: (await open()).id ?? null,
-        }));
+        const headerOnly = await port.run(
+          { name, key: port.key, cookie: false, sessionHeader: true },
+          async (open) => ({
+            id: (await open()).id ?? null,
+          }),
+        );
         expect(headerOnly.id).toBeNull();
       },
     );
@@ -2388,11 +2391,11 @@ describe("session adapters — shared contract", () => {
   // #region token transports
   describe("token transports", () => {
     const HEADER_CASES = [
-      { setting: "unset", cookie: true, header: undefined, reads: true },
+      { setting: "unset", cookie: true, header: undefined, reads: false },
       { setting: "true", cookie: true, header: undefined, reads: true },
       { setting: "false", cookie: true, header: undefined, reads: false },
       { setting: "a header name", cookie: true, header: "x-custom-token", reads: true },
-      { setting: "unset", cookie: false, header: undefined, reads: true },
+      { setting: "true", cookie: false, header: undefined, reads: true },
     ] as const;
 
     const SETTINGS = {
@@ -2427,23 +2430,28 @@ describe("session adapters — shared contract", () => {
       expect(body).toEqual({ id: entry.reads ? "from-header" : null });
     });
 
-    it.each(["jws", "jwe"] as const)(
-      "elysia %s: a token-only config cannot open a session",
-      async (family) => {
-        const { context } = elysiaContext();
-        const create = family === "jws" ? createJWSSession : createJWESession;
-        const error = await caught(() =>
-          create(context, {
-            key: family === "jws" ? jwsKey : jweKey,
-            cookie: false,
-            sessionHeader: false,
-          } as never),
-        );
+    it.each(
+      (["jws", "jwe"] as const).flatMap((family) =>
+        [{ sessionHeader: false }, {}].map((header) => ({
+          family,
+          header,
+          label: `${family}, sessionHeader ${"sessionHeader" in header ? "false" : "unset"}`,
+        })),
+      ),
+    )("elysia $label: a token-only config cannot open a session", async ({ family, header }) => {
+      const { context } = elysiaContext();
+      const create = family === "jws" ? createJWSSession : createJWESession;
+      const error = await caught(() =>
+        create(context, {
+          key: family === "jws" ? jwsKey : jweKey,
+          cookie: false,
+          ...header,
+        } as never),
+      );
 
-        expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-        expect((error as Error).message).toContain('"sessionHeader"');
-      },
-    );
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toContain('"sessionHeader"');
+    });
 
     const READ_ONLY_CONTEXTS = {
       "web request without a response": {
@@ -2543,7 +2551,12 @@ describe("session adapters — shared contract", () => {
       async ({ kind, family }) => {
         const { port, context } = READ_ONLY_CONTEXTS[kind];
         const name = `contract-${family}`;
-        const config = { name, key: family === "jws" ? jwsKey : jweKey, cookie: false };
+        const config = {
+          name,
+          key: family === "jws" ? jwsKey : jweKey,
+          cookie: false,
+          sessionHeader: true,
+        };
         const token = await foreignToken(family, { jti: "headers-only", iat: nowSeconds() });
         const carrier = context({ [`x-${name}-session`]: token });
         const session = (await OPENERS[port][family](
@@ -2568,6 +2581,7 @@ describe("session adapters — shared contract", () => {
         const session = await createJWSSession(context, {
           key: jwsKey,
           cookie: cookies ? { secure: false } : false,
+          sessionHeader: true,
         });
 
         await session.update({ user: "alice" });
@@ -2873,7 +2887,7 @@ describe("session adapters — shared contract", () => {
     it.each(portFamilyCases())(
       "$label: token() returns the carried token unopened, the header before the cookie",
       async (port) => {
-        const definition = definitionOf(port, baseConfig(port));
+        const definition = definitionOf(port, { ...baseConfig(port), sessionHeader: true });
         const header = `x-${port.name}-session`;
         const read = async (options?: ServeOptions) =>
           (

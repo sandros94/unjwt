@@ -67,7 +67,7 @@ export default {
 };
 ```
 
-- Reads the session header when `req.headers` carries it, else the `Cookie` (parsed once per `use()`). A header-read session never writes `Set-Cookie`: `update()`/`rolling` re-mint onto `session.token`, `clear()` empties state.
+- Reads the session header when `sessionHeader` enables it (`true` or a name; left unset or `false`, no header is read, so `cookie: false` then has no token source) and `req.headers` carries it, else the `Cookie` (parsed once per `use()`). A header-read session never writes `Set-Cookie`: `update()`/`rolling` re-mint onto `session.token`, `clear()` empties state.
 - Writes `Set-Cookie` onto `res.headers`, replacing an earlier line of the same name, domain and path (and partition); unrelated lines stay. A second `update()` in one request leaves one line per cookie; `clear()` leaves the `Max-Age=0` line.
 - `res.errHeaders` present (h3 v2): every write and drop also replaces that cookie's lines there, other lines kept, so a handler that throws after `update()`/`clear()` still sends the cookie.
 - Hono: pass `c.req.raw` as `req` and return `new Response(body, { headers })`.

@@ -133,7 +133,7 @@ describe("unjwt/session over a Web request", () => {
       "[unjwt/session] Cannot update session on read-only event.",
     );
 
-    const headerOnly = define({ cookie: false });
+    const headerOnly = define({ cookie: false, sessionHeader: true });
     const reissued = await headerOnly.use({ req: get({ "x-web-session": token }) });
     await reissued.update({ user: "grace" });
     expect(reissued.token).toBeTypeOf("string");
@@ -438,7 +438,12 @@ describe("unjwt/session token sources", () => {
     "$family: a session read from the header rolls onto session.token, never a cookie",
     async ({ define }) => {
       const onUpdate = vi.fn();
-      const session = define({ maxAge: 3600, rolling: true, hooks: { onUpdate } });
+      const session = define({
+        maxAge: 3600,
+        rolling: true,
+        sessionHeader: true,
+        hooks: { onUpdate },
+      });
       const fromHeader = await session.issue({ who: "header" });
       const headers = new Headers();
 
@@ -460,7 +465,7 @@ describe("unjwt/session token sources", () => {
     "$family: update() and clear() on a header session write no cookie",
     async ({ define }) => {
       const onClear = vi.fn();
-      const session = define({ hooks: { onClear } });
+      const session = define({ sessionHeader: true, hooks: { onClear } });
       const fromCookie = await session.issue({ who: "cookie" });
       const fromHeader = await session.issue({ who: "header" });
       const headers = new Headers();
@@ -489,12 +494,28 @@ describe("unjwt/session token sources", () => {
   it.each(FAMILIES)(
     "$family: a header session updates without response headers",
     async ({ define }) => {
-      const session = define();
+      const session = define({ sessionHeader: true });
       const fromHeader = await session.issue({ who: "header" });
 
       const manager = await session.use({ req: get({ "x-web-session": fromHeader }) });
       await manager.update({ who: "updated" });
       expect((await session.open(String(manager.token))).data).toEqual({ who: "updated" });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: with sessionHeader unset a session with cookies reads only its cookie",
+    async ({ define }) => {
+      const session = define();
+      const fromCookie = await session.issue({ who: "cookie" });
+      const fromHeader = await session.issue({ who: "header" });
+      const event = { req: get({ "cookie": `web=${fromCookie}`, "x-web-session": fromHeader }) };
+
+      expect((await session.use(event)).data).toEqual({ who: "cookie" });
+      expect(session.token(event)).toBe(fromCookie);
+      expect(
+        (await define().use({ req: get({ "x-web-session": fromHeader }) })).id,
+      ).toBeUndefined();
     },
   );
 

@@ -67,7 +67,7 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   /**
    * Header carrying a bare or `Bearer` token: a header name, `true` for `x-<name>-session` (cookie prefix stripped), or `false` for none.
    * A request that carries it is read from it and never from the cookie, and writes no cookie back; any other value is a token failure (`onError`).
-   * Left unset, a session with cookies still reads `x-<name>-session`, and so does one with `cookie: false`.
+   * Left unset, no header is read: a session with cookies reads only its cookie, and one with `cookie: false` has no token source.
    */
   sessionHeader?: boolean | string;
   /** Session ID (`jti`) generator. Default `crypto.randomUUID`. */

@@ -4,7 +4,6 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 
 | Symbol | Replacement | Deprecated in | Remove in |
 | --- | --- | --- | --- |
-| implicit `sessionHeader` default with cookies on (`unjwt/adapters/*`) | `sessionHeader: true` | v0.8.2 | v0.9.0 |
 | `createJWSSession` (`unjwt/adapters/elysia`) | `defineJWSSession(config).use(context)` | v0.8.2 | v0.9.0 |
 | `createJWESession` (`unjwt/adapters/elysia`) | `defineJWESession(config).use(context)` | v0.8.2 | v0.9.0 |
 | `{ privateKey, publicKey? }` pair as a JWE session `key` (`JWESessionKey`, `unjwt/session`, `unjwt/adapters/*`) | an `oct` JWK, or `defineJWSSession` for a key pair | v0.8.5 | v0.9.0 |

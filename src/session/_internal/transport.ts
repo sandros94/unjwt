@@ -12,7 +12,7 @@ import { invalidConfigError, invalidTokenError, isToken, readOnlyEventError } fr
 
 /** Where a session's token can travel. */
 export interface SessionTokenSource {
-  /** Request header to read the token from: a name, `true` for `x-<name>-session`, or `false` for none. */
+  /** Request header to read the token from, before the cookie: a name, or `true` for `x-<name>-session`; unset or `false`, none. */
   sessionHeader?: boolean | string;
   /** Cookie options, or `false` for no cookie. */
   cookie?: false | object;
@@ -61,7 +61,7 @@ export function resolveTransport<TEvent>(
   if (header || config.cookie === false) {
     return {
       source: "header",
-      read: config.sessionHeader === false ? undefined : () => header?.token,
+      read: readsHeader(config) ? () => header?.token : undefined,
       malformed: header?.malformed,
       readonly: false,
       writable: () => true,
@@ -144,14 +144,14 @@ export function headerToken(value: string | null | undefined): string | undefine
   return words.length === 1 && first ? first : undefined;
 }
 
-/** The session header `sessionHeader` names, else `x-<name>-session`, when the request carries it; a value without a token is malformed. */
+/** The session header `sessionHeader` enables, when the request carries it; a value without a token is malformed. */
 function presentedHeader<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
   options: { config: SessionTokenSource; name: string },
 ): { token: string | undefined; malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID"> } | undefined {
   const { config, name } = options;
-  if (config.sessionHeader === false) return undefined;
+  if (!readsHeader(config)) return undefined;
   const header = sessionHeaderName(name, config.sessionHeader);
   const value = driver.header(event, header);
   if (typeof value !== "string") return undefined;
@@ -163,6 +163,11 @@ function presentedHeader<TEvent>(
       `${driver.prefix} Invalid session token: the "${header}" header holds neither a token nor "Bearer <token>".`,
     ),
   };
+}
+
+/** `sessionHeader: true` or a name enables the header, read before the cookie; left unset or `false`, no header is read. */
+function readsHeader(config: SessionTokenSource): boolean {
+  return config.sessionHeader !== undefined && config.sessionHeader !== false;
 }
 
 /** The cookie this response wrote (none once deleted), else the request's, chunks joined. */
