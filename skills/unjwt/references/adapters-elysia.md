@@ -100,7 +100,7 @@ Elysia serializes cookies when it builds the response, and its lifecycle context
 
 ## SessionManager Interface
 
-Same shape as the H3 adapters:
+Same shape as `unjwt/session`:
 
 ```ts
 interface SessionManager<
@@ -204,16 +204,16 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
 - **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a cookie that shadows the session (the adapter reads the first cookie of a name); the defaults satisfy the prefix, and a `__Host-` name with `domain`, a `path` other than `/` or `secure: false` (or a `__Secure-` name with `secure: false`) throws `ERR_SESSION_CONFIG_INVALID` when the session is opened. The default session header drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another session and throws `ERR_SESSION_CONFIG_INVALID`.
 - **Foreign tokens.** A token is only a session when it carries the session `typ` (default `"session+jwt"`, set through `protectedHeader.typ`, compared as a media type; RFC 8725 §3.11). No `cty` is written or required. With `maxAge` set it must also carry `exp`, and it expires at `exp` or `iat + maxAge`, whichever is sooner (`expiresAt` holds that instant), so a token issued with a longer `update(data, { maxAge })`, or minted elsewhere with a far `exp`, still ends at the reading config's `maxAge`. A foreign token is `ERR_SESSION_TOKEN_INVALID` → `onError` even when expired; only a session token's expiry reaches `onExpire`.
 - **Update data** must be a plain object; a string, an array or a `__proto__`-like key throws `ERR_INVALID_OPTION`.
-- **Chunking.** The base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks; the same layout as both H3 adapters, so cookies are interchangeable. Cleanup of a previous set is bounded by the same limit.
+- **Chunking.** The base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks; the same layout as `unjwt/session`, so cookies are interchangeable. Cleanup of a previous set is bounded by the same limit.
 - **Errors.** Every adapter error is a `JWTError`: `ERR_SESSION_TOKEN_INVALID` (with the original failure as `cause`), `ERR_SESSION_KEY_INVALID`, `ERR_SESSION_CONFIG_INVALID`, `ERR_INVALID_OPTION`. `ERR_SESSION_READONLY_EVENT` never comes from Elysia: its cookie jar always takes a write and it exposes no response-sent signal.
 
 ## Lifecycle Hooks
 
-`config.hooks` — same set as H3: `onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`, plus `onVerifyKeyLookup` (JWS) / `onUnsealKeyLookup` (JWE) for key rotation. The two lookups receive `context` only when the token came through `use()` (typed `context?: SessionContext`); `open()` passes none. A throw from a lookup fails the token: `onError` (`ERR_SESSION_TOKEN_INVALID`) on `use()`, a throw from `open()`.
+`config.hooks` — same set as `unjwt/session`: `onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`, plus `onVerifyKeyLookup` (JWS) / `onUnsealKeyLookup` (JWE) for key rotation. The two lookups receive `context` only when the token came through `use()` (typed `context?: SessionContext`); `open()` passes none. A throw from a lookup fails the token: `onError` (`ERR_SESSION_TOKEN_INVALID`) on `use()`, a throw from `open()`.
 
 > These are unjwt **session hooks** (`config.hooks.*`), unrelated to Elysia's request **lifecycle hooks** (`onRequest`, `beforeHandle`, …).
 
-Each hook receives `{ session, context, config }` — `context` is the Elysia context (not an H3 `event`). Guarantees (the same as on H3):
+Each hook receives `{ session, context, config }` — `context` is the Elysia context (not an `event`). Guarantees (the same as on `unjwt/session`):
 
 - `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires once per request, when the session is read from its token; later reads in the request are silent.
 - `session` in `onRead`, `onUpdate` and `onError` is the manager (`update()`, `clear()`); `oldSession` is a snapshot. `onUpdate` carries `trigger: "update" | "rolling"`.
@@ -267,6 +267,6 @@ const { id, data, expiresAt } = await magicLink.open(token);
 ## Notes / gotchas
 
 - `jwsSession`/`jweSession` (and `plugin()`) return an explicitly-typed Elysia plugin (`SessionPlugin<Resolved, GuardName>` in `src/adapters/elysia/_internal/plugin.ts`) so the package satisfies `isolatedDeclarations`; the factory body is cast `as unknown as SessionPlugin<…>` because Elysia's `.macro()` expects literal keys while the guard key is computed.
-- The session lifecycle is the shared core in `src/session/_internal/core.ts`, over the JWS/JWE codec and the Elysia driver in `src/adapters/elysia/_internal/shared.ts` (reactive-jar cookie writes, token reading), so hooks, error codes and claim handling match the h3 adapters exactly.
+- The session lifecycle is the shared core in `src/session/_internal/core.ts`, over the JWS/JWE codec and the Elysia driver in `src/adapters/elysia/_internal/shared.ts` (reactive-jar cookie writes, token reading), so hooks, error codes and claim handling match `unjwt/session` exactly.
 - Build: the adapter is an input of the single multi-input bundle (shared core in `dist/_chunks/`, `elysia` external, `unsecure` inlined) — no core duplication.
 - Testable in vitest+Node via `app.handle(new Request(...))`; no Bun required.

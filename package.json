@@ -81,18 +81,6 @@
       "types": "./dist/core/internal.d.mts",
       "default": "./dist/core/internal.mjs"
     },
-    "./adapters/h3": {
-      "types": "./dist/adapters/h3/index.d.mts",
-      "default": "./dist/adapters/h3/index.mjs"
-    },
-    "./adapters/h3v1": {
-      "types": "./dist/adapters/h3v1/index.d.mts",
-      "default": "./dist/adapters/h3v1/index.mjs"
-    },
-    "./adapters/h3v2": {
-      "types": "./dist/adapters/h3/index.d.mts",
-      "default": "./dist/adapters/h3/index.mjs"
-    },
     "./adapters/elysia": {
       "types": "./dist/adapters/elysia/index.d.mts",
       "default": "./dist/adapters/elysia/index.mjs"
@@ -121,7 +109,6 @@
     "cookie-es": "^3.1.1",
     "elysia": "^1.4.30",
     "h3": "^2.0.5",
-    "h3v1": "npm:h3@^1.15.11",
     "jose": "^6.2.12",
     "obuild": "^0.4.45",
     "oxfmt": "^0.73.0",
@@ -135,14 +122,10 @@
     "vitest": "^5.0.4"
   },
   "peerDependencies": {
-    "elysia": "^1.4.29",
-    "h3": "^1.15.4 || ^2.0.1"
+    "elysia": "^1.4.29"
   },
   "peerDependenciesMeta": {
     "elysia": {
-      "optional": true
-    },
-    "h3": {
       "optional": true
     }
   },

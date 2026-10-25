@@ -1,17 +1,4 @@
-import supertest from "supertest";
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
-import { H3, type HTTPEvent } from "h3";
-import {
-  createApp,
-  createRouter,
-  createError,
-  toNodeListener,
-  eventHandler,
-  readBody,
-  getQuery,
-  type App,
-  type H3Event as H3EventV1,
-} from "h3v1";
 import { Elysia } from "elysia";
 
 import { isJWTError } from "../src/error.ts";
@@ -20,45 +7,6 @@ import { sign, verify } from "../src/core/jws/index.ts";
 import { encrypt, decrypt } from "../src/core/jwe/index.ts";
 import type { ExpiresIn } from "../src/core/types/index.ts";
 import { base64UrlParse } from "../src/utils/index.ts";
-import {
-  useJWSSession as useJWSSessionV2,
-  useJWESession as useJWESessionV2,
-  signJWSSession as signJWSSessionV2,
-  verifyJWSSession as verifyJWSSessionV2,
-  sealJWESession as sealJWESessionV2,
-  unsealJWESession as unsealJWESessionV2,
-  clearJWSSession as clearJWSSessionV2,
-  clearJWESession as clearJWESessionV2,
-  getJWSSession as getJWSSessionV2,
-  getJWESession as getJWESessionV2,
-  getJWSSessionToken as getJWSSessionTokenV2,
-  getJWESessionToken as getJWESessionTokenV2,
-  defineJWSSession as defineJWSSessionV2,
-  defineJWESession as defineJWESessionV2,
-  type SessionData,
-  type SessionDefinition,
-  type OpenedSessionState,
-  type SessionDecryptOptions,
-  type SessionVerifyOptions,
-} from "../src/adapters/h3/index.ts";
-import {
-  useJWSSession as useJWSSessionV1,
-  useJWESession as useJWESessionV1,
-  signJWSSession as signJWSSessionV1,
-  verifyJWSSession as verifyJWSSessionV1,
-  sealJWESession as sealJWESessionV1,
-  unsealJWESession as unsealJWESessionV1,
-  clearJWSSession as clearJWSSessionV1,
-  clearJWESession as clearJWESessionV1,
-  getJWSSession as getJWSSessionV1,
-  getJWESession as getJWESessionV1,
-  getJWSSessionToken as getJWSSessionTokenV1,
-  getJWESessionToken as getJWESessionTokenV1,
-  defineJWSSession as defineJWSSessionV1,
-  defineJWESession as defineJWESessionV1,
-  type CompatEvent,
-  type OpenedSessionState as OpenedSessionStateV1,
-} from "../src/adapters/h3v1/index.ts";
 import {
   MAX_CHUNK_COUNT,
   parseChunkCount,
@@ -79,6 +27,11 @@ import type { SessionContext } from "../src/adapters/elysia/session/types.ts";
 import {
   defineJWSSession as defineJWSSessionWeb,
   defineJWESession as defineJWESessionWeb,
+  type OpenedSessionState,
+  type SessionData,
+  type SessionDecryptOptions,
+  type SessionDefinition,
+  type SessionVerifyOptions,
   type WebSessionEvent,
 } from "../src/session/index.ts";
 import type { CookieAttributes } from "../src/adapters/elysia/_internal/cookie.ts";
@@ -185,817 +138,6 @@ const EXPIRED_CLAIMS = {
 };
 
 describe("session adapters — shared contract", () => {
-  // #region h3 v2
-  describe("h3 v2", () => {
-    const jwsConfig = { name: "contract-jws", key: jwsKey, sessionHeader: true } as const;
-    const jweConfig = { name: "contract-jwe", key: jweKey } as const;
-
-    function tokenApp() {
-      const app = new H3({ debug: true });
-      app.post("/mint", async (event) => {
-        const session = await useJWSSessionV2(event, jwsConfig);
-        await session.update(await event.req.json());
-        return { token: session.token };
-      });
-      app.get("/read", async (event) => {
-        const session = await useJWSSessionV2(event, jwsConfig);
-        return { who: (session.data as Record<string, unknown>).who ?? null };
-      });
-      return app;
-    }
-
-    it("reads the session header in preference to the cookie", async () => {
-      const app = tokenApp();
-      const cookieToken = await mintOnH3(app, "cookie");
-      const headerToken = await mintOnH3(app, "header");
-
-      const response = await app.request("/read", {
-        headers: {
-          "cookie": `contract-jws=${cookieToken}`,
-          "x-contract-jws-session": `Bearer ${headerToken}`,
-        },
-      });
-
-      expect(await response.json()).toEqual({ who: "header" });
-    });
-
-    it("falls back to the session header when no cookie carries a token", async () => {
-      const app = tokenApp();
-      const headerToken = await mintOnH3(app, "header");
-
-      const response = await app.request("/read", {
-        headers: { "x-contract-jws-session": headerToken },
-      });
-
-      expect(await response.json()).toEqual({ who: "header" });
-    });
-
-    it("a blank session header is a token failure, the cookie unread", async () => {
-      const app = tokenApp();
-      const cookieToken = await mintOnH3(app, "cookie");
-
-      const response = await app.request("/read", {
-        headers: {
-          "cookie": `contract-jws=${cookieToken}`,
-          "x-contract-jws-session": "   ",
-        },
-      });
-
-      expect(await response.json()).toEqual({ who: null });
-    });
-
-    it("matches the Bearer prefix case-insensitively", async () => {
-      const app = tokenApp();
-      const headerToken = await mintOnH3(app, "header");
-
-      const response = await app.request("/read", {
-        headers: { "x-contract-jws-session": `bearer ${headerToken}` },
-      });
-
-      expect(await response.json()).toEqual({ who: "header" });
-    });
-
-    it.each(["__Host-", "__Secure-", "__host-"])(
-      "derives the default session header from a %s cookie name without its prefix",
-      async (prefix) => {
-        const config = { name: `${prefix}contract-jws`, key: jwsKey, sessionHeader: true } as const;
-        const app = new H3({ debug: true });
-        app.post("/mint", async (event) => {
-          const session = await useJWSSessionV2(event, config);
-          await session.update({ who: "header" });
-          return { token: session.token };
-        });
-        app.get("/read", async (event) => {
-          const session = await useJWSSessionV2(event, config);
-          return { who: (session.data as Record<string, unknown>).who ?? null };
-        });
-        const minted = await app.request("/mint", { method: "POST" });
-        const { token } = (await minted.json()) as { token: string };
-
-        const response = await app.request("/read", {
-          headers: { "x-contract-jws-session": `Bearer ${token}` },
-        });
-
-        expect(await response.json()).toEqual({ who: "header" });
-      },
-    );
-
-    it("rejects a session with neither a cookie nor a header to read from", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const error = await caught(() =>
-          useJWSSessionV2(event, { ...jwsConfig, cookie: false, sessionHeader: false }),
-        );
-        return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
-      });
-
-      expect(await (await app.request("/")).json()).toEqual({ config: true });
-    });
-
-    it("rejects a password string where key material is required", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const error = await caught(() =>
-          useJWESessionV2(event, { name: "contract-jwe-str", key: "a password" as never }),
-        );
-        return {
-          key: isJWTError(error, "ERR_SESSION_KEY_INVALID"),
-          message: (error as Error).message,
-        };
-      });
-
-      const body = (await (await app.request("/")).json()) as { key: boolean; message: string };
-      expect(body.key).toBe(true);
-      expect(body.message).toMatch(/deriveJWKFromPassword/);
-    });
-
-    it("strips the adapter-owned claims from an update payload", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, jwsConfig);
-        await session.update({
-          user: "alice",
-          jti: "forged",
-          iat: 1,
-          exp: 2,
-          nbf: 3,
-        });
-        return { data: session.data, id: session.id };
-      });
-
-      const body = (await (await app.request("/")).json()) as {
-        data: Record<string, unknown>;
-        id: string;
-      };
-      expect(body.data).toEqual({ user: "alice" });
-      expect(body.id).not.toBe("forged");
-    });
-
-    it("strips the adapter-owned claims from an updater function's result", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, jwsConfig);
-        await session.update(() => ({ user: "bob", exp: 2 }));
-        return { data: session.data };
-      });
-
-      expect(await (await app.request("/")).json()).toEqual({ data: { user: "bob" } });
-    });
-
-    it("rejects prototype-poisoning keys in an update", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, jwsConfig);
-        const error = await caught(() => session.update({ ["__proto__"]: { admin: true } }));
-        return {
-          option: isJWTError(error, "ERR_INVALID_OPTION"),
-          message: (error as Error).message,
-        };
-      });
-
-      const body = (await (await app.request("/")).json()) as { option: boolean; message: string };
-      expect(body.option).toBe(true);
-      expect(body.message).toMatch(/__proto__/);
-    });
-
-    it("gives one issue a lifetime of its own", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, { ...jwsConfig, maxAge: 60 });
-        const before = session.expiresAt;
-        await session.update({ user: "alice" }, { maxAge: 3600 });
-        return { before, after: session.expiresAt, createdAt: session.createdAt };
-      });
-
-      const body = (await (await app.request("/")).json()) as {
-        before: number;
-        after: number;
-        createdAt: number;
-      };
-      expect(body.after - body.createdAt).toBe(3600 * SECOND);
-      expect(body.before).toBeLessThan(body.after);
-    });
-
-    it("refuses a JWT-typed token signed with the session key, even with a live exp", async () => {
-      const onError = vi.fn();
-      const onExpire = vi.fn();
-      const token = await sign(
-        {
-          jti: "foreign",
-          iat: nowSeconds() - 365 * 24 * 60 * 60,
-          exp: nowSeconds() + 3600,
-          sub: "attacker",
-        },
-        jwsKey,
-        { protectedHeader: { typ: "JWT" } },
-      );
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, {
-          ...jwsConfig,
-          maxAge: 3600,
-          hooks: { onError, onExpire },
-        });
-        return { id: session.id ?? null };
-      });
-
-      const response = await app.request("/", {
-        headers: { cookie: `contract-jws=${token}` },
-      });
-
-      expect(await response.json()).toEqual({ id: null });
-      expect(onExpire).not.toHaveBeenCalled();
-      const error = onError.mock.calls[0][0].error;
-      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/typ/);
-    });
-
-    it("refuses a token that carries no typ", async () => {
-      const onError = vi.fn();
-      const token = await sign(
-        new TextEncoder().encode(JSON.stringify({ jti: "foreign", iat: nowSeconds() })),
-        jwsKey,
-      );
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, { ...jwsConfig, hooks: { onError } });
-        return { id: session.id ?? null };
-      });
-
-      await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
-
-      const error = onError.mock.calls[0][0].error;
-      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/typ/);
-    });
-
-    it("refuses a token without exp when the session has a maxAge", async () => {
-      const onError = vi.fn();
-      const token = await foreignJWS({ jti: "foreign", iat: nowSeconds() });
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, {
-          ...jwsConfig,
-          maxAge: 3600,
-          hooks: { onError },
-        });
-        return { id: session.id ?? null };
-      });
-
-      await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
-
-      expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-    });
-
-    it("refuses a token typed for another JWT profile", async () => {
-      const onError = vi.fn();
-      const token = await foreignJWS({ jti: "foreign", iat: nowSeconds() }, { typ: "at+jwt" });
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, { ...jwsConfig, hooks: { onError } });
-        return { id: session.id ?? null };
-      });
-
-      await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
-
-      const error = onError.mock.calls[0][0].error;
-      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/typ/);
-    });
-
-    it("keeps the underlying failure as the cause of an invalid token", async () => {
-      const onError = vi.fn();
-      const otherKey = await generateJWK("HS256");
-      const token = await sign({ jti: "foreign", iat: nowSeconds() }, otherKey, {
-        protectedHeader: { typ: "session+jwt" },
-      });
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, { ...jwsConfig, hooks: { onError } });
-        return { id: session.id ?? null };
-      });
-
-      await app.request("/", { headers: { cookie: `contract-jws=${token}` } });
-
-      const error = onError.mock.calls[0][0].error;
-      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(isJWTError(error.cause, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
-    });
-
-    it("refuses a JWE token typed as a plain JWT", async () => {
-      const onError = vi.fn();
-      const token = await encrypt({ jti: "foreign", iat: nowSeconds() }, jweKey, {
-        protectedHeader: { typ: "JWT" },
-      });
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWESessionV2(event, { ...jweConfig, hooks: { onError } });
-        return { id: session.id ?? null };
-      });
-
-      await app.request("/", { headers: { cookie: `contract-jwe=${token}` } });
-
-      expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-    });
-
-    it("does not restore a cleared session from the request cookie", async () => {
-      const app = new H3({ debug: true });
-      const minted = tokenApp();
-      const token = await mintOnH3(minted, "cookie");
-
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, jwsConfig);
-        await session.clear();
-        const again = await useJWSSessionV2(event, jwsConfig);
-        return { id: again.id ?? null, token: again.token ?? null, data: again.data };
-      });
-
-      const response = await app.request("/", {
-        headers: { cookie: `contract-jws=${token}` },
-      });
-
-      expect(await response.json()).toEqual({ id: null, token: null, data: {} });
-    });
-
-    it("does not read an unrelated Set-Cookie as the session token", async () => {
-      const app = tokenApp();
-      const headerToken = await mintOnH3(app, "header");
-
-      const reader = new H3({ debug: true });
-      reader.get("/", async (event) => {
-        event.res.headers.append("set-cookie", "unrelated=value; Path=/");
-        const session = await useJWSSessionV2(event, jwsConfig);
-        return { who: (session.data as Record<string, unknown>).who ?? null };
-      });
-
-      const response = await reader.request("/", {
-        headers: { "x-contract-jws-session": headerToken },
-      });
-
-      expect(await response.json()).toEqual({ who: "header" });
-    });
-
-    it("reassembles a chunked session written earlier in the same response", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, {
-          ...jwsConfig,
-          cookie: { chunkMaxLength: 24 },
-        });
-        await session.update({ user: "alice" });
-        const again = await useJWSSessionV2(event, {
-          ...jwsConfig,
-          name: "contract-jws-echo",
-          cookie: { chunkMaxLength: 24 },
-        });
-        return {
-          token: session.token,
-          chunks: event.res.headers.getSetCookie().length,
-          echo: again.id ?? null,
-        };
-      });
-
-      const body = (await (await app.request("/")).json()) as { token: string; chunks: number };
-      expect(body.chunks).toBeGreaterThan(2);
-
-      const reader = new H3({ debug: true });
-      reader.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, jwsConfig);
-        return { user: (session.data as Record<string, unknown>).user ?? null };
-      });
-
-      const chunkCount = Math.ceil(body.token.length / 24);
-      const cookies = [
-        `contract-jws=__chunked__${chunkCount}`,
-        ...Array.from(
-          { length: chunkCount },
-          (_value, index) =>
-            `contract-jws.${index + 1}=${body.token.slice(index * 24, (index + 1) * 24)}`,
-        ),
-      ].join("; ");
-
-      const response = await reader.request("/", { headers: { cookie: cookies } });
-      expect(await response.json()).toEqual({ user: "alice" });
-    });
-
-    it("drops the cookie when the incoming token has expired", async () => {
-      const onExpire = vi.fn();
-      const expired = await foreignJWS({
-        jti: "expired",
-        iat: nowSeconds() - 120,
-        exp: nowSeconds() - 60,
-      });
-
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, {
-          ...jwsConfig,
-          maxAge: 3600,
-          hooks: { onExpire },
-        });
-        return { token: session.token ?? null };
-      });
-
-      const response = await app.request("/", {
-        headers: { cookie: `contract-jws=${expired}` },
-      });
-
-      expect(await response.json()).toEqual({ token: null });
-      expect(onExpire).toHaveBeenCalledOnce();
-      expect(
-        response.headers.getSetCookie().some((cookie) => cookie.startsWith("contract-jws=;")),
-      ).toBe(true);
-    });
-
-    it("reports the expiry instant of an in-memory session in milliseconds", async () => {
-      const onExpire = vi.fn();
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const config = { ...jwsConfig, maxAge: 1, hooks: { onExpire } };
-        const session = await useJWSSessionV2(event, config);
-        await session.update({ user: "alice" });
-        vi.setSystemTime(Date.now() + 5000);
-        await useJWSSessionV2(event, config);
-        vi.useRealTimers();
-        return { fired: onExpire.mock.calls.length };
-      });
-
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      await app.request("/");
-      vi.useRealTimers();
-
-      const { error, session } = onExpire.mock.calls[0][0];
-      expect(error.message).toContain(new Date(session.expiresAt).toISOString());
-      expect(new Date(session.expiresAt).getUTCFullYear()).toBe(new Date().getUTCFullYear());
-    });
-
-    it("reports an in-memory expiry with the message claim validation gives for the same instant", async () => {
-      const onExpire = vi.fn();
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const config = { ...jwsConfig, maxAge: 1, hooks: { onExpire } };
-        const session = await useJWSSessionV2(event, config);
-        await session.update({ user: "alice" });
-        vi.setSystemTime(Date.now() + 5000);
-        await useJWSSessionV2(event, config);
-        vi.useRealTimers();
-        return { fired: onExpire.mock.calls.length };
-      });
-
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      await app.request("/");
-      vi.useRealTimers();
-
-      const { error, session } = onExpire.mock.calls[0][0];
-      const token = await sign({ exp: session.expiresAt / 1000 }, jwsKey);
-      const coreError = await verify(token, jwsKey, {
-        currentDate: new Date(session.expiresAt + 5000),
-      }).catch((e) => e);
-      expect(isJWTError(coreError, "ERR_JWT_EXPIRED")).toBe(true);
-      expect(error.message).toBe(coreError.message);
-    });
-
-    it("refuses to write a session once the response has been sent", async () => {
-      const issued = await supertest(
-        toNodeListener(
-          h3v1App(async (event) => {
-            const session = await useJWSSessionV1(event, jwsConfig);
-            await session.update({ user: "alice" });
-            return { id: session.id };
-          }),
-        ),
-      ).get("/");
-      const cookie = (issued.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
-
-      const onError = vi.fn();
-      let settle!: (outcome: Record<string, unknown>) => void;
-      const outcome = new Promise<Record<string, unknown>>((resolve) => {
-        settle = resolve;
-      });
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, { ...jwsConfig, hooks: { onError } });
-        event.node.res.end("sent");
-        const update = await caught(() => session.update({ user: "mallory" }));
-        const clear = await caught(() => session.clear());
-        settle({
-          update: alreadySent(update),
-          clear: alreadySent(clear),
-          id: session.id,
-          user: session.data.user,
-        });
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/").set("cookie", cookie);
-
-      expect(response.text).toBe("sent");
-      expect(response.headers["set-cookie"]).toBeUndefined();
-      expect(await within(outcome, "h3 v1 write after send")).toEqual({
-        update: true,
-        clear: true,
-        id: issued.body.id,
-        user: "alice",
-      });
-      expect(onError).not.toHaveBeenCalled();
-    });
-
-    it("refuses a JWE session under a name a JWS session already holds", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const jws = await useJWSSessionV2(event, { name: "shared", key: jwsKey });
-        await jws.update({ family: "jws" });
-        const error = await caught(() => useJWESessionV2(event, { name: "shared", key: jweKey }));
-        return {
-          config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
-          message: (error as Error).message,
-          jws: (jws.data as Record<string, unknown>).family,
-        };
-      });
-
-      const body = (await (await app.request("/")).json()) as Record<string, unknown>;
-      expect(body.config).toBe(true);
-      expect(body.message).toContain('"shared"');
-      expect(body.message).toContain("already used by a JWS session");
-      expect(body.jws).toBe("jws");
-    });
-  });
-  // #endregion
-
-  // #region h3 v1
-  describe("h3 v1", () => {
-    const jwsConfig = { name: "contract-jws", key: jwsKey } as const;
-
-    it("keeps the session cookie on an error response", async () => {
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.update({ user: "alice" });
-        throw createError({ statusCode: 418 });
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
-        cookie.startsWith("contract-jws="),
-      );
-
-      expect(response.status).toBe(418);
-      expect(cookies).toHaveLength(1);
-      expect(cookies[0]).toMatch(/^contract-jws=[\w-]+\.[\w-]+\.[\w-]+;/);
-    });
-
-    it("keeps the cookie deletion on an error response after clear()", async () => {
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.update({ user: "alice" });
-        await session.clear();
-        throw createError({ statusCode: 500 });
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
-        cookie.startsWith("contract-jws="),
-      );
-
-      expect(response.status).toBe(500);
-      expect(cookies).toHaveLength(1);
-      expect(cookies[0]).toMatch(/^contract-jws=;/);
-    });
-
-    it("writes a lax session cookie", async () => {
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.update({ user: "alice" });
-        return { ok: true };
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.headers["set-cookie"][0]).toMatch(/SameSite=Lax/i);
-    });
-
-    it("splits a long session across chunk cookies and reads them back", async () => {
-      const chunked = { ...jwsConfig, cookie: { chunkMaxLength: 24 } };
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, chunked);
-        if (!session.id) await session.update({ user: "alice" });
-        return { user: (session.data as Record<string, unknown>).user ?? null };
-      });
-
-      const request = supertest(toNodeListener(app));
-      const minted = await request.get("/");
-      const cookies = (minted.headers["set-cookie"] as unknown as string[]).map(
-        (cookie) => cookie.split(";")[0],
-      );
-
-      expect(cookies.length).toBeGreaterThan(2);
-      expect(cookies[0]).toMatch(/^contract-jws=__chunked__\d+$/);
-      expect(cookies[1]).toMatch(/^contract-jws\.1=/);
-
-      const replayed = await request.get("/").set("cookie", cookies.join("; "));
-      expect(replayed.body).toEqual({ user: "alice" });
-    });
-
-    it("does not restore a cleared session from the request cookie", async () => {
-      const minted = await supertest(
-        toNodeListener(
-          h3v1App(async (event) => {
-            const session = await useJWSSessionV1(event, jwsConfig);
-            await session.update({ user: "alice" });
-            return { ok: true };
-          }),
-        ),
-      ).get("/");
-      const cookie = (minted.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
-
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.clear();
-        const again = await useJWSSessionV1(event, jwsConfig);
-        return { id: again.id ?? null, token: again.token ?? null };
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/").set("cookie", cookie);
-      expect(response.body).toEqual({ id: null, token: null });
-    });
-
-    it("rejects a password string where key material is required", async () => {
-      const app = h3v1App(async (event) => {
-        const error = await caught(() =>
-          useJWESessionV1(event, { name: "contract-jwe-str", key: "a password" as never }),
-        );
-        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.body).toEqual({ key: true });
-    });
-
-    it("refuses to write a session on an event with no writable response", async () => {
-      const readOnlyEvent = { request: new Request("http://localhost/"), context: {} };
-      const session = await useJWSSessionV1(readOnlyEvent, jwsConfig);
-      const error = await caught(() => session.update({ user: "alice" }));
-
-      expect(isJWTError(error, "ERR_SESSION_READONLY_EVENT")).toBe(true);
-    });
-
-    it("refuses a JWE session under a name a JWS session already holds", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const jws = await useJWSSessionV2(event, { name: "shared", key: jwsKey });
-        await jws.update({ family: "jws" });
-        const error = await caught(() => useJWESessionV2(event, { name: "shared", key: jweKey }));
-        return {
-          config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
-          message: (error as Error).message,
-          jws: (jws.data as Record<string, unknown>).family,
-        };
-      });
-
-      const body = (await (await app.request("/")).json()) as Record<string, unknown>;
-      expect(body.config).toBe(true);
-      expect(body.message).toContain('"shared"');
-      expect(body.message).toContain("already used by a JWS session");
-      expect(body.jws).toBe("jws");
-    });
-  });
-  // #endregion
-
-  // #region h3 v1
-  describe("h3 v1", () => {
-    const jwsConfig = { name: "contract-jws", key: jwsKey } as const;
-
-    it("keeps the session cookie on an error response", async () => {
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.update({ user: "alice" });
-        throw createError({ statusCode: 418 });
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
-        cookie.startsWith("contract-jws="),
-      );
-
-      expect(response.status).toBe(418);
-      expect(cookies).toHaveLength(1);
-      expect(cookies[0]).toMatch(/^contract-jws=[\w-]+\.[\w-]+\.[\w-]+;/);
-    });
-
-    it("keeps the cookie deletion on an error response after clear()", async () => {
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.update({ user: "alice" });
-        await session.clear();
-        throw createError({ statusCode: 500 });
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      const cookies = (response.headers["set-cookie"] as unknown as string[]).filter((cookie) =>
-        cookie.startsWith("contract-jws="),
-      );
-
-      expect(response.status).toBe(500);
-      expect(cookies).toHaveLength(1);
-      expect(cookies[0]).toMatch(/^contract-jws=;/);
-    });
-
-    it("writes a lax session cookie", async () => {
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.update({ user: "alice" });
-        return { ok: true };
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.headers["set-cookie"][0]).toMatch(/SameSite=Lax/i);
-    });
-
-    it("splits a long session across chunk cookies and reads them back", async () => {
-      const chunked = { ...jwsConfig, cookie: { chunkMaxLength: 24 } };
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, chunked);
-        if (!session.id) await session.update({ user: "alice" });
-        return { user: (session.data as Record<string, unknown>).user ?? null };
-      });
-
-      const request = supertest(toNodeListener(app));
-      const minted = await request.get("/");
-      const cookies = (minted.headers["set-cookie"] as unknown as string[]).map(
-        (cookie) => cookie.split(";")[0],
-      );
-
-      expect(cookies.length).toBeGreaterThan(2);
-      expect(cookies[0]).toMatch(/^contract-jws=__chunked__\d+$/);
-      expect(cookies[1]).toMatch(/^contract-jws\.1=/);
-
-      const replayed = await request.get("/").set("cookie", cookies.join("; "));
-      expect(replayed.body).toEqual({ user: "alice" });
-    });
-
-    it("does not restore a cleared session from the request cookie", async () => {
-      const minted = await supertest(
-        toNodeListener(
-          h3v1App(async (event) => {
-            const session = await useJWSSessionV1(event, jwsConfig);
-            await session.update({ user: "alice" });
-            return { ok: true };
-          }),
-        ),
-      ).get("/");
-      const cookie = (minted.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
-
-      const app = h3v1App(async (event) => {
-        const session = await useJWSSessionV1(event, jwsConfig);
-        await session.clear();
-        const again = await useJWSSessionV1(event, jwsConfig);
-        return { id: again.id ?? null, token: again.token ?? null };
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/").set("cookie", cookie);
-      expect(response.body).toEqual({ id: null, token: null });
-    });
-
-    it("rejects a password string where key material is required", async () => {
-      const app = h3v1App(async (event) => {
-        const error = await caught(() =>
-          useJWESessionV1(event, { name: "contract-jwe-str", key: "a password" as never }),
-        );
-        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.body).toEqual({ key: true });
-    });
-
-    it("refuses to write a session on an event with no writable response", async () => {
-      const readOnlyEvent = { request: new Request("http://localhost/"), context: {} };
-      const session = await useJWSSessionV1(readOnlyEvent, jwsConfig);
-      const error = await caught(() => session.update({ user: "alice" }));
-
-      expect(isJWTError(error, "ERR_SESSION_READONLY_EVENT")).toBe(true);
-    });
-
-    it("refuses a JWE session under a name a JWS session already holds", async () => {
-      const app = h3v1App(async (event) => {
-        const jws = await useJWSSessionV1(event, { name: "shared", key: jwsKey });
-        await jws.update({ family: "jws" });
-        const error = await caught(() => useJWESessionV1(event, { name: "shared", key: jweKey }));
-        return {
-          config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
-          message: (error as Error).message,
-        };
-      });
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.body.config).toBe(true);
-      expect(response.body.message).toContain("already used by a JWS session");
-    });
-  });
-  // #endregion
-
   // #region Elysia
   describe("elysia", () => {
     it("reads the session header in preference to the cookie", async () => {
@@ -1249,120 +391,6 @@ describe("session adapters — shared contract", () => {
   describe("re-entrant hooks", () => {
     const readerConfig = { name: "reentrant-jws", key: jwsKey, maxAge: "1m" } as const;
 
-    it("h3 v2: an onExpire hook may read the same session", async () => {
-      const seen: Array<string | undefined> = [];
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const config = {
-          ...readerConfig,
-          hooks: {
-            onExpire: async () => {
-              const again = await useJWSSessionV2(event, { ...readerConfig });
-              seen.push(again.id);
-            },
-          },
-        };
-        const session = await useJWSSessionV2(event, config);
-        return { id: session.id ?? null };
-      });
-
-      const token = await foreignJWS(EXPIRED_CLAIMS);
-      const response = await within(
-        app.request("/", { headers: { cookie: `reentrant-jws=${token}` } }),
-        "h3 v2 onExpire",
-      );
-
-      expect(await response.json()).toEqual({ id: null });
-      expect(seen).toEqual([undefined]);
-    });
-
-    it("h3 v2: an onError hook may read the same session", async () => {
-      const seen: Array<string | undefined> = [];
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const config = {
-          ...readerConfig,
-          hooks: {
-            onError: async () => {
-              const again = await useJWSSessionV2(event, { ...readerConfig });
-              seen.push(again.id);
-            },
-          },
-        };
-        const session = await useJWSSessionV2(event, config);
-        return { id: session.id ?? null };
-      });
-
-      const response = await within(
-        app.request("/", { headers: { cookie: "reentrant-jws=not.a.token" } }),
-        "h3 v2 onError",
-      );
-
-      expect(await response.json()).toEqual({ id: null });
-      expect(seen).toEqual([undefined]);
-    });
-
-    it("h3 v1: an onExpire hook may read the same session", async () => {
-      const seen: Array<string | undefined> = [];
-      const router = createRouter({ preemptive: true });
-      const app = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const config = {
-            ...readerConfig,
-            hooks: {
-              onExpire: async () => {
-                const again = await useJWSSessionV1(event, { ...readerConfig });
-                seen.push(again.id);
-              },
-            },
-          };
-          const session = await useJWSSessionV1(event, config);
-          return { id: session.id ?? null };
-        }),
-      );
-
-      const token = await foreignJWS(EXPIRED_CLAIMS);
-      const response = await within(
-        supertest(toNodeListener(app)).get("/").set("cookie", `reentrant-jws=${token}`),
-        "h3 v1 onExpire",
-      );
-
-      expect(response.body).toEqual({ id: null });
-      expect(seen).toEqual([undefined]);
-    });
-
-    it("h3 v1: an onError hook may read the same session", async () => {
-      const seen: Array<string | undefined> = [];
-      const router = createRouter({ preemptive: true });
-      const app = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const config = {
-            ...readerConfig,
-            hooks: {
-              onError: async () => {
-                const again = await useJWSSessionV1(event, { ...readerConfig });
-                seen.push(again.id);
-              },
-            },
-          };
-          const session = await useJWSSessionV1(event, config);
-          return { id: session.id ?? null };
-        }),
-      );
-
-      const response = await within(
-        supertest(toNodeListener(app)).get("/").set("cookie", "reentrant-jws=not.a.token"),
-        "h3 v1 onError",
-      );
-
-      expect(response.body).toEqual({ id: null });
-      expect(seen).toEqual([undefined]);
-    });
-
     it("elysia: an onExpire hook may read the same session", async () => {
       const seen: Array<string | undefined> = [];
       const token = await foreignJWS(EXPIRED_CLAIMS);
@@ -1413,106 +441,41 @@ describe("session adapters — shared contract", () => {
       cookie: { chunkMaxLength, secure: false },
     } as const;
 
-    it("h3 v2: refuses a token needing more chunks than the limit", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, chunked);
-        const error = await caught(() =>
-          session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
-        );
-        return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
+    it("web: refuses a token needing more chunks than the limit", async () => {
+      const session = await defineJWSSessionWeb(chunked).use({
+        req: new Request("http://localhost/"),
+        res: { headers: new Headers() },
       });
-
-      const response = await app.request("/");
-      expect(await response.json()).toEqual({ config: true });
-    });
-
-    it("h3 v1: refuses a token needing more chunks than the limit", async () => {
-      const router = createRouter({ preemptive: true });
-      const app = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const session = await useJWSSessionV1(event, chunked);
-          const error = await caught(() =>
-            session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
-          );
-          return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
-        }),
+      const error = await caught(() =>
+        session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
       );
 
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.body).toEqual({ config: true });
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
     });
 
-    it("h3 v2: bounds cleanup of a forged chunk marker", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, chunked);
-        await session.update({ user: "alice" });
-        return { ok: true };
+    it("web: bounds cleanup of a forged chunk marker", async () => {
+      const headers = new Headers();
+      const session = await defineJWSSessionWeb(chunked).use({
+        req: new Request("http://localhost/", { headers: { cookie: "chunk-jws=__chunked__100" } }),
+        res: { headers },
       });
+      await session.update({ user: "alice" });
 
-      const response = await app.request("/", {
-        headers: { cookie: "chunk-jws=__chunked__100" },
-      });
-      expect(response.headers.getSetCookie().length).toBeLessThanOrEqual(MAX_CHUNK_COUNT + 1);
-    });
-
-    it("h3 v1: bounds cleanup of a forged chunk marker", async () => {
-      const router = createRouter({ preemptive: true });
-      const app = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const session = await useJWSSessionV1(event, chunked);
-          await session.update({ user: "alice" });
-          return { ok: true };
-        }),
-      );
-
-      const response = await supertest(toNodeListener(app))
-        .get("/")
-        .set("cookie", "chunk-jws=__chunked__100");
-      const setCookies = response.headers["set-cookie"] as unknown as string[];
-      expect(setCookies.length).toBeLessThanOrEqual(MAX_CHUNK_COUNT + 1);
+      expect(headers.getSetCookie().length).toBeLessThanOrEqual(MAX_CHUNK_COUNT + 1);
     });
   });
   // #endregion
 
   // #region key and payload failures
   describe("misconfigured keys and payloads", () => {
-    it("h3 v2: a missing key fails the read, not the first update", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const error = await caught(() =>
-          useJWSSessionV2(event, { name: "nokey", key: undefined as never }),
-        );
-        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
-      });
-
-      const response = await app.request("/");
-      expect(await response.json()).toEqual({ key: true });
-    });
-
-    it("h3 v1: a public-only JWS key fails the read", async () => {
-      const router = createRouter({ preemptive: true });
-      const app = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const error = await caught(() =>
-            useJWSSessionV1(event, {
-              name: "publiconly",
-              key: { publicKey: {} } as never,
-            }),
-          );
-          return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
+    it("web: a public-only JWS key fails the read", async () => {
+      const error = await caught(() =>
+        defineJWSSessionWeb({ name: "publiconly", key: { publicKey: {} } as never }).use({
+          req: new Request("http://localhost/"),
         }),
       );
 
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.body).toEqual({ key: true });
+      expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
     });
 
     it("elysia: an empty key object fails the read", async () => {
@@ -1524,68 +487,6 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
     });
 
-    it("h3 v2: an undecodable configured key fails every request, not only the first", async () => {
-      const config = { name: "badk", key: { ...jwsKey, k: "!!" } } as const;
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const error = await caught(() => useJWSSessionV2(event, config));
-        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
-      });
-
-      for (let request = 0; request < 3; request++) {
-        const response = await app.request("/");
-        expect(await response.json()).toEqual({ key: true });
-      }
-    });
-
-    it("h3 v2: the same key object serves request after request", async () => {
-      const config = { name: "samekey", key: { ...jwsKey } } as const;
-      const app = new H3({ debug: true });
-      app.post("/mint", async (event) => {
-        const session = await useJWSSessionV2(event, config);
-        await session.update({ who: "ada" });
-        return { token: session.token };
-      });
-      app.get("/read", async (event) => {
-        const session = await useJWSSessionV2(event, config);
-        return { who: (session.data as Record<string, unknown>).who ?? null };
-      });
-
-      const minted = await app.request("/mint", { method: "POST" });
-      const { token } = (await minted.json()) as { token: string };
-      const read = await app.request("/read", { headers: { cookie: `samekey=${token}` } });
-      expect(await read.json()).toEqual({ who: "ada" });
-    });
-
-    it("h3 v2: a configured key is checked on its first use, not again for the same object", async () => {
-      const key: { kty: "oct"; k: string; alg: "HS256" } = { ...jwsKey };
-      const app = new H3({ debug: true });
-      app.get("/:which", async (event) => {
-        const configured = event.context.params?.which === "copy" ? { ...key } : key;
-        const error = await caught(() =>
-          useJWSSessionV2(event, { name: "checkedonce", key: configured }),
-        );
-        return { key: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
-      });
-
-      expect(await (await app.request("/same")).json()).toEqual({ key: false });
-      key.k = "!!";
-      expect(await (await app.request("/same")).json()).toEqual({ key: false });
-      expect(await (await app.request("/copy")).json()).toEqual({ key: true });
-    });
-
-    it("h3 v2: session data that is not JSON-serializable is an option error", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, { name: "bigint", key: jwsKey });
-        const error = await caught(() => session.update({ n: 1n as unknown as string }));
-        return { option: isJWTError(error, "ERR_INVALID_OPTION") };
-      });
-
-      const response = await app.request("/");
-      expect(await response.json()).toEqual({ option: true });
-    });
-
     it("elysia: a cookie name outside the RFC 6265 token characters is a config error", async () => {
       const { context } = elysiaContext();
       const error = await caught(() =>
@@ -1593,34 +494,6 @@ describe("session adapters — shared contract", () => {
       );
 
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-    });
-
-    it("h3 v2: a cookie name outside the RFC 6265 token characters is a config error", async () => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const error = await caught(() => useJWSSessionV2(event, { name: "bad;name", key: jwsKey }));
-        return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
-      });
-
-      const response = await app.request("/");
-      expect(await response.json()).toEqual({ config: true });
-    });
-
-    it("h3 v1: a cookie name outside the RFC 6265 token characters is a config error", async () => {
-      const router = createRouter({ preemptive: true });
-      const app = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const error = await caught(() =>
-            useJWSSessionV1(event, { name: "bad name", key: jwsKey }),
-          );
-          return { config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
-        }),
-      );
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      expect(response.body).toEqual({ config: true });
     });
 
     it("leaves session.token undefined after a failed verification", async () => {
@@ -1693,41 +566,6 @@ describe("session adapters — shared contract", () => {
       jws: { path: "/", secure: true, httpOnly: false, sameSite: "lax" },
       jwe: { path: "/", secure: true, httpOnly: true, sameSite: "lax" },
     } as const;
-
-    it.each(["jws", "jwe"] as const)("h3 v2 writes the %s defaults", async (family) => {
-      const app = new H3({ debug: true });
-      app.get("/", async (event) => {
-        const session =
-          family === "jws"
-            ? await useJWSSessionV2(event, { name: `attr-${family}`, key: jwsKey })
-            : await useJWESessionV2(event, { name: `attr-${family}`, key: jweKey });
-        await session.update({ user: "alice" });
-        return { ok: true };
-      });
-
-      const setCookie = (await app.request("/")).headers.getSetCookie()[0];
-      expect(setCookieAttributes(setCookie)).toEqual(expected[family]);
-    });
-
-    it.each(["jws", "jwe"] as const)("h3 v1 writes the %s defaults", async (family) => {
-      const router = createRouter({ preemptive: true });
-      const app = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const session =
-            family === "jws"
-              ? await useJWSSessionV1(event, { name: `attr-${family}`, key: jwsKey })
-              : await useJWESessionV1(event, { name: `attr-${family}`, key: jweKey });
-          await session.update({ user: "alice" });
-          return { ok: true };
-        }),
-      );
-
-      const response = await supertest(toNodeListener(app)).get("/");
-      const setCookie = (response.headers["set-cookie"] as unknown as string[])[0];
-      expect(setCookieAttributes(setCookie)).toEqual(expected[family]);
-    });
 
     it.each(["jws", "jwe"] as const)("elysia writes the %s defaults", async (family) => {
       const { context, store } = elysiaContext();
@@ -2084,6 +922,44 @@ describe("session adapters — shared contract", () => {
 
   // #region token lifetime
   describe("token lifetime on read", () => {
+    /** The `onExpire` call a Web session makes once its in-memory session outlives `maxAge`. */
+    async function inMemoryExpiry() {
+      const onExpire = vi.fn();
+      const event = { req: new Request("http://localhost/"), res: { headers: new Headers() } };
+      const config = { name: "contract-jws", key: jwsKey, maxAge: 1, hooks: { onExpire } };
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const session = await defineJWSSessionWeb(config).use(event);
+        await session.update({ user: "alice" });
+        vi.setSystemTime(Date.now() + 5000);
+        await defineJWSSessionWeb(config).use(event);
+      } finally {
+        vi.useRealTimers();
+      }
+      return onExpire.mock.calls[0][0] as {
+        error: Error;
+        session: { expiresAt: number };
+      };
+    }
+
+    it("web: reports the expiry instant of an in-memory session in milliseconds", async () => {
+      const { error, session } = await inMemoryExpiry();
+
+      expect(error.message).toContain(new Date(session.expiresAt).toISOString());
+      expect(new Date(session.expiresAt).getUTCFullYear()).toBe(new Date().getUTCFullYear());
+    });
+
+    it("web: reports an in-memory expiry with the message claim validation gives for the same instant", async () => {
+      const { error, session } = await inMemoryExpiry();
+
+      const token = await sign({ exp: session.expiresAt / 1000 }, jwsKey);
+      const coreError = await verify(token, jwsKey, {
+        currentDate: new Date(session.expiresAt + 5000),
+      }).catch((error_: unknown) => error_);
+      expect(isJWTError(coreError, "ERR_JWT_EXPIRED")).toBe(true);
+      expect(error.message).toBe((coreError as Error).message);
+    });
+
     it.each(portFamilyCases())(
       "$label: a per-issue lifetime longer than the config's ends at the config maxAge",
       async (port) => {
@@ -2301,100 +1177,8 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
-  // #region lower-level token functions
-  describe("one-off tokens from the lower-level functions", () => {
-    const magicLink = { maxAge: "15m", cookie: false, sessionHeader: false } as const;
-    const magicLinkConfig = {
-      jws: { key: jwsKey, ...magicLink },
-      jwe: { key: jweKey, ...magicLink },
-    };
-
-    it.each(["jws", "jwe"] as const)(
-      "h3 v2 %s: mints a token with no cookie and no session header, and opens it back",
-      async (family) => {
-        const sent: { email: string; token: string }[] = [];
-        const app = new H3({ debug: true });
-        app.post("/request-magic-link", async (event) => {
-          const email = ((await event.req.json()) as { email: string }).email;
-
-          const token =
-            family === "jws"
-              ? await signJWSSessionV2(event, magicLinkConfig.jws)
-              : await sealJWESessionV2(event, magicLinkConfig.jwe);
-
-          sent.push({ email, token });
-          return { ok: true };
-        });
-        app.get("/login", async (event) => {
-          const token = new URL(event.req.url).searchParams.get("token")!;
-          const session =
-            family === "jws"
-              ? await verifyJWSSessionV2(event, magicLinkConfig.jws, token)
-              : await unsealJWESessionV2(event, magicLinkConfig.jwe, token);
-          return { id: session.id, lifetime: session.expiresAt! - session.createdAt! };
-        });
-
-        const requested = await app.request("/request-magic-link", {
-          method: "POST",
-          body: JSON.stringify({ email: "alice@example.com" }),
-        });
-        expect(await requested.json()).toEqual({ ok: true });
-        expect(requested.headers.getSetCookie()).toEqual([]);
-        expect(sent[0].email).toBe("alice@example.com");
-
-        const login = await app.request(`/login?token=${sent[0].token}`);
-        const body = (await login.json()) as { id: string; lifetime: number };
-        expect(body.id).toBeTypeOf("string");
-        expect(body.lifetime).toBe(15 * 60 * SECOND);
-      },
-    );
-
-    it.each(["jws", "jwe"] as const)(
-      "h3 v1 %s: mints a token with no cookie and no session header, and opens it back",
-      async (family) => {
-        const sent: { email: string; token: string }[] = [];
-        const router = createRouter({ preemptive: true });
-        const app = createApp({ debug: true }).use(router);
-        router.post(
-          "/request-magic-link",
-          eventHandler(async (event) => {
-            const email = (await readBody<{ email: string }>(event)).email;
-
-            const token =
-              family === "jws"
-                ? await signJWSSessionV1(event, magicLinkConfig.jws)
-                : await sealJWESessionV1(event, magicLinkConfig.jwe);
-
-            sent.push({ email, token });
-            return { ok: true };
-          }),
-        );
-        router.get(
-          "/login",
-          eventHandler(async (event) => {
-            const token = getQuery(event).token as string;
-            const session =
-              family === "jws"
-                ? await verifyJWSSessionV1(event, magicLinkConfig.jws, token)
-                : await unsealJWESessionV1(event, magicLinkConfig.jwe, token);
-            return { id: session.id, lifetime: session.expiresAt! - session.createdAt! };
-          }),
-        );
-
-        const request = supertest(toNodeListener(app));
-        const requested = await request
-          .post("/request-magic-link")
-          .send({ email: "alice@example.com" });
-        expect(requested.body).toEqual({ ok: true });
-        expect(requested.headers["set-cookie"]).toBeUndefined();
-        expect(sent[0].email).toBe("alice@example.com");
-
-        const login = await request.get("/login").query({ token: sent[0].token });
-        expect(login.body.id).toBeTypeOf("string");
-        expect(login.body.lifetime).toBe(15 * 60 * SECOND);
-      },
-    );
-
+  // #region token-only configs
+  describe("token-only configs", () => {
     it.each(portFamilyCases().filter((port) => port.port !== "elysia"))(
       "$label: a session manager still needs a token source",
       async (port) => {
@@ -2508,28 +1292,6 @@ describe("session adapters — shared contract", () => {
         cookie: { secure: false, expires: far },
       } as const;
 
-      const v2 = new H3({ debug: true });
-      v2.get("/", async (event) => {
-        const session = await useJWSSessionV2(event, config);
-        await session.update({ user: "alice" });
-        return { ok: true };
-      });
-      const v2Cookie = (await v2.request("/")).headers.getSetCookie()[0];
-
-      const router = createRouter({ preemptive: true });
-      const v1 = createApp({ debug: true }).use(router);
-      router.use(
-        "/",
-        eventHandler(async (event) => {
-          const session = await useJWSSessionV1(event, config);
-          await session.update({ user: "alice" });
-          return { ok: true };
-        }),
-      );
-      const v1Cookie = (
-        (await supertest(toNodeListener(v1)).get("/")).headers["set-cookie"] as unknown as string[]
-      )[0];
-
       const { context, store } = elysiaContext();
       const elysia = await createJWSSession(context, config);
       await elysia.update({ user: "alice" });
@@ -2544,8 +1306,6 @@ describe("session adapters — shared contract", () => {
       const webCookie = headers.getSetCookie()[0];
 
       const farYear = String(far.getUTCFullYear());
-      expect(v2Cookie).not.toContain(farYear);
-      expect(v1Cookie).not.toContain(farYear);
       expect(webCookie).not.toContain(farYear);
       expect(elysiaExpires.getTime()).toBeLessThan(far.getTime());
     });
@@ -2820,35 +1580,6 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
-  // #region clearing without a token source
-  describe("clearing a session", () => {
-    it.each(portFamilyCases().filter((port) => isH3(port.port)))(
-      "$label: a clear with neither a cookie nor a session header is a config failure",
-      async (port) => {
-        const clear = CLEARERS[port.port as H3Port][port.family];
-        const response = await serveOn(port.port, async (event) => ({
-          code: isJWTError(
-            await caught(() =>
-              clear(
-                event as never,
-                {
-                  name: port.name,
-                  key: port.key,
-                  cookie: false,
-                  sessionHeader: false,
-                } as never,
-              ),
-            ),
-            "ERR_SESSION_CONFIG_INVALID",
-          ),
-        }));
-
-        expect(response.body).toEqual({ code: true });
-      },
-    );
-  });
-  // #endregion
-
   // #region cookie lifetime
   describe("cookie lifetime", () => {
     const far = new Date(Date.now() + 10 * 365 * 24 * 3600 * SECOND);
@@ -3097,30 +1828,6 @@ describe("session adapters — shared contract", () => {
         }
       },
     );
-
-    it.each(portFamilyCases().filter((port) => isH3(port.port)))(
-      "$label: the session token reads as absent once the session is cleared",
-      async (port) => {
-        const cookieToken = await mintToken(port, baseConfig(port), { who: "cookie" });
-        const headerToken = await mintToken(port, baseConfig(port), { who: "header" });
-        const { read, clear } = h3TokenFunctions(port);
-
-        const response = await serveOn(
-          port.port,
-          async (event) => {
-            const before = read(event) ?? null;
-            await clear(event);
-            return { before, after: read(event) ?? null };
-          },
-          {
-            cookies: { [port.name]: cookieToken },
-            headers: { [`x-${port.name}-session`]: headerToken },
-          },
-        );
-
-        expect(response.body).toEqual({ before: headerToken, after: null });
-      },
-    );
   });
   // #endregion
 
@@ -3274,12 +1981,6 @@ describe("session adapters — shared contract", () => {
       expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("payload");
       expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("validateClaims");
       expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("algorithms");
-    });
-
-    it("h3 v2: the JWS and JWE sessions take the same event type", () => {
-      expectTypeOf<Parameters<typeof useJWESessionV2>[0]>().toEqualTypeOf<
-        Parameters<typeof useJWSSessionV2>[0]
-      >();
     });
   });
   // #endregion
@@ -3534,6 +2235,32 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(portFamilyCases().filter((port) => port.family === "jws"))(
+      "$label: a key pair signs with its private half and reads back with its public half",
+      async (port) => {
+        const { privateKey, publicKey } = rsaPairFor(port);
+        const config = {
+          name: port.name,
+          key: { privateKey, publicKey },
+          cookie: { secure: false },
+        };
+        const token = await mintToken(port, config, { user: "ada" });
+
+        const body = await port.run(
+          config,
+          async (open) => {
+            const session = await open();
+            return { id: session.id ?? null, data: session.data };
+          },
+          { cookies: { [port.name]: token } },
+        );
+
+        expect(body.id).toEqual(expect.any(String));
+        expect(body.data).toEqual({ user: "ada" });
+        expect(protectedHeaderOf(token).alg).toBe("RS256");
+      },
+    );
+
+    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
       "$label: refuses a public key list or set carrying an entry that is not a public key",
       async (port) => {
         const { privateKey, publicKey } = rsaPairFor(port);
@@ -3700,47 +2427,6 @@ describe("session adapters — shared contract", () => {
       expect(body).toEqual({ id: entry.reads ? "from-header" : null });
     });
 
-    it.each(portFamilyCases().filter((port) => isH3(port.port)))(
-      "$label: a token-only config issues fresh tokens and refuses to read or clear",
-      async (port) => {
-        const calls = LOWER_LEVEL[port.port as H3Port][port.family];
-        const config = { name: port.name, key: port.key, cookie: false, sessionHeader: false };
-        const sourceless = (error: unknown) =>
-          isJWTError(error, "ERR_SESSION_CONFIG_INVALID") &&
-          error.message.includes('"cookie"') &&
-          error.message.includes('"sessionHeader"');
-
-        const response = await serveOn(port.port, async (event) => {
-          const first = await calls.issue(event, config);
-          const second = await calls.issue(event, config);
-          const opened = await calls.open(event, config, first);
-          return {
-            opened: opened.id ?? null,
-            refused: {
-              use: sourceless(await caught(() => calls.use(event, config))),
-              get: sourceless(await caught(() => calls.get(event, config))),
-              token: sourceless(await caught(async () => calls.token(event, config))),
-              clear: sourceless(await caught(() => calls.clear(event, config))),
-            },
-            first,
-            second,
-          };
-        });
-
-        const { first, second } = response.body as { first: string; second: string };
-        const [firstClaims, secondClaims] = await Promise.all([
-          claimsOf(port.family, first),
-          claimsOf(port.family, second),
-        ]);
-        expect(firstClaims.jti).toBeTypeOf("string");
-        expect(secondClaims.jti).toBeTypeOf("string");
-        expect(firstClaims.jti).not.toBe(secondClaims.jti);
-        expect(response.body.opened).toBe(firstClaims.jti);
-        expect(response.body.refused).toEqual({ use: true, get: true, token: true, clear: true });
-        expect(response.cookies).toEqual([]);
-      },
-    );
-
     it.each(["jws", "jwe"] as const)(
       "elysia %s: a token-only config cannot open a session",
       async (family) => {
@@ -3760,27 +2446,6 @@ describe("session adapters — shared contract", () => {
     );
 
     const READ_ONLY_CONTEXTS = {
-      "h3 v1 request-like event": {
-        port: "h3 v1",
-        context: (headers: Record<string, string>) => ({
-          request: new Request("http://localhost/", { headers }),
-          context: {},
-        }),
-      },
-      "h3 v1 headers-only event": {
-        port: "h3 v1",
-        context: (headers: Record<string, string>) => ({
-          headers: new Headers(headers),
-          context: {},
-        }),
-      },
-      "h3 v2 headers-only event": {
-        port: "h3 v2",
-        context: (headers: Record<string, string>) => ({
-          req: new Request("http://localhost/", { headers }),
-          context: {},
-        }),
-      },
       "web request without a response": {
         port: "web",
         context: (headers: Record<string, string>) => ({
@@ -3912,7 +2577,7 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(["h3 v2", "h3 v1", "web"] as const)(
+    it.each(["web"] as const)(
       "%s: two JWS sessions bound under one name share their state",
       async (port) => {
         const response = await serveOn(port, async (event) => {
@@ -3938,7 +2603,7 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(["h3 v2", "h3 v1", "elysia", "web"] as const)(
+    it.each(["elysia", "web"] as const)(
       "%s: the next request binds a name afresh",
       async (port) => {
         await serveOn(port, async (carrier) => {
@@ -4466,45 +3131,6 @@ describe("session adapters — shared contract", () => {
     });
 
     it("types: the key lookups take the request as optional, the other hooks as required", () => {
-      defineJWSSessionV2({
-        key: jwsKey,
-        hooks: {
-          onVerifyKeyLookup: (args) => {
-            expectTypeOf(args.event).toEqualTypeOf<HTTPEvent | undefined>();
-            return jwsKey;
-          },
-          onRead: (args) => {
-            expectTypeOf(args.event).toEqualTypeOf<HTTPEvent>();
-          },
-        },
-      });
-      defineJWESessionV2({
-        key: jweKey,
-        hooks: {
-          onUnsealKeyLookup: (args) => {
-            expectTypeOf(args.event).toEqualTypeOf<HTTPEvent | undefined>();
-            return jweKey;
-          },
-        },
-      });
-      defineJWSSessionV1({
-        key: jwsKey,
-        hooks: {
-          onVerifyKeyLookup: (args) => {
-            expectTypeOf(args.event).toEqualTypeOf<CompatEvent | H3EventV1 | undefined>();
-            return jwsKey;
-          },
-        },
-      });
-      defineJWESessionV1({
-        key: jweKey,
-        hooks: {
-          onUnsealKeyLookup: (args) => {
-            expectTypeOf(args.event).toEqualTypeOf<CompatEvent | H3EventV1 | undefined>();
-            return jweKey;
-          },
-        },
-      });
       defineJWSSession({
         key: jwsKey,
         hooks: {
@@ -4533,6 +3159,9 @@ describe("session adapters — shared contract", () => {
             expectTypeOf(args.event).toEqualTypeOf<WebSessionEvent | undefined>();
             return jwsKey;
           },
+          onRead: (args) => {
+            expectTypeOf(args.event).toEqualTypeOf<WebSessionEvent>();
+          },
         },
       });
       defineJWESessionWeb({
@@ -4548,39 +3177,31 @@ describe("session adapters — shared contract", () => {
 
     it("types: use() resolves to the manager with the data generic first, open() to the state a token carries", () => {
       type Data = { user: string };
-      const jwsV2 = defineJWSSessionV2<Data, 3600>({ key: jwsKey, maxAge: 3600 });
-      const jweV2 = defineJWESessionV2<Data, 3600>({ key: jweKey, maxAge: 3600 });
-      const jwsV1 = defineJWSSessionV1<Data, 3600>({ key: jwsKey, maxAge: 3600 });
-      const jweV1 = defineJWESessionV1<Data, 3600>({ key: jweKey, maxAge: 3600 });
+      const jwsWeb = defineJWSSessionWeb<Data, 3600>({ key: jwsKey, maxAge: 3600 });
+      const jweWeb = defineJWESessionWeb<Data, 3600>({ key: jweKey, maxAge: 3600 });
       const jwsElysia = defineJWSSession<Data, 3600>({ key: jwsKey, maxAge: 3600 });
 
-      expectTypeOf(jwsV2.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
-      expectTypeOf(jwsV2.use).returns.resolves.toEqualTypeOf<
-        Awaited<ReturnType<typeof useJWSSessionV2<Data, 3600>>>
-      >();
-      expectTypeOf(jweV2.use).returns.resolves.toEqualTypeOf<
-        Awaited<ReturnType<typeof useJWESessionV2<Data, 3600>>>
-      >();
-      expectTypeOf(jwsV1.use).returns.resolves.toEqualTypeOf<
-        Awaited<ReturnType<typeof useJWSSessionV1<Data, 3600>>>
-      >();
-      expectTypeOf(jweV1.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
+      expectTypeOf(jwsWeb.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
+      expectTypeOf(jweWeb.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
       expectTypeOf(jwsElysia.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
 
-      expectTypeOf(jwsV2.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
-      expectTypeOf(jweV2.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
-      expectTypeOf(jwsV1.open).returns.resolves.toEqualTypeOf<OpenedSessionStateV1<Data, 3600>>();
+      expectTypeOf(jwsWeb.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
+      expectTypeOf(jweWeb.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
       expectTypeOf(jwsElysia.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
-      expectTypeOf(jwsV2.open).returns.resolves.toHaveProperty("id").toEqualTypeOf<string>();
-      expectTypeOf(jwsV2.open).returns.resolves.toHaveProperty("createdAt").toEqualTypeOf<number>();
-      expectTypeOf(jwsV2.open).returns.resolves.toHaveProperty("expiresAt").toEqualTypeOf<number>();
-      expectTypeOf(jwsV2.open)
+      expectTypeOf(jwsWeb.open).returns.resolves.toHaveProperty("id").toEqualTypeOf<string>();
+      expectTypeOf(jwsWeb.open)
+        .returns.resolves.toHaveProperty("createdAt")
+        .toEqualTypeOf<number>();
+      expectTypeOf(jwsWeb.open)
+        .returns.resolves.toHaveProperty("expiresAt")
+        .toEqualTypeOf<number>();
+      expectTypeOf(jwsWeb.open)
         .returns.resolves.toHaveProperty("data")
         .toEqualTypeOf<SessionData<Data>>();
-      expectTypeOf(jwsV2.issue)
+      expectTypeOf(jwsWeb.issue)
         .parameter(0)
         .toEqualTypeOf<Partial<SessionData<Data>> | undefined>();
-      expectTypeOf(jwsV2).toEqualTypeOf<SessionDefinition<Data, 3600, HTTPEvent>>();
+      expectTypeOf(jwsWeb).toEqualTypeOf<SessionDefinition<Data, 3600, WebSessionEvent>>();
       expectTypeOf(jwsElysia).toMatchTypeOf<SessionDefinition<Data, 3600, SessionContext>>();
     });
   });
@@ -4630,8 +3251,7 @@ function cookieAttribute(setCookie: string, attribute: string): string | undefin
 }
 
 type Family = "jws" | "jwe";
-type Port = "h3 v2" | "h3 v1" | "elysia" | "web";
-type H3Port = "h3 v2" | "h3 v1";
+type Port = "elysia" | "web";
 type Opener = (carrier: never, config: never) => Promise<unknown>;
 
 interface ServeOptions {
@@ -4679,17 +3299,15 @@ interface PortFamilyCase {
   ) => Promise<SessionManager>;
   /**
    * One request behind the framework's session guard: Elysia's session plugin
-   * and its `requireSession` macro, an h3 handler answering `401` without a
+   * and its `requireSession` macro, a Web handler answering `401` without a
    * session id.
    */
   guarded: (config: Record<string, unknown>, options?: ServeOptions) => Promise<Served>;
 }
 
 const OPENERS: Record<Port, Record<Family, Opener>> = {
-  "h3 v2": { jws: useJWSSessionV2, jwe: useJWESessionV2 },
-  "h3 v1": { jws: useJWSSessionV1, jwe: useJWESessionV1 },
-  "elysia": { jws: createJWSSession, jwe: createJWESession },
-  "web": {
+  elysia: { jws: createJWSSession, jwe: createJWESession },
+  web: {
     jws: (event: WebSessionEvent, config: Parameters<typeof defineJWSSessionWeb>[0]) =>
       defineJWSSessionWeb(config).use(event),
     jwe: (event: WebSessionEvent, config: Parameters<typeof defineJWESessionWeb>[0]) =>
@@ -4697,71 +3315,11 @@ const OPENERS: Record<Port, Record<Family, Opener>> = {
   },
 };
 
-/** The h3 lower-level session functions of each port and family. */
-const LOWER_LEVEL = {
-  "h3 v2": {
-    jws: {
-      use: useJWSSessionV2,
-      get: getJWSSessionV2,
-      token: getJWSSessionTokenV2,
-      clear: clearJWSSessionV2,
-      issue: signJWSSessionV2,
-      open: verifyJWSSessionV2,
-    },
-    jwe: {
-      use: useJWESessionV2,
-      get: getJWESessionV2,
-      token: getJWESessionTokenV2,
-      clear: clearJWESessionV2,
-      issue: sealJWESessionV2,
-      open: unsealJWESessionV2,
-    },
-  },
-  "h3 v1": {
-    jws: {
-      use: useJWSSessionV1,
-      get: getJWSSessionV1,
-      token: getJWSSessionTokenV1,
-      clear: clearJWSSessionV1,
-      issue: signJWSSessionV1,
-      open: verifyJWSSessionV1,
-    },
-    jwe: {
-      use: useJWESessionV1,
-      get: getJWESessionV1,
-      token: getJWESessionTokenV1,
-      clear: clearJWESessionV1,
-      issue: sealJWESessionV1,
-      open: unsealJWESessionV1,
-    },
-  },
-} as unknown as Record<
-  H3Port,
-  Record<
-    Family,
-    {
-      use: (event: unknown, config: unknown) => Promise<unknown>;
-      get: (event: unknown, config: unknown) => Promise<unknown>;
-      token: (event: unknown, config: unknown) => string | undefined;
-      clear: (event: unknown, config: unknown) => Promise<void>;
-      issue: (event: unknown, config: unknown) => Promise<string>;
-      open: (event: unknown, config: unknown, token: string) => Promise<{ id?: string }>;
-    }
-  >
->;
-
-const CLEARERS: Record<H3Port, Record<Family, Opener>> = {
-  "h3 v2": { jws: clearJWSSessionV2, jwe: clearJWESessionV2 },
-  "h3 v1": { jws: clearJWSSessionV1, jwe: clearJWESessionV1 },
-};
-
 type TestDefinition = SessionDefinition<Record<string, unknown>>;
 
 const DEFINERS = {
-  "h3 v2": { jws: defineJWSSessionV2, jwe: defineJWESessionV2 },
-  "h3 v1": { jws: defineJWSSessionV1, jwe: defineJWESessionV1 },
-  "elysia": { jws: defineJWSSession, jwe: defineJWESession },
-  "web": { jws: defineJWSSessionWeb, jwe: defineJWESessionWeb },
+  elysia: { jws: defineJWSSession, jwe: defineJWESession },
+  web: { jws: defineJWSSessionWeb, jwe: defineJWESessionWeb },
 } as unknown as Record<Port, Record<Family, (config: Record<string, unknown>) => TestDefinition>>;
 
 /** The session definition of `port` and its family over `config`. */
@@ -4771,7 +3329,7 @@ function definitionOf(port: PortFamilyCase, config: Record<string, unknown>): Te
 
 /** The same session case on every adapter and both families, each through a real app. */
 function portFamilyCases(): PortFamilyCase[] {
-  return (["h3 v2", "h3 v1", "elysia", "web"] as const).flatMap((port) =>
+  return (["elysia", "web"] as const).flatMap((port) =>
     (["jws", "jwe"] as const).map((family) => portFamilyCase(port, family)),
   );
 }
@@ -4817,36 +3375,6 @@ function portFamilyCase(port: Port, family: Family): PortFamilyCase {
 }
 
 async function serveOn(port: Port, handler: Handler, options?: ServeOptions): Promise<Served> {
-  if (port === "h3 v2") {
-    const app = new H3({ debug: true });
-    app.get("/", async (event) => {
-      const out = await handler(event);
-      return out === UNAUTHORIZED ? new Response("Unauthorized", { status: 401 }) : out;
-    });
-    const response = await app.request("/", requestInit(options));
-    return served(response.status, await response.text(), response.headers.getSetCookie());
-  }
-
-  if (port === "h3 v1") {
-    const router = createRouter({ preemptive: true });
-    const app = createApp({ debug: true }).use(router);
-    router.use(
-      "/",
-      eventHandler(async (event) => {
-        const out = await handler(event);
-        if (out === UNAUTHORIZED) throw createError({ statusCode: 401 });
-        return out;
-      }),
-    );
-    let request = supertest(toNodeListener(app)).get("/");
-    for (const [name, value] of Object.entries(requestInit(options).headers)) {
-      request = request.set(name, value);
-    }
-    const response = await request;
-    const cookies = (response.headers["set-cookie"] as unknown as string[] | undefined) ?? [];
-    return served(response.status, response.text, cookies);
-  }
-
   if (port === "web") {
     const headers = new Headers();
     const request = new Request("http://localhost/", requestInit(options));
@@ -4868,10 +3396,6 @@ async function serveOn(port: Port, handler: Handler, options?: ServeOptions): Pr
   return served(response.status, await response.text(), response.headers.getSetCookie());
 }
 
-function isH3(port: Port): port is H3Port {
-  return port === "h3 v2" || port === "h3 v1";
-}
-
 function requestInit(options: ServeOptions | undefined): { headers: Record<string, string> } {
   return { headers: { ...options?.headers, ...cookieHeader(options?.cookies) } };
 }
@@ -4882,35 +3406,6 @@ function served(status: number, text: string, cookies: string[]): Served {
     body = JSON.parse(text);
   } catch {}
   return { status, body: body as Record<string, unknown>, cookies };
-}
-
-/** The h3 lower-level token reader and clearer of `port`, bound to its session. */
-function h3TokenFunctions(port: PortFamilyCase): {
-  read: (event: unknown) => string | undefined;
-  clear: (event: unknown) => Promise<void>;
-} {
-  const jws = { name: port.name, key: jwsKey, cookie: { secure: false } };
-  const jwe = { name: port.name, key: jweKey, cookie: { secure: false } };
-  if (port.port === "h3 v2") {
-    return port.family === "jws"
-      ? {
-          read: (event) => getJWSSessionTokenV2(event as never, jws),
-          clear: (event) => clearJWSSessionV2(event as never, jws),
-        }
-      : {
-          read: (event) => getJWESessionTokenV2(event as never, jwe),
-          clear: (event) => clearJWESessionV2(event as never, jwe),
-        };
-  }
-  return port.family === "jws"
-    ? {
-        read: (event) => getJWSSessionTokenV1(event as never, jws),
-        clear: (event) => clearJWSSessionV1(event as never, jws),
-      }
-    : {
-        read: (event) => getJWESessionTokenV1(event as never, jwe),
-        clear: (event) => clearJWESessionV1(event as never, jwe),
-      };
 }
 
 /** A token minted by the adapter itself, through one request of `port`. */
@@ -5142,23 +3637,6 @@ function kidConfig(port: PortFamilyCase) {
     key: { ...(port.key as Record<string, unknown>), kid: "key-kid" },
     cookie: { secure: false },
   };
-}
-
-/** A session token minted by the `/mint` route of an h3 v2 app. */
-async function mintOnH3(app: H3, who: string): Promise<string> {
-  const response = await app.request("/mint", {
-    method: "POST",
-    body: JSON.stringify({ who }),
-  });
-  return ((await response.json()) as { token: string }).token;
-}
-
-/** An h3 v1 app serving `handler` on every path. */
-function h3v1App(handler: Parameters<typeof eventHandler>[0]): App {
-  const router = createRouter({ preemptive: true });
-  const app = createApp({ debug: true }).use(router);
-  router.use("/", eventHandler(handler));
-  return app;
 }
 
 /** The cookie names a response sets. */

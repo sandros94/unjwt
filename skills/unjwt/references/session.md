@@ -155,7 +155,7 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 - `state(event)` must return an object unique to the request (`event.locals`, `event.context`, a `WeakMap` keyed by the request). A module-level or shared object leaks sessions across requests.
 - `write` must replace, not append: a re-issue in the same request writes the same names again.
 - Writes arrive one cookie at a time: base cookie, chunks `name.1…N`, `Max-Age=0` for surplus.
-- Shipped drivers: h3 (state on `event.context.sessions`, `writable` from Node `headersSent`, v2 stages cookies in `res.errHeaders`), Elysia (state keyed by `Request`, reactive jar, no `written`), `unjwt/session` (state on `event.context.sessions`, else keyed by `req`, the object passed or the `{ token }` object; mirrors writes into `res.errHeaders` when present; `handed`).
+- Shipped drivers: Elysia (state keyed by `Request`, reactive jar, no `written`), `unjwt/session` (state on `event.context.sessions`, else keyed by `req`, the object passed or the `{ token }` object; mirrors writes into `res.errHeaders` when present; `handed`).
 
 ## Frameworks
 

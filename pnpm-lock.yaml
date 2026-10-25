@@ -187,9 +187,6 @@ importers:
       h3:
         specifier: ^2.0.5
         version: 2.0.5(crossws@0.4.15(srvx@1.0.6))(ocache@0.3.0)
-      h3v1:
-        specifier: npm:h3@^1.15.11
-        version: h3@1.15.11
       jose:
         specifier: ^6.2.12
         version: 6.2.12

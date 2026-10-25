@@ -14,7 +14,7 @@ A collection of JWT utilities based on the Web Crypto API, in a single zero-depe
 - **DPoP** ([RFC 9449](https://www.rfc-editor.org/rfc/rfc9449)) — create and verify proofs through the optional [`unjwt/dpop`](https://unjwt.s94.dev/dpop) module. Your application owns HTTP and replay storage.
 - **Sessions** — cookie-based JWT sessions through [`unjwt/session`](https://unjwt.s94.dev/frameworks/session) on [h3 v2](https://unjwt.s94.dev/frameworks/h3), [Nitro 3](https://unjwt.s94.dev/frameworks/nitro), [Nuxt 4.6+](https://unjwt.s94.dev/frameworks/nuxt), Workers, Bun, Deno and Hono, or on a token in hand; an [Elysia](https://unjwt.s94.dev/frameworks/elysia) plugin; a [driver](https://unjwt.s94.dev/frameworks/drivers) for any other framework.
 - **Runtime-agnostic** — Node 22+, Deno, Bun, Cloudflare Workers, browsers. Anywhere Web Crypto runs.
-- **Zero runtime dependencies** for core; optional peer deps for adapters (`h3`, `elysia`).
+- **Zero runtime dependencies** for core; an optional peer dep for the Elysia adapter (`elysia`).
 
 ## Install
 

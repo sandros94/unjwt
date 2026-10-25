@@ -190,21 +190,6 @@ const ENTRIES: ReadonlyArray<Entry> = [
     absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
   },
   {
-    imports: ["defineJWSSession"],
-    module: "adapters/h3/index.ts",
-    measured: { min: 48495, gzip: 15645 },
-    absent: [MARKERS.cookieEs, MARKERS.elysiaImport],
-    external: ["h3"],
-  },
-  // cookie-es is bundled, so the adapter must carry the parser rather than import it
-  {
-    imports: ["useJWSSession"],
-    module: "adapters/h3v1/index.ts",
-    measured: { min: 49510, gzip: 16008 },
-    absent: [MARKERS.cookieEs],
-    external: ["h3v1"],
-  },
-  {
     imports: ["jwsSession"],
     module: "adapters/elysia/index.ts",
     measured: { min: 48708, gzip: 15728 },

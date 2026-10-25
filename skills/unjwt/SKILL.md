@@ -26,7 +26,6 @@ The following is a list of reference files:
 - `references/jwe.md`: `encrypt()`, `decrypt()`, `encryptMulti()`, `decryptMulti()`, `generalToFlattened()`, `JWEEncryptOptions`, `JWEDecryptOptions`, `JWEMultiEncryptOptions`, `JWEMultiDecryptOptions`, `JWEGeneralSerialization`, `JWEFlattenedSerialization`, `JWEMultiRecipient`
 - `references/jwk.md`: `generateKey()`, `generateJWK()`, `toPublicJWK()`, `thumbprint()`, `importKey()`, `exportJWK()`, `wrapKey()`, `unwrapKey()`, `deriveSharedSecret()`, PEM import/export (`importPEM`, `exportPEM`), PBES2 key derivation (`deriveKeyFromPassword`, `deriveJWKFromPassword`), JWK set utilities (`getJWKsFromSet`), JWK cache (`configureJWKCache`, `clearJWKCache`, `WeakMapJWKCache`), key lookup types (`JWKLookupFunction`, `JWKLookupFunctionHeader`), all JWK type definitions
 - `references/utils.md`: `base64UrlStringify`/`base64UrlParse`, `base64Stringify`/`base64Parse`, `secureRandomBytes`, `digestUrl`, `concatUint8Arrays`, `textEncoder`/`textDecoder`, type guards (`isJWK`, `isJWKSet`, `isSymmetricJWK`, `isAsymmetricJWK`, `isPrivateJWK`, `isPublicJWK`, `isCryptoKey`, `isCryptoKeyPair`, `assertCryptoKey`), `validateJwtClaims`, `inferJWSAllowedAlgorithms`, `inferJWEAllowedAlgorithms`, `computeDurationInSeconds`, `Duration` format (aliased by `ExpiresIn` / `NotBeforeIn` / `MaxTokenAge`), `JWTClaimValidationOptions`
-- `references/adapters-h3.md`: H3 session adapters (v1 and v2), `defineJWSSession`/`defineJWESession` (`use`, `token`, `issue`, `open`), `SessionDefinition`, `SessionManager` interface, `SessionConfigJWE`, `SessionConfigJWS`, lifecycle hooks (`onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`), key lookup hooks (`onUnsealKeyLookup`, `onVerifyKeyLookup`), issuing/opening tokens without a request, cookie chunking, header-based tokens, refresh token pattern
 - `references/session.md`: `unjwt/session` Web standard sessions, `defineJWSSession`/`defineJWESession` over a `WebSessionEvent`: a request event `SessionRequestEvent` (`{ req, res, context }` for h3 v2 / `nuxt/server`, `{ headers, res, context }` for a `Request` or a crossws upgrade request; read-only without `res`) or a handed token `SessionHandedToken` (`{ token }`, re-mint onto `manager.token`); hooks receive `{ event }`, `Set-Cookie` replace on `Headers`, rules for `use()`, the driver contract (`SessionDriver`, `CookieJar`, `defineSessionDriver`, `{ driver }` option, `handed`), a SvelteKit driver, frameworks (h3 v2 `errHeaders` hook, Nitro 3 imports, Nuxt `nuxt/server` handlers, WebSocket upgrade)
 - `references/adapters-elysia.md`: Elysia session adapter, `jwsSession`/`jweSession` plugins, ambient `ctx[contextKey]`, `requireSession` guard macro (derived per `contextKey`), multiple sessions (access JWS + refresh JWE), `defineJWSSession`/`defineJWESession` (`use`, `token`, `issue`, `open`, `plugin()`), `SessionDefinition`/`SessionPluginDefinition`, `SessionConfigJWS`/`SessionConfigJWE`, lifecycle hooks (`context` not `event`), cookie chunking, header tokens, `isolatedDeclarations` plugin typing
 
@@ -42,17 +41,13 @@ The following is a list of reference files:
 | `unjwt/dpop` | Optional DPoP proof creation and verification; no HTTP or storage |
 | `unjwt/error` | `JWTError`/`isJWTError`, `UnsecureError`/`isUnsecureError` and the error code types |
 | `unjwt/internal` | JOSE plumbing for tests and tooling — internal, no semver guarantee, not for production use |
-| `unjwt/adapters/h3` | H3 session adapter (aliases h3v2) — `defineJWSSession`/`defineJWESession` |
-| `unjwt/adapters/h3v1` | H3 v1 session adapter (Nuxt v4, Nitro v2) — `defineJWSSession`/`defineJWESession` |
-| `unjwt/adapters/h3v2` | H3 v2 session adapter (Nuxt v5, Nitro v3) — `defineJWSSession`/`defineJWESession` |
 | `unjwt/adapters/elysia` | Elysia session adapter — `jwsSession`/`jweSession` plugins, `defineJWSSession`/`defineJWESession` (`^1.4.29`) |
 | `unjwt/session` | Web standard sessions (`{ req, res, context }` event as h3 v2 / `nuxt/server` hand it, a `Request`, or a token in hand) and the driver API — no peer dependency |
 
 Session entry exports (as each `index.ts` exports them):
 
-- `unjwt/adapters/h3`, `unjwt/adapters/h3v1`, `unjwt/adapters/h3v2`: `defineJWSSession`, `defineJWESession`; types `SessionDefinition`, `SessionManager`, `SessionClaims`, `SessionData`, `SessionUpdate`, `SessionUpdateTrigger`, `SessionIssueOptions`, `SessionConfigJWS`, `SessionConfigJWE`, `SessionHooksJWS`, `SessionHooksJWE`, `SessionJWS`, `SessionJWE`, `SessionSignOptions`, `SessionVerifyOptions`, `SessionEncryptOptions`, `SessionDecryptOptions`
-- `unjwt/adapters/elysia`: `jwsSession`, `jweSession`, `defineJWSSession`, `defineJWESession`; the same types plus `SessionContext`, `SessionPlugin`, `SessionPluginDefinition`, `CookieAttributes`, `ChunkableCookie`, `ChunkableCookieJar`, `WriteChunkedCookieOptions`
-- `unjwt/session`: `defineJWSSession`, `defineJWESession`, `defineSessionDriver`; the same types as h3 plus `WebSessionEvent`, `SessionRequestEvent`, `SessionHandedToken`, `SessionDriver`, `CookieJar`, `CookieAttributes`
+- `unjwt/adapters/elysia`: `jwsSession`, `jweSession`, `defineJWSSession`, `defineJWESession`; types `SessionDefinition`, `SessionManager`, `SessionClaims`, `SessionData`, `SessionUpdate`, `SessionUpdateTrigger`, `SessionIssueOptions`, `SessionConfigJWS`, `SessionConfigJWE`, `SessionHooksJWS`, `SessionHooksJWE`, `SessionJWS`, `SessionJWE`, `SessionSignOptions`, `SessionVerifyOptions`, `SessionEncryptOptions`, `SessionDecryptOptions`, plus `SessionContext`, `SessionPlugin`, `SessionPluginDefinition`, `CookieAttributes`, `ChunkableCookie`, `ChunkableCookieJar`, `WriteChunkedCookieOptions`
+- `unjwt/session`: `defineJWSSession`, `defineJWESession`, `defineSessionDriver`; the same session types plus `WebSessionEvent`, `SessionRequestEvent`, `SessionHandedToken`, `SessionDriver`, `CookieJar`, `CookieAttributes`
 - Every session entry also re-exports `generateJWK`, `toPublicJWK`, `thumbprint`, `importPEM`, `exportPEM`, `deriveJWKFromPassword` and every core type
 
 ## Quick Start
@@ -77,8 +72,8 @@ import { encrypt, decrypt } from "unjwt/jwe";
 const jwe = await encrypt({ secret: "data" }, "password");
 const { payload } = await decrypt(jwe, "password");
 
-// H3 session
-import { defineJWESession, generateJWK } from "unjwt/adapters/h3v2";
+// Session (h3 v2, Nitro 3, Nuxt `nuxt/server`, or a Web `Request`)
+import { defineJWESession, generateJWK } from "unjwt/session";
 
 const sessionKey = await generateJWK("A256GCM");
 const useSession = defineJWESession({ key: sessionKey, maxAge: "7D" }); // once, at module scope
