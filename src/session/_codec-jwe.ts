@@ -34,18 +34,37 @@ import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./_types
 import type { SessionBaseConfig, SessionHooks } from "./types.ts";
 
 /**
- * Symmetric JWK, `CryptoKey` (requires pinned `alg` and `enc`), or a pair: public seals, private unseals.
- * A private JWK alone seals with its own public half; a private `CryptoKey` has none to derive, so it comes with one.
+ * A symmetric `oct` JWK, or a `CryptoKey` (requires pinned `alg` and `enc`): the one key seals and unseals.
+ *
+ * The `{ privateKey, publicKey? }` pair members are deprecated: a pair seals with its public half,
+ * so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or
+ * `defineJWSSession` for a key pair.
  */
 export type JWESessionKey =
   | CryptoKey
   | JWEEncryptJWK
   | {
+      /**
+       * Unseals; a private JWK alone seals with its own public half.
+       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
+       */
       privateKey: JWEAsymmetricPrivateJWK;
+      /**
+       * Seals.
+       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
+       */
       publicKey?: JWEAsymmetricPublicJWK | CryptoKey;
     }
   | {
+      /**
+       * Unseals; a private `CryptoKey` has no public half to derive, so it comes with one.
+       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
+       */
       privateKey: CryptoKey;
+      /**
+       * Seals.
+       * @deprecated A pair seals with its public half, so anyone holding the public key can mint a session the server accepts. Use an `oct` JWK, or `defineJWSSession` for a key pair.
+       */
       publicKey: JWEAsymmetricPublicJWK | CryptoKey;
     };
 

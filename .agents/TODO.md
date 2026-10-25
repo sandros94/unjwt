@@ -45,3 +45,4 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 | `createJWSSession` (`unjwt/adapters/elysia`) | `defineJWSSession(config).use(context)` | v0.8.2 | v0.9.0 |
 | `createJWESession` (`unjwt/adapters/elysia`) | `defineJWESession(config).use(context)` | v0.8.2 | v0.9.0 |
 | `exportKey` (`unjwt/jwk`) | `exportJWK` | v0.8.2 | v0.9.0 |
+| `{ privateKey, publicKey? }` pair as a JWE session `key` (`JWESessionKey`, `unjwt/session`, `unjwt/adapters/*`) | an `oct` JWK, or `defineJWSSession` for a key pair | v0.8.5 | v0.9.0 |
