@@ -753,6 +753,77 @@ describe("DPoP", () => {
     expect(set).not.toHaveBeenCalled();
   });
 
+  it("reads each verification option once, before the first await", async () => {
+    const once = <T, U>(first: T, later: U) => {
+      let reads = 0;
+      return () => (reads++ === 0 ? first : later);
+    };
+    const withGetter = (name: string, get: () => unknown) =>
+      Object.defineProperty({ ...verification }, name, { get, enumerable: true });
+    const token = "access-token";
+    const keyThumbprint = await jose.calculateJwkThumbprint(publicJWK);
+    const proof = await foreignProof({ ath: await digestUrl(token) });
+    await expect(
+      verifyDPoPProof(
+        await foreignProof({ iat: iat - 100 }),
+        target,
+        withGetter("maxTokenAge", once(60, NaN)),
+      ),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    await expect(
+      verifyDPoPProof(proof, target, withGetter("nonce", once("required", undefined))),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    await expect(
+      verifyDPoPProof(
+        proof,
+        target,
+        withGetter(
+          "consumeProof",
+          once(() => false, undefined),
+        ),
+      ),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_REPLAY");
+    await expect(
+      verifyDPoPProof(
+        proof,
+        target,
+        withGetter(
+          "accessToken",
+          once({ token: "other-token", thumbprint: keyThumbprint }, undefined),
+        ),
+      ),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    const accessToken = { thumbprint: keyThumbprint };
+    Object.defineProperty(accessToken, "token", {
+      get: once("other-token", token),
+      enumerable: true,
+    });
+    await expect(
+      verifyDPoPProof(proof, target, {
+        ...verification,
+        accessToken: accessToken as { token: string; thumbprint: string },
+      }),
+    ).rejects.toHaveProperty("code", "ERR_DPOP_CLAIM_INVALID");
+    const algorithms: DPoPVerifyOptions["algorithms"] = ["ES256"];
+    const pending = verifyDPoPProof(proof, target, { ...verification, algorithms });
+    algorithms[0] = "ES384";
+    await expect(pending).resolves.toHaveProperty("thumbprint", keyThumbprint);
+  });
+
+  it("isolates the returned result from the replay callback", async () => {
+    const proof = await foreignProof();
+    const result = await verifyDPoPProof(proof, target, {
+      ...verification,
+      consumeProof: (accepted) => {
+        accepted.payload.jti = "changed";
+        accepted.thumbprint = "changed";
+        return true;
+      },
+    });
+    expect(result.payload.jti).toBe("foreign-proof");
+    expect(result.thumbprint).toBe(await jose.calculateJwkThumbprint(publicJWK));
+  });
+
   it("never consumes proofs failing signature, binding, claims, or policy checks", async () => {
     const consumeProof = vi.fn(() => true);
     const proof = await foreignProof();

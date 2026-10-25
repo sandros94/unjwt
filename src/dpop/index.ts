@@ -97,31 +97,36 @@ export async function verifyDPoPProof(
     const jwk = projectPublicKey(header.jwk, { algorithm: header.alg, code: "ERR_DPOP_INVALID" });
     const algError = checkAlgAllowed(header.alg, jwk, {
       ctx: JWS_ALG_CTX,
-      algorithms: options.algorithms,
+      algorithms: context.algorithms,
     });
     if (algError) throw algError;
     const key = await jwkTokey(jwk, { alg: header.alg });
     const { payload } = await verify<Record<string, unknown>>(proof, key, {
-      algorithms: options.algorithms,
+      algorithms: context.algorithms,
       typ: "dpop+jwt",
       currentDate: new Date(context.now * 1000),
       clockTolerance: context.tolerance,
     });
-    validateProofClaims(payload, options, context);
+    validateProofClaims(payload, context);
     const keyThumbprint = await thumbprint(jwk);
+    const { accessToken, consumeProof } = context;
     if (
-      options.accessToken &&
-      (keyThumbprint !== options.accessToken.thumbprint ||
-        payload.ath !== (await accessTokenHash(options.accessToken.token)))
+      accessToken &&
+      (keyThumbprint !== accessToken.thumbprint ||
+        payload.ath !== (await accessTokenHash(accessToken.token)))
     ) {
       throw new JWTError(
         "DPoP access token hash or public key binding does not match.",
         "ERR_DPOP_CLAIM_INVALID",
       );
     }
-    const result = { payload, thumbprint: keyThumbprint };
-    if (options.consumeProof) await consumeValidatedProof(result, options.consumeProof);
-    return result;
+    if (consumeProof) {
+      await consumeValidatedProof(
+        { payload: structuredClone(payload), thumbprint: keyThumbprint },
+        consumeProof,
+      );
+    }
+    return { payload, thumbprint: keyThumbprint };
   } catch (cause) {
     if (cause instanceof JWTError) throw cause;
     throw new JWTError("DPoP proof verification failed.", "ERR_DPOP_INVALID", cause);

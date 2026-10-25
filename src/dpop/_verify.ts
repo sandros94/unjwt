@@ -10,69 +10,109 @@ import {
   isSHA256Digest,
 } from "./_validation.ts";
 import { normalizeTargetURI } from "./_uri.ts";
-import type { DPoPPayload, DPoPTarget, DPoPVerifyOptions, DPoPVerifyResult } from "./types.ts";
+import type {
+  DPoPAlgorithm,
+  DPoPPayload,
+  DPoPTarget,
+  DPoPVerifyOptions,
+  DPoPVerifyResult,
+} from "./types.ts";
+
+export interface VerifyContext {
+  now: number;
+  tolerance: number;
+  maxTokenAge: number;
+  method: string;
+  uri: string;
+  algorithms: DPoPAlgorithm[];
+  nonce: string | undefined;
+  accessToken: { token: string; thumbprint: string } | undefined;
+  consumeProof: DPoPVerifyOptions["consumeProof"];
+}
 
 export function validateVerifyOptions(
   target: DPoPTarget,
   options: DPoPVerifyOptions,
-): {
-  now: number;
-  tolerance: number;
-  method: string;
-  uri: string;
-} {
+): VerifyContext {
   assertPlainObject(options, "options");
   if (typeof target !== "object" || target === null) {
     throw new JWTError("DPoP target requires method and url.", "ERR_INVALID_OPTION");
   }
-  assertMethod(target.method, "ERR_INVALID_OPTION");
-  const uri = normalizeTargetURI(target.url, { code: "ERR_INVALID_OPTION" });
-  if (!Array.isArray(options.algorithms) || options.algorithms.length === 0) {
+  const { method, url } = target;
+  assertMethod(method, "ERR_INVALID_OPTION");
+  const uri = normalizeTargetURI(url, { code: "ERR_INVALID_OPTION" });
+  const {
+    algorithms: allowed,
+    maxTokenAge,
+    clockTolerance,
+    currentDate,
+    nonce,
+    accessToken,
+    consumeProof,
+  } = options;
+  const algorithms: DPoPAlgorithm[] = [];
+  for (const algorithm of Array.isArray(allowed) ? allowed : []) {
+    assertDPoPAlgorithm(algorithm, "ERR_INVALID_OPTION");
+    algorithms.push(algorithm);
+  }
+  if (algorithms.length === 0) {
     throw new JWTError(
       "DPoP algorithms must be a non-empty asymmetric algorithm allowlist.",
       "ERR_INVALID_OPTION",
     );
   }
-  for (const algorithm of options.algorithms) assertDPoPAlgorithm(algorithm, "ERR_INVALID_OPTION");
-  const tolerance = options.clockTolerance === undefined ? 0 : options.clockTolerance;
+  const tolerance = clockTolerance === undefined ? 0 : clockTolerance;
   if (
     typeof tolerance !== "number" ||
     !Number.isFinite(tolerance) ||
     tolerance < 0 ||
-    typeof options.maxTokenAge !== "number" ||
-    !Number.isFinite(options.maxTokenAge) ||
-    options.maxTokenAge <= 0
+    typeof maxTokenAge !== "number" ||
+    !Number.isFinite(maxTokenAge) ||
+    maxTokenAge <= 0
   ) {
     throw new JWTError(
       "DPoP maxTokenAge must be positive finite seconds and clockTolerance non-negative finite seconds.",
       "ERR_INVALID_OPTION",
     );
   }
-  const date = options.currentDate === undefined ? new Date() : options.currentDate;
-  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) {
+  const date = currentDate === undefined ? new Date() : currentDate;
+  const time = date instanceof Date ? date.getTime() : Number.NaN;
+  if (!Number.isFinite(time)) {
     throw new JWTError("DPoP currentDate must be a valid Date.", "ERR_INVALID_OPTION");
   }
-  if (options.nonce !== undefined) assertNonce(options.nonce, "ERR_INVALID_OPTION");
-  if (options.accessToken !== undefined) {
-    assertPlainObject(options.accessToken, "accessToken");
-    assertAccessToken(options.accessToken.token);
-    if (!isSHA256Digest(options.accessToken.thumbprint)) {
+  if (nonce !== undefined) assertNonce(nonce, "ERR_INVALID_OPTION");
+  let binding: VerifyContext["accessToken"];
+  if (accessToken !== undefined) {
+    assertPlainObject(accessToken, "accessToken");
+    const { token, thumbprint } = accessToken;
+    assertAccessToken(token);
+    if (!isSHA256Digest(thumbprint)) {
       throw new JWTError(
         "DPoP accessToken.thumbprint must be a SHA-256 JWK thumbprint.",
         "ERR_INVALID_OPTION",
       );
     }
+    binding = { token, thumbprint };
   }
-  if (options.consumeProof !== undefined && typeof options.consumeProof !== "function") {
+  if (consumeProof !== undefined && typeof consumeProof !== "function") {
     throw new JWTError("DPoP consumeProof must be a function.", "ERR_INVALID_OPTION");
   }
-  return { now: date.getTime() / 1000, tolerance, method: target.method, uri };
+  return {
+    now: time / 1000,
+    tolerance,
+    maxTokenAge,
+    method,
+    uri,
+    algorithms,
+    nonce,
+    accessToken: binding,
+    consumeProof,
+  };
 }
 
 export function validateProofClaims(
   payload: Record<string, unknown>,
-  options: DPoPVerifyOptions,
-  context: { now: number; tolerance: number; method: string; uri: string },
+  context: VerifyContext,
 ): asserts payload is DPoPPayload {
   const code = "ERR_DPOP_CLAIM_INVALID";
   assertIdentifier(payload.jti, code);
@@ -82,7 +122,7 @@ export function validateProofClaims(
     throw new JWTError("DPoP proof does not match the request method and URI.", code);
   }
   if (payload.nonce !== undefined) assertNonce(payload.nonce, code);
-  if (options.nonce !== undefined && payload.nonce !== options.nonce) {
+  if (context.nonce !== undefined && payload.nonce !== context.nonce) {
     throw new JWTError("DPoP nonce does not match the expected nonce.", code);
   }
   if (payload.ath !== undefined && !isSHA256Digest(payload.ath)) {
@@ -90,7 +130,7 @@ export function validateProofClaims(
   }
   if (
     payload.iat > context.now + context.tolerance ||
-    payload.iat < context.now - options.maxTokenAge - context.tolerance
+    payload.iat < context.now - context.maxTokenAge - context.tolerance
   ) {
     throw new JWTError("DPoP iat is outside the accepted proof age window.", code);
   }
