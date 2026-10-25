@@ -1,4 +1,4 @@
-import { describe, it, expect, expectTypeOf } from "vitest";
+import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { secureRandomBytes, textEncoder } from "unsecure";
 import {
   base64UrlStringify,
@@ -737,24 +737,90 @@ describe("base64 tooling", () => {
       expect(base64UrlStringify(new Uint8Array(0))).toBe("");
     });
 
-    it("parses canonical unpadded input, mirroring the input type", () => {
+    it("parses canonical unpadded input as text or bytes", () => {
       expect(base64UrlParse("aGVsbG8")).toBe("hello");
+      expect(base64UrlParse("aGVsbG8", { returnAs: "string" })).toBe("hello");
       expect(base64UrlParse("-__-", { returnAs: "uint8array" })).toEqual(bytes);
-      expect(base64UrlParse(textEncoder.encode("aGVsbG8"))).toEqual(textEncoder.encode("hello"));
-      expect(base64UrlParse(textEncoder.encode("aGVsbG8"), { returnAs: "string" })).toBe("hello");
+      expect(base64UrlParse("-__-", { returnAs: "bytes" })).toEqual(bytes);
+      expect(base64UrlParse("", { returnAs: "bytes" })).toEqual(new Uint8Array(0));
     });
 
-    it("rejects padding, the standard alphabet, whitespace and stray bits", () => {
-      for (const bad of ["aGVsbG8=", "+__+", "aGVs bG8", "aGVsbG9", "aGVsb"]) {
+    it("rejects padding, the standard alphabet, whitespace, stray bits and non-text input", () => {
+      for (const bad of [
+        "aGVsbG8=",
+        "+__+",
+        "aGVs bG8",
+        "aGVsbG9",
+        "aGVsb",
+        "aGVsbG8\n",
+        "aGVsbG8\u00ff",
+      ]) {
         expect(() => base64UrlParse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }
+      expect(() => base64UrlParse("_w")).toThrow(
+        expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
+      );
+      expect(base64UrlParse("_w", { returnAs: "bytes" })).toEqual(new Uint8Array([0xff]));
+      expect(() => base64UrlParse(textEncoder.encode("aGVsbG8") as never)).toThrow(
+        expect.objectContaining({ name: "UnsecureError", code: "INVALID_TYPE" }),
+      );
     });
 
-    it("loose drops what it cannot use", () => {
-      expect(base64UrlParse("aGVs bG8=", { loose: true })).toBe("hello");
-      expect(base64UrlParse("+__+", { loose: true, returnAs: "bytes" })).toEqual(bytes);
+    it("round-trips every byte length through the backends", () => {
+      for (let length = 0; length < 70; length++) {
+        const input = new Uint8Array(length).map((_, i) => (i * 73 + length) & 0xff);
+        const text = base64UrlStringify(input);
+        expect(text).not.toMatch(/[+/=]/);
+        expect(base64UrlParse(text, { returnAs: "bytes" })).toEqual(input);
+        expect(base64UrlParse(text, { returnAs: "bytes" })).toEqual(
+          Uint8Array.from(Buffer.from(text, "base64url")),
+        );
+      }
+    });
+
+    it("encodes the same text whichever backend the runtime offers", () => {
+      const nodeBuffer = Buffer;
+      const whole = new Uint8Array(200).map((_, i) => (i * 31) & 0xff);
+      const view = whole.subarray(3, 131);
+      const expected = {
+        url: nodeBuffer.from(view).toString("base64url"),
+        std: nodeBuffer.from(view).toString("base64"),
+      };
+      const check = () => {
+        expect(base64UrlStringify(view)).toBe(expected.url);
+        expect(base64Stringify(view)).toBe(expected.std);
+        expect(base64UrlStringify(new Uint8Array(0))).toBe("");
+      };
+      check();
+      vi.stubGlobal("Buffer", undefined);
+      try {
+        const proto = Uint8Array.prototype as { toBase64?: unknown };
+        const native = Object.hasOwn(proto, "toBase64");
+        if (!native) {
+          Object.defineProperty(proto, "toBase64", {
+            configurable: true,
+            value(
+              this: Uint8Array,
+              options: { alphabet: "base64" | "base64url"; omitPadding: boolean },
+            ) {
+              const text = nodeBuffer
+                .from(this.buffer, this.byteOffset, this.byteLength)
+                .toString(options.alphabet);
+              return options.omitPadding ? text.replace(/=+$/, "") : text;
+            },
+          });
+        }
+        try {
+          check();
+        } finally {
+          if (!native) delete proto.toBase64;
+        }
+        check();
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 
@@ -767,12 +833,17 @@ describe("base64 tooling", () => {
     it("parses only padded canonical input", () => {
       expect(base64Parse("aGVsbG8=")).toBe("hello");
       expect(base64Parse("+//+", { returnAs: "uint8array" })).toEqual(bytes);
-      for (const bad of ["aGVsbG8", "-__-", "aGVsbG8=="]) {
+      for (const bad of ["aGVsbG8", "-__-", "aGVsbG8==", "aGVs bG8=", "aGVsbG9=", "aGVsb==="]) {
         expect(() => base64Parse(bad)).toThrow(
           expect.objectContaining({ name: "UnsecureError", code: "MALFORMED" }),
         );
       }
-      expect(base64Parse("aGVsbG8", { loose: true })).toBe("hello");
+      for (let length = 0; length < 70; length++) {
+        const input = new Uint8Array(length).map((_, i) => (i * 59 + length) & 0xff);
+        const text = base64Stringify(input);
+        expect(text).toBe(Buffer.from(input).toString("base64"));
+        expect(base64Parse(text, { returnAs: "bytes" })).toEqual(input);
+      }
     });
   });
 
