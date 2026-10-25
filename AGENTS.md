@@ -94,6 +94,7 @@ src/
     types.ts            # the public session types (SessionClaims/Data/Update/Manager/Hooks/State/Definition, WebSessionEvent = SessionRequestEvent | SessionHandedToken)
     _internal/
       web-driver.ts     # driver: event.context.sessions or WeakMap state, request headers/cookies, handed token
+      request-state.ts  # createRequestState(): per-request session state keyed on the request object, shared by the Web and Elysia drivers
       cookie.ts         # Web cookie jar: cookie-es parse of the Cookie header, Set-Cookie replace on Headers
       define-driver.ts  # defineSessionDriver(): the typed identity for a third-party driver
       contract.ts       # framework-agnostic session contract (error factories, reserved-claim stripping, name/cookie/rolling checks, typ/exp helpers)
