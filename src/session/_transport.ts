@@ -26,33 +26,41 @@ export interface SessionCookie {
 
 /** How one session's token reaches the request and leaves with the response. */
 export interface SessionTransport {
-  /** The session header's token when the request presents the header, else the cookie this response wrote, else the request's; absent without a token source. */
+  /** Where the token comes from: the driver's handed token, the session header, or the cookie, the only one written back. */
+  source: "handed" | "header" | "cookie";
+  /** The handed token, else the session header's, else the cookie this response wrote, else the request's; absent without a token source. */
   read?: () => string | undefined;
   /** The session header is present but holds neither a bare token nor `Bearer <token>`. */
   malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID">;
-  /** Present while the session keeps its token in a cookie the event can write. */
+  /** Present while the session reads its token from a cookie the event can write. */
   write?: (token: string, cookie: SessionCookie) => void;
-  /** Present while the session keeps its token in a cookie the event can write. */
+  /** Present while the session reads its token from a cookie the event can write. */
   drop?: (cookie: SessionCookie) => void;
-  /** The session keeps its token in a cookie, but the event cannot take one (a request without a response). */
+  /** The session reads its token from a cookie, but the event cannot take one (a request without a response). */
   readonly: boolean;
   /** Platform signal that the response can still change; `false` once it was sent. */
   writable: () => boolean;
 }
 
-/** A token the driver hands in, else the session header the request presents, else the cookie, over the driver of one request. */
+/**
+ * A token the driver hands in, else the session header the request presents, else the cookie, over the driver of one request.
+ * A handed or header token is reissued onto the session alone; only a cookie session writes back.
+ */
 export function resolveTransport<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
   options: { config: SessionTokenSource; name: string },
 ): SessionTransport {
   const handed = driver.handed?.(event);
-  if (handed) return { read: () => handed.token, readonly: false, writable: () => true };
+  if (handed) {
+    return { source: "handed", read: () => handed.token, readonly: false, writable: () => true };
+  }
 
   const { config, name } = options;
   const header = presentedHeader(driver, event, options);
-  if (config.cookie === false) {
+  if (header || config.cookie === false) {
     return {
+      source: "header",
       read: config.sessionHeader === false ? undefined : () => header?.token,
       malformed: header?.malformed,
       readonly: false,
@@ -63,8 +71,8 @@ export function resolveTransport<TEvent>(
   const jar = driver.cookies(event);
   const store = responseStore(jar);
   const transport: SessionTransport = {
-    read: header ? () => header.token : () => cookieToken(jar, name),
-    malformed: header?.malformed,
+    source: "cookie",
+    read: () => cookieToken(jar, name),
     readonly: !store,
     writable: () => driver.writable?.(event) ?? true,
   };

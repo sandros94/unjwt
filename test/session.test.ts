@@ -377,6 +377,70 @@ describe("unjwt/session token sources", () => {
   );
 
   it.each(FAMILIES)(
+    "$family: a session read from the header rolls onto session.token, never a cookie",
+    async ({ define }) => {
+      const onUpdate = vi.fn();
+      const session = define({ maxAge: 3600, rolling: true, hooks: { onUpdate } });
+      const fromHeader = await session.issue({ who: "header" });
+      const headers = new Headers();
+
+      const manager = await session.use({
+        req: get({ "x-web-session": fromHeader }),
+        res: { headers },
+      });
+      expect(manager.data).toEqual({ who: "header" });
+      expect(manager.token).toBeTypeOf("string");
+      expect(manager.token).not.toBe(fromHeader);
+      expect(onUpdate).toHaveBeenCalledOnce();
+      expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
+      expect(headers.getSetCookie()).toEqual([]);
+      expect((await session.open(String(manager.token))).data).toEqual({ who: "header" });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: update() and clear() on a header session write no cookie",
+    async ({ define }) => {
+      const onClear = vi.fn();
+      const session = define({ hooks: { onClear } });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const fromHeader = await session.issue({ who: "header" });
+      const headers = new Headers();
+      const event = {
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": fromHeader }),
+        res: { headers },
+      };
+
+      const manager = await session.use(event);
+      await manager.update({ who: "updated" });
+      expect(manager.token).not.toBe(fromHeader);
+      expect(session.token(event)).toBe(manager.token);
+      expect((await session.open(String(manager.token))).data).toEqual({ who: "updated" });
+      expect(headers.getSetCookie()).toEqual([]);
+
+      await manager.clear();
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBeUndefined();
+      expect(onClear).toHaveBeenCalledOnce();
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a header session updates without response headers",
+    async ({ define }) => {
+      const session = define();
+      const fromHeader = await session.issue({ who: "header" });
+
+      const manager = await session.use({ req: get({ "x-web-session": fromHeader }) });
+      await manager.update({ who: "updated" });
+      expect((await session.open(String(manager.token))).data).toEqual({ who: "updated" });
+    },
+  );
+
+  it.each(FAMILIES)(
     "$family: without the session header the cookie is read",
     async ({ define }) => {
       const session = define({ sessionHeader: true });

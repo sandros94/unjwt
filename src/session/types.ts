@@ -66,7 +66,7 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   name?: string;
   /**
    * Header carrying a bare or `Bearer` token: a header name, `true` for `x-<name>-session` (cookie prefix stripped), or `false` for none.
-   * A request that carries it is read from it and never from the cookie; any other value is a token failure (`onError`).
+   * A request that carries it is read from it and never from the cookie, and writes no cookie back; any other value is a token failure (`onError`).
    * Left unset, a session with cookies still reads `x-<name>-session`, and so does one with `cookie: false`.
    */
   sessionHeader?: boolean | string;
@@ -83,7 +83,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
   onRead?: (
     args: TArgs & { session: TManager & { id: string; token: string }; config: TConfig },
   ) => void | Promise<void>;
-  /** Fires after a token is issued and its cookie written, by `update()` or by `rolling`; a throw rejects without rollback. */
+  /** Fires after a token is issued and, on a cookie session, its cookie written, by `update()` or by `rolling`; a throw rejects without rollback. */
   onUpdate?: (
     args: TArgs & {
       session: TManager & { id: string; token: string };

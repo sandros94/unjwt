@@ -64,14 +64,14 @@ export default {
 };
 ```
 
-- Reads the session header when `req.headers` carries it, else the `Cookie` (parsed once per `use()`).
+- Reads the session header when `req.headers` carries it, else the `Cookie` (parsed once per `use()`). A header-read session never writes `Set-Cookie`: `update()`/`rolling` re-mint onto `session.token`, `clear()` empties state.
 - Writes `Set-Cookie` onto `res.headers`, replacing an earlier line of the same name, domain and path (and partition); unrelated lines stay. A second `update()` in one request leaves one line per cookie; `clear()` leaves the `Max-Age=0` line.
 - Hono: pass `c.req.raw` as `req` and return `new Response(body, { headers })`.
 - Nuxt 4.6+: `defineEventHandler` from `nuxt/server` (not h3's auto-import) hands a `RequestEvent` that goes to `use(event)` as is, on Nitro 2 and 3; key it from `deriveSecret()` of `nuxt/server` (32 HKDF bytes as hex → `oct` JWK, created lazily since it needs the runtime config).
 
 ## Read-only: a `Request`, `{ req }` or `{ headers }` without `res`
 
-Reads work. On a cookie session `update()` throws `ERR_SESSION_READONLY_EVENT` (`Cannot update session on read-only event.`); `clear()` empties the session for the rest of the request, fires `onClear` and resolves, writing nothing (an `onRead` revocation clears with no gate); an expired token fires `onExpire` without dropping the cookie; `rolling` does not reissue. With `cookie: false`, `update()` re-mints onto `session.token`. WebSockets: in `upgrade`, `use(request)` reads (crossws 0.3's plain request and 0.4's `Request` both carry `headers` and `context`); to write, `use({ headers: request.headers, context: request.context, res: { headers } })` then `return { headers }`: the `101` handshake carries a roll, an expired cookie's drop or a `clear()` made during the read. Read once there, copy what the socket needs onto `request.context` (= `peer.context` later); nothing can be written after the upgrade. crossws 0.4 (Nitro 3) merges returned headers with `set`, so keep the session under one cookie there.
+Reads work. On a cookie session `update()` throws `ERR_SESSION_READONLY_EVENT` (`Cannot update session on read-only event.`); `clear()` empties the session for the rest of the request, fires `onClear` and resolves, writing nothing (an `onRead` revocation clears with no gate); an expired token fires `onExpire` without dropping the cookie; `rolling` does not reissue. With `cookie: false`, or a token read from the session header, `update()` re-mints onto `session.token`. WebSockets: in `upgrade`, `use(request)` reads (crossws 0.3's plain request and 0.4's `Request` both carry `headers` and `context`); to write, `use({ headers: request.headers, context: request.context, res: { headers } })` then `return { headers }`: the `101` handshake carries a roll, an expired cookie's drop or a `clear()` made during the read. Read once there, copy what the socket needs onto `request.context` (= `peer.context` later); nothing can be written after the upgrade. crossws 0.4 (Nitro 3) merges returned headers with `set`, so keep the session under one cookie there.
 
 ## Token in hand: `{ token }`
 

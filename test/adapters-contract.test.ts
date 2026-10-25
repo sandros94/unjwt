@@ -2405,7 +2405,7 @@ describe("session adapters — shared contract", () => {
 
   // #region elysia session lifecycle
   describe("elysia session lifecycle", () => {
-    it("reads a cleared session back as empty while the header still carries its token", async () => {
+    it("reads a cleared header session back as empty while the header still carries its token", async () => {
       const config = { key: jwsKey, cookie: { secure: false }, sessionHeader: true } as const;
       const minted = elysiaContext();
       const issued = await createJWSSession(minted.context, config);
@@ -2420,7 +2420,7 @@ describe("session adapters — shared contract", () => {
 
       expect(session.id).toBeUndefined();
       expect(session.data).toEqual({});
-      expect(store.get("elysia-jws")?.lastWrite?.maxAge).toBe(0);
+      expect(store.get("elysia-jws")?.lastWrite).toBeUndefined();
 
       const again = await createJWSSession(context, config);
       expect(again.id).toBeUndefined();
