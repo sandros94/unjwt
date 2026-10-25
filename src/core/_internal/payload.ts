@@ -19,29 +19,18 @@ const PAYLOAD_MODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "bytes",
 ] satisfies JOSEPayloadMode[]);
 
-/** Resolve the payload mode from `payload` / deprecated `forceUint8Array`; contradictions are `ERR_INVALID_OPTION`. */
+/** Resolve the payload mode from `payload`; an unknown mode or `validateClaims: true` off `"json"` is `ERR_INVALID_OPTION`. */
 export function resolvePayloadMode(options: {
   payload?: JOSEPayloadMode;
-  forceUint8Array?: boolean;
   validateClaims?: boolean;
 }): JOSEPayloadMode {
-  const { payload, forceUint8Array, validateClaims } = options;
+  const { payload, validateClaims } = options;
 
   if (payload !== undefined && !PAYLOAD_MODES.has(payload)) {
     throw new JWTError('"payload" must be "json", "string" or "bytes".', "ERR_INVALID_OPTION");
   }
 
-  let mode: JOSEPayloadMode = payload ?? "json";
-  if (forceUint8Array !== undefined) {
-    if (payload === undefined) {
-      mode = forceUint8Array ? "bytes" : "json";
-    } else if (forceUint8Array !== (payload === "bytes")) {
-      throw new JWTError(
-        '"forceUint8Array" contradicts "payload", pass "payload" alone.',
-        "ERR_INVALID_OPTION",
-      );
-    }
-  }
+  const mode: JOSEPayloadMode = payload ?? "json";
 
   if (validateClaims === true && mode !== "json") {
     throw new JWTError('"validateClaims" requires payload: "json".', "ERR_INVALID_OPTION");

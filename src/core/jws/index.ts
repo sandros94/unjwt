@@ -153,14 +153,8 @@ export async function sign(
 export async function verify<T extends object = JWTClaims>(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
-  options?: JWSVerifyOptions<"json"> & { forceUint8Array?: false },
+  options?: JWSVerifyOptions<"json">,
 ): Promise<JWSVerifyResult<T>>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function verify(
-  jws: string,
-  key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
-  options: JWSVerifyOptions & { forceUint8Array: true },
-): Promise<JWSVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verify<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: string,
   key: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,

@@ -73,13 +73,7 @@ type JWESessionKeyPair = Extract<JWESessionKey, { privateKey: unknown }>;
 /** JWE decrypt overrides, minus the options the adapter owns. */
 export type SessionDecryptOptions = StrictOmit<
   JWEDecryptOptions,
-  | "algorithms"
-  | "encryptionAlgorithms"
-  | "typ"
-  | "maxTokenAge"
-  | "validateClaims"
-  | "forceUint8Array"
-  | "payload"
+  "algorithms" | "encryptionAlgorithms" | "typ" | "maxTokenAge" | "validateClaims" | "payload"
 >;
 
 /** JWE encrypt options, minus those setting `exp`/`nbf` (the adapter mints `exp` from `maxAge`). */

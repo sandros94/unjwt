@@ -478,16 +478,6 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         await expect(decryptMulti(jwe, keys.a256kw)).rejects.toBeInstanceOf(JWTError);
       });
 
-      it('forceUint8Array matches payload: "bytes"', async () => {
-        const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }], {
-          enc: "A256GCM",
-        });
-        const { payload } = await decryptMulti(jwe, keys.a256kw, { forceUint8Array: true });
-        expect(payload).toBeInstanceOf(Uint8Array);
-        const explicit = await decryptMulti(jwe, keys.a256kw, { payload: "bytes" });
-        expect(explicit.payload).toEqual(payload);
-      });
-
       it("rejects a non-JSON-object payload under the default mode", async () => {
         const jwe = await encryptMulti("plain text", [{ key: keys.a256kw }], {
           enc: "A256GCM",
@@ -1656,9 +1646,6 @@ describe("types", () => {
     expectTypeOf((jwe: JWEGeneralSerialization, options: JWEMultiDecryptOptions) =>
       decryptMulti(jwe, key, options),
     ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<JWTClaims | string | Bytes>>();
-    expectTypeOf((jwe: JWEGeneralSerialization) =>
-      decryptMulti(jwe, key, { forceUint8Array: true }),
-    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<Bytes>>();
   });
 
   it("rejects an unknown payload mode and a claims type outside the json mode", () => {

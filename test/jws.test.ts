@@ -1914,22 +1914,6 @@ describe.concurrent("JWS payload typing (compact)", () => {
     expect(textDecoder.decode(payload)).toBe("raw bytes");
   });
 
-  it('forceUint8Array is an alias of payload: "bytes"', async () => {
-    const jws = await sign(textEncoder.encode("raw bytes"), hs256Key, { alg: "HS256" });
-    const aliased = await verify(jws, hs256Key, { forceUint8Array: true });
-    const explicit = await verify(jws, hs256Key, { payload: "bytes" });
-    expect(aliased.payload).toEqual(explicit.payload);
-  });
-
-  it("rejects forceUint8Array contradicting payload", async () => {
-    const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
-    const error = await verify(jws, hs256Key, {
-      forceUint8Array: true,
-      payload: "json",
-    }).catch((e) => e);
-    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
-  });
-
   it("rejects an unknown payload mode", async () => {
     const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
     const error = await verify(jws, hs256Key, { payload: "text" as never }).catch((e) => e);
@@ -2276,10 +2260,8 @@ describe("types", () => {
     ).returns.resolves.toEqualTypeOf<JWSVerifyResult<string | Uint8Array<ArrayBuffer>>>();
   });
 
-  it("keeps the deprecated forceUint8Array overload returning bytes", () => {
-    expectTypeOf(() => verify("", key, { forceUint8Array: true })).returns.resolves.toEqualTypeOf<
-      JWSVerifyResult<Uint8Array<ArrayBuffer>>
-    >();
+  it('takes the bytes mode from "payload" alone', () => {
+    expectTypeOf<JWSVerifyOptions>().not.toHaveProperty("forceUint8Array");
   });
 
   it("rejects an unknown payload mode and a claims type outside the json mode", () => {

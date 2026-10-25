@@ -1687,23 +1687,6 @@ describe.concurrent("JWE payload typing", () => {
     expect(payload).toBe('{"sub":"admin"}');
   });
 
-  it('forceUint8Array matches payload: "bytes"', async () => {
-    const jwe = await encrypt(textEncoder.encode("raw bytes"), key, opts);
-    const aliased = await decrypt(jwe, key, { forceUint8Array: true });
-    const explicit = await decrypt(jwe, key, { payload: "bytes" });
-    expect(aliased.payload).toBeInstanceOf(Uint8Array);
-    expect(aliased.payload).toEqual(explicit.payload);
-  });
-
-  it("rejects forceUint8Array contradicting payload", async () => {
-    const jwe = await encrypt({ sub: "u" }, key, opts);
-    const error = await decrypt(jwe, key, {
-      forceUint8Array: false,
-      payload: "bytes",
-    }).catch((e) => e);
-    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
-  });
-
   it('rejects validateClaims: true outside payload: "json"', async () => {
     const jwe = await encrypt("plain", key, opts);
     const error = await decrypt(jwe, key, {
@@ -2028,10 +2011,8 @@ describe("types", () => {
     >();
   });
 
-  it("keeps the deprecated forceUint8Array overload returning bytes", () => {
-    expectTypeOf(() => decrypt("", key, { forceUint8Array: true })).returns.resolves.toEqualTypeOf<
-      JWEDecryptResult<Uint8Array<ArrayBuffer>>
-    >();
+  it('takes the bytes mode from "payload" alone', () => {
+    expectTypeOf<JWEDecryptOptions>().not.toHaveProperty("forceUint8Array");
   });
 
   it("rejects an unknown payload mode and a claims type outside the json mode", () => {

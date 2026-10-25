@@ -45,14 +45,6 @@ export async function exportJWK<T extends JWK = JWK>(
   return exportedJwk;
 }
 
-/** @deprecated Use `exportJWK`; removed in 0.9.0. */
-export async function exportKey<T extends JWK = JWK>(
-  key: CryptoKey,
-  jwkParams?: JWKMetadata,
-): Promise<T> {
-  return exportJWK<T>(key, jwkParams);
-}
-
 /**
  * Utility to derive the public half of an asymmetric JWK, or throw if the input is not asymmetric.
  *

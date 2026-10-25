@@ -4,21 +4,6 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 
 | Symbol | Replacement | Deprecated in | Remove in |
 | --- | --- | --- | --- |
-| `base64UrlEncode` (`unjwt/utils`) | `base64UrlStringify` | v0.8.0 | v0.9.0 |
-| `base64UrlDecode` (`unjwt/utils`) | `base64UrlParse` | v0.8.0 | v0.9.0 |
-| `base64Encode` (`unjwt/utils`) | `base64Stringify` | v0.8.0 | v0.9.0 |
-| `base64Decode` (`unjwt/utils`) | `base64Parse` | v0.8.0 | v0.9.0 |
-| `forceUint8Array` (`unjwt/jws`, `unjwt/jwe`) | `payload: "bytes"` | v0.8.0 | v0.9.0 |
-| `applyTypCtyDefaults` (`unjwt/utils`) | `applyTypDefault` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `decodePayloadFromBytes` (`unjwt/utils`) | `parsePayloadBytes` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `decodePayloadFromB64UrlSegment` (`unjwt/utils`) | `parsePayloadSegment` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `getPlaintextBytes` (`unjwt/utils`) | `getPlaintextBytes` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `computeJwtTimeClaims` (`unjwt/utils`) | `computeJwtTimeClaims` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `validateCriticalHeadersJWS` (`unjwt/utils`) | `validateCriticalHeadersJWS` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `validateCriticalHeadersJWE` (`unjwt/utils`) | `validateCriticalHeadersJWE` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `assertCritShape` (`unjwt/utils`) | `assertCritShape` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `DecodePayloadOptions` (`unjwt/utils`) | `ParsePayloadOptions` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
-| `ComputeJwtTimeClaimsOptions` (`unjwt/utils`) | `ComputeJwtTimeClaimsOptions` (`unjwt/internal`) | v0.8.0 | v0.9.0 |
 | implicit `sessionHeader` default with cookies on (`unjwt/adapters/*`) | `sessionHeader: true` | v0.8.2 | v0.9.0 |
 | `useJWSSession` (`unjwt/adapters/h3v1`, `h3v2`) | `defineJWSSession(config).use(event)` | v0.8.2 | v0.9.0 |
 | `getJWSSession` (`unjwt/adapters/h3v1`, `h3v2`) | `defineJWSSession(config).use(event)` | v0.8.2 | v0.9.0 |
@@ -44,6 +29,4 @@ Ledger of deprecated public API. One row per symbol: where it lives, what replac
 | `SessionConfigJWS`, `SessionConfigJWE` (`unjwt/adapters/h3*`) | the same names on `unjwt/session` | v0.8.2 | v0.9.0 |
 | `createJWSSession` (`unjwt/adapters/elysia`) | `defineJWSSession(config).use(context)` | v0.8.2 | v0.9.0 |
 | `createJWESession` (`unjwt/adapters/elysia`) | `defineJWESession(config).use(context)` | v0.8.2 | v0.9.0 |
-| `exportKey` (`unjwt/jwk`) | `exportJWK` | v0.8.2 | v0.9.0 |
 | `{ privateKey, publicKey? }` pair as a JWE session `key` (`JWESessionKey`, `unjwt/session`, `unjwt/adapters/*`) | an `oct` JWK, or `defineJWSSession` for a key pair | v0.8.5 | v0.9.0 |
-| `DecodeOptions` (`unjwt/utils`) | `Base64ParseOptions` | v0.8.5 | v0.9.0 |

@@ -231,14 +231,8 @@ export async function encryptMulti(
 export async function decryptMulti<T extends object = JWTClaims>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,
-  options?: JWEMultiDecryptOptions<"json"> & { forceUint8Array?: false },
+  options?: JWEMultiDecryptOptions<"json">,
 ): Promise<JWEMultiDecryptResult<T>>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function decryptMulti(
-  jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
-  keyOrLookup: JWEMultiDecryptKey,
-  options: JWEMultiDecryptOptions & { forceUint8Array: true },
-): Promise<JWEMultiDecryptResult<Uint8Array<ArrayBuffer>>>;
 /** Decrypts a JWE JSON Serialization whose plaintext decodes under `options.payload`; see {@link PayloadOf}. */
 export async function decryptMulti<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,

@@ -5,10 +5,6 @@ import {
   base64UrlParse,
   base64Stringify,
   base64Parse,
-  base64UrlEncode,
-  base64UrlDecode,
-  base64Encode,
-  base64Decode,
   concatUint8Arrays,
   digestUrl,
   maybeArray,
@@ -849,13 +845,6 @@ describe("base64 tooling", () => {
         expect(base64Parse(text, { returnAs: "bytes" })).toEqual(input);
       }
     });
-  });
-
-  it("keeps the deprecated aliases pointing at the new functions", () => {
-    expect(base64UrlEncode).toBe(base64UrlStringify);
-    expect(base64UrlDecode).toBe(base64UrlParse);
-    expect(base64Encode).toBe(base64Stringify);
-    expect(base64Decode).toBe(base64Parse);
   });
 });
 

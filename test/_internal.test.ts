@@ -332,27 +332,6 @@ describe.concurrent("_internal helpers", () => {
       expect(resolvePayloadMode({ payload: "string" })).toBe("string");
     });
 
-    it("maps forceUint8Array onto the matching mode", () => {
-      expect(resolvePayloadMode({ forceUint8Array: true })).toBe("bytes");
-      expect(resolvePayloadMode({ forceUint8Array: false })).toBe("json");
-    });
-
-    it("accepts forceUint8Array that agrees with payload", () => {
-      expect(resolvePayloadMode({ forceUint8Array: true, payload: "bytes" })).toBe("bytes");
-      expect(resolvePayloadMode({ forceUint8Array: false, payload: "string" })).toBe("string");
-    });
-
-    it.each([
-      [true, "json"],
-      [true, "string"],
-      [false, "bytes"],
-    ] as const)("rejects forceUint8Array: %s with payload: %s", (forceUint8Array, payload) => {
-      expectThrowsJWTError(
-        () => resolvePayloadMode({ forceUint8Array, payload }),
-        "ERR_INVALID_OPTION",
-      );
-    });
-
     it("rejects an unknown mode", () => {
       expectThrowsJWTError(
         () => resolvePayloadMode({ payload: "utf8" as never }),

@@ -40,7 +40,7 @@ export type JWSSessionKey =
 /** JWS verify overrides, minus the options the adapter owns. */
 export type SessionVerifyOptions = StrictOmit<
   JWSVerifyOptions,
-  "algorithms" | "typ" | "maxTokenAge" | "validateClaims" | "forceUint8Array" | "payload"
+  "algorithms" | "typ" | "maxTokenAge" | "validateClaims" | "payload"
 >;
 
 /** JWS sign options, minus those setting `exp`/`nbf` (the adapter mints `exp` from `maxAge`). */

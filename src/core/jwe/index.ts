@@ -242,14 +242,8 @@ export async function encrypt(
 export async function decrypt<T extends object = JWTClaims>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
-  options?: JWEDecryptOptions<"json"> & { forceUint8Array?: false },
+  options?: JWEDecryptOptions<"json">,
 ): Promise<JWEDecryptResult<T>>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function decrypt(
-  jwe: string,
-  key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
-  options: JWEDecryptOptions & { forceUint8Array: true },
-): Promise<JWEDecryptResult<Uint8Array<ArrayBuffer>>>;
 /** Decrypts a compact JWE whose plaintext decodes under `options.payload`; see {@link PayloadOf}. */
 export async function decrypt<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jwe: string,

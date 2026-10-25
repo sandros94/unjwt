@@ -82,7 +82,7 @@ src/
       index.ts          # `unjwt/jwk`: re-exports the files below + importKey, thumbprint, the JWK cache, errors
       generate.ts       # generateKey, generateJWK
       password.ts       # deriveKeyFromPassword, deriveJWKFromPassword
-      export.ts         # exportJWK, exportKey, toPublicJWK
+      export.ts         # exportJWK, toPublicJWK
       wrap.ts           # wrapKey, unwrapKey
       pem.ts            # importPEM, exportPEM
       ecdh.ts           # deriveSharedSecret

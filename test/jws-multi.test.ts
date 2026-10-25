@@ -279,14 +279,6 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       );
     });
 
-    it('forceUint8Array matches payload: "bytes"', async () => {
-      const jws = await signMulti({ x: 1 }, [{ key: keys.hs256 }]);
-      const { payload } = await verifyMulti(jws, keys.hs256, { forceUint8Array: true });
-      expect(payload).toBeInstanceOf(Uint8Array);
-      const explicit = await verifyMulti(jws, keys.hs256, { payload: "bytes" });
-      expect(explicit.payload).toEqual(payload);
-    });
-
     it("rejects a non-JSON-object payload under the default mode", async () => {
       const jws = await signMulti("plain text", [{ key: keys.hs256 }]);
       const error = await verifyMulti(jws, keys.hs256).catch((e) => e);
@@ -1634,9 +1626,6 @@ describe("types", () => {
     expectTypeOf((jws: JWSGeneralSerialization, payload: JOSEPayloadMode) =>
       verifyMulti(jws, key, { payload }),
     ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<JWTClaims | string | Bytes>>();
-    expectTypeOf((jws: JWSGeneralSerialization) =>
-      verifyMulti(jws, key, { forceUint8Array: true }),
-    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyResult<Bytes>>();
   });
 
   it("types every verifyMultiAll outcome payload after its mode", () => {
@@ -1656,9 +1645,6 @@ describe("types", () => {
     expectTypeOf((jws: JWSGeneralSerialization, options: JWSMultiVerifyAllOptions) =>
       verifyMultiAll(jws, resolver, options),
     ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<JWTClaims | string | Bytes>[]>();
-    expectTypeOf((jws: JWSGeneralSerialization) =>
-      verifyMultiAll(jws, resolver, { forceUint8Array: true }),
-    ).returns.resolves.toEqualTypeOf<JWSMultiVerifyOutcome<Bytes>[]>();
     expectTypeOf<
       Extract<JWSMultiVerifyOutcome<PayloadOf<"string">>, { verified: true }>["payload"]
     >().toEqualTypeOf<string>();

@@ -157,12 +157,6 @@ export interface JOSEConsumerOptions<
 > extends JWTClaimValidationOptions {
   /** Payload decoding mode; a mismatch is `ERR_JWS_INVALID` / `ERR_JWE_INVALID`. @default "json" */
   payload?: Mode;
-  /**
-   * If true, forces the payload to be returned as a `Uint8Array`.
-   *
-   * @deprecated Use `payload: "bytes"`. Deprecated in v0.8.0, removed in v0.9.0
-   */
-  forceUint8Array?: boolean;
   /** `false` skips claim validation; `true` with a non-`"json"` payload is `ERR_INVALID_OPTION`. */
   validateClaims?: boolean;
 }

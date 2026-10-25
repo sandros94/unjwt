@@ -152,14 +152,8 @@ export async function signMulti(
 export async function verifyMulti<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
-  options?: JWSMultiVerifyOptions<"json"> & { forceUint8Array?: false },
+  options?: JWSMultiVerifyOptions<"json">,
 ): Promise<JWSMultiVerifyResult<T>>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function verifyMulti(
-  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
-  options: JWSMultiVerifyOptions & { forceUint8Array: true },
-): Promise<JWSMultiVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verifyMulti<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
@@ -300,14 +294,8 @@ export async function verifyMulti(
 export async function verifyMultiAll<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyResolver: JWSKeyLookup,
-  options?: JWSMultiVerifyAllOptions<"json"> & { forceUint8Array?: false },
+  options?: JWSMultiVerifyAllOptions<"json">,
 ): Promise<JWSMultiVerifyOutcome<T>[]>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function verifyMultiAll(
-  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWSKeyLookup,
-  options: JWSMultiVerifyAllOptions & { forceUint8Array: true },
-): Promise<JWSMultiVerifyOutcome<Uint8Array<ArrayBuffer>>[]>;
 export async function verifyMultiAll<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyResolver: JWSKeyLookup,
