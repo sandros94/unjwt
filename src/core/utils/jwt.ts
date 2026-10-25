@@ -92,7 +92,7 @@ export function validateJwtClaims(
 ): void {
   assertClaimValidationOptions(options);
   const clockTolerance = _normalizeClockTolerance(options.clockTolerance);
-  const currentTime = Math.round((options.currentDate ?? new Date()).getTime() / 1000);
+  const currentTime = (options.currentDate ?? new Date()).getTime() / 1000;
 
   if (
     options.requiredClaims !== undefined ||

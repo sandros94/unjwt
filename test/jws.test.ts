@@ -383,6 +383,21 @@ describe.concurrent("JWS Utilities", () => {
       ).rejects.toThrow(/zero or a positive/i);
     });
 
+    it("verifies at once a token minted past the half second", async () => {
+      const key = await generateKey("HS256", { toJWK: true });
+      const currentDate = new Date(1792065600_600);
+      const options = { currentDate, clockTolerance: 0 };
+
+      const notBefore = await sign({ sub: "x" }, key, { currentDate, notBeforeIn: 0 });
+      const { payload } = await verify(notBefore, key, options);
+      expect(payload).toMatchObject({ iat: 1792065600, nbf: 1792065600 });
+
+      const issued = await sign({ sub: "x" }, key, { currentDate, issuedAt: true });
+      await expect(verify(issued, key, { ...options, maxTokenAge: "1s" })).resolves.toMatchObject({
+        payload: { iat: 1792065600 },
+      });
+    });
+
     it("should include computed `exp` and throw because it is expired", async () => {
       const date = new Date();
       const creationDate = new Date(date.getTime() - 60 * 2 * 1000);
@@ -401,7 +416,7 @@ describe.concurrent("JWS Utilities", () => {
       );
       const [_headerEncoded, payloadEncoded] = jws.split(".");
       const payload = JSON.parse(base64UrlParse(payloadEncoded));
-      expect(payload.exp).toEqual(Math.round(creationDate.getTime() / 1000) + 60);
+      expect(payload.exp).toEqual(Math.floor(creationDate.getTime() / 1000) + 60);
 
       await expect(
         jose.jwtVerify(jws, key, {

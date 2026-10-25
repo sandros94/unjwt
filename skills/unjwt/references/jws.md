@@ -34,7 +34,7 @@ Creates a JWS Compact Serialization token.
   - `protectedHeader?: JWSHeaderParameters` — additional header params (`kid`, `typ`, `cty`, `crit`, `b64`, `jwk`). A `jwk` must be a public JWK (`isPublicJWK`): a private key or an `oct` secret there is `ERR_INVALID_OPTION`, in every tier of `signMulti` too. A JSON payload whose `cnf.jwk` is not a public JWK is `ERR_JWT_CLAIM_INVALID` (RFC 7800 §3.2), in every producer
   - `expiresIn?: ExpiresIn` — sets `exp` claim relative to `currentDate`, the clock (number in seconds, or string like `"1h"`, `"7D"`). A malformed duration throws `ERR_INVALID_OPTION`
   - `issuedAt?: boolean | Date` — writes `iat` alone: `true` as `currentDate`, a `Date` as that instant; `false` is unset. Anything else is `ERR_INVALID_OPTION`. `iat` and the clock are distinct: a backdated `iat` does not move `exp`/`nbf`
-  - `currentDate?: Date` — the clock: `iat` when written, and the base of `expiresIn`/`notBeforeIn`
+  - `currentDate?: Date` — the clock: `iat` when written, and the base of `expiresIn`/`notBeforeIn`; minted claims are whole Unix seconds rounded down
 
 **Returns:** `Promise<string>` — JWS compact token
 

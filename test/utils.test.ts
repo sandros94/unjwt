@@ -117,6 +117,18 @@ describe.concurrent("Utility Functions", () => {
       expect(claims.exp).toBe(now + 60);
     });
 
+    it("writes the clock as whole seconds rounded down", () => {
+      const currentDate = new Date(1792065600_999);
+      expect(computeJwtTimeClaims({}, { expiresIn: 60, notBeforeIn: 0, currentDate })).toEqual({
+        iat: 1792065600,
+        nbf: 1792065600,
+        exp: 1792065660,
+      });
+      expect(
+        computeJwtTimeClaims({}, { issuedAt: true, currentDate: new Date(1792065600_500) }),
+      ).toEqual({ iat: 1792065600 });
+    });
+
     it("writes iat alone from issuedAt", () => {
       const date = new Date("2030-01-01T00:00:00Z");
       const at = Math.floor(date.getTime() / 1000);
@@ -906,6 +918,41 @@ describe.concurrent("validateJwtClaims option and NumericDate hygiene", () => {
 
     it("keeps fractional NumericDate values valid (RFC 7519 §2)", () => {
       expect(() => validateJwtClaims({ exp: now + 60.5, nbf: now - 60.5 })).not.toThrow();
+    });
+  });
+
+  describe("exact clock", () => {
+    const T = 1792065600;
+    const at = (seconds: number) => ({ currentDate: new Date(seconds * 1000), clockTolerance: 0 });
+    const codeOf = (claims: JWTClaims, seconds: number) => {
+      const error = catchError(() => validateJwtClaims(claims, at(seconds)));
+      return isJWTError(error) ? error.code : undefined;
+    };
+
+    it("expires an integer exp at its second, not half a second early", () => {
+      expect(codeOf({ exp: T }, T - 0.5)).toBeUndefined();
+      expect(codeOf({ exp: T }, T - 0.001)).toBeUndefined();
+      expect(codeOf({ exp: T }, T)).toBe("ERR_JWT_EXPIRED");
+      expect(codeOf({ exp: T }, T + 0.499)).toBe("ERR_JWT_EXPIRED");
+    });
+
+    it("expires a fractional exp at its exact instant", () => {
+      expect(codeOf({ exp: T + 0.4 }, T + 0.399)).toBeUndefined();
+      expect(codeOf({ exp: T + 0.4 }, T + 0.4)).toBe("ERR_JWT_EXPIRED");
+      expect(codeOf({ exp: T + 0.4 }, T + 0.499)).toBe("ERR_JWT_EXPIRED");
+      expect(codeOf({ exp: T + 0.5 }, T + 0.499)).toBeUndefined();
+      expect(codeOf({ exp: T + 0.5 }, T + 0.5)).toBe("ERR_JWT_EXPIRED");
+    });
+
+    it("refuses an integer nbf until its second, not half a second early", () => {
+      expect(codeOf({ nbf: T }, T - 0.5)).toBe("ERR_JWT_NBF");
+      expect(codeOf({ nbf: T }, T - 0.001)).toBe("ERR_JWT_NBF");
+      expect(codeOf({ nbf: T }, T)).toBeUndefined();
+    });
+
+    it("refuses a fractional nbf until its exact instant", () => {
+      expect(codeOf({ nbf: T + 0.5 }, T + 0.499)).toBe("ERR_JWT_NBF");
+      expect(codeOf({ nbf: T + 0.5 }, T + 0.5)).toBeUndefined();
     });
   });
 

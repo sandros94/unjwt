@@ -478,7 +478,7 @@ describe("adapter h3 v1", () => {
         const firstExpiresAt = first.body.session.expiresAt;
         expect(firstExpiresAt).toBeDefined();
 
-        const nearExpiry = new Date("2024-01-01T00:00:01.600Z");
+        const nearExpiry = new Date("2024-01-01T00:00:02.000Z");
         vi.setSystemTime(nearExpiry);
         expect(Date.now()).toBe(nearExpiry.getTime());
         const second = await request.get("/").set("Cookie", cookie);

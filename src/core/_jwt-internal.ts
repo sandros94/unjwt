@@ -157,7 +157,7 @@ export function computeJwtTimeClaims(
   const wantsIat = hasIatHint && (!("iat" in payload) || payload.iat === undefined);
   if (!wantsExp && !wantsNbf && !wantsIat) return undefined;
 
-  const now = Math.round((currentDate ?? new Date()).getTime() / 1000);
+  const now = Math.floor((currentDate ?? new Date()).getTime() / 1000);
   const claims: JWTClaims = { ...payload };
   claims.iat ||=
     issuedAt instanceof Date ? Math.floor(_instantOf(issuedAt, "issuedAt") / 1000) : now;
