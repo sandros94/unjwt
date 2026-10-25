@@ -10,12 +10,13 @@ export { DEFAULT_PBES2_ITERATIONS };
 
 /**
  * Default per-call work limits: 16 signatures, 16 recipients, 8 JWK Set candidates,
- * and PBKDF2 iterations for four default-cost PBES2 attempts in total.
+ * 16 key attempts per multi call, and PBKDF2 iterations for four default-cost PBES2 attempts in total.
  */
 export const DEFAULT_JOSE_LIMITS: Readonly<Required<JOSELimits>> = /* @__PURE__ */ Object.freeze({
   signatures: 16,
   recipients: 16,
   keyCandidates: 8,
+  keyAttempts: 16,
   pbes2Iterations: 4 * DEFAULT_PBES2_ITERATIONS,
 });
 
@@ -48,6 +49,35 @@ export function assertCandidateLimit(count: number, limit: number): void {
     `${count} candidate keys exceed the limit of ${limit}, narrow them with a "kid".`,
     "ERR_JWK_KEY_NOT_FOUND",
   );
+}
+
+/** Key trials one multi-signature or multi-recipient call may still spend. */
+export interface KeyAttemptBudget {
+  /** Charge one key trial; past the limit throws `ERR_JWK_KEY_NOT_FOUND` and keeps it on `exhausted`. */
+  spend(): void;
+  /** The refusal once the budget ran out; the call rethrows it instead of trying the next entry. */
+  readonly exhausted: JWTError | undefined;
+}
+
+export function createKeyAttemptBudget(limit: number): KeyAttemptBudget {
+  let remaining = limit;
+  let exhausted: JWTError | undefined;
+  return {
+    get exhausted() {
+      return exhausted;
+    },
+    spend() {
+      if (remaining > 0) {
+        remaining--;
+        return;
+      }
+      exhausted ??= new JWTError(
+        `Key attempt budget of ${limit} ("limits.keyAttempts") exhausted, narrow the keys with a "kid".`,
+        "ERR_JWK_KEY_NOT_FOUND",
+      );
+      throw exhausted;
+    },
+  };
 }
 
 /** Refuse an empty or over-limit JWK Set candidate list with `ERR_JWK_KEY_NOT_FOUND`. */

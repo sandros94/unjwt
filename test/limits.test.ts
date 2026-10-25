@@ -71,6 +71,7 @@ describe("limits", () => {
         signatures: 16,
         recipients: 16,
         keyCandidates: 8,
+        keyAttempts: 16,
         pbes2Iterations: 2_400_000,
       });
     });
@@ -152,6 +153,71 @@ describe("limits", () => {
         allowSymmetricJWKSet: true,
         limits: { keyCandidates: 3 },
       });
+      expect(payload.sub).toBe("u1");
+    });
+  });
+
+  describe("keyAttempts", () => {
+    const exhausted =
+      'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".';
+
+    it("ends verifyMulti at the seventeenth trial across signatures", async () => {
+      const others = await Promise.all(
+        Array.from({ length: 4 }, () => generateJWK("ES256", { kid: false })),
+      );
+      const jws = await signMulti({ sub: "u1" }, [
+        ...others.map((pair) => ({ key: pair.privateKey })),
+        { key: signer },
+      ]);
+      const set: JWKSet = { keys: [...decoys.slice(0, 3), publicKey] };
+
+      await expect(verifyMulti(jws, set)).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+      );
+      await expect(verifyMulti(jws, set)).rejects.toThrow(exhausted);
+      await expect(verifyMulti(jws, set, { limits: { keyAttempts: 19 } })).rejects.toThrow(
+        'Key attempt budget of 19 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".',
+      );
+
+      const { payload, signerIndex } = await verifyMulti<{ sub: string }>(jws, set, {
+        limits: { keyAttempts: 20 },
+      });
+      expect(payload.sub).toBe("u1");
+      expect(signerIndex).toBe(4);
+    });
+
+    it("ends decryptMulti at the seventeenth trial across recipients", async () => {
+      const pairs = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          generateJWK("ECDH-ES+A256KW", { namedCurve: "P-256", kid: false }),
+        ),
+      );
+      const [holder, decoyA, decoyB, ...others] = pairs;
+      const jwe = await encryptMulti(
+        { sub: "u1" },
+        [...others, holder].map((pair) => ({ key: pair.publicKey })),
+        { enc: "A256GCM" },
+      );
+      const set: JWKSet = { keys: [decoyA.privateKey, decoyB.privateKey, holder.privateKey] };
+
+      await expect(decryptMulti(jwe, set)).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+      );
+      await expect(decryptMulti(jwe, set)).rejects.toThrow(exhausted);
+
+      const { payload, recipientIndex } = await decryptMulti<{ sub: string }>(jwe, set, {
+        limits: { keyAttempts: 18 },
+      });
+      expect(payload.sub).toBe("u1");
+      expect(recipientIndex).toBe(5);
+    });
+
+    it("leaves compact verify to keyCandidates", async () => {
+      const jws = await sign({ sub: "u1" }, signer);
+      const set: JWKSet = {
+        keys: [...decoys.slice(0, DEFAULT_JOSE_LIMITS.keyCandidates - 1), publicKey],
+      };
+      const { payload } = await verify<{ sub: string }>(jws, set);
       expect(payload.sub).toBe("u1");
     });
   });
@@ -379,6 +445,9 @@ describe("limits", () => {
       await expect(
         verifyMultiAll(jws, () => publicKey, { limits: { signatures: Number.NaN } }),
       ).rejects.toSatisfy((error) => isJWTError(error, "ERR_INVALID_OPTION"));
+      await expect(verifyMulti(jws, publicKey, { limits: { keyAttempts: 1.5 } })).rejects.toThrow(
+        '"limits.keyAttempts" must be a positive integer.',
+      );
     });
 
     it.each([
@@ -408,6 +477,9 @@ describe("limits", () => {
       await expect(
         decryptMulti(jwe, octKeys[0], { limits: { pbes2Iterations: 0 } }),
       ).rejects.toThrow('"limits.pbes2Iterations" must be a positive integer.');
+      await expect(decryptMulti(jwe, octKeys[0], { limits: { keyAttempts: 0 } })).rejects.toThrow(
+        '"limits.keyAttempts" must be a positive integer.',
+      );
     });
   });
 });

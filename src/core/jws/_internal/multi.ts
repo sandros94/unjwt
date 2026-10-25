@@ -26,6 +26,7 @@ import {
   decodeSegment,
 } from "../../_internal/headers.ts";
 import { asJWTError, asKeyLookupError, copyJsonObject } from "../../_internal/errors.ts";
+import type { KeyAttemptBudget } from "../../_internal/limits.ts";
 import { assertEntryLimit } from "../../_internal/limits.ts";
 import { checkJWSAlgSupported } from "./algorithms.ts";
 import type { ResolvedKeyInput } from "../../_internal/keys.ts";
@@ -271,9 +272,10 @@ export async function _verifyOneSignature(
     options: JWSMultiVerifyAllOptions;
     payloadMode: JOSEPayloadMode;
     keyCandidates: number;
+    keyAttempts: KeyAttemptBudget;
   },
 ): Promise<JWSMultiVerifyOutcome> {
-  const { options, payloadMode, keyCandidates } = context;
+  const { options, payloadMode, keyCandidates, keyAttempts } = context;
   const fail = (
     error: JWTError,
     protectedHeader?: JWSHeaderParameters,
@@ -341,8 +343,10 @@ export async function _verifyOneSignature(
       kid: effective.kid,
       allowSymmetric: options.allowSymmetricJWKSet,
       keyCandidates,
+      keyAttempts,
     });
   } catch (err) {
+    if (keyAttempts.exhausted) throw keyAttempts.exhausted;
     return fail(asJWTError(err, INVALID_SIGNATURE), protectedHeader, unprotectedHeader);
   }
   if (!verified) {

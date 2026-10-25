@@ -207,7 +207,7 @@ Accepts a General or Flattened serialization object and returns the first recipi
 - `jwe` — `JWEGeneralSerialization | JWEFlattenedSerialization`. Flattened input is auto-normalized to General in memory. An object without `recipients` is Flattened — its `header` and `encrypted_key` are both optional (RFC 7516 §7.2.2), so a Flattened `dir` / `ECDH-ES` token carrying neither is accepted. `recipients` together with a top-level `header` or `encrypted_key` throws `ERR_JWE_INVALID_SERIALIZATION`.
 - `keyOrLookup` — same shape as `decrypt()` (`JWK | JWKSet | CryptoKey | Uint8Array | string | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per recipient until one succeeds.
 - `options?: JWEMultiDecryptOptions` — extends `JWEDecryptOptions`. Adds:
-  - `limits?: { recipients?: number; keyCandidates?: number; pbes2Iterations?: number }` — `recipients` defaults to `16`; a serialization carrying more throws `ERR_JWE_INVALID` (`"Invalid JWE: 17 recipients exceed the limit of 16."`) before any recipient is read. The `pbes2Iterations` budget is summed across every recipient, so injected PBES2 recipients cost one budget between them
+  - `limits?: { recipients?: number; keyCandidates?: number; keyAttempts?: number; pbes2Iterations?: number }` — `recipients` defaults to `16`; a serialization carrying more throws `ERR_JWE_INVALID` (`"Invalid JWE: 17 recipients exceed the limit of 16."`) before any recipient is read. `keyAttempts` defaults to `16` (the entry limit, so one key tried on every entry fits): the unwraps one call may run against candidate keys, summed across every recipient (a single key spends one per recipient it is tried on, a `kid`-matched set one per recipient); the trial past it throws `ERR_JWK_KEY_NOT_FOUND` (`'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".'`) and no later recipient is tried. The `pbes2Iterations` budget is summed across every recipient, so injected PBES2 recipients cost one budget between them
   - `strictRecipientMatch?: boolean` — when `true`, a recipient is attempted only when the key material could plausibly open it; nothing matching means `ERR_JWE_NO_MATCHING_RECIPIENT` with no trial-decryption fallback. A recipient is skipped only on a _definite_ mismatch: a different `kid` on both sides, key material whose `kty` / curve / length cannot serve the recipient's `alg`, or an `epk` on a different curve than the key. Key material that carries no identity of its own (a `CryptoKey`, raw bytes, a password) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out. For a single JWK or `CryptoKey`, `kid` never rules the key out; for a JWK Set the header `kid` selects the candidates (an entry with another `kid`, or none, is not one): no candidate is `ERR_JWK_KEY_NOT_FOUND`, candidates that all fail the compatibility check skip the recipient.
 
 **Header tiers (RFC 7516 §7.2.1).** `enc` is read from the protected header or, when absent there, from the shared unprotected header — never from a per-recipient header; absent from both is `ERR_JWE_INVALID`, and `encryptionAlgorithms` applies to it wherever it sits. `alg` may sit in any tier (usually the per-recipient header). `crit` must be protected, and every name it lists must be present in the protected header. `options.typ` is matched against the protected header only — a `typ` in an unprotected tier never satisfies it, since a type gate an attacker could move would gate nothing. `kid` is read from the merged header, so the key lookup may be steered by an unprotected tier; that is why the recipient must still unwrap, and the content still authenticate, under the key the lookup returns. A name may sit in only one tier (`ERR_JWE_HEADER_PARAMS_NOT_DISJOINT`; an overlap between the protected and the shared unprotected header is a token verdict).
@@ -304,6 +304,7 @@ interface JOSELimits {
   signatures?: number; // JWS `signatures[]` entries — default 16
   recipients?: number; // JWE `recipients[]` entries — default 16
   keyCandidates?: number; // JWK Set candidates per token — default 8
+  keyAttempts?: number; // key trials per multi call, across recipients — default 16
   pbes2Iterations?: number; // PBKDF2 iterations per call — default 2_400_000 (4 × the default p2c)
 }
 
@@ -582,7 +583,7 @@ interface JWEMultiDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode>
   minIterations?: number;
   maxIterations?: number;
   // Multi-recipient additions
-  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
+  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "keyAttempts" | "pbes2Iterations">;
   strictRecipientMatch?: boolean;
 }
 

@@ -43,7 +43,7 @@ import {
 } from "../_internal/headers.ts";
 import { asJWTError, asKeyLookupError, copyJsonObject } from "../_internal/errors.ts";
 import { asKeyUsageError, assertNotStringKey, resolveSigningKey } from "./_internal/keys.ts";
-import { resolveLimit } from "../_internal/limits.ts";
+import { createKeyAttemptBudget, resolveLimit } from "../_internal/limits.ts";
 import type { ResolvedKeyInput } from "../_internal/keys.ts";
 import { resolveKeyInput, stringKeyError } from "../_internal/keys.ts";
 import { resolvePayloadMode, validateClaimsIfJson } from "../_internal/payload.ts";
@@ -174,6 +174,7 @@ export async function verifyMulti(
   const payloadMode = resolvePayloadMode(options);
   const signatureLimit = resolveLimit(options.limits, "signatures");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
+  const keyAttempts = createKeyAttemptBudget(resolveLimit(options.limits, "keyAttempts"));
 
   const general = _readGeneralSerialization(jws, signatureLimit);
 
@@ -250,6 +251,7 @@ export async function verifyMulti(
         kid: effective.kid,
         allowSymmetric: options.allowSymmetricJWKSet,
         keyCandidates,
+        keyAttempts,
       });
       if (!verified) {
         lastError = new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
@@ -271,6 +273,7 @@ export async function verifyMulti(
       if (unprotectedHeader) result.signerHeader = unprotectedHeader;
       return result;
     } catch (err) {
+      if (keyAttempts.exhausted) throw keyAttempts.exhausted;
       const error = asJWTError(err, INVALID_SIGNATURE);
       if (!PER_SIGNATURE_ERROR_CODES.has(error.code)) throw error;
       lastError = error;
@@ -290,7 +293,8 @@ export async function verifyMulti(
 
 /**
  * Verifies every signature independently and returns one outcome per signature; only
- * a malformed envelope throws (`ERR_JWS_INVALID_SERIALIZATION`). The payload type follows `options.payload`.
+ * a malformed envelope (`ERR_JWS_INVALID_SERIALIZATION`) or a spent `limits.keyAttempts`
+ * (`ERR_JWK_KEY_NOT_FOUND`) throws. The payload type follows `options.payload`.
  *
  * @example
  * const outcomes = await verifyMultiAll(jws, (header) => jwkSet);
@@ -321,6 +325,7 @@ export async function verifyMultiAll(
   const payloadMode = resolvePayloadMode(options);
   const signatureLimit = resolveLimit(options.limits, "signatures");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
+  const keyAttempts = createKeyAttemptBudget(resolveLimit(options.limits, "keyAttempts"));
 
   const general = _readGeneralSerialization(jws, signatureLimit);
 
@@ -331,6 +336,7 @@ export async function verifyMultiAll(
         options,
         payloadMode,
         keyCandidates,
+        keyAttempts,
       }),
     );
   }

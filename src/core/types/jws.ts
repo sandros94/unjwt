@@ -142,8 +142,8 @@ export interface JWSMultiSignOptions extends StrictOmit<
 export interface JWSMultiVerifyOptions<
   Mode extends JOSEPayloadMode = JOSEPayloadMode,
 > extends JWSVerifyOptions<Mode> {
-  /** Max `signatures[]` (more is `ERR_JWS_INVALID`) and JWK Set candidates per signature. @default { signatures: 16, keyCandidates: 8 } */
-  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
+  /** Max `signatures[]` (more is `ERR_JWS_INVALID`), JWK Set candidates per signature, and key trials summed over the call (more is `ERR_JWK_KEY_NOT_FOUND`). @default { signatures: 16, keyCandidates: 8, keyAttempts: 16 } */
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates" | "keyAttempts">;
   /** Try only signatures the key could have produced (by `kid`, `kty`, curve, length), else `ERR_JWS_NO_MATCHING_SIGNER`. @default false */
   strictSignerMatch?: boolean;
 }

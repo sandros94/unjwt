@@ -50,7 +50,7 @@ import {
   serializeProtectedHeader,
   decodeSegment,
 } from "../_internal/headers.ts";
-import { assertEntryLimit, resolveLimit } from "../_internal/limits.ts";
+import { assertEntryLimit, createKeyAttemptBudget, resolveLimit } from "../_internal/limits.ts";
 import {
   assertNoZipOption,
   assertProducerCEK,
@@ -254,6 +254,7 @@ export async function decryptMulti(
   const payloadMode = resolvePayloadMode(options);
   const recipientLimit = resolveLimit(options.limits, "recipients");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
+  const keyAttempts = createKeyAttemptBudget(resolveLimit(options.limits, "keyAttempts"));
   const pbes2Budget = createPBES2Budget(resolveLimit(options.limits, "pbes2Iterations"));
 
   const general = _normalizeSerialization(jwe);
@@ -443,8 +444,10 @@ export async function decryptMulti(
         allowSymmetric: options.allowSymmetricJWKSet,
         keyCandidates,
         pbes2Budget,
+        keyAttempts,
       }));
     } catch (err) {
+      if (keyAttempts.exhausted) throw keyAttempts.exhausted;
       lastError = asDecryptionError(err);
       continue;
     }

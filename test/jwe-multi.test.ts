@@ -624,6 +624,77 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
       });
     });
 
+    describe("keyAttempts", () => {
+      const exhausted =
+        'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".';
+
+      it("ends the call once candidate fan-out passes the budget", async () => {
+        const pairs = await Promise.all(
+          Array.from({ length: 10 }, () =>
+            generateJWK("ECDH-ES+A256KW", { namedCurve: "P-256", kid: false }),
+          ),
+        );
+        const [holder, decoy, ...others] = pairs;
+        const jwe = await encryptMulti(
+          { sub: "u1" },
+          [...others, holder].map((pair) => ({ key: pair.publicKey })),
+          { enc: "A256GCM" },
+        );
+        const set: JWKSet = { keys: [decoy.privateKey, holder.privateKey] };
+
+        await expect(decryptMulti(jwe, set)).rejects.toSatisfy((error) =>
+          isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+        );
+        await expect(decryptMulti(jwe, set)).rejects.toThrow(exhausted);
+
+        const { payload, recipientIndex } = await decryptMulti(jwe, set, {
+          limits: { keyAttempts: 18 },
+        });
+        expect(payload.sub).toBe("u1");
+        expect(recipientIndex).toBe(8);
+      });
+
+      it("opens the last of sixteen recipients with one key under the default budget", async () => {
+        const minted = await Promise.all(
+          Array.from({ length: 16 }, () => generateJWK("A256KW", { kid: false })),
+        );
+        const jwe = await encryptMulti(
+          { sub: "u1" },
+          minted.map((key) => ({ key })),
+          { enc: "A256GCM" },
+        );
+
+        const { recipientIndex } = await decryptMulti(jwe, minted[15]);
+        expect(recipientIndex).toBe(15);
+        await expect(
+          decryptMulti(jwe, minted[15], { limits: { keyAttempts: 15 } }),
+        ).rejects.toThrow(
+          'Key attempt budget of 15 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".',
+        );
+      });
+
+      it("looks up no recipient after the budget runs out", async () => {
+        const minted = await Promise.all(
+          Array.from({ length: 4 }, (_, i) => generateJWK("A256KW", { kid: `k${i}` })),
+        );
+        const jwe = await encryptMulti(
+          { sub: "u1" },
+          minted.map((key) => ({ key })),
+          { enc: "A256GCM" },
+        );
+        const looked: (string | undefined)[] = [];
+        const lookup: JWKLookupFunction = (header) => {
+          looked.push(header.kid);
+          return minted[3];
+        };
+
+        await expect(decryptMulti(jwe, lookup, { limits: { keyAttempts: 2 } })).rejects.toThrow(
+          'Key attempt budget of 2 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".',
+        );
+        expect(looked).toEqual(["k0", "k1", "k2"]);
+      });
+    });
+
     describe("strictRecipientMatch edge cases", () => {
       it("attempts a single JWK whose kid differs from the recipient's kid", async () => {
         const jwe = await encryptMulti({ sub: "u1" }, [{ key: keys.a256kw }], { enc: "A256GCM" });

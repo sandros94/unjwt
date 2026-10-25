@@ -238,8 +238,8 @@ export type JWEMultiDecryptKey =
 export interface JWEMultiDecryptOptions<
   Mode extends JOSEPayloadMode = JOSEPayloadMode,
 > extends JWEDecryptOptions<Mode> {
-  /** Max recipients (else `ERR_JWE_INVALID`), JWK Set candidates per recipient, and PBKDF2 iterations summed over the call. Default: `{ recipients: 16, keyCandidates: 8, pbes2Iterations: 2_400_000 }`. */
-  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
+  /** Max recipients (else `ERR_JWE_INVALID`), JWK Set candidates per recipient, key trials summed over the call (else `ERR_JWK_KEY_NOT_FOUND`), and PBKDF2 iterations summed over the call. Default: `{ recipients: 16, keyCandidates: 8, keyAttempts: 16, pbes2Iterations: 2_400_000 }`. */
+  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "keyAttempts" | "pbes2Iterations">;
   /** Try only recipients the key could open, else `ERR_JWE_NO_MATCHING_RECIPIENT`; a JWK Set with no candidate is `ERR_JWK_KEY_NOT_FOUND`. Default: `false` (trial in order). */
   strictRecipientMatch?: boolean;
 }

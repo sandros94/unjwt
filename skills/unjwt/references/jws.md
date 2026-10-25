@@ -180,7 +180,7 @@ Accepts an already-parsed General or Flattened JWS and returns the first signatu
 - `jws` — `JWSGeneralSerialization | JWSFlattenedSerialization`. Flattened input is auto-normalized to General in memory.
 - `keyOrLookup` — same shape as `verify()` (`JWK | JWKSet | CryptoKey | Uint8Array | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per signature until one verifies.
 - `options?: JWSMultiVerifyOptions` — extends `JWSVerifyOptions`. Adds:
-  - `limits?: { signatures?: number; keyCandidates?: number }` — `signatures` defaults to `16`; a serialization carrying more throws `ERR_JWS_INVALID` (`"Invalid JWS: 17 signatures exceed the limit of 16."`) before any signature is read
+  - `limits?: { signatures?: number; keyCandidates?: number; keyAttempts?: number }` — `signatures` defaults to `16`; a serialization carrying more throws `ERR_JWS_INVALID` (`"Invalid JWS: 17 signatures exceed the limit of 16."`) before any signature is read. `keyAttempts` defaults to `16` (the entry limit, so one key tried on every entry fits): the signature checks one call may run against candidate keys, summed across every signature (a single key spends one per signature it is tried on, a `kid`-matched set one per signature). The trial past it throws `ERR_JWK_KEY_NOT_FOUND` (`'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".'`) and ends the call, `verifyMultiAll` included
   - `strictSignerMatch?: boolean` — when `true`, a signature is attempted only when the key material could have produced it; nothing matching means `ERR_JWS_NO_MATCHING_SIGNER` with no trial verification fallback. A signature is skipped only on a _definite_ mismatch: a different `kid` on both sides, or key material whose `kty` / curve / length cannot serve the signature's `alg`. Key material that carries no identity of its own (a `CryptoKey`, raw bytes) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out. For a single JWK or `CryptoKey`, `kid` never rules the key out; for a JWK Set the header `kid` selects the candidates (an entry with another `kid`, or none, is not one): no candidate is `ERR_JWK_KEY_NOT_FOUND`, candidates that all fail the compatibility check skip the signature.
 
 **Returns:** `JWSMultiVerifyResult<T>` — `{ payload, protectedHeader, signerIndex, signerHeader? }`. The payload type follows `options.payload` exactly as for `verify` (`PayloadOf<Mode>`; `verifyMulti<MyClaims>(jws, key)` for the claims):
@@ -317,6 +317,7 @@ interface JOSELimits {
   signatures?: number; // JWS `signatures[]` entries — default 16
   recipients?: number; // JWE `recipients[]` entries — default 16
   keyCandidates?: number; // JWK Set candidates per token — default 8
+  keyAttempts?: number; // key trials per multi call, across entries — default 16
   pbes2Iterations?: number; // PBKDF2 iterations per call — default 2_400_000
 }
 
@@ -466,7 +467,7 @@ interface JWSMultiSignOptions {
 interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
-  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates" | "keyAttempts">;
   payload?: Mode;
   validateClaims?: boolean;
   audience?: string | string[];
@@ -484,7 +485,7 @@ interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> 
 interface JWSMultiVerifyAllOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
   allowSymmetricJWKSet?: boolean;
-  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates" | "keyAttempts">;
   payload?: Mode;
   validateClaims?: boolean;
   audience?: string | string[];

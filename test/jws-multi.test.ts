@@ -492,6 +492,68 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
     });
   });
 
+  describe("keyAttempts", () => {
+    const exhausted =
+      'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".';
+
+    it("verifies sixteen kid-matched signatures under the default budget", async () => {
+      const pairs = await Promise.all(
+        Array.from({ length: 16 }, (_, i) => generateJWK("ES256", { kid: `k${i}` })),
+      );
+      const jws = await signMulti(
+        { sub: "u1" },
+        pairs.map((pair) => ({ key: pair.privateKey })),
+      );
+      const set: JWKSet = { keys: pairs.map((pair) => pair.publicKey) };
+
+      const outcomes = await verifyMultiAll(jws, () => set);
+      expect(outcomes.map((o) => o.verified)).toEqual(Array.from({ length: 16 }, () => true));
+    });
+
+    it("ends the call once candidate fan-out passes the budget", async () => {
+      const [holder, decoy] = await Promise.all([
+        generateJWK("ES256", { kid: false }),
+        generateJWK("ES256", { kid: false }),
+      ]);
+      const jws = await signMulti(
+        { sub: "u1" },
+        Array.from({ length: 9 }, () => ({ key: holder.privateKey })),
+      );
+      const set: JWKSet = { keys: [decoy.publicKey, holder.publicKey] };
+
+      await expect(verifyMultiAll(jws, () => set)).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+      );
+      await expect(verifyMultiAll(jws, () => set)).rejects.toThrow(exhausted);
+
+      const outcomes = await verifyMultiAll(jws, () => set, { limits: { keyAttempts: 18 } });
+      expect(outcomes.map((o) => o.verified)).toEqual(Array.from({ length: 9 }, () => true));
+    });
+
+    it("looks up no signature after the budget runs out", async () => {
+      const pairs = await Promise.all(
+        Array.from({ length: 4 }, (_, i) => generateJWK("ES256", { kid: `k${i}` })),
+      );
+      const jws = await signMulti(
+        { sub: "u1" },
+        pairs.map((pair) => ({ key: pair.privateKey })),
+      );
+      const looked: (string | undefined)[] = [];
+      const lookup: JWKLookupFunction = (header) => {
+        looked.push(header.kid);
+        return pairs[3].publicKey;
+      };
+
+      await expect(verifyMulti(jws, lookup, { limits: { keyAttempts: 2 } })).rejects.toThrow(
+        'Key attempt budget of 2 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".',
+      );
+      expect(looked).toEqual(["k0", "k1", "k2"]);
+      await expect(verifyMultiAll(jws, lookup, { limits: { keyAttempts: 2 } })).rejects.toThrow(
+        "limits.keyAttempts",
+      );
+    });
+  });
+
   describe("verifyMultiAll", () => {
     it("reports a string key as a per-signature failure, not a throw", async () => {
       const jws = await signMulti({ sub: "u1" }, [{ key: keys.hs256 }]);

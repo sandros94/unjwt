@@ -7,6 +7,7 @@ import { isJWK, isJWKSet } from "../../../utils/guards.ts";
 import { applyTypDefault } from "../../_internal/jwt.ts";
 import { applyB64Header } from "./b64.ts";
 import { asKeyUsageError, resolveSigningKey } from "./keys.ts";
+import type { KeyAttemptBudget } from "../../_internal/limits.ts";
 import { assertJWKSetCandidates } from "../../_internal/limits.ts";
 import { assertProducerCrit } from "../../_internal/headers.ts";
 import { buildJWKSetFilter } from "../../_internal/keys.ts";
@@ -43,6 +44,7 @@ export interface VerifyWithKeyOptions {
   kid: string | undefined;
   allowSymmetric: boolean | undefined;
   keyCandidates: number;
+  keyAttempts?: KeyAttemptBudget;
 }
 
 /** Verify one signature; a JWK Set tries each candidate, failing with one `ERR_JWS_SIGNATURE_INVALID` carrying every attempt. */
@@ -63,7 +65,7 @@ async function verifyWithKeyMaterial(
   rawKeyMaterial: VerificationKeyMaterial,
   options: VerifyWithKeyOptions,
 ): Promise<boolean> {
-  const { signature, signingInput, kid, allowSymmetric, keyCandidates } = options;
+  const { signature, signingInput, kid, allowSymmetric, keyCandidates, keyAttempts } = options;
 
   if (isJWKSet(rawKeyMaterial)) {
     const candidates = getJWKsFromSet(
@@ -73,6 +75,7 @@ async function verifyWithKeyMaterial(
     assertJWKSetCandidates(candidates, { limit: keyCandidates, kid });
     const attempts: JWTError[] = [];
     for (const candidate of candidates) {
+      keyAttempts?.spend();
       try {
         const verificationKey = await resolveSigningKey(
           alg,
@@ -92,6 +95,7 @@ async function verifyWithKeyMaterial(
     throw new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID", attempts);
   }
 
+  keyAttempts?.spend();
   const verificationKey = await resolveSigningKey(
     alg,
     await importKey(rawKeyMaterial, { alg, expect: "public" }),

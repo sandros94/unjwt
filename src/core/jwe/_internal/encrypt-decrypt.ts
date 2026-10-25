@@ -16,6 +16,7 @@ import { JWTError } from "../../../error.ts";
 import { isJWKSet } from "../../../utils/guards.ts";
 import { parsePayloadBytes } from "../../_internal/jwt.ts";
 import type { PBES2Budget } from "./keys.ts";
+import type { KeyAttemptBudget } from "../../_internal/limits.ts";
 import { DEFAULT_PBES2_ITERATIONS, assertJWKSetCandidates } from "../../_internal/limits.ts";
 import { asDecryptionError } from "../../_internal/errors.ts";
 import {
@@ -55,6 +56,7 @@ export interface UnwrapAndDecryptOptions {
   allowSymmetric: boolean | undefined;
   keyCandidates: number;
   pbes2Budget: PBES2Budget;
+  keyAttempts?: KeyAttemptBudget;
 }
 
 /** Unwrap the CEK and decrypt; a JWK Set tries each candidate, failing with one `ERR_JWE_DECRYPTION_FAILED` (RFC 7516 §11.5). */
@@ -78,6 +80,7 @@ export async function unwrapAndDecrypt(
     allowSymmetric,
     keyCandidates,
     pbes2Budget,
+    keyAttempts,
   } = options;
 
   if (isJWKSet(rawKeyMaterial)) {
@@ -91,6 +94,12 @@ export async function unwrapAndDecrypt(
       try {
         if (alg === "dir") assertDirectKeyRole(candidate, enc);
         pbes2Budget.spend(unwrapKeyOptions);
+      } catch (err) {
+        attempts.push(asDecryptionError(err));
+        continue;
+      }
+      keyAttempts?.spend();
+      try {
         const unwrappingKey = await importKey(candidate, { alg, expect: "private" });
         const cek = await unwrapKey(encryptedKey, unwrappingKey, unwrapKeyOptions);
         const plaintextBytes = await joseDecrypt(enc, cek, ciphertext, iv, tag, aad);
@@ -104,6 +113,7 @@ export async function unwrapAndDecrypt(
 
   if (alg === "dir") assertDirectKeyRole(rawKeyMaterial, enc);
   pbes2Budget.spend(unwrapKeyOptions);
+  keyAttempts?.spend();
   try {
     const unwrappingKey = await importKey(resolvePasswordKey(alg, rawKeyMaterial), {
       alg,

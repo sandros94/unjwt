@@ -107,6 +107,8 @@ export interface JOSELimits {
   recipients?: number;
   /** Max JWK Set candidates tried per token after `kid`/`alg`/`use` filtering. @default 8 */
   keyCandidates?: number;
+  /** Total key trials (an unwrap or a signature check against one key) one `verifyMulti`/`verifyMultiAll`/`decryptMulti` call may spend across its entries. @default 16 */
+  keyAttempts?: number;
   /** Total PBKDF2 iterations one call may spend across PBES2 attempts. @default 2_400_000 */
   pbes2Iterations?: number;
 }
