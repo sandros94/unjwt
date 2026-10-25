@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import * as jose from "jose";
 import { createDPoPProof, verifyDPoPProof } from "../src/dpop/index.ts";
-import { generateJWK, generateKey } from "../src/core/jwk.ts";
+import { clearJWKCache, configureJWKCache, generateJWK, generateKey } from "../src/core/jwk.ts";
 import { digestUrl } from "../src/core/utils/digest.ts";
 import { base64UrlStringify } from "../src/core/utils/base64.ts";
 import type {
@@ -727,6 +727,30 @@ describe("DPoP", () => {
     await expect(
       verifyDPoPProof(await foreignProof(), target, { ...verification, algorithms: ["ES384"] }),
     ).rejects.toHaveProperty("code", "ERR_JWS_ALG_NOT_ALLOWED");
+  });
+
+  it("imports the embedded proof key without the JWK import cache", async () => {
+    const get = vi.fn(() => undefined);
+    const set = vi.fn();
+    const proof = await foreignProof();
+    const signature = proof.split(".")[2];
+    const tampered =
+      proof.slice(0, -signature.length) + (signature[0] === "A" ? "B" : "A") + signature.slice(1);
+    configureJWKCache({ get, set });
+    try {
+      await expect(verifyDPoPProof(proof, target, verification)).resolves.toHaveProperty(
+        "payload.jti",
+        "foreign-proof",
+      );
+      await expect(verifyDPoPProof(tampered, target, verification)).rejects.toHaveProperty(
+        "code",
+        "ERR_JWS_SIGNATURE_INVALID",
+      );
+    } finally {
+      clearJWKCache();
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
   });
 
   it("never consumes proofs failing signature, binding, claims, or policy checks", async () => {

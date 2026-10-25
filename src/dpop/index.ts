@@ -6,7 +6,13 @@ import type {
 } from "./types.ts";
 import { sign, verify } from "../core/jws.ts";
 import { JWTError } from "../core/error.ts";
-import { assertCompactToken, decodeProtectedHeader } from "../core/_internal.ts";
+import {
+  JWS_ALG_CTX,
+  assertCompactToken,
+  checkAlgAllowed,
+  decodeProtectedHeader,
+} from "../core/_internal.ts";
+import { jwkTokey } from "../core/_crypto/_key-codec.ts";
 import { thumbprint } from "../core/_crypto/_thumbprint.ts";
 import { assertPlainObject, isCryptoKey } from "../core/utils/guards.ts";
 import {
@@ -89,7 +95,13 @@ export async function verifyDPoPProof(
       throw new JWTError("DPoP JWT payloads must use base64url encoding.", "ERR_DPOP_INVALID");
     }
     const jwk = projectPublicKey(header.jwk, { algorithm: header.alg, code: "ERR_DPOP_INVALID" });
-    const { payload } = await verify<Record<string, unknown>>(proof, jwk, {
+    const algError = checkAlgAllowed(header.alg, jwk, {
+      ctx: JWS_ALG_CTX,
+      algorithms: options.algorithms,
+    });
+    if (algError) throw algError;
+    const key = await jwkTokey(jwk, { alg: header.alg });
+    const { payload } = await verify<Record<string, unknown>>(proof, key, {
       algorithms: options.algorithms,
       typ: "dpop+jwt",
       currentDate: new Date(context.now * 1000),
