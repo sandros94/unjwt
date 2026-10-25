@@ -1,5 +1,6 @@
 import { JWTError } from "../core/error.ts";
 import { exportJWK } from "../core/jwk.ts";
+import { base64UrlParse, base64UrlStringify } from "../core/utils/base64.ts";
 import { inferJWSAllowedAlgorithms } from "../core/utils/algorithms.ts";
 import { isCryptoKey, isPlainObject, isPrivateJWK } from "../core/utils/guards.ts";
 import type { JWSAsymmetricPublicJWK } from "../core/types/jws.ts";
@@ -102,6 +103,9 @@ export function projectPublicKey(
   ) {
     throw new JWTError("DPoP jwk is missing required asymmetric public key members.", options.code);
   }
+  if (members.some((name) => name !== "crv" && !isCanonicalBase64Url(value[name]))) {
+    throw new JWTError("DPoP jwk members must be canonical unpadded base64url.", options.code);
+  }
   const key = Object.fromEntries([
     ["kty", value.kty],
     ...members.map((name) => [name, value[name]]),
@@ -115,4 +119,13 @@ export function projectPublicKey(
   }
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- required members and algorithm compatibility checked above
   return key as JWSAsymmetricPublicJWK;
+}
+
+function isCanonicalBase64Url(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    return base64UrlStringify(base64UrlParse(value, { returnAs: "bytes" })) === value;
+  } catch {
+    return false;
+  }
 }

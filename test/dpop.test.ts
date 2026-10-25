@@ -595,6 +595,48 @@ describe("DPoP", () => {
     ).rejects.toHaveProperty("code", "ERR_DPOP_INVALID");
   });
 
+  it.each([
+    ["RS256", "n"],
+    ["ES256", "x"],
+    ["ES256", "y"],
+    ["Ed25519", "x"],
+  ] as const)("rejects a non-canonical %s jwk %s member", async (algorithm, member) => {
+    const keyPair = await generateJWK(algorithm);
+    const publicKey: Record<string, unknown> = { ...keyPair.publicKey };
+    const value = String(publicKey[member]);
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const flipped = value.slice(0, -1) + alphabet[alphabet.indexOf(value.at(-1)!) ^ 1];
+    const jwk = { ...publicKey, [member]: flipped };
+    const signingKey = await jose.importJWK(keyPair.privateKey, algorithm);
+    const proof = await new jose.SignJWT({ jti: "id", iat, htm: target.method, htu: target.url })
+      .setProtectedHeader({ alg: algorithm, typ: "dpop+jwt", jwk })
+      .sign(signingKey);
+    const options = { ...verification, algorithms: [algorithm] };
+    await expect(verifyDPoPProof(proof, target, options)).rejects.toHaveProperty(
+      "code",
+      "ERR_DPOP_INVALID",
+    );
+    await expect(
+      createDPoPProof(target, {
+        ...creation,
+        algorithm,
+        keyPair: { ...keyPair, publicKey: jwk },
+      } as unknown as DPoPCreateOptions),
+    ).rejects.toHaveProperty("code", "ERR_INVALID_OPTION");
+    const canonical = await new jose.SignJWT({
+      jti: "id",
+      iat,
+      htm: target.method,
+      htu: target.url,
+    })
+      .setProtectedHeader({ alg: algorithm, typ: "dpop+jwt", jwk: keyPair.publicKey })
+      .sign(signingKey);
+    await expect(verifyDPoPProof(canonical, target, options)).resolves.toHaveProperty(
+      "thumbprint",
+      await jose.calculateJwkThumbprint(keyPair.publicKey),
+    );
+  });
+
   it("rejects a public key incompatible with the protected algorithm", async () => {
     const other = await generateJWK("ES384");
     await expect(
