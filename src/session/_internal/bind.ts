@@ -49,11 +49,9 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
     codec: SessionCodec<Config>;
     keys: SessionKeys;
     actions: SessionActions<TEvent, Config>;
-    /** The hook argument naming the request, as the public entry names it: `{ event }`. */
-    hookArgs: (event: TEvent) => Record<string, unknown>;
   },
 ): SessionBinding<TEvent, Config> {
-  const { config, name, driver, codec, keys, actions, hookArgs } = options;
+  const { config, name, driver, codec, keys, actions } = options;
   const record = driver.state(event);
   claimSessionName(record, { name, family: codec.family, prefix: driver.prefix });
   return {
@@ -64,7 +62,7 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
     keys,
     actions,
     name,
-    args: hookArgs(event),
+    args: { event },
     store: recordSlotStore(record, `${codec.family}:${name}`),
     transport: resolveTransport(driver, event, { config, name }),
   };

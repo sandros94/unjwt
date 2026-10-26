@@ -2930,7 +2930,6 @@ function coreBinding(
       codec: core,
       keys: core.keys(bound),
       actions: sessionActions(),
-      hookArgs: () => ({}),
     },
   );
 }

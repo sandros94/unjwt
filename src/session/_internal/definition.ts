@@ -19,17 +19,15 @@ export function defineSession<
   options: {
     driver: SessionDriver<TEvent>;
     codec: SessionCodec<Config>;
-    /** The hook argument naming the request, as the public entry names it. */
-    hookArgs: (event: TEvent) => Record<string, unknown>;
   },
 ): SessionDefinition<T, MaxAge, TEvent> {
-  const { driver, codec, hookArgs } = options;
+  const { driver, codec } = options;
   const name = config.name || codec.defaultName;
   assertSessionConfig(config, { name, prefix: driver.prefix, defaultCookie: codec.defaultCookie });
   const keys = codec.keys(config);
   const actions: SessionActions<TEvent, Config> = sessionActions();
   const bind = (event: TEvent) =>
-    bindSession(event, { config, name, driver, codec, keys, actions, hookArgs });
+    bindSession(event, { config, name, driver, codec, keys, actions });
 
   return {
     use: async (event) => {

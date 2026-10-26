@@ -82,7 +82,6 @@ export function defineJWESession<T extends SessionRecord, MaxAge extends Expires
   const driver = options?.driver ?? webSessionDriver;
   return defineSession<T, MaxAge, unknown, JWECodecConfig>(config, {
     driver,
-    hookArgs: (event) => ({ event }),
     codec: createJWECodec({ prefix: driver.prefix, defaultName: "__Host-unjwt-jwe" }),
   });
 }

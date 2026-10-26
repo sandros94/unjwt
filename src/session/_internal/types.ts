@@ -84,8 +84,8 @@ export interface SessionBinding<TEvent, Config extends SessionCoreConfig> {
   actions: SessionActions<TEvent, Config>;
   /** Session name, used as the cookie name and the base of the default session header. */
   name: string;
-  /** The hook argument naming the request. */
-  args: Record<string, unknown>;
+  /** The request as every hook receives it. */
+  args: { event: TEvent };
   store: SessionStore;
   transport: SessionTransport;
 }

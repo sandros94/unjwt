@@ -82,7 +82,6 @@ export function defineJWSSession<T extends SessionRecord, MaxAge extends Expires
   const driver = options?.driver ?? webSessionDriver;
   return defineSession<T, MaxAge, unknown, JWSCodecConfig>(config, {
     driver,
-    hookArgs: (event) => ({ event }),
     codec: createJWSCodec({ prefix: driver.prefix, defaultName: "__Host-unjwt-jws" }),
   });
 }

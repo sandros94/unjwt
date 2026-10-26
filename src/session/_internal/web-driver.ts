@@ -1,14 +1,13 @@
 import type { SessionDriver } from "./driver.ts";
 import { invalidConfigError } from "./contract.ts";
 import { webCookieJar } from "./cookie.ts";
-import { createRequestState } from "./request-state.ts";
 import type { SessionHandedToken, SessionRequestEvent, WebSessionEvent } from "../types.ts";
 
 /** Starts the message of every error `unjwt/session` throws. */
 export const PREFIX = "[unjwt/session]";
 
 /** The state of each request without a `context`, keyed by its `Request` or by the object passed in. */
-const sessionsOf = /* @__PURE__ */ createRequestState();
+const requestStates = /* @__PURE__ */ new WeakMap<object, Record<string, unknown>>();
 
 /** The Web session driver: a request event by its `Request` or its `Headers`, or a token in hand. */
 export const webSessionDriver: SessionDriver<WebSessionEvent> = {
@@ -60,5 +59,14 @@ function contextSessions(context: Record<string, unknown>): Record<string, unkno
   }
   const created: Record<string, unknown> = Object.create(null);
   context.sessions = created;
+  return created;
+}
+
+/** The state of a request object, created on first use and released with the object. */
+function sessionsOf(request: object): Record<string, unknown> {
+  const existing = requestStates.get(request);
+  if (existing) return existing;
+  const created: Record<string, unknown> = Object.create(null);
+  requestStates.set(request, created);
   return created;
 }
