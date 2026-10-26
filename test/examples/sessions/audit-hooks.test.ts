@@ -168,7 +168,7 @@ describe("Hooks: what a throw does", async () => {
     const session = defineJWSSession({
       key,
       hooks: {
-        onVerifyKeyLookup: fail,
+        onKeyLookup: fail,
         onError: ({ error }) => void errors.push(error),
       },
     });
