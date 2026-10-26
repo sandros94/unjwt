@@ -151,4 +151,4 @@ src/
 - For multi-arg functions, use an options object as the second parameter.
 - Avoid barrel files (`index.ts` re-exports); import directly from specific modules.
 - Relative imports name the file with its `.ts` extension (`/index.ts` for a directory): the stub `dist` re-exports `src`, and Node resolves nothing else.
-- **`skills/unjwt/`** contains reference docs for the public API — keep these files updated when making architectural changes or modifying public-facing signatures/types
+- **`skills/unjwt/SKILL.md`** is the agent skill: it points at the documentation site (`llms.txt`, `/raw/<path>.md`) and maps tasks to pages — update its table when a page moves or a public entry changes; it holds no API reference of its own
