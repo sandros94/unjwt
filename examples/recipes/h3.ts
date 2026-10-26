@@ -1,11 +1,11 @@
 // #region docs
 import { H3, HTTPError, readBody } from "h3";
-import { defineJWSSession } from "unjwt/session";
+import { type SessionDefinition, defineJWSSession } from "unjwt/session";
 
 const SESSION_KEY = process.env.SESSION_KEY;
 if (!SESSION_KEY) throw new Error("SESSION_KEY is not set");
 
-const appSession = defineJWSSession<{ user: string }, "1h">({
+export const appSession: SessionDefinition<{ user: string }, "1h"> = defineJWSSession({
   key: JSON.parse(SESSION_KEY),
   maxAge: "1h",
   rolling: "15m",
