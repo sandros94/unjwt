@@ -476,8 +476,8 @@ describe("unjwt/session token sources", () => {
   );
 
   it.each(FAMILIES)(
-    "$family: a session read from the header rolls onto session.token, never a cookie",
-    async ({ define }) => {
+    "$family: rolling reissues a cookie session and leaves a header session as sent",
+    async ({ family, define }) => {
       const onUpdate = vi.fn();
       const session = define({
         maxAge: 3600,
@@ -485,20 +485,28 @@ describe("unjwt/session token sources", () => {
         sessionHeader: true,
         hooks: { onUpdate },
       });
-      const fromHeader = await session.issue({ who: "header" });
-      const headers = new Headers();
+      const iat = nowSeconds() - 30 * 60;
+      const old = await foreignToken(family, { jti: "old", iat, exp: iat + 3600, who: "ada" });
 
-      const manager = await session.use({
-        req: get({ "x-web-session": fromHeader }),
+      const headers = new Headers();
+      const fromHeader = await session.use({
+        req: get({ "x-web-session": old }),
         res: { headers },
       });
-      expect(manager.data).toEqual({ who: "header" });
-      expect(manager.token).toBeTypeOf("string");
-      expect(manager.token).not.toBe(fromHeader);
+      expect(fromHeader.id).toBe("old");
+      expect(fromHeader.token).toBe(old);
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(headers.getSetCookie()).toEqual([]);
+
+      const fromCookie = await session.use({
+        req: get({ cookie: `web=${old}` }),
+        res: { headers },
+      });
+      expect(fromCookie.id).not.toBe("old");
+      expect(fromCookie.data).toEqual({ who: "ada" });
       expect(onUpdate).toHaveBeenCalledOnce();
       expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
-      expect(headers.getSetCookie()).toEqual([]);
-      expect((await session.open(String(manager.token))).data).toEqual({ who: "header" });
+      expect(linesOf(headers, "web")).toEqual([expect.stringContaining(`web=${fromCookie.token}`)]);
     },
   );
 
@@ -968,17 +976,21 @@ describe("unjwt/session with a token in hand", () => {
     expect(manager.token).toBeTypeOf("string");
   });
 
-  it.each(cases)("$family, $label: rolls a handed token", async ({ define, config }) => {
-    const onUpdate = vi.fn();
-    const session = define({ ...config, maxAge: 60, rolling: true, hooks: { onUpdate } });
-    const token = await session.issue({ user: "ada" });
-    const manager = await session.use({ token });
+  it.each(cases)(
+    "$family, $label: never rolls a handed token",
+    async ({ family, define, config }) => {
+      const onUpdate = vi.fn();
+      const session = define({ ...config, maxAge: 3600, rolling: true, hooks: { onUpdate } });
+      const iat = nowSeconds() - 30 * 60;
+      const old = await foreignToken(family, { jti: "old", iat, exp: iat + 3600, user: "ada" });
+      const manager = await session.use({ token: old });
 
-    expect(onUpdate).toHaveBeenCalledOnce();
-    expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
-    expect(manager.token).not.toBe(token);
-    expect(manager.data).toEqual({ user: "ada" });
-  });
+      expect(onUpdate).not.toHaveBeenCalled();
+      expect(manager.id).toBe("old");
+      expect(manager.token).toBe(old);
+      expect(manager.data).toEqual({ user: "ada" });
+    },
+  );
 
   it.each(cases)(
     "$family, $label: reports an expired token to onExpire and garbage to onError",

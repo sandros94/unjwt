@@ -70,12 +70,13 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   /** Session lifetime: each token gets `exp = iat + maxAge` and its cookie expires then. An incoming token must have `exp` and ends at `exp` or `iat + maxAge`, whichever is sooner. @default undefined (never expires) */
   maxAge?: MaxAge;
   /**
-   * Reissues the session when it is read. Requires `maxAge`.
+   * Reissues a session read from its cookie. Requires `maxAge`.
    * - `true`: every read reissues.
    * - a duration, shorter than `maxAge`: a read reissues once the token is at least that old. With `maxAge: "1h"` and
    *   `rolling: "15m"`, reads in the first 15 minutes change nothing, and the first read after that issues a fresh hour.
    *
    * A read that cannot write the cookie (no response, or a response already sent) does not reissue. The next request, which sends the same token, does.
+   * A session read from the session header or from a token in hand never reissues: its token stays the one the client sent.
    * @default undefined (the session expires at `iat + maxAge` however often it is read)
    */
   rolling?: true | ExpiresIn;
