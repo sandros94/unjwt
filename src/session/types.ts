@@ -194,7 +194,7 @@ export interface SessionDefinition<
    * @throws `ERR_SESSION_KEY_INVALID` if a configured key fails to import.
    */
   use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
-  /** Returns the token `use()` read or issued on this request, else the one the request sends (the session header before the cookie), unopened. */
+  /** Returns the token `use()` read or issued on this request, else the one the request carries, unopened: a handed token, the session header when it is present and differs from the cookie, otherwise the cookie. */
   token: (event: TEvent) => string | undefined;
   /** Returns a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it). Reads and writes no request. @throws `ERR_INVALID_OPTION` if `data` is not a plain object or holds `__proto__`, `constructor` or `prototype`. */
   issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;
