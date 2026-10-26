@@ -22,9 +22,8 @@ export type {
   JWESessionKey,
   JWESessionOctJWK,
   JWESessionSecret,
-  SessionDecryptOptions,
-  SessionEncryptOptions,
-} from "./_internal/codec-jwe.ts";
+} from "./_internal/codec-jwe-keys.ts";
+export type { SessionDecryptOptions, SessionEncryptOptions } from "./_internal/codec-jwe.ts";
 
 /** Session state for the current request, from the claims of its JWE token. */
 export interface SessionJWE<
@@ -58,8 +57,8 @@ export interface SessionConfigJWE<
 
 /**
  * Defines a JWE session once: encrypted, so clients cannot read its data. `use`, `token`, `issue` and `open` serve every request.
- * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jwe.encryptOptions.alg` and `enc`.
- * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, or not an `oct` JWK, a secret `CryptoKey` or a `{ current, keys }` set.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jwe.encryptOptions.alg` and `enc`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, not an `oct` JWK, a secret `CryptoKey` or a `{ current, keys }` set, or cannot serve the pinned `alg` or `enc`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
  */
 export function defineJWESession<
@@ -69,8 +68,8 @@ export function defineJWESession<
 >(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 /**
  * Defines a JWE session over a framework driver of your own, passed as `{ driver }`.
- * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jwe.encryptOptions.alg` and `enc`.
- * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, or not an `oct` JWK, a secret `CryptoKey` or a `{ current, keys }` set.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jwe.encryptOptions.alg` and `enc`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, not an `oct` JWK, a secret `CryptoKey` or a `{ current, keys }` set, or cannot serve the pinned `alg` or `enc`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
  */
 export function defineJWESession<

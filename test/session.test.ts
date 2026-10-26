@@ -1577,3 +1577,138 @@ describe("a pinned algorithm the key cannot serve", () => {
     ).not.toThrow();
   });
 });
+
+describe("a session key that names no algorithm", () => {
+  const silent = async (alg: "A256KW" | "HS512") => {
+    const { alg: _alg, kid: _kid, ...key } = await generateJWK(alg);
+    return key;
+  };
+  const refusal = (run: () => unknown) => {
+    const error = thrown(run);
+    return {
+      code: isJWTError(error) ? error.code : undefined,
+      message: (error as Error | undefined)?.message,
+    };
+  };
+  const roundTrip = async (session: Definition) =>
+    (await session.open(await session.issue({ user: "ada" }))).data;
+
+  it("JWE: is refused at definition without a pinned alg and enc", async () => {
+    const [oct, wrap] = await Promise.all([silent("A256KW"), generateKey("A256KW")]);
+    const cases = [
+      { key: oct, jwe: undefined, kind: 'a JWK without "alg"' },
+      { key: oct, jwe: { encryptOptions: { alg: "A256KW" } }, kind: 'a JWK without "alg"' },
+      { key: wrap, jwe: { encryptOptions: { alg: "A256KW" } }, kind: "a CryptoKey (AES-KW)" },
+    ] as const;
+    for (const { key, jwe, kind } of cases) {
+      expect(refusal(() => defineJWESession({ key, jwe }))).toEqual({
+        code: "ERR_SESSION_CONFIG_INVALID",
+        message: `[unjwt/session] The session key is ${kind} and carries no algorithm, set "jwe.encryptOptions.alg" and "enc"${kind.includes("JWK") ? ', or its "alg"' : ""}.`,
+      });
+    }
+    expect(refusal(() => defineJWESession({ key: { current: oct, keys: [] } })).message).toContain(
+      'The session key "current" is a JWK without "alg" and carries no algorithm',
+    );
+  });
+
+  it("JWE: is refused at definition when its material cannot carry the pinned alg", async () => {
+    const [gcm, kw128, oct] = await Promise.all([
+      generateKey("A256GCM"),
+      generateKey("A128KW"),
+      silent("A256KW"),
+    ]);
+    const pin = { encryptOptions: { alg: "A256KW", enc: "A256GCM" } } as const;
+    expect(refusal(() => defineJWESession({ key: gcm, jwe: pin }))).toEqual({
+      code: "ERR_SESSION_KEY_INVALID",
+      message:
+        '[unjwt/session] The session key is a CryptoKey (AES-GCM), which serves A256GCMKW, dir, not the "A256KW" that "jwe.encryptOptions.alg" pins.',
+    });
+    expect(refusal(() => defineJWESession({ key: kw128, jwe: pin })).message).toContain(
+      'which serves A128KW, not the "A256KW"',
+    );
+    expect(
+      refusal(() =>
+        defineJWESession({ key: oct, jwe: { encryptOptions: { alg: "A128KW", enc: "A128GCM" } } }),
+      ).message,
+    ).toContain('which serves A256KW, A256GCMKW, dir, not the "A128KW"');
+  });
+
+  it("JWE: is refused at definition when a dir key cannot carry the pinned enc", async () => {
+    const [gcm, oct, cek] = await Promise.all([
+      generateKey("A256GCM"),
+      silent("A256KW"),
+      generateJWK("A256GCM"),
+    ]);
+    const dir = { encryptOptions: { alg: "dir", enc: "A128GCM" } } as const;
+    expect(refusal(() => defineJWESession({ key: gcm, jwe: dir }))).toEqual({
+      code: "ERR_SESSION_KEY_INVALID",
+      message:
+        '[unjwt/session] The session key serves "dir" with A256GCM, not the "A128GCM" that "jwe.encryptOptions.enc" pins.',
+    });
+    expect(refusal(() => defineJWESession({ key: oct, jwe: dir })).message).toContain(
+      'serves "dir" with A256GCM, A128CBC-HS256, not the "A128GCM"',
+    );
+    expect(
+      refusal(() => defineJWESession({ key: cek, jwe: { encryptOptions: { enc: "A128GCM" } } }))
+        .code,
+    ).toBe("ERR_SESSION_KEY_INVALID");
+  });
+
+  it("JWE: issues and opens with every pin its material carries", async () => {
+    const [oct, gcm] = await Promise.all([silent("A256KW"), generateKey("A256GCM")]);
+    const pins = [
+      { key: oct, alg: "A256KW", enc: "A128GCM" },
+      { key: oct, alg: "A256GCMKW", enc: "A256CBC-HS512" },
+      { key: oct, alg: "dir", enc: "A128CBC-HS256" },
+      { key: gcm, alg: "A256GCMKW", enc: "A256GCM" },
+      { key: gcm, alg: "dir", enc: "A256GCM" },
+    ] as const;
+    for (const { key, alg, enc } of pins) {
+      const session = defineJWESession({ name: "web", key, jwe: { encryptOptions: { alg, enc } } });
+      expect(await roundTrip(session)).toEqual({ user: "ada" });
+    }
+  });
+
+  it("JWS: is refused at definition without a pinned alg, or with one it cannot carry", async () => {
+    const [oct, hmac, ecdsa] = await Promise.all([
+      silent("A256KW"),
+      generateKey("HS256"),
+      generateKey("ES256"),
+    ]);
+    expect(refusal(() => defineJWSSession({ key: oct }))).toEqual({
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message:
+        '[unjwt/session] The session key is a JWK without "alg" and carries no algorithm, set "jws.signOptions.alg", or its "alg".',
+    });
+    expect(
+      refusal(() => defineJWSSession({ key: oct, jws: { signOptions: { alg: "HS384" } } })),
+    ).toEqual({
+      code: "ERR_SESSION_KEY_INVALID",
+      message:
+        '[unjwt/session] The session key is a JWK without "alg", which serves HS256, not the "HS384" that "jws.signOptions.alg" pins.',
+    });
+    expect(
+      refusal(() => defineJWSSession({ key: hmac, jws: { signOptions: { alg: "HS512" } } }))
+        .message,
+    ).toContain('The session key is a CryptoKey (HMAC), which serves HS256, not the "HS512"');
+    expect(
+      refusal(() => defineJWSSession({ key: ecdsa, jws: { signOptions: { alg: "RS256" } } }))
+        .message,
+    ).toContain('The session key "privateKey" is a CryptoKey (ECDSA), which serves ES256');
+    const { publicKey } = await generateKey("ES384");
+    expect(
+      refusal(() =>
+        defineJWSSession({
+          key: { privateKey: ecdsa.privateKey, publicKey },
+          jws: { signOptions: { alg: "ES256" } },
+        }),
+      ).message,
+    ).toContain('The session key "publicKey" is a CryptoKey (ECDSA), which serves ES384');
+
+    const hs512 = await silent("HS512");
+    for (const alg of ["HS256", "HS384", "HS512"] as const) {
+      const session = defineJWSSession({ name: "web", key: hs512, jws: { signOptions: { alg } } });
+      expect(await roundTrip(session)).toEqual({ user: "ada" });
+    }
+  });
+});

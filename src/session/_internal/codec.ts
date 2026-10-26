@@ -5,7 +5,6 @@ import {
   RESERVED_CLAIMS,
   assertImportableKey,
   expiredSessionError,
-  invalidConfigError,
   invalidKeyError,
   resolveExpiresAt,
   rethrowAsInvalidToken,
@@ -173,18 +172,6 @@ export function assertKeyPair(
     throw invalidKeyError(
       `${prefix} Invalid ${family} key: "publicKey" must be ${options.publicHalf}.`,
       pair,
-    );
-  }
-}
-
-/** A `CryptoKey` names no JOSE algorithm, so a session accepts one only with the algorithm pinned. */
-export function assertPinnedCryptoKey(
-  key: unknown,
-  options: { pinned: boolean; prefix: string; hint: string },
-): void {
-  if (isCryptoKey(key) && !options.pinned) {
-    throw invalidConfigError(
-      `${options.prefix} A CryptoKey session key carries no algorithm, set ${options.hint}.`,
     );
   }
 }

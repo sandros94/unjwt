@@ -105,8 +105,11 @@ src/
       transport.ts      # core-owned cookie + header transports over a driver; sessionHeader rules
       types.ts          # internal contracts only (PendingSession/StoredSession, SessionCodec/Store/Actions/Binding, core config and hooks)
       codec.ts          # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
-      codec-jws.ts      # JWS half of a session: sign/verify, key resolution, JWS config + cookie defaults
-      codec-jwe.ts      # JWE half of a session: encrypt/decrypt, key resolution, JWE config + cookie defaults
+      codec-jws.ts      # JWS half of a session: sign/verify, JWS config + cookie defaults
+      codec-jws-keys.ts # JWS session keys: JWSSessionKey, sign/verify key resolution, JWS_KEY_ALGORITHMS
+      codec-jwe.ts      # JWE half of a session: encrypt/decrypt, JWE config + cookie defaults
+      codec-jwe-keys.ts # JWE session keys: JWESessionKey, rotation set, JWE_KEY_ALGORITHMS, dir encryptions
+      key-algorithms.ts # what a key serves: the algorithms it names, else those its material carries; the pin check
       chunked-cookie.ts # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
       cookie-attributes.ts # CookieAttributes: the Set-Cookie attribute shape of a session cookie
 ```

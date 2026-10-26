@@ -18,11 +18,8 @@ import type {
 import { defineSession } from "./_internal/definition.ts";
 import { webSessionDriver } from "./_internal/web-driver.ts";
 
-export type {
-  JWSSessionKey,
-  SessionSignOptions,
-  SessionVerifyOptions,
-} from "./_internal/codec-jws.ts";
+export type { JWSSessionKey } from "./_internal/codec-jws-keys.ts";
+export type { SessionSignOptions, SessionVerifyOptions } from "./_internal/codec-jws.ts";
 
 /** Session state for the current request, from the claims of its JWS token. */
 export interface SessionJWS<
@@ -56,8 +53,8 @@ export interface SessionConfigJWS<
 
 /**
  * Defines a JWS session once: signed, not encrypted, so clients can read its data. `use`, `token`, `issue` and `open` serve every request.
- * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jws.signOptions.alg`.
- * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, or not a symmetric JWK, a key pair or a `CryptoKey`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jws.signOptions.alg`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, not a symmetric JWK, a key pair or a `CryptoKey`, or cannot serve the pinned `alg`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
  */
 export function defineJWSSession<
@@ -67,8 +64,8 @@ export function defineJWSSession<
 >(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 /**
  * Defines a JWS session over a framework driver of your own, passed as `{ driver }`.
- * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jws.signOptions.alg`.
- * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, or not a symmetric JWK, a key pair or a `CryptoKey`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jws.signOptions.alg`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, not a symmetric JWK, a key pair or a `CryptoKey`, or cannot serve the pinned `alg`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
  */
 export function defineJWSSession<
