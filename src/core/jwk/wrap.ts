@@ -372,13 +372,20 @@ export async function unwrapKey(
     return unwrappedCekBytes;
   }
 
-  const finalKey = await crypto.subtle.importKey(
+  const importAlgorithm =
+    options.unwrappedKeyAlgorithm || inferAesImportAlgorithm(options.enc, unwrappedCekBytes.length);
+  if (!importAlgorithm) {
+    throw new JWTError(
+      'Cannot infer the unwrapped key algorithm, pass "unwrappedKeyAlgorithm" or unwrap to raw bytes.',
+      "ERR_JWE_INVALID",
+    );
+  }
+
+  return crypto.subtle.importKey(
     "raw",
     unwrappedCekBytes,
-    options.unwrappedKeyAlgorithm || { name: "AES-GCM" },
+    importAlgorithm,
     defaultExtractable,
     options.keyUsage || ["encrypt", "decrypt"],
   );
-
-  return finalKey;
 }

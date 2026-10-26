@@ -3225,3 +3225,17 @@ describe("deriveSharedSecret with OKP JWKs", () => {
     expect(fromAlice.length).toBe(32);
   });
 });
+
+describe("unwrapKey with a content key that is not an AES-GCM key", () => {
+  it("is ERR_JWE_INVALID without unwrappedKeyAlgorithm, and raw bytes still work", async () => {
+    const wrappingKey = await generateKey("A256KW");
+    const cbcKey = crypto.getRandomValues(new Uint8Array(64));
+    const { encryptedKey } = await wrapKey(cbcKey, wrappingKey, { alg: "A256KW" });
+    await expect(
+      unwrapKey(encryptedKey, wrappingKey, { alg: "A256KW", enc: "A256CBC-HS512" }),
+    ).rejects.toMatchObject({ code: "ERR_JWE_INVALID" });
+    await expect(
+      unwrapKey(encryptedKey, wrappingKey, { alg: "A256KW", format: "raw" }),
+    ).resolves.toEqual(cbcKey);
+  });
+});
