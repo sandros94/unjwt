@@ -19,11 +19,24 @@ const PAYLOAD_MODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "bytes",
 ] satisfies JOSEPayloadMode[]);
 
-/** Resolve the payload mode from `payload`; an unknown mode or `validateClaims: true` off `"json"` is `ERR_INVALID_OPTION`. */
-export function resolvePayloadMode(options: {
-  payload?: JOSEPayloadMode;
-  validateClaims?: boolean;
-}): JOSEPayloadMode {
+const CLAIM_OPTIONS = [
+  "audience",
+  "issuer",
+  "subject",
+  "maxTokenAge",
+  "requiredClaims",
+] as const satisfies readonly (keyof JWTClaimValidationOptions)[];
+
+/**
+ * Resolve the payload mode from `payload`; an unknown mode, `validateClaims: true` off `"json"`,
+ * or a claim expectation the call will not check is `ERR_INVALID_OPTION`.
+ */
+export function resolvePayloadMode(
+  options: JWTClaimValidationOptions & {
+    payload?: JOSEPayloadMode;
+    validateClaims?: boolean;
+  },
+): JOSEPayloadMode {
   const { payload, validateClaims } = options;
 
   if (payload !== undefined && !PAYLOAD_MODES.has(payload)) {
@@ -36,5 +49,13 @@ export function resolvePayloadMode(options: {
     throw new JWTError('"validateClaims" requires payload: "json".', "ERR_INVALID_OPTION");
   }
 
-  return mode;
+  if (mode === "json" && validateClaims !== false) return mode;
+  const option = CLAIM_OPTIONS.find((name) => options[name] !== undefined);
+  if (option === undefined) return mode;
+  throw new JWTError(
+    mode === "json"
+      ? `"${option}" needs claim validation: drop validateClaims: false or the option.`
+      : `"${option}" needs a JSON payload: pass payload: "json" or drop the option.`,
+    "ERR_INVALID_OPTION",
+  );
 }

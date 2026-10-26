@@ -150,7 +150,7 @@ describe.concurrent("Utility Functions", () => {
         iat: at,
         exp: at + 60,
       });
-      expect(computeJwtTimeClaims("text", { issuedAt: true })).toBeUndefined();
+      expect(computeJwtTimeClaims("text", { issuedAt: false })).toBeUndefined();
     });
 
     it("refuses an issuedAt that is neither a boolean nor a valid Date", () => {
@@ -213,12 +213,28 @@ describe.concurrent("Utility Functions", () => {
       expect(
         computeJwtTimeClaims({ exp: 2000 }, { expiresIn: "1m", currentDate: date }),
       ).toBeUndefined();
-      expect(
-        computeJwtTimeClaims(textEncoder.encode("bytes"), {
-          expiresIn: "1m",
-          currentDate: date,
-        }),
-      ).toBeUndefined();
+      expect(computeJwtTimeClaims("text", { currentDate: date })).toBeUndefined();
+    });
+
+    it.each([
+      ["expiresIn", { expiresIn: "1m" }],
+      ["expiresAt", { expiresAt: new Date(0) }],
+      ["notBeforeIn", { notBeforeIn: 0 }],
+      ["notBeforeAt", { notBeforeAt: new Date(0) }],
+      ["issuedAt", { issuedAt: true }],
+    ] as const)("refuses %s with a string or bytes payload", (name, options) => {
+      for (const payload of ["text", textEncoder.encode("bytes")]) {
+        const error = (() => {
+          try {
+            computeJwtTimeClaims(payload, options);
+          } catch (error_) {
+            return error_;
+          }
+          return undefined;
+        })();
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect((error as JWTError).message).toContain(`"${name}" needs a JSON payload`);
+      }
     });
 
     it("throws when both expiresIn and expiresAt are provided", () => {

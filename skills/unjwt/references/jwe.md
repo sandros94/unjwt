@@ -50,6 +50,7 @@ Produces a JWE Compact Serialization token.
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `issuedAt?: boolean | Date` — writes `iat` alone, as on `sign()`
   - `currentDate?: Date`
+  - `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt` and `issuedAt` need an object payload: with a string or `Uint8Array` payload `encrypt` and `encryptMulti` throw `ERR_INVALID_OPTION`
   - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`
   - `contentEncryptionIV?: Uint8Array` — custom IV; must be exactly the length `enc` names, or `ERR_INVALID_OPTION`
   - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `600_000` — the bounds `decrypt` enforces by default — or the call throws `ERR_INVALID_OPTION`. `p2c: 0` is rejected, never replaced by the default
@@ -123,6 +124,7 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 - Options are checked before the token is read, as on `verify`: an empty `audience` / `issuer` / `subject` / `typ`, a non-string `typ`, `maxTokenAge: 0`, non-object `options` or `limits`, and an `algorithms` / `encryptionAlgorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings throw `ERR_INVALID_OPTION`
+- `audience`, `issuer`, `subject`, `maxTokenAge` and `requiredClaims` need claims to check: with `payload: "string"` / `"bytes"` or `validateClaims: false`, `decrypt` and `decryptMulti` throw `ERR_INVALID_OPTION`; `typ`, `recognizedHeaders`, `clockTolerance` and `currentDate` are accepted in every mode
 
 **Returns:** `Promise<JWEDecryptResult<T>>`
 

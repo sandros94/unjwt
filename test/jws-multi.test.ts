@@ -1602,6 +1602,85 @@ describe.concurrent("JWS JSON verification option gates", () => {
   });
 });
 
+const CLAIM_OPTIONS = [
+  ["audience", { audience: "a" }],
+  ["issuer", { issuer: "i" }],
+  ["subject", { subject: "u" }],
+  ["maxTokenAge", { maxTokenAge: 60 }],
+  ["requiredClaims", { requiredClaims: ["sub"] }],
+] as const;
+const UNCHECKED_MODES = [
+  [{ payload: "string" }, "needs a JSON payload"],
+  [{ payload: "bytes" }, "needs a JSON payload"],
+  [{ validateClaims: false }, "needs claim validation"],
+] as const;
+const CLAIM_CASES = CLAIM_OPTIONS.flatMap(([name, option]) =>
+  UNCHECKED_MODES.map(([mode, reason]) => [name, mode, { ...option, ...mode }, reason] as const),
+);
+const TIME_CASES = (
+  [
+    ["expiresIn", { expiresIn: 60 }],
+    ["expiresAt", { expiresAt: new Date(4_000_000_000_000) }],
+    ["notBeforeIn", { notBeforeIn: 0 }],
+    ["notBeforeAt", { notBeforeAt: new Date(0) }],
+    ["issuedAt", { issuedAt: true }],
+  ] as const
+).flatMap(([name, option]) =>
+  [["a string", "text"] as const, ["bytes", new Uint8Array([1, 2])] as const].map(
+    ([label, payload]) => [name, label, payload, option] as const,
+  ),
+);
+
+describe.concurrent("JWS JSON claim and time options need a JSON payload", () => {
+  let key: JWK_oct<"HS256">;
+  let jws: JWSGeneralSerialization;
+
+  beforeAll(async () => {
+    key = await generateJWK("HS256");
+    jws = await signMulti({ sub: "u", iss: "i", aud: "a" }, [
+      { key, protectedHeader: { typ: "at+jwt" } },
+    ]);
+  });
+
+  it.each(CLAIM_CASES)("verifyMulti refuses %s with %j", async (name, _mode, options, reason) => {
+    const error = await verifyMulti(jws, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain(`"${name}" ${reason}`);
+  });
+
+  it.each(CLAIM_CASES)(
+    "verifyMultiAll refuses %s with %j",
+    async (name, _mode, options, reason) => {
+      const error = await verifyMultiAll(jws, () => key, options as never).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain(`"${name}" ${reason}`);
+    },
+  );
+
+  it("keeps header checks and the clock for any payload mode", async () => {
+    const options: JWSMultiVerifyAllOptions<"string"> = {
+      payload: "string",
+      typ: "at+jwt",
+      recognizedHeaders: ["app"],
+      currentDate: new Date(),
+      clockTolerance: 5,
+    };
+    const { payload } = await verifyMulti(jws, key, options);
+    expect(JSON.parse(payload)).toMatchObject({ sub: "u" });
+    const [outcome] = await verifyMultiAll(jws, () => key, options);
+    expect(outcome?.verified).toBe(true);
+  });
+
+  it.each(TIME_CASES)(
+    "signMulti refuses %s with %s payload",
+    async (name, _label, payload, option) => {
+      const error = await signMulti(payload, [{ key }], option).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain(`"${name}" needs a JSON payload`);
+    },
+  );
+});
+
 describe("types", () => {
   type MyClaims = { sub: string; role: "admin" | "user" };
   type Bytes = Uint8Array<ArrayBuffer>;

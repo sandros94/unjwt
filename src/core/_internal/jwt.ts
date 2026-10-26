@@ -122,7 +122,8 @@ export type ComputeJwtTimeClaimsOptions = JWTTimeClaimOptions;
 /**
  * Return a copy of an object payload with `iat` and the requested `exp` / `nbf`, or `undefined` when none applies.
  * `currentDate` is the clock: `iat` when written, and the base of `expiresIn` / `notBeforeIn`;
- * `issuedAt` writes `iat` alone, a `Date` as that instant. Both members of `expiresIn`/`expiresAt` or `notBeforeIn`/`notBeforeAt` throw `ERR_JWT_CLAIM_INVALID`.
+ * `issuedAt` writes `iat` alone, a `Date` as that instant. Both members of `expiresIn`/`expiresAt` or `notBeforeIn`/`notBeforeAt` throw `ERR_JWT_CLAIM_INVALID`;
+ * any of them with a string or bytes payload is `ERR_INVALID_OPTION`.
  */
 export function computeJwtTimeClaims(
   payload: unknown,
@@ -151,7 +152,16 @@ export function computeJwtTimeClaims(
   const hasNbfHint = notBeforeIn !== undefined || notBeforeAt !== undefined;
   const hasIatHint = issuedAt === true || issuedAt instanceof Date;
   if (!hasExpHint && !hasNbfHint && !hasIatHint) return undefined;
-  if (!payload || typeof payload !== "object" || payload instanceof Uint8Array) return undefined;
+  if (!payload || typeof payload !== "object" || payload instanceof Uint8Array) {
+    const option =
+      Object.entries({ expiresIn, expiresAt, notBeforeIn, notBeforeAt }).find(
+        ([, value]) => value !== undefined,
+      )?.[0] ?? "issuedAt";
+    throw new JWTError(
+      `"${option}" needs a JSON payload: pass an object payload or drop the option.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
 
   const wantsExp = hasExpHint && (!("exp" in payload) || payload.exp === undefined);
   const wantsNbf = hasNbfHint && (!("nbf" in payload) || payload.nbf === undefined);

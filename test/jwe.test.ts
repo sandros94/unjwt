@@ -1960,6 +1960,77 @@ describe.concurrent("JWE decryption option gates", () => {
   });
 });
 
+const CLAIM_OPTIONS = [
+  ["audience", { audience: "a" }],
+  ["issuer", { issuer: "i" }],
+  ["subject", { subject: "u" }],
+  ["maxTokenAge", { maxTokenAge: 60 }],
+  ["requiredClaims", { requiredClaims: ["sub"] }],
+] as const;
+const UNCHECKED_MODES = [
+  [{ payload: "string" }, "needs a JSON payload"],
+  [{ payload: "bytes" }, "needs a JSON payload"],
+  [{ validateClaims: false }, "needs claim validation"],
+] as const;
+const CLAIM_CASES = CLAIM_OPTIONS.flatMap(([name, option]) =>
+  UNCHECKED_MODES.map(([mode, reason]) => [name, mode, { ...option, ...mode }, reason] as const),
+);
+const TIME_CASES = (
+  [
+    ["expiresIn", { expiresIn: 60 }],
+    ["expiresAt", { expiresAt: new Date(4_000_000_000_000) }],
+    ["notBeforeIn", { notBeforeIn: 0 }],
+    ["notBeforeAt", { notBeforeAt: new Date(0) }],
+    ["issuedAt", { issuedAt: true }],
+  ] as const
+).flatMap(([name, option]) =>
+  [["a string", "text"] as const, ["bytes", new Uint8Array([1, 2])] as const].map(
+    ([label, payload]) => [name, label, payload, option] as const,
+  ),
+);
+
+describe.concurrent("JWE compact claim and time options need a JSON payload", () => {
+  let key: JWK_oct<"A256KW">;
+  let token: string;
+
+  beforeAll(async () => {
+    key = await generateJWK("A256KW");
+    token = await encrypt({ sub: "u", iss: "i", aud: "a" }, key, {
+      enc: "A256GCM",
+      protectedHeader: { typ: "at+jwt" },
+    });
+  });
+
+  it.each(CLAIM_CASES)("decrypt refuses %s with %j", async (name, _mode, options, reason) => {
+    const error = await decrypt(token, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain(`"${name}" ${reason}`);
+  });
+
+  it("decrypt keeps header checks, the clock and validateClaims: false for any payload mode", async () => {
+    const { payload } = await decrypt(token, key, {
+      payload: "string",
+      typ: "at+jwt",
+      recognizedHeaders: ["app"],
+      currentDate: new Date(),
+      clockTolerance: 5,
+    });
+    expect(JSON.parse(payload)).toMatchObject({ sub: "u" });
+    await expect(
+      decrypt(token, key, { validateClaims: false, typ: "at+jwt" }),
+    ).resolves.toHaveProperty("payload.sub", "u");
+  });
+
+  it.each(TIME_CASES)(
+    "encrypt refuses %s with %s payload",
+    async (name, _label, payload, option) => {
+      const error = await encrypt(payload, key, option).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain(`"${name}" needs a JSON payload`);
+    },
+  );
+});
+
 describe("types", () => {
   type MyClaims = { sub: string; role: "admin" | "user" };
   const key = new Uint8Array(32);
