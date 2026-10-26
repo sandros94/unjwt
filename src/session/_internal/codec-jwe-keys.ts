@@ -20,7 +20,14 @@ import {
 import type { JWTError } from "../../error.ts";
 import { assertKeyMaterial, invalidKeyError } from "./contract.ts";
 import { isKeyPair } from "./codec.ts";
-import { type KeyAlgorithms, assertPinnedKey, octBits } from "./key-algorithms.ts";
+import { quoteTokenValue } from "../../utils/_internal/text.ts";
+import {
+  type KeyAlgorithms,
+  type SessionKeyEntry,
+  assertPinnedKey,
+  octBits,
+  servedAlgorithms,
+} from "./key-algorithms.ts";
 
 /** An `oct` JWK that JWE key management accepts. */
 export type JWESessionOctJWK = Extract<JWEDecryptJWK, { kty: "oct" }>;
@@ -67,6 +74,58 @@ export function sessionKeys(
   };
 }
 
+/** A key that decrypts, with the algorithms it serves. */
+export interface JWESessionEntry {
+  key: JWESessionSecret;
+  algorithms: readonly KeyManagementAlgorithm[];
+}
+
+/**
+ * Resolves and checks the configured keys: `current`, which encrypts, and every key that decrypts, `current` first.
+ * `algorithms` is what they serve together, the `alg` values an incoming token may carry.
+ */
+export function resolveSessionKeys(
+  key: unknown,
+  options: {
+    alg: KeyManagementAlgorithm | undefined;
+    enc: ContentEncryptionAlgorithm | undefined;
+    listed: KeyManagementAlgorithm[] | undefined;
+    lookup: boolean;
+    prefix: string;
+  },
+): {
+  current: JWESessionSecret;
+  previous: JWESessionOctJWK[] | undefined;
+  entries: JWESessionEntry[];
+  algorithms: KeyManagementAlgorithm[];
+} {
+  const { alg, enc, listed, lookup, prefix } = options;
+  const { current, previous } = sessionKeys(key, prefix);
+  const subject = previous ? 'The session key "current"' : "The session key";
+  assertIssuingKey(current, { alg, enc, subject, prefix });
+  const named: (SessionKeyEntry & { key: JWESessionSecret })[] = [
+    { key: current, subject, pin: alg },
+  ];
+  previous?.forEach((entry, index) => {
+    if (entry === current) return;
+    const kid = entry.kid === undefined ? "" : ` (kid ${quoteTokenValue(entry.kid)})`;
+    named.push({ key: entry, subject: `The session key "keys[${index}]"${kid}` });
+  });
+  const served = servedAlgorithms(named, {
+    algorithms: JWE_KEY_ALGORITHMS,
+    listed,
+    listPath: "jwe.decryptOptions.algorithms",
+    lookup,
+    prefix,
+  });
+  return {
+    current,
+    previous,
+    entries: named.map((entry, index) => ({ key: entry.key, algorithms: served.each[index] })),
+    algorithms: served.all,
+  };
+}
+
 /**
  * The key that encrypts must serve the pinned `alg`, and a `dir` key the pinned `enc`. A key that names no algorithm needs both pinned.
  * @throws `ERR_SESSION_CONFIG_INVALID` for a key that names no algorithm without a pinned `alg` and `enc`.
@@ -102,7 +161,7 @@ export function assertIssuingKey(
 }
 
 /** RFC 7518 §4: a JWK's `alg` names its role. Without one, an AES-KW `CryptoKey` wraps, an AES-GCM one wraps or is the CEK, a PBKDF2 one derives, and raw bytes serve what their length fits. */
-export const JWE_KEY_ALGORITHMS: KeyAlgorithms = {
+export const JWE_KEY_ALGORITHMS: KeyAlgorithms<KeyManagementAlgorithm> = {
   family: "JWE",
   own: (key) => (isJWK(key) && key.alg ? (inferJWEAllowedAlgorithms(key) ?? []) : undefined),
   carried: (key) => {
@@ -113,10 +172,8 @@ export const JWE_KEY_ALGORITHMS: KeyAlgorithms = {
       return name === "AES-GCM" && wraps.length > 0 ? [...wraps, "dir"] : wraps;
     }
     if (!isSymmetricJWK(key)) return [];
-    const bits = octBits(key);
-    const algs: string[] = AES_KEY_BITS.includes(bits) ? [`A${bits}KW`, `A${bits}GCMKW`] : [];
-    if (directEncryptions(key).length > 0) algs.push("dir");
-    return algs;
+    const algs = aesWraps(octBits(key));
+    return directEncryptions(key).length > 0 ? [...algs, "dir"] : algs;
   },
 };
 
@@ -174,8 +231,6 @@ function isObject(value: unknown): value is object {
   return typeof value === "object" && value !== null;
 }
 
-const AES_KEY_BITS: readonly number[] = [128, 192, 256];
-
 const GCM_ENCRYPTIONS: readonly ContentEncryptionAlgorithm[] = ["A128GCM", "A192GCM", "A256GCM"];
 
 const CBC_ENCRYPTIONS: readonly ContentEncryptionAlgorithm[] = [
@@ -183,6 +238,20 @@ const CBC_ENCRYPTIONS: readonly ContentEncryptionAlgorithm[] = [
   "A192CBC-HS384",
   "A256CBC-HS512",
 ];
+
+/** RFC 7518 §4.4, §4.7: the wrapping algorithms of an AES key of `bits`. */
+function aesWraps(bits: number): KeyManagementAlgorithm[] {
+  switch (bits) {
+    case 128:
+      return ["A128KW", "A128GCMKW"];
+    case 192:
+      return ["A192KW", "A192GCMKW"];
+    case 256:
+      return ["A256KW", "A256GCMKW"];
+    default:
+      return [];
+  }
+}
 
 /** RFC 7518 §5.2.3–§5.2.5, §5.3: a CBC-HMAC key is twice its AES size. */
 function encryptionBits(enc: ContentEncryptionAlgorithm): number {

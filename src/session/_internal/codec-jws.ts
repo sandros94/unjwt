@@ -1,5 +1,4 @@
 import { sign, verify } from "../../core/jws/index.ts";
-import { isJWKSet } from "../../utils/guards.ts";
 import type {
   ExpiresIn,
   JWKSet,
@@ -9,6 +8,7 @@ import type {
   JWSVerifyOptions,
   JWSKeyLookup,
   JWSHeaderParameters,
+  JWSAlgorithm,
 } from "../../core/types/index.ts";
 import type { StrictOmit } from "../../utils/types.ts";
 import {
@@ -17,14 +17,17 @@ import {
   sessionIssueOptions,
   sessionOpenOptions,
 } from "./codec.ts";
-import { type JWSSessionKey, getSignKey, getVerifyKey } from "./codec-jws-keys.ts";
+import { type JWSSessionKey, getSignKey, resolveVerifyKeys } from "./codec-jws-keys.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
-/** JWS verify options a session accepts. The session sets `algorithms`, `typ`, `maxTokenAge`, `validateClaims` and `payload` itself. */
+/**
+ * JWS verify options a session accepts. `algorithms` names the `alg` values a key without its own `alg` (a `CryptoKey`, an `oct` or RSA JWK
+ * without `alg`) verifies. The session sets `typ`, `maxTokenAge`, `validateClaims` and `payload` itself.
+ */
 export type SessionVerifyOptions = StrictOmit<
   JWSVerifyOptions,
-  "algorithms" | "typ" | "maxTokenAge" | "validateClaims" | "payload"
+  "typ" | "maxTokenAge" | "validateClaims" | "payload"
 >;
 
 /** JWS sign options a session accepts. The session sets `exp` from `maxAge` and never sets `nbf`. */
@@ -48,7 +51,12 @@ export interface JWSSessionConfig<
   key: JWSSessionKey;
   /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). `httpOnly: false` lets page scripts read the signed payload. @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
-  /** A pinned `signOptions.alg` is the only algorithm verification accepts. `signOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). */
+  /**
+   * `signOptions.alg` is what each token is signed with, and names the algorithm of the session's keys without their own `alg`.
+   * Verification accepts every `alg` the keys serve: a JWK's own `alg` (or an EC or OKP JWK's curve), and for a key without one,
+   * the pinned `alg` and each algorithm of `verifyOptions.algorithms` its material carries.
+   * `signOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11).
+   */
   jws?: JWSSessionOptions;
 }
 
@@ -77,7 +85,10 @@ export interface JWSCodecConfig extends SessionCoreConfig {
   };
 }
 
-type JWSOpenKey = JWSVerifyJWK | JWKSet | CryptoKey | JWSKeyLookup<JWKSet | JWSVerifyJWK>;
+interface JWSOpenKey {
+  key: JWSVerifyJWK | JWKSet | CryptoKey | JWSKeyLookup<JWKSet | JWSVerifyJWK>;
+  algorithms: JWSAlgorithm[];
+}
 
 export const JWS_DEFAULT_COOKIE = {
   path: "/",
@@ -86,7 +97,7 @@ export const JWS_DEFAULT_COOKIE = {
   sameSite: "lax",
 } as const;
 
-/** Signs session claims into a compact JWS and verifies them, checking claims, `typ` and the pinned `alg`. */
+/** Signs session claims into a compact JWS and verifies them, checking claims, `typ` and the algorithms the keys serve. */
 export function createJWSCodec(options: {
   prefix: string;
   defaultName: string;
@@ -102,20 +113,28 @@ export function createJWSCodec(options: {
     issueOptions: (config) => config.jws?.signOptions,
     openOptions: (config) => config.jws?.verifyOptions,
     issueKey: (config) => getSignKey(config.key, { pin: config.jws?.signOptions?.alg, prefix }),
-    openKey: (config) => getVerifyKey(config.key, { pin: config.jws?.signOptions?.alg, prefix }),
+    openKey: (config) => resolveKeys(config, prefix),
     lookup: (config) => {
       const hooks = config.hooks;
       if (!hooks?.onVerifyKeyLookup) return undefined;
-      return (args) => (header: JWSHeaderParameters) =>
-        hooks.onVerifyKeyLookup?.({ header, ...args, config });
+      const { algorithms } = resolveKeys(config, prefix);
+      return (args) => ({
+        key: (header: JWSHeaderParameters) =>
+          hooks.onVerifyKeyLookup?.({ header, ...args, config }),
+        algorithms,
+      });
     },
-    importable: (key) => (isJWKSet(key) ? key.keys : [key]),
+    importable: (config) =>
+      resolveKeys(config, prefix).entries.map(({ key, algorithms }) => ({
+        key,
+        alg: algorithms[0],
+      })),
 
     issue: (config, payload, key) =>
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key without `alg` reaches here only with `alg` pinned
       sign(payload, key as JWSSignJWK, sessionIssueOptions(config.jws?.signOptions)),
 
-    open: async (config, token, key) => {
+    open: async (config, token, { key, algorithms }) => {
       const { verifyOptions, signOptions } = config.jws ?? {};
       const { payload } = await verify<SessionPayload>(token, key, {
         ...verifyOptions,
@@ -123,10 +142,19 @@ export function createJWSCodec(options: {
           maxAge: config.maxAge,
           requiredClaims: verifyOptions?.requiredClaims,
           typ: signOptions?.protectedHeader?.typ,
-          alg: signOptions?.alg,
+          algorithms,
         }),
       });
       return payload;
     },
+  });
+}
+
+function resolveKeys(config: JWSCodecConfig, prefix: string): ReturnType<typeof resolveVerifyKeys> {
+  return resolveVerifyKeys(config.key, {
+    pin: config.jws?.signOptions?.alg,
+    listed: config.jws?.verifyOptions?.algorithms,
+    lookup: typeof config.hooks?.onVerifyKeyLookup === "function",
+    prefix,
   });
 }

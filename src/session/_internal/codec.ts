@@ -22,6 +22,12 @@ import type {
 
 export type SessionPayload = JWTClaims & { jti: string; iat: number };
 
+/** A configured key and the `alg` it is imported under, `undefined` for a key that names its own. */
+export interface ImportableKey {
+  key: unknown;
+  alg: JWKAlgorithm | undefined;
+}
+
 /** What a family supplies to build its session codec. */
 export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, OpenKey> {
   family: "jws" | "jwe";
@@ -36,8 +42,8 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   openKey: (config: Config) => OpenKey;
   /** With a key lookup hook set, returns the open key for a request's hook arguments. */
   lookup: (config: Config) => ((args: Record<string, unknown>) => OpenKey) | undefined;
-  /** The JWKs of an open key to import up front. */
-  importable?: (key: OpenKey, config: Config) => readonly unknown[];
+  /** The keys that open tokens, each to import up front under the `alg` it serves. */
+  importable: (config: Config) => readonly ImportableKey[];
   issue: (config: Config, payload: Record<string, unknown>, key: IssueKey) => Promise<string>;
   open: (config: Config, token: string, key: OpenKey) => Promise<SessionPayload>;
 }
@@ -71,14 +77,13 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
     keys: (config): SessionKeys => {
       const issueKey = spec.issueKey(config);
       const { keyFor, importable } = openingKeys(spec, config);
-      const imports = { alg: spec.issueOptions(config)?.alg, prefix };
       const assertOpenKeys = async (): Promise<void> => {
-        for (const candidate of importable) await assertImportableKey(candidate, imports);
+        for (const { key, alg } of importable) await assertImportableKey(key, { alg, prefix });
       };
 
       return {
         assertKeys: async () => {
-          await assertImportableKey(issueKey, imports);
+          await assertImportableKey(issueKey, { alg: spec.issueOptions(config)?.alg, prefix });
           await assertOpenKeys();
         },
 
@@ -122,26 +127,26 @@ export function sessionIssueOptions<O extends { protectedHeader?: { typ?: string
   });
 }
 
-/** Claim validation, the session `typ` and the pinned `alg`. The session checks `maxAge` itself, not through `maxTokenAge`. */
+/** Claim validation, the session `typ` and the `alg` values the keys serve. The session checks `maxAge` itself, not through `maxTokenAge`. */
 export function sessionOpenOptions<A extends string>(options: {
   maxAge: ExpiresIn | undefined;
   requiredClaims: string[] | undefined;
   typ: string | undefined;
-  alg: A | undefined;
+  algorithms: A[];
 }): {
   requiredClaims: string[];
   typ: string;
   maxTokenAge: undefined;
-  algorithms: A[] | undefined;
+  algorithms: A[];
   payload: "json";
   validateClaims: true;
 } {
-  const { maxAge, requiredClaims, typ, alg } = options;
+  const { maxAge, requiredClaims, typ, algorithms } = options;
   return {
     requiredClaims: sessionRequiredClaims(requiredClaims, { maxAge }),
     typ: sessionTyp(typ),
     maxTokenAge: undefined,
-    algorithms: alg ? [alg] : undefined,
+    algorithms,
     payload: "json",
     validateClaims: true,
   };
@@ -242,9 +247,9 @@ function openedSession(
 function openingKeys<Config extends SessionCoreConfig, IssueKey, OpenKey>(
   spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
   config: Config,
-): { keyFor: (args: Record<string, unknown>) => OpenKey; importable: readonly unknown[] } {
+): { keyFor: (args: Record<string, unknown>) => OpenKey; importable: readonly ImportableKey[] } {
   const lookup = spec.lookup(config);
   if (lookup) return { keyFor: lookup, importable: [] };
   const key = spec.openKey(config);
-  return { keyFor: () => key, importable: spec.importable ? spec.importable(key, config) : [key] };
+  return { keyFor: () => key, importable: spec.importable(config) };
 }

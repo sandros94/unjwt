@@ -199,7 +199,7 @@ export interface SessionDefinition<
   /** Returns a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it). Reads and writes no request. @throws `ERR_INVALID_OPTION` if `data` is not a plain object or holds `__proto__`, `constructor` or `prototype`. */
   issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;
   /**
-   * Opens a token into session state. Checks `typ`, the pinned algorithms, `jti`, `iat`, and `exp` when `maxAge` is set. The key lookup hook receives no event.
+   * Opens a token into session state. Checks `typ`, the algorithms the keys serve, `jti`, `iat`, and `exp` when `maxAge` is set. The key lookup hook receives no event.
    * @throws `ERR_JWT_EXPIRED` if the token is expired.
    * @throws `ERR_SESSION_TOKEN_INVALID` if the token fails any other check.
    */

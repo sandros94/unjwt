@@ -1712,3 +1712,123 @@ describe("a session key that names no algorithm", () => {
     }
   });
 });
+
+describe("the algorithms a session accepts", () => {
+  const issued = (key: JWESessionKey, encryptOptions?: Record<string, unknown>) =>
+    defineJWESession({ name: "web", key, jwe: { encryptOptions } }).issue({ user: "ada" });
+  const stripped = async (alg: "A256KW") => {
+    const { alg: _alg, kid: _kid, ...key } = await generateJWK(alg);
+    return key;
+  };
+
+  it("JWE: opens a token of a former key with another alg under a pin", async () => {
+    const [cek, wrap] = await Promise.all([generateJWK("A256GCM"), generateJWK("A256KW")]);
+    const current = { ...cek, kid: "current" };
+    const former = { ...wrap, kid: "former" };
+    const session = defineJWESession({
+      name: "web",
+      key: { current, keys: [former] },
+      jwe: { encryptOptions: { alg: "dir", enc: "A256GCM" } },
+    });
+
+    expect((await session.open(await issued(former))).data).toEqual({ user: "ada" });
+    expect(JSON.parse(atob((await session.issue({})).split(".")[0])).alg).toBe("dir");
+  });
+
+  it("JWE: a wrapping key opens every enc, a pinned one included", async () => {
+    const session = defineJWESession({
+      name: "web",
+      key: jweKey,
+      jwe: { encryptOptions: { alg: "A128KW", enc: "A128GCM" } },
+    });
+    for (const enc of ["A128GCM", "A256GCM", "A128CBC-HS256", "A256CBC-HS512"]) {
+      const token = await issued(jweKey, { enc });
+      expect((await session.open(token)).data).toEqual({ user: "ada" });
+    }
+  });
+
+  it("JWE: a former key without alg opens through decryptOptions.algorithms", async () => {
+    const former = await stripped("A256KW");
+    const token = await issued(former, { alg: "A256GCMKW", enc: "A256GCM" });
+    const current = { ...(await generateJWK("A256KW")), kid: "current" };
+    const session = defineJWESession({
+      name: "web",
+      key: { current, keys: [former] },
+      jwe: { decryptOptions: { algorithms: ["A256GCMKW"] } },
+    });
+
+    expect((await session.open(token)).data).toEqual({ user: "ada" });
+    const error = thrown(() => defineJWESession({ key: { current, keys: [former] } }));
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      '[unjwt/session] The session key "keys[0]" is a JWK without "alg" and carries no algorithm, list one it serves (A256KW, A256GCMKW, dir) in "jwe.decryptOptions.algorithms", or set its "alg".',
+    );
+  });
+
+  it("refuses an empty list and an algorithm no key serves, unless a key lookup opens tokens", () => {
+    const refusals = [
+      {
+        run: () => defineJWESession({ key: jweKey, jwe: { decryptOptions: { algorithms: [] } } }),
+        message:
+          '[unjwt/session] "jwe.decryptOptions.algorithms" is empty, list the algorithms the session keys serve or leave it unset.',
+      },
+      {
+        run: () =>
+          defineJWESession({ key: jweKey, jwe: { decryptOptions: { algorithms: ["A256KW"] } } }),
+        message:
+          '[unjwt/session] "jwe.decryptOptions.algorithms" lists "A256KW", which no session key serves. Remove it, or add a key for it.',
+      },
+      {
+        run: () =>
+          defineJWSSession({ key: jwsKey, jws: { verifyOptions: { algorithms: ["ES256"] } } }),
+        message:
+          '[unjwt/session] "jws.verifyOptions.algorithms" lists "ES256", which no session key serves. Remove it, or add a key for it.',
+      },
+    ];
+    for (const { run, message } of refusals) {
+      const error = thrown(run);
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toBe(message);
+    }
+    expect(() =>
+      defineJWSSession({
+        key: jwsKey,
+        jws: { verifyOptions: { algorithms: ["ES256"] } },
+        hooks: { onVerifyKeyLookup: () => jwsKey },
+      }),
+    ).not.toThrow();
+  });
+
+  it("JWS: verifies a former public key of another alg, and tries a key without alg for its own algorithms alone", async () => {
+    const [current, former, other] = await Promise.all([
+      generateJWK("ES256"),
+      generateJWK("PS256"),
+      generateJWK("RS256"),
+    ]);
+    const { alg: _alg, ...silent } = former.publicKey;
+    const session = defineJWSSession({
+      name: "web",
+      key: {
+        privateKey: current.privateKey,
+        publicKey: [current.publicKey, other.publicKey, silent],
+      },
+      jws: { signOptions: { alg: "ES256" }, verifyOptions: { algorithms: ["PS256"] } },
+    });
+    const signed = (privateKey: unknown, alg: string) =>
+      sign({ jti: "s", iat: nowSeconds(), user: "ada" }, privateKey as never, {
+        alg: alg as never,
+        protectedHeader: { typ: "session+jwt" },
+      });
+
+    expect((await session.open(await signed(other.privateKey, "RS256"))).data).toEqual({
+      user: "ada",
+    });
+    expect((await session.open(await signed(former.privateKey, "PS256"))).data).toEqual({
+      user: "ada",
+    });
+    const offAlgorithm = await signed({ ...former.privateKey, alg: "RS256" }, "RS256");
+    await expect(session.open(offAlgorithm)).rejects.toSatisfy((error) =>
+      isJWTError(error, "ERR_SESSION_TOKEN_INVALID"),
+    );
+  });
+});

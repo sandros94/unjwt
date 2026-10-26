@@ -1617,12 +1617,13 @@ describe("session contract", () => {
       expectTypeOf<SessionVerifyOptions>().not.toHaveProperty("maxTokenAge");
       expectTypeOf<SessionVerifyOptions>().not.toHaveProperty("payload");
       expectTypeOf<SessionVerifyOptions>().not.toHaveProperty("validateClaims");
-      expectTypeOf<SessionVerifyOptions>().not.toHaveProperty("algorithms");
+      expectTypeOf<SessionVerifyOptions>().toHaveProperty("algorithms");
       expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("typ");
       expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("maxTokenAge");
       expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("payload");
       expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("validateClaims");
-      expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("algorithms");
+      expectTypeOf<SessionDecryptOptions>().toHaveProperty("algorithms");
+      expectTypeOf<SessionDecryptOptions>().not.toHaveProperty("encryptionAlgorithms");
     });
   });
   // #endregion
@@ -2478,7 +2479,7 @@ describe("session contract", () => {
     );
 
     it.each(familyCases())(
-      "$label: open() refuses a foreign typ, an unpinned algorithm and a missing exp",
+      "$label: open() refuses a foreign typ, an algorithm the key does not serve and a missing exp",
       async (variant) => {
         const claims = { jti: "foreign", iat: nowSeconds() };
         const refused = async (definition: TestDefinition, token: string) =>
@@ -2498,11 +2499,14 @@ describe("session contract", () => {
         const offAlgorithm =
           variant.family === "jws"
             ? await sign(claims, hsKey, { protectedHeader: { typ: "session+jwt" } })
-            : await encrypt(claims, jweKey, {
-                alg: "A128KW",
-                enc: "A256GCM",
-                protectedHeader: { typ: "session+jwt" },
-              });
+            : await encrypt(
+                claims,
+                { ...jweKey, alg: "A128GCMKW" },
+                {
+                  enc: "A128GCM",
+                  protectedHeader: { typ: "session+jwt" },
+                },
+              );
         expect(await refused(pinned, offAlgorithm)).toBe(true);
         expect((await pinned.open(await pinned.issue({}))).id).toBeTypeOf("string");
 
