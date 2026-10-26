@@ -8,6 +8,7 @@ import {
 } from "./chunked-cookie.ts";
 import type { CookieJar, SessionDriver } from "./driver.ts";
 import type { JWTError } from "../../error.ts";
+import type { SessionSource } from "../types.ts";
 import { invalidConfigError, invalidTokenError, isToken, readOnlyEventError } from "./contract.ts";
 
 /** The token sources a session config enables. */
@@ -27,7 +28,7 @@ export interface SessionCookie {
 /** How one session reads its token from the request and writes it to the response. */
 export interface SessionTransport {
   /** Where the token is read from: the driver's token in hand, the session header, or the cookie. Only a cookie is written back. */
-  source: "token" | "header" | "cookie";
+  source: SessionSource;
   /** The token in hand, else the session header's, else the cookie this response wrote, else the request's. Absent without a token source. */
   read?: () => string | undefined;
   /** The session header is present but holds neither a bare token nor `Bearer <token>`. */

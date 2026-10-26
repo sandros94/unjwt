@@ -7,6 +7,7 @@ export type {
   SessionIssueOptions,
   SessionManager,
   SessionRequestEvent,
+  SessionSource,
   SessionUpdate,
   SessionUpdateTrigger,
   WebSessionEvent,

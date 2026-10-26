@@ -10,11 +10,16 @@ import { sign } from "../src/core/jws/index.ts";
 import { encrypt } from "../src/core/jwe/index.ts";
 import {
   type CookieJar,
+  type OpenedSessionState,
+  type SessionClaims,
   type SessionDefinition,
   type SessionDriver,
   type SessionHandedToken,
   type SessionManager,
+  type SessionJWE,
+  type SessionJWS,
   type SessionRequestEvent,
+  type SessionSource,
   type WebSessionEvent,
   defineJWESession,
   defineJWSSession,
@@ -722,6 +727,122 @@ describe("unjwt/session decides the token source once per request", () => {
       expect(headers.getSetCookie()).toEqual([]);
     },
   );
+});
+
+describe("unjwt/session reports the token source", () => {
+  const SOURCES = [
+    {
+      source: "cookie",
+      label: "a cookie",
+      event: (token: string) => ({
+        req: get({ cookie: `web=${token}` }),
+        res: { headers: new Headers() },
+      }),
+    },
+    {
+      source: "cookie",
+      label: "a header holding the cookie's token",
+      event: (token: string) => ({
+        req: get({ "cookie": `web=${token}`, "x-web-session": token }),
+        res: { headers: new Headers() },
+      }),
+    },
+    {
+      source: "header",
+      label: "a header",
+      event: (token: string) => ({
+        req: get({ "x-web-session": token }),
+        res: { headers: new Headers() },
+      }),
+    },
+    { source: "token", label: "a token in hand", event: (token: string) => ({ token }) },
+  ] as const;
+  const cases = FAMILIES.flatMap((family) => SOURCES.map((entry) => ({ ...family, ...entry })));
+
+  it.each(cases)(
+    "$family, $label: the manager, onRead, onUpdate and onClear see $source",
+    async ({ define, event, source }) => {
+      const onRead = vi.fn();
+      const onUpdate = vi.fn();
+      const onClear = vi.fn();
+      const session = define({ sessionHeader: true, hooks: { onRead, onUpdate, onClear } });
+      const manager = await session.use(event(await session.issue({ user: "ada" })));
+
+      expect(manager.source).toBe(source);
+      expect(onRead.mock.calls[0]?.[0].session.source).toBe(source);
+
+      await manager.update({ user: "grace" });
+      expect(manager.source).toBe(source);
+      expect(onUpdate.mock.calls[0]?.[0].session.source).toBe(source);
+      expect(onUpdate.mock.calls[0]?.[0].oldSession).toMatchObject({
+        source,
+        data: { user: "ada" },
+      });
+
+      await manager.clear();
+      expect(manager.source).toBe(source);
+      expect(onClear.mock.calls[0]?.[0].oldSession).toMatchObject({
+        source,
+        data: { user: "grace" },
+      });
+    },
+  );
+
+  it.each(cases)(
+    "$family, $label: onExpire and onError see $source",
+    async ({ family, define, event, source }) => {
+      const onExpire = vi.fn();
+      const onError = vi.fn();
+      const session = define({ sessionHeader: true, hooks: { onExpire, onError } });
+      const expired = await foreignToken(family, {
+        jti: "gone",
+        iat: nowSeconds() - 120,
+        exp: nowSeconds() - 60,
+      });
+
+      await session.use(event(expired));
+      expect(onExpire.mock.calls[0]?.[0].session).toMatchObject({ id: "gone", source });
+
+      await session.use(event("garbage"));
+      expect(onError.mock.calls[0]?.[0].session.source).toBe(source);
+    },
+  );
+
+  it.each(FAMILIES)("$family: open() reports a token in hand", async ({ define }) => {
+    const session = define();
+    expect((await session.open(await session.issue())).source).toBe("token");
+  });
+
+  it("types the source on the manager, the state and every hook", () => {
+    expectTypeOf<SessionManager["source"]>().toEqualTypeOf<SessionSource>();
+    expectTypeOf<SessionJWS["source"]>().toEqualTypeOf<SessionSource>();
+    expectTypeOf<SessionJWE["source"]>().toEqualTypeOf<SessionSource>();
+    expectTypeOf<
+      OpenedSessionState<SessionClaims, undefined>["source"]
+    >().toEqualTypeOf<SessionSource>();
+    expectTypeOf<SessionSource>().toEqualTypeOf<"cookie" | "header" | "token">();
+    defineJWSSession({
+      key: jwsKey,
+      hooks: {
+        onRead: ({ session }) => {
+          expectTypeOf(session.source).toEqualTypeOf<SessionSource>();
+        },
+        onUpdate: ({ session, oldSession }) => {
+          expectTypeOf(session.source).toEqualTypeOf<SessionSource>();
+          expectTypeOf(oldSession.source).toEqualTypeOf<SessionSource>();
+        },
+        onClear: ({ oldSession }) => {
+          expectTypeOf(oldSession?.source).toEqualTypeOf<SessionSource | undefined>();
+        },
+        onExpire: ({ session }) => {
+          expectTypeOf(session.source).toEqualTypeOf<SessionSource>();
+        },
+        onError: ({ session }) => {
+          expectTypeOf(session.source).toEqualTypeOf<SessionSource>();
+        },
+      },
+    });
+  });
 });
 
 describe("unjwt/session bounds a token by maxAge", () => {

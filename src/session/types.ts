@@ -16,6 +16,14 @@ export type SessionData<T extends SessionRecord = SessionClaims> = StrictOmit<
   "jti" | "iat" | "exp" | "nbf"
 >;
 
+/**
+ * Where the session's token comes from on this request, decided before it is opened:
+ * - `"cookie"`: the session cookie, also when the session header holds the very token of that cookie.
+ * - `"header"`: the session header, when it holds any other token or the session has no cookie.
+ * - `"token"`: a token in hand (`{ token }`), or a token passed to `open()`.
+ */
+export type SessionSource = "cookie" | "header" | "token";
+
 /** Why `onUpdate` ran: an `update()` call, or `rolling` reissuing a session that was read. */
 export type SessionUpdateTrigger = "update" | "rolling";
 
@@ -39,6 +47,8 @@ export interface SessionManager<
   readonly data: SessionData<T>;
   /** The token read or issued on this request, `undefined` when there is none or it failed to open. */
   readonly token: string | undefined;
+  /** Where the token of this request comes from. It holds for the whole request, `update()` and `clear()` included. */
+  readonly source: SessionSource;
   /**
    * Merges `update` into the data and issues a token with a fresh `jti` and `iat`. `options.maxAge` overrides the config's `maxAge` for this token.
    * A cookie session writes the token to the response. Later requests read the data back through JSON.
@@ -113,6 +123,8 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
         createdAt: number | undefined;
         expiresAt: number | undefined;
         token: string;
+        /** Where the expired token came from. */
+        source: SessionSource;
       };
       error: JWTError;
       config: TConfig;
@@ -145,13 +157,15 @@ export interface SessionState<T extends SessionRecord, MaxAge extends ExpiresIn 
   expiresAt: MaxAge extends ExpiresIn ? number : number | undefined;
   data: SessionData<T>;
   token: string | undefined;
+  /** Where the token of this request comes from. */
+  source: SessionSource;
 }
 
-/** Session state that `open()` reads from a token: `id` and `createdAt` are always set. */
+/** Session state that `open()` reads from a token: `id` and `createdAt` are always set, and `source` is `"token"`. */
 export type OpenedSessionState<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
-> = Pick<SessionState<T, MaxAge>, "id" | "createdAt" | "expiresAt" | "data"> & {
+> = Pick<SessionState<T, MaxAge>, "id" | "createdAt" | "expiresAt" | "data" | "source"> & {
   id: string;
   createdAt: number;
 };

@@ -46,6 +46,7 @@ export function emptySession<
     expiresAt: resolveExpiresAt(createdAt, { maxAge: binding.config.maxAge }),
     data: Object.create(null),
     token: undefined,
+    source: binding.transport.source,
   });
 }
 
@@ -67,7 +68,9 @@ export function openSessionToken<T extends SessionRecord, MaxAge extends Expires
   keys: SessionKeys,
   options: { token: string; args: Record<string, unknown> },
 ): Promise<OpenedSessionState<T, MaxAge>> {
-  return keys.open(options.token, options.args).then(typedOpened<T, MaxAge>);
+  return keys
+    .open(options.token, options.args)
+    .then((opened) => typedOpened<T, MaxAge>({ ...opened, source: "token" }));
 }
 
 function typedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
@@ -78,7 +81,7 @@ function typedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefi
 }
 
 function typedOpened<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
-  opened: OpenedSession,
+  opened: OpenedSession & { source: "token" },
 ): OpenedSessionState<T, MaxAge> {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- codecs return session data untyped
   return opened as OpenedSessionState<T, MaxAge>;

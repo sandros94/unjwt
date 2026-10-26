@@ -47,6 +47,7 @@ export function defineSession<
         expiresAt: resolveExpiresAt(createdAt, { maxAge: issueOptions?.maxAge ?? config.maxAge }),
         data: sanitizeSessionUpdate(data ?? {}, { prefix: driver.prefix }),
         token: undefined,
+        source: "token",
       });
     },
 

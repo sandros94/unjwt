@@ -179,7 +179,7 @@ async function fireExpire<TEvent, Config extends SessionCoreConfig>(
   },
 ): Promise<void> {
   await binding.config.hooks?.onExpire?.({
-    session: expired.session,
+    session: { ...expired.session, source: binding.transport.source },
     ...binding.args,
     error: expired.error,
     config: binding.config,

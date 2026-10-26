@@ -149,6 +149,9 @@ export function sessionManager<
     get token() {
       return sessionToken(binding);
     },
+    get source() {
+      return binding.transport.source;
+    },
     update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
       await issueSession<T, MaxAge, TEvent, Config>(binding, update, options);
       return manager;
