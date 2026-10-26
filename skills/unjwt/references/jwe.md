@@ -97,6 +97,7 @@ Decrypts a JWE token.
 
 - `jwe` — `string` — the JWE compact token
 - `key` — `CryptoKey | JWEDecryptJWK | JWKSet | string | Uint8Array | JWEKeyLookup`
+  - A missing key (`undefined` / `null`) throws `ERR_JWK_INVALID` (`"A key is required."`)
   - `JWEDecryptJWK` is the private-side counterpart of `JWEEncryptJWK`. The key is imported with `expect: "private"`, so a public asymmetric JWK throws `ERR_JWK_INVALID`; `encrypt` mirrors this with `expect: "public"` and refuses one that still carries `d`.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.

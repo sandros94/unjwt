@@ -31,6 +31,15 @@ async function codeOf(promise: Promise<unknown>): Promise<string | undefined> {
   }
 }
 
+function codeOfCall(call: () => unknown): string | undefined {
+  try {
+    call();
+    return undefined;
+  } catch (error) {
+    return (error as { code?: string }).code;
+  }
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.useRealTimers();
@@ -84,9 +93,14 @@ describe("examples/sessions/app-session", () => {
     expect(rolled.expiresAt - Date.now()).toBeGreaterThan(6.9 * DAY);
   });
 
-  it("throws ERR_SESSION_KEY_INVALID on first use when SESSION_KEY holds a key pair half", async () => {
+  it("refuses to load with ERR_SESSION_KEY_INVALID when SESSION_KEY holds a key pair half", async () => {
     const { privateKey } = await generateJWK("ECDH-ES");
-    const { appSession } = await load(JSON.stringify(privateKey));
+    expect(await codeOf(load(JSON.stringify(privateKey)))).toBe("ERR_SESSION_KEY_INVALID");
+  });
+
+  it("loads a key whose secret is the wrong length, then fails the first use with ERR_SESSION_KEY_INVALID", async () => {
+    const short = { kty: "oct", alg: "A256GCM", k: "c2hvcnQ" };
+    const { appSession } = await load(JSON.stringify(short));
     expect(await codeOf(appSession.use(request()))).toBe("ERR_SESSION_KEY_INVALID");
   });
 });
@@ -105,16 +119,19 @@ describe("Configure a session: inline settings", async () => {
 
   it("a __Host- name with secure: false, a domain or another path is ERR_SESSION_CONFIG_INVALID", async () => {
     for (const cookie of [{ secure: false }, { domain: "example.com" }, { path: "/app" }]) {
-      const session = defineJWESession({ key, cookie });
-      expect(await codeOf(session.use(request()))).toBe("ERR_SESSION_CONFIG_INVALID");
+      expect(codeOfCall(() => defineJWESession({ key, cookie }))).toBe(
+        "ERR_SESSION_CONFIG_INVALID",
+      );
     }
   });
 
   it("rolling without maxAge, or not shorter than it, is ERR_SESSION_CONFIG_INVALID", async () => {
-    const noMaxAge = defineJWESession({ key, rolling: true });
-    const tooLong = defineJWESession({ key, maxAge: "1h", rolling: "1h" });
-    expect(await codeOf(noMaxAge.use(request()))).toBe("ERR_SESSION_CONFIG_INVALID");
-    expect(await codeOf(tooLong.use(request()))).toBe("ERR_SESSION_CONFIG_INVALID");
+    expect(codeOfCall(() => defineJWESession({ key, rolling: true }))).toBe(
+      "ERR_SESSION_CONFIG_INVALID",
+    );
+    expect(codeOfCall(() => defineJWESession({ key, maxAge: "1h", rolling: "1h" }))).toBe(
+      "ERR_SESSION_CONFIG_INVALID",
+    );
   });
 
   it("maxAge ends a token at iat + maxAge even when its exp is later", async () => {
@@ -196,7 +213,8 @@ describe("Configure a session: inline settings", async () => {
 
   it("a password string is ERR_SESSION_KEY_INVALID", async () => {
     // @ts-expect-error a string is not key material
-    const session = defineJWESession({ key: "correct horse battery staple" });
-    expect(await codeOf(session.use(request()))).toBe("ERR_SESSION_KEY_INVALID");
+    expect(codeOfCall(() => defineJWESession({ key: "correct horse battery staple" }))).toBe(
+      "ERR_SESSION_KEY_INVALID",
+    );
   });
 });

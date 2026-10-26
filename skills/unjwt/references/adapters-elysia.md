@@ -215,11 +215,11 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
 
 Each hook receives `{ session, context, config }` — `context` is the Elysia context (not an `event`). Guarantees (the same as on `unjwt/session`):
 
-- `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires once per request, when the session is read from its token; later reads in the request are silent.
+- `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires once per request, when the session is read from its token; later reads in the request are silent. An `onRead` that throws makes `use()` reject with its error and leaves the session empty for the rest of the request (the cookie kept, `onRead` not run again).
 - `session` in `onRead`, `onUpdate` and `onError` is the manager (`update()`, `clear()`); `oldSession` is a snapshot. `onUpdate` carries `trigger: "update" | "rolling"`.
 - `rolling: true | ExpiresIn` reissues a session on read so `exp` slides: every read, or once the token is that old (needs `maxAge`, duration shorter than it).
 - Every hook is dispatched with the session state already settled, so a hook may call `definition.use(context)` again on the same context and gets the same session.
-- `onExpire` receives the expired token's decoded claims via `error.cause` (`jti`/`iat`/`exp`), so `session.id` is available. The session cookie is removed and `session.token` reset before it fires.
+- `onExpire` receives an `ERR_JWT_EXPIRED` `JWTError` as `error`, with the expired token's decoded claims as its `cause` (`jti`/`iat`/`exp`), so `session.id` is available. The session cookie is removed and `session.token` reset before it fires.
 - `onUpdate` fires after every successful sign/seal and cookie write (including data-less token refresh) with a deep-cloned `oldSession`. A hook that throws makes `update()` reject with its error while the new session stays in place — no rollback, no `onError`.
 - `onError` fires on read-path failures other than expiry, and on write-path sign/seal or cookie write failures (with `session.data` rolled back). A read-path `error` is always an `ERR_SESSION_TOKEN_INVALID` `JWTError` whose `cause` is the failure underneath.
 

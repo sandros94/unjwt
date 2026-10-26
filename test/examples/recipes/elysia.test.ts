@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { generateJWK } from "unjwt/jwk";
 import { get, login, nextCookie, post, sessionKeyJSON } from "./_http.ts";
 
 const origin = "https://app.example.com";
@@ -92,8 +93,15 @@ describe("examples/recipes/elysia", () => {
     await expect(load(undefined)).rejects.toThrow("SESSION_KEY is not set");
   });
 
-  it("answers 500 on every request when the key is not a usable JWK", async () => {
-    const handle = await load(JSON.stringify({ kty: "oct" }));
+  it("fails at start-up with ERR_SESSION_KEY_INVALID when the key is not a signing key", async () => {
+    const { publicKey } = await generateJWK("ES256");
+    await expect(load(JSON.stringify(publicKey))).rejects.toMatchObject({
+      code: "ERR_SESSION_KEY_INVALID",
+    });
+  });
+
+  it("answers 500 on every request when the key's secret cannot be decoded", async () => {
+    const handle = await load(JSON.stringify({ kty: "oct", alg: "HS256", k: "not base64url!" }));
     expect((await handle(get(`${origin}/me`))).status).toBe(500);
     expect((await handle(post(`${origin}/logout`))).status).toBe(500);
   });

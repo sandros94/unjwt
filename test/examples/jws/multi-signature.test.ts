@@ -39,7 +39,12 @@ describe("examples/jws/multi-signature", () => {
     expect(signerIndex).toBe(0);
     const outsider = await generateJWK("ES256", { kid: "outsider" });
     const error = await verifyMulti(jws, { keys: [outsider.publicKey] }).catch((e: unknown) => e);
-    expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+    expect(isJWTError(error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+    const causes = (error as Error).cause as unknown[];
+    expect(causes.map((cause) => isJWTError(cause) && cause.code)).toEqual([
+      "ERR_JWK_KEY_NOT_FOUND",
+      "ERR_JWS_ALG_NOT_ALLOWED",
+    ]);
   });
 
   it("spends one key-attempt budget across every signature", async () => {

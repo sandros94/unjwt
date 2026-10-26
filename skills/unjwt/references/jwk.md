@@ -128,7 +128,7 @@ For `EC` and `OKP` keys the JWK's `crv` decides the Web Crypto algorithm — it 
 
 #### The JWK's `alg` is authoritative
 
-When the JWK carries an `alg` and the operation asks for a different one, the import throws `JWTError('JWK "alg" is "<jwk.alg>" but the operation requires "<alg>".', "ERR_JWK_INVALID")` — neither side silently wins. The single exception is the JWE symmetric role mapping: an `oct` JWK whose `alg` is a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is the CEK that `alg: "dir"` consumes, and `decrypt` additionally requires the token's `enc` to equal that `alg` (see `jwe.md`).
+When the JWK carries an `alg` and the operation asks for a different one, the import throws `JWTError('JWK "alg" is "<jwk.alg>" but the operation requires "<alg>".', "ERR_JWK_INVALID")` — neither side silently wins. A JWK without `alg` is imported under the operation's `alg` only when its `kty` can serve it: an `oct` JWK under `ES256` or `RSA-OAEP-256`, an EC JWK under `HS256` or `RS256`, throws `JWTError('JWK "kty" is "<kty>", which cannot serve "<alg>".', "ERR_JWK_INVALID")`. The single exception is the JWE symmetric role mapping: an `oct` JWK whose `alg` is a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is the CEK that `alg: "dir"` consumes, and `decrypt` additionally requires the token's `enc` to equal that `alg` (see `jwe.md`).
 
 #### `key_ops` and `ext`
 
@@ -250,14 +250,14 @@ const raw = await unwrapKey(encryptedKey, aesKey, { alg: "A256KW", format: "raw"
 
 Low-level ECDH-ES key derivation (Concat KDF, NIST SP 800-56A). Useful for multi-recipient JWE, custom hybrid protocols, and future JWE JSON Serialization.
 
-- `publicKey: CryptoKey | JWK_EC_Public` — recipient's static public key (sender side), or sender's ephemeral public key (recipient side)
-- `privateKey: CryptoKey | JWK_EC_Private` — sender's ephemeral private key (sender side), or recipient's static private key (recipient side)
+- `publicKey: CryptoKey | JWK_EC_Public | JWK_OKP_Public` — recipient's static public key (sender side), or sender's ephemeral public key (recipient side)
+- `privateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private` — sender's ephemeral private key (sender side), or recipient's static private key (recipient side)
 - `options`
   - `enc: JWK_ECDH_ES | ContentEncryptionAlgorithm` — **required**; used as the `AlgorithmID` in the KDF info structure, and as the algorithm a JWK input is imported under, so a key from `generateJWK("ECDH-ES+A256KW")` — whose `alg` is authoritative — works as written
   - `keyLength?: number` — derived key length in bits; required when `enc` is `"ECDH-ES"` (missing is `ERR_INVALID_OPTION`), inferred otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
   - `partyUInfo?`, `partyVInfo?` — agreement party info
 
-Returns `Promise<Uint8Array>` — the derived key material.
+Returns `Promise<Uint8Array>` — the derived key material. Both keys must be agreement keys on one curve (P-256 / P-384 / P-521, or X25519); a failed agreement, such as a P-256 key against an X25519 one, throws `ERR_JWK_INVALID` (`"Key agreement failed: both keys must be agreement keys on the same curve."`, the platform error as `cause`).
 
 ```ts
 // Derive the same secret on both sides

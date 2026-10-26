@@ -89,6 +89,7 @@ Verifies a JWS token and returns its payload.
     - No matching candidates — throws `JWTError("ERR_JWK_KEY_NOT_FOUND")` before any crypto attempt
   - A `JWKLookupFunction` that throws is a key that could not be resolved: the failure surfaces as `ERR_JWK_KEY_NOT_FOUND` with the thrown value as its `cause`. One that returns `undefined` or `null` is `ERR_JWK_KEY_NOT_FOUND` too (`"Key lookup returned no key for the JWS."`)
   - The `kid` named in a key-not-found message is JSON-quoted and cut at 64 characters — it is token input
+  - A missing key (`undefined` / `null`) throws `ERR_JWK_INVALID` (`"A key is required."`)
   - A token that is not a string throws `ERR_JWS_INVALID` (`"Invalid JWS: token must be a string."`)
     - Same retry applies when a `JWKLookupFunction` returns a `JWKSet`
 

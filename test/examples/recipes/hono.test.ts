@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { generateJWK } from "unjwt/jwk";
 import { get, login, nextCookie, post, sessionKeyJSON } from "./_http.ts";
 
 const origin = "https://app.example.com";
@@ -60,5 +61,12 @@ describe("examples/recipes/hono", () => {
   it("answers 500 on every request while the binding is missing", async () => {
     const fetch = await worker({});
     expect((await fetch(get(`${origin}/me`))).status).toBe(500);
+  });
+
+  it("answers 500 on every request when the key is not a signing key", async () => {
+    const { publicKey } = await generateJWK("ES256");
+    const fetch = await worker({ SESSION_KEY: JSON.stringify(publicKey) });
+    expect((await fetch(get(`${origin}/me`))).status).toBe(500);
+    expect((await fetch(login(origin, "user_1a2b"))).status).toBe(500);
   });
 });

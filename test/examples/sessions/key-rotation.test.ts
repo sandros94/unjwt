@@ -37,6 +37,13 @@ describe("examples/sessions/key-rotation", async () => {
     );
   });
 
+  it("refuses to load with ERR_SESSION_KEY_INVALID when an older key is not an oct JWK", async () => {
+    const { privateKey } = await generateJWK("ECDH-ES+A256KW", { kid: "2026-09" });
+    await expect(
+      load({ sealing: [sealNew, privateKey], signing: [signNew] }),
+    ).rejects.toMatchObject({ code: "ERR_SESSION_KEY_INVALID" });
+  });
+
   it("JWE: seals with the first key, opens tokens of the older ones, refuses retired keys", async () => {
     const { appSession } = await load({ sealing: [sealNew, sealOld], signing: [signNew] });
     const old = await defineJWESession({ key: sealOld, maxAge: "7D" }).issue({ userId: "u1" });

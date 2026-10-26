@@ -1,6 +1,6 @@
 # Web Standard Sessions Reference (`unjwt/session`)
 
-JWT sessions over a web-standard request event (an h3 v2 event, the event `nuxt/server` hands a Nuxt 4.6+ handler, a `Request`, a crossws upgrade request, or `{ req | headers, res, context }` built by hand; read-only without `res`), or over a token the caller already holds. No framework, no peer dependency. The same entry exposes the driver contract, so any framework can run these sessions.
+JWT sessions over a web-standard request event (an h3 event, the event `nuxt/server` hands a Nuxt 4.6+ handler, a `Request`, a crossws upgrade request, or `{ req | headers, res, context }` built by hand; read-only without `res`), or over a token the caller already holds. No framework, no peer dependency. The same entry exposes the driver contract, so any framework can run these sessions.
 
 Import path: `unjwt/session`
 
@@ -12,10 +12,10 @@ The session manager, config options, hooks, cookie layout, chunking, lifetime, `
 
 ```ts
 type SessionRequestEvent = {
-  res?: { headers: Headers; errHeaders?: Headers }; // errHeaders: h3 v2's thrown-handler headers
+  res?: { headers: Headers; errHeaders?: Headers }; // errHeaders: h3's thrown-handler headers
   context?: Record<string, unknown>;
 } & (
-  | { req: Request; headers?: Headers } // an h3 v2 event, Nuxt's RequestEvent
+  | { req: Request; headers?: Headers } // an h3 event, Nuxt's RequestEvent
   | { headers: Headers; req?: Request } // a Request itself, a crossws upgrade request
 ); // no res = read-only
 
@@ -26,7 +26,7 @@ interface SessionHandedToken {
 type WebSessionEvent = SessionRequestEvent | SessionHandedToken;
 ```
 
-`req` is read first, `headers` otherwise; an event with neither, or an empty object, throws `ERR_SESSION_CONFIG_INVALID`. State: `event.context.sessions` when a `context` is given (the h3 slot, shared with middleware on the same event), else a `WeakMap` keyed on `req`, on the object passed, or on the `{ token }` object. An h3 v2 `H3Event` and Nuxt's `RequestEvent` match by `req`; a `Request`, and a crossws 0.3 or 0.4 upgrade request (both carry `headers` and `context`), match by `headers` as they are.
+`req` is read first, `headers` otherwise; an event with neither, or an empty object, throws `ERR_SESSION_CONFIG_INVALID`. State: `event.context.sessions` when a `context` is given (the h3 slot, shared with middleware on the same event), else a `WeakMap` keyed on `req`, on the object passed, or on the `{ token }` object. An h3 `H3Event` and Nuxt's `RequestEvent` match by `req`; a `Request`, and a crossws 0.3 or 0.4 upgrade request (both carry `headers` and `context`), match by `headers` as they are.
 
 ## Signatures
 
@@ -69,7 +69,7 @@ export default {
 
 - Reads the session header when `sessionHeader` enables it (`true` or a name; left unset or `false`, no header is read, so `cookie: false` then has no token source) and `req.headers` carries it, else the `Cookie` (parsed once per `use()`). A header-read session never writes `Set-Cookie`: `update()`/`rolling` re-mint onto `session.token`, `clear()` empties state.
 - Writes `Set-Cookie` onto `res.headers`, replacing an earlier line of the same name, domain and path (and partition); unrelated lines stay. A second `update()` in one request leaves one line per cookie; `clear()` leaves the `Max-Age=0` line.
-- `res.errHeaders` present (h3 v2): every write and drop also replaces that cookie's lines there, other lines kept, so a handler that throws after `update()`/`clear()` still sends the cookie.
+- `res.errHeaders` present (h3): every write and drop also replaces that cookie's lines there, other lines kept, so a handler that throws after `update()`/`clear()` still sends the cookie.
 - Hono: pass `c.req.raw` as `req` and return `new Response(body, { headers })`.
 - Nuxt 4.6+: `defineEventHandler` from `nuxt/server` (not h3's auto-import) hands a `RequestEvent` that goes to `use(event)` as is, on Nitro 2 and 3; key it from `deriveSecret()` of `nuxt/server` (32 HKDF bytes as hex → `oct` JWK, created lazily since it needs the runtime config).
 
@@ -159,16 +159,16 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 
 ## Frameworks
 
-- h3 v2 (`new H3()`): the `H3Event` goes to `use()` as is. A thrown handler sends `res.errHeaders` only, and every session cookie write and drop is mirrored there, so `clear()` then `throw` signs the client out with no hook.
+- h3 (`new H3()`): the `H3Event` goes to `use()` as is. A thrown handler sends `res.errHeaders` only, and every session cookie write and drop is mirrored there, so `clear()` then `throw` signs the client out with no hook.
 - Nitro 3: same event; no auto-imports (`defineHandler`, `defineWebSocketHandler`, `HTTPError` from `nitro`, `readBody` from `nitro/h3`); Nitro's error handler drops prepared headers on a throw.
-- Nuxt 4.6+/5: handlers must come from `nuxt/server` (`defineEventHandler`, `readBody`, `createError`), whose `RequestEvent` goes to `use()` as is on Nitro 2 and 3; h3's auto-imported handler passes the h3 v1 event, refused with `ERR_SESSION_CONFIG_INVALID`. Key from `deriveSecret()` (lazy, needs runtime config). WebSockets: `defineWebSocketHandler` is h3's; read once in `upgrade` with `{ headers: request.headers, context: request.context, res: { headers } }`, `return { headers }` (+ `context` on crossws 0.4 / Nitro 3, thrown `Response` to refuse; written onto `request.context`, returned `Response` to refuse on crossws 0.3 / Nitro 2).
+- Nuxt 4.6+/5: handlers must come from `nuxt/server` (`defineEventHandler`, `readBody`, `createError`), whose `RequestEvent` goes to `use()` as is on Nitro 2 and 3; h3's auto-imported handler passes an event whose `req` is Node's `IncomingMessage`, refused with `ERR_SESSION_CONFIG_INVALID`. Key from `deriveSecret()` (lazy, needs runtime config). WebSockets: `defineWebSocketHandler` is h3's; read once in `upgrade` with `{ headers: request.headers, context: request.context, res: { headers } }`, `return { headers }` (+ `context` on crossws 0.4 / Nitro 3, thrown `Response` to refuse; written onto `request.context`, returned `Response` to refuse on crossws 0.3 / Nitro 2).
 
 ## Error codes
 
 | Code | When |
 | --- | --- |
 | `ERR_SESSION_KEY_INVALID` | `key` missing, a password string, wrong shape, its `alg` contradicting a pinned `signOptions.alg` / `encryptOptions.alg`, or not importable. |
-| `ERR_SESSION_CONFIG_INVALID` | Bad `name`/`sessionHeader`, `__Host-`/`__Secure-` violation, an event whose `req` is not a web `Request` (Nuxt handler not from `nuxt/server`), `use(event)` with no token source, unpinned `CryptoKey`, over 16 chunks, JWS + JWE under one `name`. |
+| `ERR_SESSION_CONFIG_INVALID` | Bad `name`/`sessionHeader`, `__Host-`/`__Secure-` violation, an event whose `req` is not a web `Request` (Nuxt handler not from `nuxt/server`), `use(event)` with no token source, unpinned `CryptoKey`, `rolling` without a `maxAge` or not shorter than it, over 16 chunks, JWS + JWE under one `name`. |
 | `ERR_SESSION_READONLY_EVENT` | `update()` on a cookie session opened without a `res`; `update()`/`clear()` once a driver's `writable()` is `false`. |
 | `ERR_INVALID_OPTION` | `update()` data not a plain object, or a `__proto__`-like key. |
 

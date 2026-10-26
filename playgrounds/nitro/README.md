@@ -1,6 +1,6 @@
 # Nitro 3 playground
 
-A JWS session on Nitro v3 with `unjwt/session`. Nitro v3 runs on h3 v2, whose event is the web-standard `{ req, res, context }` that `unjwt/session` takes as it is. No `h3` import, no alias, the same route code as the Nuxt 4 playground.
+A JWS session on Nitro v3 with `unjwt/session`. Nitro v3 runs on h3, whose event is the web-standard `{ req, res, context }` that `unjwt/session` takes as it is. No `h3` import, no alias, the same route code as the Nuxt 4 playground.
 
 - [`server/utils/session.ts`](./server/utils/session.ts): the definition, keyed from the runtime config, `useAppSession(event)` and `requireAppSession(event)`.
 - [`server/plugins/session-key.ts`](./server/plugins/session-key.ts): defines the session at start-up, so a missing key stops the server.

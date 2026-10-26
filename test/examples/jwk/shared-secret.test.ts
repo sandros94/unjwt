@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateJWK } from "unjwt/jwk";
+import { deriveSharedSecret, generateJWK } from "unjwt/jwk";
 import { decrypt, encrypt } from "unjwt/jwe";
 import { channelKey } from "../../../examples/jwk/shared-secret.ts";
 
@@ -40,5 +40,17 @@ describe("examples/jwk/shared-secret", () => {
     await expect(channelKey(billing.privateKey, api.privateKey)).rejects.toMatchObject({
       code: "ERR_JWK_INVALID",
     });
+  });
+
+  it("takes X25519 pairs too, and refuses one against a P-256 key", async () => {
+    const left = await generateJWK("ECDH-ES", { namedCurve: "X25519" });
+    const right = await generateJWK("ECDH-ES", { namedCurve: "X25519" });
+    const options = { enc: "A256GCM" } as const;
+    const one = await deriveSharedSecret(right.publicKey, left.privateKey, options);
+    const other = await deriveSharedSecret(left.publicKey, right.privateKey, options);
+    expect(one).toEqual(other);
+    await expect(
+      deriveSharedSecret(left.publicKey, billing.privateKey, options),
+    ).rejects.toMatchObject({ code: "ERR_JWK_INVALID" });
   });
 });

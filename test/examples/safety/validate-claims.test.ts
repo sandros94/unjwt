@@ -176,4 +176,21 @@ describe("examples/safety/validate-claims", () => {
       expect.objectContaining({ code: "ERR_INVALID_OPTION" }),
     );
   });
+
+  it("refuses claim options the call would not check, and time options without a JSON payload", async () => {
+    const token = await sign("order 2041 shipped", privateKey);
+    const issuer = "https://auth.example.com";
+    expect(await codeOf(verify(token, publicKey, { payload: "string", issuer }))).toBe(
+      "ERR_INVALID_OPTION",
+    );
+    const claims = await issueAccessToken("user_1a2b", "orders:read");
+    expect(await codeOf(verify(claims, publicKey, { validateClaims: false, issuer }))).toBe(
+      "ERR_INVALID_OPTION",
+    );
+    const { payload } = await verify(token, publicKey, { payload: "string", clockTolerance: 30 });
+    expect(payload).toBe("order 2041 shipped");
+    expect(await codeOf(sign("order 2041 shipped", privateKey, { expiresIn: "1h" }))).toBe(
+      "ERR_INVALID_OPTION",
+    );
+  });
 });
