@@ -51,7 +51,7 @@ function unauthorized(code: string, description: string): Response {
 
 // #region fallback
 /** The last stop for an error no route handled. */
-export function errorResponse(error: unknown, log: (entry: object) => void): Response {
+export function errorResponse(error: unknown, log: (entry: object) => void) {
   if (isJWTError(error)) {
     // `cause` holds what failed underneath: the runtime's error, or one
     // error per key a JWK Set tried.

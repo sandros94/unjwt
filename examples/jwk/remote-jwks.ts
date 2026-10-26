@@ -1,7 +1,6 @@
 // #region docs
 import type { JWKSet } from "unjwt/jwk";
 import { verify, type JWSKeyLookup } from "unjwt/jws";
-import type { JWTClaims } from "unjwt";
 
 const JWKS_URL = "https://auth.example.com/.well-known/jwks.json";
 const MAX_AGE_MS = 10 * 60 * 1000;
@@ -17,7 +16,7 @@ const issuerKeys: JWSKeyLookup = async () => {
   return cached.set;
 };
 
-export async function readIssuerToken(token: string): Promise<JWTClaims> {
+export async function readIssuerToken(token: string) {
   const { payload } = await verify(token, issuerKeys, {
     algorithms: ["RS256"],
     issuer: "https://auth.example.com",
@@ -28,6 +27,6 @@ export async function readIssuerToken(token: string): Promise<JWTClaims> {
 // #endregion
 
 /** Drops the cached set, so each test starts from an empty one. */
-export function forgetIssuerKeys(): void {
+export function forgetIssuerKeys() {
   cached = undefined;
 }

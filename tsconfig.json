@@ -35,6 +35,6 @@
       "unjwt/adapters/elysia": ["./src/adapters/elysia/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"],
-  "exclude": ["node_modules", "dist", "docs", "skills"]
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist", "docs", "skills", "test/examples"]
 }

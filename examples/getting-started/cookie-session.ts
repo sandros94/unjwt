@@ -8,7 +8,7 @@ const key: JWK_oct<"HS256"> = JSON.parse(json);
 
 const appSession = defineJWSSession<{ user: string }>({ key, maxAge: "7D" });
 
-export async function handle(request: Request): Promise<Response> {
+export async function handle(request: Request) {
   const headers = new Headers();
   const session = await appSession.use({ req: request, res: { headers } });
   const { pathname } = new URL(request.url);

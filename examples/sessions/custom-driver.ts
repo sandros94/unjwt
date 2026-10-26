@@ -4,7 +4,6 @@ import { generateJWK } from "unjwt/jwk";
 import {
   type CookieAttributes,
   type CookieJar,
-  type SessionDefinition,
   defineJWESession,
   defineSessionDriver,
 } from "unjwt/session";
@@ -38,7 +37,7 @@ const appDriver = defineSessionDriver<AppEvent>({
 const key = await generateJWK("A256GCM");
 // #endhide
 
-export const appSession: SessionDefinition<{ userId: string }, "7D", AppEvent> = defineJWESession(
+export const appSession = defineJWESession<{ userId: string }, "7D", AppEvent>(
   { key, maxAge: "7D" },
   { driver: appDriver },
 );

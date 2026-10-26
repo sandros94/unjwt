@@ -1,5 +1,5 @@
 // #region docs
-import { type JWK_oct, type SessionDefinition, defineJWESession } from "unjwt/session";
+import { type JWK_oct, defineJWESession } from "unjwt/session";
 
 // An "oct" JWK as JSON: generateJWK("A256GCM"), made once and kept with your secrets
 const json = process.env.SESSION_KEY;
@@ -12,7 +12,7 @@ export interface AppSession {
   workspaceId?: string;
 }
 
-export const appSession: SessionDefinition<AppSession, "7D"> = defineJWESession({
+export const appSession = defineJWESession<AppSession, "7D">({
   key,
   maxAge: "7D",
   rolling: "1D",

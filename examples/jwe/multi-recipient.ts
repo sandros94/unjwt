@@ -11,7 +11,7 @@ export interface IncidentReport {
 export function sealIncident(
   report: IncidentReport,
   recipients: { security: JWEEncryptJWK; legal: JWEEncryptJWK; archive: JWEEncryptJWK },
-): Promise<JWEGeneralSerialization> {
+) {
   return encryptMulti(
     report,
     [
@@ -24,10 +24,7 @@ export function sealIncident(
 }
 
 /** Each reader opens the same object with its own private key. */
-export async function readIncident(
-  sealed: JWEGeneralSerialization,
-  myKey: JWEDecryptJWK,
-): Promise<IncidentReport> {
+export async function readIncident(sealed: JWEGeneralSerialization, myKey: JWEDecryptJWK) {
   const { payload } = await decryptMulti<IncidentReport>(sealed, myKey);
   return payload;
 }

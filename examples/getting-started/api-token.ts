@@ -1,6 +1,6 @@
 // #region docs
 import { sign, verify } from "unjwt/jws";
-import type { JWSSignJWK, JWSVerifyJWK, JWTClaims } from "unjwt";
+import type { JWSSignJWK, JWSVerifyJWK } from "unjwt";
 
 function jwkFromEnv(name: string) {
   const json = process.env[name];
@@ -13,12 +13,12 @@ const publicKey: JWSVerifyJWK = jwkFromEnv("TOKEN_PUBLIC_JWK");
 const AUDIENCE = "https://api.example.com";
 
 /** A token that lets `clientId` call the API for the next 15 minutes. */
-export async function issueToken(clientId: string, scope: string): Promise<string> {
+export async function issueToken(clientId: string, scope: string) {
   return sign({ sub: clientId, aud: AUDIENCE, scope }, privateKey, { expiresIn: "15m" });
 }
 
 /** The claims of the request's bearer token; throws a `JWTError` when the token is bad. */
-export async function authenticate(request: Request): Promise<JWTClaims> {
+export async function authenticate(request: Request) {
   const header = request.headers.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   const { payload } = await verify(token, publicKey, {

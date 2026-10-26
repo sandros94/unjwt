@@ -3,7 +3,7 @@ import { isJWTError } from "unjwt/error";
 import type { JWTClaims } from "unjwt";
 import { authenticate } from "./api-token.ts";
 
-export async function listInvoices(request: Request): Promise<Response> {
+export async function listInvoices(request: Request) {
   let claims: JWTClaims;
   try {
     claims = await authenticate(request);

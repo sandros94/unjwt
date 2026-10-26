@@ -15,7 +15,7 @@ export interface AccessClaims {
 }
 
 /** The caller's claims from `Authorization: Bearer …`, or `null` when the token is missing or refused. */
-export async function authenticate(request: Request): Promise<AccessClaims | null> {
+export async function authenticate(request: Request) {
   const header = request.headers.get("authorization");
   if (!header?.startsWith("Bearer ")) return null;
   try {

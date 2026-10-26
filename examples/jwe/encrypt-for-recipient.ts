@@ -9,7 +9,7 @@ export interface CustomerRecord {
 }
 
 /** Seal a record so only the holder of the matching private key can read it. */
-export function sealCustomer(record: CustomerRecord, recipientKey: JWEEncryptJWK): Promise<string> {
+export function sealCustomer(record: CustomerRecord, recipientKey: JWEEncryptJWK) {
   return encrypt(record, recipientKey, { expiresIn: "10m" });
 }
 // #endregion

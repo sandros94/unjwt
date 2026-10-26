@@ -1,7 +1,7 @@
 import { generateJWK } from "unjwt/jwk";
 
 // #region docs
-import { type SessionDefinition, type SessionSource, defineJWESession } from "unjwt/session";
+import { type SessionSource, defineJWESession } from "unjwt/session";
 
 // #hide const key = the "oct" JWK from SESSION_KEY (see Configure a session)
 const key = await generateJWK("A256GCM");
@@ -15,7 +15,7 @@ export interface AppSession {
   signedInAt: number;
 }
 
-export const appSession: SessionDefinition<AppSession, "7D"> = defineJWESession({
+export const appSession = defineJWESession<AppSession, "7D">({
   key,
   maxAge: "7D",
   rolling: "1D",
@@ -33,13 +33,13 @@ export const appSession: SessionDefinition<AppSession, "7D"> = defineJWESession(
 });
 
 /** "Sign out of all devices": every session signed in until now stops opening. */
-export async function signOutEverywhere(userId: string): Promise<void> {
+export async function signOutEverywhere(userId: string) {
   await saveSignedOutEverywhereAt(userId, Date.now());
 }
 // #endregion
 
 // #region sign-in
-export async function signIn(req: Request, userId: string): Promise<Response> {
+export async function signIn(req: Request, userId: string) {
   const headers = new Headers();
   const session = await appSession.use({ req, res: { headers } });
   await session.update({ userId, signedInAt: Date.now() });

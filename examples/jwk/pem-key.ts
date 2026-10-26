@@ -10,7 +10,7 @@ const signingKey = await importPEM(pem, "RS256", {
   jwkParams: { kid: "2026-10" },
 });
 
-export function issueToken(userId: string): Promise<string> {
+export function issueToken(userId: string) {
   return sign({ sub: userId }, signingKey, { expiresIn: "15m" });
 }
 // #endregion

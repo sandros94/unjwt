@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import type { Config, Generator } from "automd";

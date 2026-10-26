@@ -13,7 +13,7 @@ export interface Grant {
 export async function issueSealedGrant(
   grant: Grant,
   keys: { issuer: JWSSignJWK; recipient: JWEEncryptJWK },
-): Promise<string> {
+) {
   const signed = await sign(grant, keys.issuer, { expiresIn: "1h" });
   return encrypt(signed, keys.recipient, { protectedHeader: { cty: "JWT" } });
 }
@@ -22,7 +22,7 @@ export async function issueSealedGrant(
 export async function openSealedGrant(
   token: string,
   keys: { recipient: JWEDecryptJWK; issuer: JWSVerifyJWK },
-): Promise<Grant> {
+) {
   const { payload: signed } = await decrypt(token, keys.recipient, { payload: "string" });
   const { payload } = await verify<Grant>(signed, keys.issuer);
   return payload;

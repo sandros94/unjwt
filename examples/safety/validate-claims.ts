@@ -17,7 +17,7 @@ export interface AccessClaims {
 }
 
 /** Issue an access token for one user, valid for 15 minutes. */
-export function issueAccessToken(userId: string, scope: string): Promise<string> {
+export function issueAccessToken(userId: string, scope: string) {
   return sign(
     { iss: "https://auth.example.com", aud: "https://api.example.com", sub: userId, scope },
     privateKey,
@@ -29,7 +29,7 @@ export function issueAccessToken(userId: string, scope: string): Promise<string>
 }
 
 /** The claims of a token this API accepts, or a `JWTError` saying why not. */
-export async function readAccessToken(token: string): Promise<AccessClaims> {
+export async function readAccessToken(token: string) {
   const { payload } = await verify<AccessClaims>(token, publicKey, {
     algorithms: ["ES256"],
     typ: "at+jwt",
@@ -45,10 +45,7 @@ export async function readAccessToken(token: string): Promise<AccessClaims> {
 
 // #region time
 /** Valid from the start of the event until it ends, whenever the ticket was issued. */
-export function issueEventTicket(
-  holder: string,
-  event: { startsAt: Date; endsAt: Date },
-): Promise<string> {
+export function issueEventTicket(holder: string, event: { startsAt: Date; endsAt: Date }) {
   return sign({ sub: holder, aud: "https://tickets.example.com" }, privateKey, {
     notBeforeAt: event.startsAt,
     expiresAt: event.endsAt,
@@ -57,12 +54,8 @@ export function issueEventTicket(
 // #endregion
 
 // #region crit
-import type { JWTClaims } from "unjwt";
-
 /** A token whose `crit` header names `tenant`, so a reader must say it understands it. */
-export async function readTenantToken(
-  token: string,
-): Promise<{ tenant: unknown; payload: JWTClaims }> {
+export async function readTenantToken(token: string) {
   const { payload, protectedHeader } = await verify(token, publicKey, {
     algorithms: ["ES256"],
     recognizedHeaders: ["tenant"],

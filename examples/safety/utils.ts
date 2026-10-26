@@ -7,12 +7,12 @@ import {
 } from "unjwt/utils";
 
 /** 32 random bytes as URL-safe text, for an OAuth `state` or a CSRF value. */
-export function createState(): string {
+export function createState() {
   return base64UrlStringify(secureRandomBytes(32));
 }
 
 /** The bytes back, or `null` for anything but text `createState` could have written. */
-export function readState(text: string | null): Uint8Array | null {
+export function readState(text: string | null) {
   if (text === null) return null;
   try {
     const bytes = base64UrlParse(text, { returnAs: "bytes" });

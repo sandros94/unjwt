@@ -1,17 +1,17 @@
 // #region docs
 import { H3, HTTPError, readBody } from "h3";
-import { type SessionDefinition, defineJWSSession } from "unjwt/session";
+import { defineJWSSession } from "unjwt/session";
 
 const SESSION_KEY = process.env.SESSION_KEY;
 if (!SESSION_KEY) throw new Error("SESSION_KEY is not set");
 
-export const appSession: SessionDefinition<{ user: string }, "1h"> = defineJWSSession({
+export const appSession = defineJWSSession<{ user: string }, "1h">({
   key: JSON.parse(SESSION_KEY),
   maxAge: "1h",
   rolling: "15m",
 });
 
-export const app: H3 = new H3()
+export const app = new H3()
   .post("/login", async (event) => {
     const body = await readBody<{ user?: unknown }>(event);
     if (typeof body?.user !== "string") {

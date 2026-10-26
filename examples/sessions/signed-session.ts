@@ -1,10 +1,5 @@
 // #region docs
-import {
-  type JWK_EC_Private,
-  type SessionDefinition,
-  defineJWSSession,
-  toPublicJWK,
-} from "unjwt/session";
+import { type JWK_EC_Private, defineJWSSession, toPublicJWK } from "unjwt/session";
 
 // A private ES256 JWK as JSON; services that only verify get its public half
 const json = process.env.SESSION_SIGNING_KEY;
@@ -16,7 +11,7 @@ export interface SignedSession {
   locale: string;
 }
 
-export const signedSession: SessionDefinition<SignedSession, "1h"> = defineJWSSession({
+export const signedSession = defineJWSSession<SignedSession, "1h">({
   key: { privateKey, publicKey: toPublicJWK(privateKey) },
   maxAge: "1h",
   jws: { signOptions: { alg: "ES256" } },

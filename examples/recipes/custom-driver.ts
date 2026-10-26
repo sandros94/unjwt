@@ -3,8 +3,6 @@ import {
   type CookieAttributes,
   type CookieJar,
   type SessionConfigJWS,
-  type SessionDefinition,
-  type SessionDriver,
   defineJWSSession,
   defineSessionDriver,
 } from "unjwt/session";
@@ -24,7 +22,7 @@ export interface ExpressEvent {
 // #endregion
 
 // #region driver
-export const express: SessionDriver<ExpressEvent> = defineSessionDriver<ExpressEvent>({
+export const express = defineSessionDriver<ExpressEvent>({
   prefix: "[express-session]",
   state: ({ res }) => (res.locals.sessions ??= {}) as Record<string, unknown>,
   header: ({ req }, name) => {
@@ -60,12 +58,9 @@ const config: SessionConfigJWS<SessionData, "1h", ExpressEvent> = {
   rolling: "15m",
 };
 
-export const appSession: SessionDefinition<SessionData, "1h", ExpressEvent> = defineJWSSession(
-  config,
-  { driver: express },
-);
+export const appSession = defineJWSSession(config, { driver: express });
 
-export async function login({ req, res }: ExpressEvent): Promise<void> {
+export async function login({ req, res }: ExpressEvent) {
   const body = req.body as { user?: unknown } | undefined;
   if (typeof body?.user !== "string") return send(res, 400, { message: "user required" });
   const session = await appSession.use({ req, res });
@@ -73,13 +68,13 @@ export async function login({ req, res }: ExpressEvent): Promise<void> {
   send(res, 200, { user: session.data.user });
 }
 
-export async function me({ req, res }: ExpressEvent): Promise<void> {
+export async function me({ req, res }: ExpressEvent) {
   const session = await appSession.use({ req, res });
   if (!session.id) return send(res, 401, { message: "Sign in first" });
   send(res, 200, session.data);
 }
 
-export async function logout({ req, res }: ExpressEvent): Promise<void> {
+export async function logout({ req, res }: ExpressEvent) {
   const session = await appSession.use({ req, res });
   await session.clear();
   send(res, 200, { ok: true });

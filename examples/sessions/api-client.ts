@@ -1,7 +1,7 @@
 import { generateJWK } from "unjwt/jwk";
 
 // #region docs
-import { type SessionDefinition, defineJWSSession } from "unjwt/session";
+import { defineJWSSession } from "unjwt/session";
 
 // #hide const key = an HS256 JWK loaded at start-up (see Configure a session)
 const key = await generateJWK("HS256");
@@ -12,7 +12,7 @@ export interface ApiSession {
   scope: "read" | "write";
 }
 
-export const apiSession: SessionDefinition<ApiSession, "1h"> = defineJWSSession({
+export const apiSession = defineJWSSession<ApiSession, "1h">({
   key,
   maxAge: "1h",
   cookie: false,
@@ -22,7 +22,7 @@ export const apiSession: SessionDefinition<ApiSession, "1h"> = defineJWSSession(
 
 // #region handlers
 /** `POST /login` with `{ clientId, clientSecret }`: the token goes back in the body. */
-export async function login(req: Request): Promise<Response> {
+export async function login(req: Request) {
   const { clientId, clientSecret } = await req.json();
   const account = await findServiceAccount(clientId, clientSecret);
   if (!account) return Response.json({ error: "invalid_client" }, { status: 401 });
@@ -31,14 +31,14 @@ export async function login(req: Request): Promise<Response> {
 }
 
 /** `GET /me`: the client sends `x-acme-session: Bearer <token>`. */
-export async function me(req: Request): Promise<Response> {
+export async function me(req: Request) {
   const session = await apiSession.use({ req });
   if (!session.id) return Response.json({ error: "unauthorized" }, { status: 401 });
   return Response.json(session.data);
 }
 
 /** `POST /refresh`: a fresh hour on a new token, which the client keeps in place of the old one. */
-export async function refresh(req: Request): Promise<Response> {
+export async function refresh(req: Request) {
   const session = await apiSession.use({ req });
   if (!session.id) return Response.json({ error: "unauthorized" }, { status: 401 });
   await session.update();
@@ -46,7 +46,7 @@ export async function refresh(req: Request): Promise<Response> {
 }
 
 /** `POST /logout`: the client deletes its copy; the token itself stays valid until it expires. */
-export async function logout(req: Request): Promise<Response> {
+export async function logout(req: Request) {
   const session = await apiSession.use({ req });
   await session.clear();
   return new Response(null, { status: 204 });
@@ -55,12 +55,7 @@ export async function logout(req: Request): Promise<Response> {
 
 // #region client
 /** The command-line side: sign in once, keep the token, send it on every call. */
-export function acmeClient(options: { baseUrl: string; fetch?: typeof fetch }): {
-  login: (clientId: string, clientSecret: string) => Promise<void>;
-  refresh: () => Promise<void>;
-  logout: () => Promise<void>;
-  me: () => Promise<Response>;
-} {
+export function acmeClient(options: { baseUrl: string; fetch?: typeof fetch }) {
   const send = options.fetch ?? fetch;
   let token: string | undefined;
 

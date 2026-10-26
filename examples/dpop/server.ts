@@ -14,7 +14,7 @@ const { privateKey, publicKey } = await generateJWK("ES256");
 // #endhide
 
 /** `POST /token`, once your own code has authenticated the user. */
-export async function tokenEndpoint(request: Request, userId: string): Promise<Response> {
+export async function tokenEndpoint(request: Request, userId: string) {
   const proof = request.headers.get("dpop");
   if (!proof || proof.includes(",")) {
     return Response.json({ error: "invalid_dpop_proof" }, { status: 400 });
@@ -47,7 +47,7 @@ export async function tokenEndpoint(request: Request, userId: string): Promise<R
 
 // #region resource
 /** `GET /orders`, for `Authorization: DPoP <token>` plus one `DPoP` proof header. */
-export async function ordersEndpoint(request: Request): Promise<Response> {
+export async function ordersEndpoint(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const proof = request.headers.get("dpop");
   if (!authorization.startsWith("DPoP ") || !proof || proof.includes(",")) {
@@ -110,7 +110,7 @@ const NONCE_LIFETIME_MS = 5 * 60_000;
 let nonce = { value: newNonce(), issuedAt: Date.now() };
 
 /** The nonce proofs must carry; replaced every five minutes. */
-export function currentNonce(now: number = Date.now()): string {
+export function currentNonce(now = Date.now()) {
   if (now - nonce.issuedAt >= NONCE_LIFETIME_MS) nonce = { value: newNonce(), issuedAt: now };
   return nonce.value;
 }
@@ -125,7 +125,7 @@ function newNonce(): string {
 const seen = new Map<string, number>();
 
 /** Accepts each proof once, per key, for as long as its `iat` keeps it acceptable. */
-export async function consumeOnce({ payload, thumbprint }: DPoPVerifyResult): Promise<boolean> {
+export async function consumeOnce({ payload, thumbprint }: DPoPVerifyResult) {
   const id = await digestUrl(`${thumbprint}.${payload.jti}`);
   const now = Math.floor(Date.now() / 1000);
   for (const [key, expiresAt] of seen) if (expiresAt < now) seen.delete(key);

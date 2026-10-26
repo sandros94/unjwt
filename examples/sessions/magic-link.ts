@@ -2,14 +2,14 @@ import { generateJWK } from "unjwt/jwk";
 
 // #region docs
 import { isJWTError } from "unjwt/error";
-import { type SessionDefinition, defineJWESession } from "unjwt/session";
+import { defineJWESession } from "unjwt/session";
 import { appSession } from "./app-session.ts";
 
 // #hide const linkKey = a second "oct" JWK, loaded like SESSION_KEY
 const linkKey = await generateJWK("A256GCM");
 // #endhide
 
-const magicLink: SessionDefinition<{ email: string }, "15m"> = defineJWESession({
+const magicLink = defineJWESession<{ email: string }, "15m">({
   key: linkKey,
   maxAge: "15m",
   cookie: false,
@@ -17,14 +17,14 @@ const magicLink: SessionDefinition<{ email: string }, "15m"> = defineJWESession(
 });
 
 /** The link to email; it signs in whoever opens it within 15 minutes. */
-export async function magicLinkFor(email: string): Promise<URL> {
+export async function magicLinkFor(email: string) {
   const url = new URL("https://app.example.com/auth/callback");
   url.searchParams.set("token", await magicLink.issue({ email }));
   return url;
 }
 
 /** `GET /auth/callback?token=…`: opens the link token, then starts the app session. */
-export async function redeemMagicLink(req: Request): Promise<Response> {
+export async function redeemMagicLink(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
   if (!token) return new Response("Missing token", { status: 400 });
 

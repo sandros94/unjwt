@@ -1,11 +1,5 @@
 // #region jwe
-import {
-  type JWKSet,
-  type JWK_oct,
-  type SessionDefinition,
-  defineJWESession,
-  defineJWSSession,
-} from "unjwt/session";
+import { type JWKSet, type JWK_oct, defineJWESession, defineJWSSession } from "unjwt/session";
 
 // A JWK Set as JSON, newest key first: { "keys": [{ "kid": "2026-10", … }, { "kid": "2026-09", … }] }
 const sealing = process.env.SESSION_KEYS;
@@ -13,7 +7,7 @@ if (!sealing) throw new Error("SESSION_KEYS is not set");
 const [current, ...previous]: JWK_oct<"A256KW">[] = JSON.parse(sealing).keys;
 if (!current) throw new Error("SESSION_KEYS holds no key");
 
-export const appSession: SessionDefinition<{ userId: string }, "7D"> = defineJWESession({
+export const appSession = defineJWESession<{ userId: string }, "7D">({
   key: { current, keys: previous },
   maxAge: "7D",
 });
@@ -27,7 +21,7 @@ const keyring: JWKSet<JWK_oct<"HS256">[]> = JSON.parse(signing);
 const [signingKey] = keyring.keys;
 if (!signingKey) throw new Error("SIGNING_KEYS holds no key");
 
-export const signedSession: SessionDefinition<{ userId: string }, "1h"> = defineJWSSession({
+export const signedSession = defineJWSSession<{ userId: string }, "1h">({
   key: signingKey,
   maxAge: "1h",
   jws: { signOptions: { alg: "HS256" } },

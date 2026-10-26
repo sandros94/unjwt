@@ -1,13 +1,13 @@
 import { generateJWK } from "unjwt/jwk";
 
 // #region docs
-import { type SessionDefinition, defineJWSSession } from "unjwt/session";
+import { defineJWSSession } from "unjwt/session";
 
 // #hide const key = an HS256 JWK loaded at start-up (see Configure a session)
 const key = await generateJWK("HS256");
 // #endhide
 
-export const appSession: SessionDefinition<{ userId: string }, "1h"> = defineJWSSession({
+export const appSession = defineJWSSession<{ userId: string }, "1h">({
   key,
   maxAge: "1h",
   hooks: {

@@ -1,6 +1,5 @@
 import { generateJWK, type JWKSet, type JWK_EC_Private, type JWK_EC_Public } from "unjwt/jwk";
 import { sign, verify } from "unjwt/jws";
-import type { JWTClaims } from "unjwt";
 
 // #region docs
 /** Every key whose tokens you still accept; only `signing` signs new ones. */
@@ -14,14 +13,14 @@ export function publishedSet(ring: Keyring): JWKSet {
   return { keys: ring.pairs.map((pair) => pair.publicKey) };
 }
 
-export function issueToken(ring: Keyring, userId: string): Promise<string> {
+export function issueToken(ring: Keyring, userId: string) {
   const pair = ring.pairs.find((p) => p.privateKey.kid === ring.signing);
   if (!pair) throw new Error(`No key named "${ring.signing}" in the keyring`);
   return sign({ sub: userId }, pair.privateKey, { expiresIn: "1h" });
 }
 
 /** A verifier holds only the set; the token's `kid` picks the key. */
-export async function readToken(set: JWKSet, token: string): Promise<JWTClaims> {
+export async function readToken(set: JWKSet, token: string) {
   const { payload } = await verify(token, set, { algorithms: ["ES256"] });
   return payload;
 }
