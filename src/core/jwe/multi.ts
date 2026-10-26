@@ -30,12 +30,7 @@ import {
   getPlaintextBytes,
   validateCriticalHeadersJWE,
 } from "../_internal/jwt.ts";
-import {
-  JWE_ALG_CTX,
-  checkJWEAlgSupported,
-  checkJWEEncAllowed,
-  isJWEAlgSupported,
-} from "./_internal/algorithms.ts";
+import { JWE_ALG_CTX, checkJWEAlgSupported, checkJWEEncAllowed } from "./_internal/algorithms.ts";
 import {
   checkProtectedTyp,
   assertProducerCrit,
@@ -223,10 +218,10 @@ export async function encryptMulti(
 
 /**
  * Decrypt a JWE General (RFC 7516 §7.2.1) or Flattened (§7.2.2) JSON Serialization.
- * Recipients are tried in order; per-recipient failures surface only when none unwraps.
- * `strictRecipientMatch` skips recipients the key cannot open and throws
- * `ERR_JWE_NO_MATCHING_RECIPIENT` when none qualifies; a JWK Set with no `kid` candidate
- * throws `ERR_JWK_KEY_NOT_FOUND`. The payload type follows `options.payload`.
+ * Recipients are tried in order; when none opens, the call throws `ERR_JWE_DECRYPTION_FAILED`
+ * with every recipient's error as `cause`, in recipient order. `strictRecipientMatch` skips
+ * recipients the key cannot open and throws `ERR_JWE_NO_MATCHING_RECIPIENT` when none qualifies.
+ * The payload type follows `options.payload`.
  */
 export async function decryptMulti<T extends object = JWTClaims>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
@@ -325,7 +320,7 @@ export async function decryptMulti(
     general.aad === undefined ? protectedHeaderEncoded : `${protectedHeaderEncoded}.${general.aad}`,
   );
 
-  let lastError: JWTError | undefined;
+  const failures: JWTError[] = [];
   let cryptoAttempted = false;
   for (let i = 0; i < general.recipients.length; i++) {
     const shapeError = checkSerializationEntry(general.recipients[i], {
@@ -335,7 +330,7 @@ export async function decryptMulti(
       strings: ["encrypted_key"],
     });
     if (shapeError) {
-      lastError = shapeError;
+      failures.push(shapeError);
       continue;
     }
     const wireRecipient = general.recipients[i];
@@ -346,34 +341,34 @@ export async function decryptMulti(
 
     const recipientError = checkJWEUnprotectedCrit(recipientHeader) ?? checkJWEZip(recipientHeader);
     if (recipientError) {
-      lastError = recipientError;
+      failures.push(recipientError);
       continue;
     }
 
     try {
       _assertDisjointHeaders(protectedHeader, sharedUnprotected, recipientHeader);
     } catch (err) {
-      lastError = asDecryptionError(err);
+      failures.push(asDecryptionError(err));
       continue;
     }
 
     const effective = _mergeHeaders(protectedHeader, sharedUnprotected, recipientHeader);
     const alg = effective.alg;
     if (!alg) {
-      lastError = new JWTError(
-        `Recipient[${i}] has no "alg" in the effective header.`,
-        "ERR_JWE_INVALID",
+      failures.push(
+        new JWTError(`Recipient[${i}] has no "alg" in the effective header.`, "ERR_JWE_INVALID"),
       );
       continue;
     }
 
-    if (!isJWEAlgSupported(alg)) {
-      lastError = checkJWEAlgSupported(alg);
+    const supportError = checkJWEAlgSupported(alg);
+    if (supportError) {
+      failures.push(supportError);
       continue;
     }
     const directKeyError = checkJWEDirectEncryptedKey(alg, wireRecipient.encrypted_key);
     if (directKeyError) {
-      lastError = directKeyError;
+      failures.push(directKeyError);
       continue;
     }
 
@@ -385,7 +380,7 @@ export async function decryptMulti(
         what: `recipient[${i}]`,
       });
     } catch (err) {
-      lastError = asKeyLookupError(err, `recipient[${i}]`);
+      failures.push(asKeyLookupError(err, `recipient[${i}]`));
       continue;
     }
 
@@ -394,7 +389,7 @@ export async function decryptMulti(
       algorithms: options.algorithms,
     });
     if (algError) {
-      lastError = algError;
+      failures.push(algError);
       continue;
     }
 
@@ -404,6 +399,12 @@ export async function decryptMulti(
         ctx: JWE_ALG_CTX,
       })
     ) {
+      failures.push(
+        new JWTError(
+          `JWE recipient[${i}] does not match the key under strictRecipientMatch.`,
+          "ERR_JWE_NO_MATCHING_RECIPIENT",
+        ),
+      );
       continue;
     }
 
@@ -414,7 +415,7 @@ export async function decryptMulti(
         what: "Encrypted key",
       });
     } catch (err) {
-      lastError = asDecryptionError(err);
+      failures.push(asDecryptionError(err));
       continue;
     }
 
@@ -439,7 +440,7 @@ export async function decryptMulti(
       }));
     } catch (err) {
       if (keyAttempts.exhausted) throw keyAttempts.exhausted;
-      lastError = asDecryptionError(err);
+      failures.push(asDecryptionError(err));
       continue;
     }
 
@@ -467,7 +468,7 @@ export async function decryptMulti(
       "ERR_JWE_NO_MATCHING_RECIPIENT",
     );
   }
-  throw lastError ?? new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
+  throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", failures);
 }
 
 /**

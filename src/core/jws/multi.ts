@@ -146,7 +146,7 @@ export async function signMulti(
 
 /**
  * Verifies a JWS General or Flattened JSON Serialization (RFC 7515 §7.2) and returns the first signature that verifies.
- * Per-signature failures are collected and the last one is thrown when none verifies.
+ * When none verifies, the call throws `ERR_JWS_SIGNATURE_INVALID` with every signature's error as `cause`, in signature order.
  * The payload type follows `options.payload`, as in `verify`.
  */
 export async function verifyMulti<T extends object = JWTClaims>(
@@ -172,12 +172,12 @@ export async function verifyMulti(
 
   const general = _readGeneralSerialization(jws, signatureLimit);
 
-  let lastError: JWTError | undefined;
+  const failures: JWTError[] = [];
   let cryptoAttempted = false;
   for (let i = 0; i < general.signatures.length; i++) {
     const read = _readSignatureHeaders(general.signatures[i], i);
     if (read.error) {
-      lastError = read.error;
+      failures.push(read.error);
       continue;
     }
     const { wireSig, protectedHeader, unprotectedHeader, effective, alg } = read;
@@ -187,7 +187,7 @@ export async function verifyMulti(
       label: `signature[${i}]`,
     });
     if (typError) {
-      lastError = typError;
+      failures.push(typError);
       continue;
     }
 
@@ -199,12 +199,12 @@ export async function verifyMulti(
         what: `signature[${i}]`,
       });
     } catch (err) {
-      lastError = asKeyLookupError(err, `signature[${i}]`);
+      failures.push(asKeyLookupError(err, `signature[${i}]`));
       continue;
     }
 
     if (typeof rawKeyMaterial === "string") {
-      lastError = stringKeyError();
+      failures.push(stringKeyError());
       continue;
     }
 
@@ -213,7 +213,7 @@ export async function verifyMulti(
       algorithms: options.algorithms,
     });
     if (algError) {
-      lastError = algError;
+      failures.push(algError);
       continue;
     }
 
@@ -223,6 +223,12 @@ export async function verifyMulti(
         ctx: JWS_ALG_CTX,
       })
     ) {
+      failures.push(
+        new JWTError(
+          `JWS signature[${i}] does not match the key under strictSignerMatch.`,
+          "ERR_JWS_NO_MATCHING_SIGNER",
+        ),
+      );
       continue;
     }
 
@@ -230,7 +236,7 @@ export async function verifyMulti(
     try {
       signatureBytes = decodeSegment(wireSig.signature, { family: "JWS", what: "Signature" });
     } catch (err) {
-      lastError = asJWTError(err, INVALID_JWS);
+      failures.push(asJWTError(err, INVALID_JWS));
       continue;
     }
     const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${general.payload}`);
@@ -245,7 +251,9 @@ export async function verifyMulti(
         keyAttempts,
       });
       if (!verified) {
-        lastError = new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
+        failures.push(
+          new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID"),
+        );
         continue;
       }
 
@@ -267,7 +275,7 @@ export async function verifyMulti(
       if (keyAttempts.exhausted) throw keyAttempts.exhausted;
       const error = asJWTError(err, INVALID_SIGNATURE);
       if (!PER_SIGNATURE_ERROR_CODES.has(error.code)) throw error;
-      lastError = error;
+      failures.push(error);
     }
   }
 
@@ -277,9 +285,7 @@ export async function verifyMulti(
       "ERR_JWS_NO_MATCHING_SIGNER",
     );
   }
-  throw (
-    lastError ?? new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID")
-  );
+  throw new JWTError(INVALID_SIGNATURE.message, INVALID_SIGNATURE.code, failures);
 }
 
 /**

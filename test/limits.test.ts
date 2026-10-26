@@ -119,9 +119,14 @@ describe("limits", () => {
     it("applies to verifyMulti", async () => {
       const jws = await signMulti({ sub: "u1" }, [{ key: signer }]);
       const set: JWKSet = { keys: [decoys[0], publicKey] };
-      await expect(verifyMulti(jws, set, { limits: { keyCandidates: 1 } })).rejects.toThrow(
-        '2 candidate keys exceed the limit of 1, narrow them with a "kid".',
-      );
+      const error = await verifyMulti(jws, set, { limits: { keyCandidates: 1 } }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+      expect(error.cause).toMatchObject([
+        {
+          code: "ERR_JWK_KEY_NOT_FOUND",
+          message: '2 candidate keys exceed the limit of 1, narrow them with a "kid".',
+        },
+      ]);
       const { payload } = await verifyMulti<{ sub: string }>(jws, set, {
         limits: { keyCandidates: 2 },
       });
@@ -145,9 +150,9 @@ describe("limits", () => {
     it("applies to decryptMulti", async () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[2] }], { enc: "A256GCM" });
       const set: JWKSet = { keys: [octKeys[0], octKeys[1], octKeys[2]] };
-      await expect(decryptMulti(jwe, set, { limits: { keyCandidates: 2 } })).rejects.toSatisfy(
-        (error) => isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
-      );
+      const error = await decryptMulti(jwe, set, { limits: { keyCandidates: 2 } }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+      expect(error.cause).toMatchObject([{ code: "ERR_JWK_KEY_NOT_FOUND" }]);
       const { payload } = await decryptMulti<{ sub: string }>(jwe, set, {
         limits: { keyCandidates: 3 },
       });
@@ -346,9 +351,15 @@ describe("limits", () => {
       expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(2);
 
-      await expect(
-        decryptMulti(jwe, holder, { limits: { pbes2Iterations: 5999 } }),
-      ).rejects.toThrow("PBES2 iteration budget of 5999 exhausted.");
+      const error = await decryptMulti(jwe, holder, { limits: { pbes2Iterations: 5999 } }).catch(
+        (e) => e,
+      );
+      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+      expect(error.cause).toHaveLength(3);
+      expect(error.cause[2]).toMatchObject({
+        code: "ERR_JWE_INVALID",
+        message: "PBES2 iteration budget of 5999 exhausted.",
+      });
     });
 
     it("opens the second of two recipients minted at the defaults", async () => {
