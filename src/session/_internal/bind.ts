@@ -49,7 +49,7 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
     codec: SessionCodec<Config>;
     keys: SessionKeys;
     actions: SessionActions<TEvent, Config>;
-    /** The hook argument naming the request, as the public entry names it: `{ event }` or `{ context }`. */
+    /** The hook argument naming the request, as the public entry names it: `{ event }`. */
     hookArgs: (event: TEvent) => Record<string, unknown>;
   },
 ): SessionBinding<TEvent, Config> {

@@ -1,5 +1,4 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
-import { Elysia } from "elysia";
 
 import { isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey } from "../src/core/jwk/index.ts";
@@ -12,13 +11,9 @@ import {
   parseChunkCount,
   readChunked,
 } from "../src/session/_internal/chunked-cookie.ts";
-import { defineJWSSession, jwsSession } from "../src/adapters/elysia/session/jws.ts";
-import { defineJWESession, jweSession } from "../src/adapters/elysia/session/jwe.ts";
-import type { SessionPlugin } from "../src/adapters/elysia/_internal/plugin.ts";
-import type { SessionContext } from "../src/adapters/elysia/session/types.ts";
 import {
-  defineJWSSession as defineJWSSessionWeb,
-  defineJWESession as defineJWESessionWeb,
+  defineJWSSession,
+  defineJWESession,
   type OpenedSessionState,
   type SessionData,
   type SessionDecryptOptions,
@@ -26,7 +21,6 @@ import {
   type SessionVerifyOptions,
   type WebSessionEvent,
 } from "../src/session/index.ts";
-import type { CookieAttributes } from "../src/adapters/elysia/_internal/cookie.ts";
 import { createJWSCodec } from "../src/session/_internal/codec-jws.ts";
 import { createJWECodec } from "../src/session/_internal/codec-jwe.ts";
 import type {
@@ -54,45 +48,12 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 /**
  * A token signed with the session key and carrying the session `typ`, but
- * minted by something other than the adapter.
+ * minted by something other than the session.
  */
 function foreignJWS(claims: Record<string, unknown>, header: Record<string, unknown> = {}) {
   return sign(claims, jwsKey, {
     protectedHeader: { typ: "session+jwt", ...header },
   });
-}
-
-interface MockEntry {
-  value: unknown;
-  lastWrite?: CookieAttributes & { value: string };
-}
-
-function elysiaContext(
-  options: { cookies?: Record<string, string>; headers?: Record<string, string> } = {},
-) {
-  const store = new Map<string, MockEntry>();
-  for (const [name, value] of Object.entries(options.cookies ?? {})) store.set(name, { value });
-
-  const cookie = new Proxy(
-    {},
-    {
-      get(_target, property: string) {
-        return {
-          get value() {
-            return store.get(property)?.value;
-          },
-          set(config: CookieAttributes & { value: string }) {
-            store.set(property, { value: config.value, lastWrite: config });
-          },
-        };
-      },
-    },
-  );
-
-  return {
-    context: { cookie, request: { headers: new Headers(options.headers ?? {}) } } as SessionContext,
-    store,
-  };
 }
 
 async function caught(run: () => Promise<unknown>): Promise<unknown> {
@@ -129,302 +90,88 @@ const EXPIRED_CLAIMS = {
   exp: nowSeconds() - 60,
 };
 
-describe("session adapters — shared contract", () => {
-  // #region Elysia
-  describe("elysia", () => {
-    it("reads the session header in preference to the cookie", async () => {
-      const minted = elysiaContext();
-      const cookieSession = await defineJWSSession({ key: jwsKey }).use(minted.context);
-      await cookieSession.update({ who: "cookie" });
+describe("session contract", () => {
+  // #region reads and updates
+  describe("reads and updates", () => {
+    it.each(familyCases())(
+      "$label: a blank session header is a token failure, the cookie unread",
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { who: "cookie" });
 
-      const headerContext = elysiaContext();
-      const headerSession = await defineJWSSession({ key: jwsKey }).use(headerContext.context);
-      await headerSession.update({ who: "header" });
+        const body = await variant.run(
+          { ...baseConfig(variant), sessionHeader: true },
+          async (open) => {
+            const session = await open();
+            return { id: session.id ?? null, who: session.data.who ?? null };
+          },
+          { cookies: { [variant.name]: token }, headers: { [`x-${variant.name}-session`]: " " } },
+        );
 
-      const { context } = elysiaContext({
-        cookies: { "__Host-elysia-jws": cookieSession.token! },
-        headers: { "x-elysia-jws-session": `Bearer ${headerSession.token!}` },
-      });
-      const session = await defineJWSSession({ key: jwsKey, sessionHeader: true }).use(context);
+        expect(body).toEqual({ id: null, who: null });
+      },
+    );
 
-      expect((session.data as Record<string, unknown>).who).toBe("header");
-    });
-
-    it("a blank session header is a token failure, the cookie unread", async () => {
-      const minted = elysiaContext();
-      const cookieSession = await defineJWSSession({ key: jwsKey }).use(minted.context);
-      await cookieSession.update({ who: "cookie" });
-
-      const { context } = elysiaContext({
-        cookies: { "__Host-elysia-jws": cookieSession.token! },
-        headers: { "x-elysia-jws-session": " " },
-      });
-      const session = await defineJWSSession({ key: jwsKey, sessionHeader: true }).use(context);
-
-      expect(session.id).toBeUndefined();
-      expect((session.data as Record<string, unknown>).who).toBeUndefined();
-    });
-
-    it("rejects a session with neither a cookie nor a header to read from", async () => {
-      const { context } = elysiaContext();
-      const error = await caught(() =>
-        defineJWSSession({ key: jwsKey, cookie: false, sessionHeader: false }).use(context),
-      );
-
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-    });
-
-    it("rejects a password string where key material is required", async () => {
-      const { context } = elysiaContext();
-      const error = await caught(() =>
-        defineJWESession({ key: "a password" as never }).use(context),
-      );
-
-      expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
-      expect((error as Error).message).toMatch(/deriveJWKFromPassword/);
-    });
-
-    it("rejects a cookie jar that holds no reactive cookie", async () => {
-      const context = {
-        cookie: {} as SessionContext["cookie"],
-        request: { headers: new Headers() },
-      };
-      const session = await defineJWSSession({ key: jwsKey }).use(context);
-      const error = await caught(() => session.update({ user: "alice" }));
-
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-      expect((error as Error).message).toMatch(/reactive cookie/);
-    });
-
-    it("strips the adapter-owned claims from an update payload", async () => {
-      const { context } = elysiaContext();
-      const session = await defineJWSSession({ key: jwsKey }).use(context);
-      await session.update({ user: "alice", jti: "forged", exp: 2, nbf: 3 });
-
-      expect({ ...session.data }).toEqual({ user: "alice" });
-      expect(session.id).not.toBe("forged");
-    });
-
-    it("rejects prototype-poisoning keys in an update", async () => {
-      const { context } = elysiaContext();
-      const session = await defineJWSSession({ key: jwsKey }).use(context);
-      const error = await caught(() => session.update({ ["constructor"]: 1 }));
-
-      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
-      expect((error as Error).message).toMatch(/constructor/);
-    });
-
-    it("gives one issue a lifetime of its own", async () => {
-      const { context } = elysiaContext();
-      const session = await defineJWSSession({ key: jwsKey, maxAge: 60 }).use(context);
-      await session.update({ user: "alice" }, { maxAge: 3600 });
-
-      expect(session.expiresAt - session.createdAt).toBe(3600 * SECOND);
-    });
-
-    it("refuses a JWT-typed token signed with the session key, even with a live exp", async () => {
-      const onError = vi.fn();
-      const onExpire = vi.fn();
-      const token = await sign(
-        {
-          jti: "foreign",
-          iat: nowSeconds() - 365 * 24 * 60 * 60,
-          exp: nowSeconds() + 3600,
-          sub: "attacker",
-        },
-        jwsKey,
-        { protectedHeader: { typ: "JWT" } },
-      );
-      const { context } = elysiaContext({ cookies: { "__Host-elysia-jws": token } });
-
-      const session = await defineJWSSession({
-        key: jwsKey,
-        maxAge: 3600,
-        hooks: { onError, onExpire },
-      }).use(context);
-
-      expect(session.id).toBeUndefined();
-      expect(onExpire).not.toHaveBeenCalled();
-      const error = onError.mock.calls[0][0].error;
-      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-      expect(error.message).toMatch(/typ/);
-    });
-
-    it("drops the cookie when the incoming token has expired", async () => {
-      const onExpire = vi.fn();
-      const expired = await foreignJWS({
-        jti: "expired",
-        iat: nowSeconds() - 120,
-        exp: nowSeconds() - 60,
-      });
-      const { context, store } = elysiaContext({ cookies: { "__Host-elysia-jws": expired } });
-
-      const session = await defineJWSSession({
-        key: jwsKey,
-        maxAge: 3600,
-        hooks: { onExpire },
-      }).use(context);
-
-      expect(session.token).toBeUndefined();
-      expect(onExpire).toHaveBeenCalledOnce();
-      expect(store.get("__Host-elysia-jws")?.lastWrite?.maxAge).toBe(0);
-    });
-
-    it("caps PBES2 unwrap at the iteration count the session itself mints", async () => {
-      const onError = vi.fn();
-      const pinned = {
-        key: pbes2Key,
-        jwe: {
-          encryptOptions: { alg: "PBES2-HS256+A128KW", enc: "A128GCM", p2c: 2048 },
-        },
-      } as const;
-
-      const costly = await encrypt({ jti: "costly", iat: nowSeconds() }, pbes2Key, {
-        alg: "PBES2-HS256+A128KW",
-        enc: "A128GCM",
-        p2c: 200_000,
-        protectedHeader: { typ: "session+jwt" },
-      });
-      const { context } = elysiaContext({ cookies: { "__Host-elysia-jwe": costly } });
-
-      const session = await defineJWESession({ ...pinned, hooks: { onError } }).use(context);
-
-      expect(session.id).toBeUndefined();
-      expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-    });
-
-    it("accepts a token minted at the session's own iteration count", async () => {
-      const pinned = {
-        key: pbes2Key,
-        jwe: {
-          encryptOptions: { alg: "PBES2-HS256+A128KW", enc: "A128GCM", p2c: 2048 },
-        },
-      } as const;
-
-      const minted = elysiaContext();
-      const first = await defineJWESession(pinned).use(minted.context);
-      await first.update({ user: "alice" });
-
-      const { context } = elysiaContext({ cookies: { "__Host-elysia-jwe": first.token! } });
-      const second = await defineJWESession(pinned).use(context);
-
-      expect(second.id).toBe(first.id);
-    });
-
-    it("refuses a JWE session under a name a JWS session already holds", async () => {
-      const { context } = elysiaContext();
-      const jws = await defineJWSSession({ name: "shared", key: jwsKey }).use(context);
-      await jws.update({ family: "jws" });
-
-      const error = await caught(() =>
-        defineJWESession({ name: "shared", key: jweKey }).use(context),
-      );
-
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-      expect((error as Error).message).toContain("already used by a JWS session");
-    });
-
-    it("shares one state between two sessions bound under the same name", async () => {
-      const { context } = elysiaContext();
-      const first = await defineJWSSession({ name: "shared", key: jwsKey }).use(context);
-      await first.update({ who: "first" });
-      const second = await defineJWSSession({ name: "shared", key: jwsKey }).use(context);
-
-      expect(second.id).toBe(first.id);
-      expect({ ...second.data }).toEqual({ who: "first" });
-
-      await second.clear();
-      expect(first.id).toBeUndefined();
-      expect(first.token).toBeUndefined();
-    });
-
-    it("registers two differently-named session plugins under one context key", async () => {
-      const app = new Elysia()
-        .use(jwsSession({ key: jwsKey, name: "first", cookie: { secure: false } }))
-        .get("/first", async ({ session }) => {
-          await session.update({ who: "first" });
-          return { id: session.id };
-        })
-        .use(jwsSession({ key: jwsKey, name: "second", cookie: { secure: false } }))
-        .get("/second", async ({ session }) => {
-          await session.update({ who: "second" });
-          return { id: session.id };
+    it.each(familyCases())(
+      "$label: strips the session-owned claims from an update payload",
+      async (variant) => {
+        const body = await variant.run(baseConfig(variant), async (open) => {
+          const session = await open();
+          await session.update({ user: "alice", jti: "forged", exp: 2, nbf: 3 });
+          return { id: session.id ?? null, data: { ...session.data } };
         });
 
-      const first = await app.handle(new Request("http://localhost/first"));
-      const second = await app.handle(new Request("http://localhost/second"));
-      expect(setCookieNames(first)).toEqual(["first"]);
-      expect(setCookieNames(second)).toEqual(["second"]);
-    });
+        expect(body.data).toEqual({ user: "alice" });
+        expect(body.id).not.toBe("forged");
+      },
+    );
 
-    it("registers two differently-named session plugins side by side", async () => {
-      const app = new Elysia()
-        .use(jwsSession({ key: jwsKey, name: "first", cookie: { secure: false } }))
-        .use(
-          jwsSession<Record<string, unknown>, undefined, "admin">({
-            key: jwsKey,
-            name: "second",
-            contextKey: "admin",
-            cookie: { secure: false },
-          }),
-        )
-        .get("/", async ({ session, admin }) => {
-          await session.update({ who: "first" });
-          await admin.update({ who: "second" });
-          return { session: session.id, admin: admin.id };
+    it.each(familyCases())(
+      "$label: rejects prototype-poisoning keys in an update",
+      async (variant) => {
+        const body = await variant.run(baseConfig(variant), async (open) => {
+          const session = await open();
+          const error = await caught(() => session.update({ ["constructor"]: 1 }));
+          return {
+            code: isJWTError(error, "ERR_INVALID_OPTION"),
+            message: (error as Error | undefined)?.message ?? null,
+          };
         });
 
-      const response = await app.handle(new Request("http://localhost/"));
-      const cookies = response.headers.getSetCookie();
+        expect(body.code).toBe(true);
+        expect(body.message).toMatch(/constructor/);
+      },
+    );
 
-      expect(cookies.some((cookie) => cookie.startsWith("first="))).toBe(true);
-      expect(cookies.some((cookie) => cookie.startsWith("second="))).toBe(true);
-    });
-  });
-  // #endregion
+    it.each(familyCases())("$label: gives one issue a lifetime of its own", async (variant) => {
+      const body = await variant.run({ ...baseConfig(variant), maxAge: 60 }, async (open) => {
+        const session = await open();
+        await session.update({ user: "alice" }, { maxAge: 3600 });
+        return { lifetime: session.expiresAt! - session.createdAt };
+      });
 
-  // #region re-entrant hooks
-  describe("re-entrant hooks", () => {
-    const readerConfig = { name: "reentrant-jws", key: jwsKey, maxAge: "1m" } as const;
-
-    it("elysia: an onExpire hook may read the same session", async () => {
-      const seen: Array<string | undefined> = [];
-      const token = await foreignJWS(EXPIRED_CLAIMS);
-      const { context } = elysiaContext({ cookies: { "reentrant-jws": token } });
-      const config = {
-        ...readerConfig,
-        hooks: {
-          onExpire: async () => {
-            const again = await defineJWSSession({ ...readerConfig }).use(context);
-            seen.push(again.id);
-          },
-        },
-      };
-
-      const session = await within(defineJWSSession(config).use(context), "elysia onExpire");
-
-      expect(session.id).toBeUndefined();
-      expect(seen).toEqual([undefined]);
+      expect(body).toEqual({ lifetime: 3600 * SECOND });
     });
 
-    it("elysia: an onError hook may read the same session", async () => {
-      const seen: Array<string | undefined> = [];
-      const { context } = elysiaContext({ cookies: { "reentrant-jws": "not.a.token" } });
-      const config = {
-        ...readerConfig,
-        hooks: {
-          onError: async () => {
-            const again = await defineJWSSession({ ...readerConfig }).use(context);
-            seen.push(again.id);
-          },
-        },
-      };
+    it.each(familyCases())(
+      "$label: gives an issue after a clear a lifetime of its own",
+      async (variant) => {
+        const body = await variant.run({ ...baseConfig(variant), maxAge: 60 }, async (open) => {
+          const session = await open();
+          await session.update({ user: "alice" });
+          await session.clear();
+          await session.update({ user: "bob" }, { maxAge: 3600 });
+          return {
+            id: session.id ?? null,
+            data: { ...session.data },
+            lifetime: session.expiresAt! - session.createdAt,
+          };
+        });
 
-      const session = await within(defineJWSSession(config).use(context), "elysia onError");
-
-      expect(session.id).toBeUndefined();
-      expect(seen).toEqual([undefined]);
-    });
+        expect(body.id).toBeTypeOf("string");
+        expect(body.data).toEqual({ user: "bob" });
+        expect(body.lifetime).toBe(3600 * SECOND);
+      },
+    );
   });
   // #endregion
 
@@ -437,8 +184,8 @@ describe("session adapters — shared contract", () => {
       cookie: { chunkMaxLength, secure: false },
     } as const;
 
-    it("web: refuses a token needing more chunks than the limit", async () => {
-      const session = await defineJWSSessionWeb(chunked).use({
+    it("refuses a token needing more chunks than the limit", async () => {
+      const session = await defineJWSSession(chunked).use({
         req: new Request("http://localhost/"),
         res: { headers: new Headers() },
       });
@@ -447,11 +194,35 @@ describe("session adapters — shared contract", () => {
       );
 
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toContain(String(MAX_CHUNK_COUNT));
     });
 
-    it("web: bounds cleanup of a forged chunk marker", async () => {
+    it.each(["__chunked__99", "__chunked__0", "__chunked__abc"])(
+      "reads a forged %s marker as no session",
+      async (marker) => {
+        const session = await defineJWSSession(chunked).use({
+          req: new Request("http://localhost/", { headers: { cookie: `chunk-jws=${marker}` } }),
+        });
+
+        expect(session.id).toBeUndefined();
+        expect(session.token).toBeUndefined();
+      },
+    );
+
+    it("reads a chunk set missing one of its chunks as no session", async () => {
+      const session = await defineJWSSession(chunked).use({
+        req: new Request("http://localhost/", {
+          headers: { cookie: "chunk-jws=__chunked__2; chunk-jws.1=abc" },
+        }),
+      });
+
+      expect(session.id).toBeUndefined();
+      expect(session.token).toBeUndefined();
+    });
+
+    it("bounds cleanup of a forged chunk marker", async () => {
       const headers = new Headers();
-      const session = await defineJWSSessionWeb(chunked).use({
+      const session = await defineJWSSession(chunked).use({
         req: new Request("http://localhost/", { headers: { cookie: "chunk-jws=__chunked__100" } }),
         res: { headers },
       });
@@ -464,9 +235,9 @@ describe("session adapters — shared contract", () => {
 
   // #region key and payload failures
   describe("misconfigured keys and payloads", () => {
-    it("web: a public-only JWS key is refused when the session is defined", async () => {
+    it("a public-only JWS key is refused when the session is defined", async () => {
       const error = await caught(() =>
-        defineJWSSessionWeb({ name: "publiconly", key: { publicKey: {} } as never }).use({
+        defineJWSSession({ name: "publiconly", key: { publicKey: {} } as never }).use({
           req: new Request("http://localhost/"),
         }),
       );
@@ -474,135 +245,39 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
     });
 
-    it("elysia: an empty key object is refused when the session is defined", async () => {
-      const { context } = elysiaContext();
+    it("an empty key object is refused when the session is defined", async () => {
       const error = await caught(() =>
-        defineJWSSession({ name: "emptykey", key: {} as never }).use(context),
+        defineJWSSession({ name: "emptykey", key: {} as never }).use({
+          req: new Request("http://localhost/"),
+        }),
       );
 
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
     });
-
-    it("elysia: a cookie name outside the RFC 6265 token characters is a config error", async () => {
-      const { context } = elysiaContext();
-      const error = await caught(() =>
-        defineJWSSession({ name: "bad name", key: jwsKey }).use(context),
-      );
-
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-    });
-
-    it("leaves session.token undefined after a failed verification", async () => {
-      const { context } = elysiaContext({ cookies: { "__Host-elysia-jws": "not.a.token" } });
-      const session = await defineJWSSession({ key: jwsKey }).use(context);
-
-      expect(session.token).toBeUndefined();
-    });
   });
   // #endregion
 
-  // #region elysia cookie chunk bounds
-  describe("elysia cookie chunk bounds", () => {
-    const chunkMaxLength = 64;
-    const chunked = {
-      name: "chunk-jws",
-      key: jwsKey,
-      cookie: { chunkMaxLength, secure: false },
-    } as const;
-
-    it("refuses a token needing more chunks than the limit", async () => {
-      const { context } = elysiaContext();
-      const session = await defineJWSSession(chunked).use(context);
-      const error = await caught(() =>
-        session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
-      );
-
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-      expect((error as Error).message).toContain(String(MAX_CHUNK_COUNT));
-    });
-
-    it.each(["__chunked__99", "__chunked__0", "__chunked__abc"])(
-      "reads a forged %s marker as no session",
-      async (marker) => {
-        const { context } = elysiaContext({ cookies: { "chunk-jws": marker } });
-        const session = await defineJWSSession(chunked).use(context);
-
-        expect(session.id).toBeUndefined();
-        expect(session.token).toBeUndefined();
-      },
-    );
-
-    it("bounds cleanup of a forged chunk marker", async () => {
-      const { context, store } = elysiaContext({ cookies: { "chunk-jws": "__chunked__100" } });
-      const session = await defineJWSSession(chunked).use(context);
-      await session.update({ user: "alice" });
-
-      const written = [...store.keys()].filter((name) => name.startsWith("chunk-jws"));
-      expect(written.length).toBeLessThanOrEqual(MAX_CHUNK_COUNT + 1);
-    });
-
-    it("round-trips a token across the chunks it needs", async () => {
-      const minted = elysiaContext();
-      const session = await defineJWSSession(chunked).use(minted.context);
-      await session.update(bulkyData(3, chunkMaxLength));
-
-      const cookies: Record<string, string> = {};
-      for (const [name, entry] of minted.store) cookies[name] = entry.value as string;
-      const { context } = elysiaContext({ cookies });
-      const again = await defineJWSSession(chunked).use(context);
-
-      expect(again.id).toBe(session.id);
-    });
-  });
-  // #endregion
-
-  // #region cookie attribute parity
-  describe("cookie attributes", () => {
-    const expected = {
-      jws: { path: "/", secure: true, httpOnly: true, sameSite: "lax" },
-      jwe: { path: "/", secure: true, httpOnly: true, sameSite: "lax" },
-    } as const;
-
-    it.each(["jws", "jwe"] as const)("elysia writes the %s defaults", async (family) => {
-      const { context, store } = elysiaContext();
-      const session =
-        family === "jws"
-          ? await defineJWSSession({ name: `attr-${family}`, key: jwsKey }).use(context)
-          : await defineJWESession({ name: `attr-${family}`, key: jweKey }).use(context);
-      await session.update({ user: "alice" });
-
-      const write = store.get(`attr-${family}`)!.lastWrite!;
-      expect({
-        path: write.path,
-        secure: Boolean(write.secure),
-        httpOnly: Boolean(write.httpOnly),
-        sameSite: write.sameSite,
-      }).toEqual(expected[family]);
-    });
-  });
-  // #endregion
-
-  // #region one contract across adapters and families
-  describe("one contract across adapters and families", () => {
-    it.each(portFamilyCases())("$label: a token that does not open is invalid", async (port) => {
-      const body = await port.run(
-        { name: port.name, key: port.key, cookie: { secure: false }, hooks: {} },
+  // #region one contract across both families
+  describe("one contract across both families", () => {
+    it.each(familyCases())("$label: a token that does not open is invalid", async (variant) => {
+      const body = await variant.run(
+        { name: variant.name, key: variant.key, cookie: { secure: false }, hooks: {} },
         async (open) => {
           const session = await open();
           return { id: session.id ?? null, token: session.token ?? null };
         },
-        { cookies: { [port.name]: "not.a.token" } },
+        { cookies: { [variant.name]: "not.a.token" } },
       );
 
       expect(body).toEqual({ id: null, token: null });
     });
 
-    it.each(portFamilyCases())("$label: reports an unopenable token to onError", async (port) => {
+    it.each(familyCases())("$label: reports an unopenable token to onError", async (variant) => {
       let seen: unknown;
-      const body = await port.run(
+      const body = await variant.run(
         {
-          name: port.name,
-          key: port.key,
+          name: variant.name,
+          key: variant.key,
           cookie: { secure: false },
           hooks: {
             onError: ({ error }: { error: unknown }) => {
@@ -614,52 +289,52 @@ describe("session adapters — shared contract", () => {
           await open();
           return { code: isJWTError(seen, "ERR_SESSION_TOKEN_INVALID") };
         },
-        { cookies: { [port.name]: "not.a.token" } },
+        { cookies: { [variant.name]: "not.a.token" } },
       );
 
       expect(body).toEqual({ code: true });
     });
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: drops the cookie of a token that does not open, as an expired one's",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
-        const response = await port.serve(
-          { name: port.name, key: port.key, cookie: { secure: false }, hooks: { onError } },
+        const response = await variant.serve(
+          { name: variant.name, key: variant.key, cookie: { secure: false }, hooks: { onError } },
           async (open) => ({ id: (await open()).id ?? null }),
-          { cookies: { [port.name]: "not.a.token" } },
+          { cookies: { [variant.name]: "not.a.token" } },
         );
 
         expect(response.body).toEqual({ id: null });
         expect(onError).toHaveBeenCalledOnce();
         expect(response.cookies).toEqual([
-          expect.stringMatching(new RegExp(`^${port.name}=; .*Max-Age=0`)),
+          expect.stringMatching(new RegExp(`^${variant.name}=; .*Max-Age=0`)),
         ]);
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: keeps the cookie when the key lookup threw, which says nothing about the token",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
         const onError = vi.fn();
         const lookup = () => {
           throw new Error("key store unavailable");
         };
-        const response = await port.serve(
+        const response = await variant.serve(
           {
-            name: port.name,
-            key: port.key,
+            name: variant.name,
+            key: variant.key,
             cookie: { secure: false },
             hooks: {
               onError,
-              ...(port.family === "jws"
+              ...(variant.family === "jws"
                 ? { onVerifyKeyLookup: lookup }
                 : { onUnsealKeyLookup: lookup }),
             },
           },
           async (open) => ({ id: (await open()).id ?? null }),
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(response.body).toEqual({ id: null });
@@ -670,11 +345,11 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a missing key is refused when the session is defined",
-      async (port) => {
-        const body = await port.run(
-          { name: port.name, key: undefined, cookie: { secure: false } },
+      async (variant) => {
+        const body = await variant.run(
+          { name: variant.name, key: undefined, cookie: { secure: false } },
           async (open) => {
             const error = await caught(open);
             return { code: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
@@ -685,9 +360,9 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())("$label: an unusable name is a config failure", async (port) => {
-      const body = await port.run(
-        { name: "bad name", key: port.key, cookie: { secure: false } },
+    it.each(familyCases())("$label: an unusable name is a config failure", async (variant) => {
+      const body = await variant.run(
+        { name: "bad name", key: variant.key, cookie: { secure: false } },
         async (open) => {
           const error = await caught(open);
           return { code: isJWTError(error, "ERR_SESSION_CONFIG_INVALID") };
@@ -697,23 +372,23 @@ describe("session adapters — shared contract", () => {
       expect(body).toEqual({ code: true });
     });
 
-    it.each(portFamilyCases())("$label: three concurrent reads share one jti", async (port) => {
-      const config = { name: port.name, key: port.key, cookie: { secure: false } };
+    it.each(familyCases())("$label: three concurrent reads share one jti", async (variant) => {
+      const config = { name: variant.name, key: variant.key, cookie: { secure: false } };
 
-      const minted = await port.run(config, async (open) => {
+      const minted = await variant.run(config, async (open) => {
         const session = await open();
         await session.update({ user: "alice" });
         return { token: session.token! };
       });
 
-      const body = await port.run(
+      const body = await variant.run(
         config,
         async (open) => {
           const sessions = await Promise.all([open(), open(), open()]);
           const ids = sessions.map((session) => session.id);
           return { ids, distinct: new Set(ids).size };
         },
-        { cookies: { [port.name]: minted.token as string } },
+        { cookies: { [variant.name]: minted.token as string } },
       );
 
       expect(body.distinct).toBe(1);
@@ -724,59 +399,59 @@ describe("session adapters — shared contract", () => {
 
   // #region one session state per request
   describe("one session state per request", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a hook that clears the session on read leaves the handler without one",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
         const config = {
-          ...baseConfig(port),
+          ...baseConfig(variant),
           hooks: {
             onRead: async (args: Record<string, unknown>) => {
-              await (await port.reopen(args, baseConfig(port))).clear();
+              await (await variant.reopen(args, baseConfig(variant))).clear();
             },
           },
         };
 
-        const handled = await port.run(
+        const handled = await variant.run(
           config,
           async (open) => {
             const session = await open();
             return { id: session.id ?? null, data: { ...session.data } };
           },
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
-        const guarded = await port.guarded(config, { cookies: { [port.name]: token } });
+        const guarded = await variant.guarded(config, { cookies: { [variant.name]: token } });
 
         expect(handled).toEqual({ id: null, data: {} });
         expect(guarded.status).toBe(401);
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a hook that reissues an expired session hands the handler the new one",
-      async (port) => {
-        const expired = await foreignToken(port.family, EXPIRED_CLAIMS);
+      async (variant) => {
+        const expired = await foreignToken(variant.family, EXPIRED_CLAIMS);
         const issued: string[] = [];
         const config = {
-          ...baseConfig(port),
+          ...baseConfig(variant),
           hooks: {
             onExpire: async (args: Record<string, unknown>) => {
-              const session = await port.reopen(args, baseConfig(port));
+              const session = await variant.reopen(args, baseConfig(variant));
               await session.update({ refreshed: true });
               issued.push(session.id!);
             },
           },
         };
 
-        const handled = await port.run(
+        const handled = await variant.run(
           config,
           async (open) => {
             const session = await open();
             return { id: session.id ?? null, data: { ...session.data } };
           },
-          { cookies: { [port.name]: expired } },
+          { cookies: { [variant.name]: expired } },
         );
-        const guarded = await port.guarded(config, { cookies: { [port.name]: expired } });
+        const guarded = await variant.guarded(config, { cookies: { [variant.name]: expired } });
 
         expect(handled).toEqual({ id: issued[0], data: { refreshed: true } });
         expect(guarded.status).toBe(200);
@@ -784,14 +459,14 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a cleared session stays cleared while the request still carries a header token",
-      async (port) => {
-        const cookieToken = await mintToken(port, baseConfig(port), { who: "cookie" });
-        const headerToken = await mintToken(port, baseConfig(port), { who: "header" });
+      async (variant) => {
+        const cookieToken = await mintToken(variant, baseConfig(variant), { who: "cookie" });
+        const headerToken = await mintToken(variant, baseConfig(variant), { who: "header" });
 
-        const body = await port.run(
-          baseConfig(port),
+        const body = await variant.run(
+          baseConfig(variant),
           async (open) => {
             const session = await open();
             const before = session.id;
@@ -800,8 +475,8 @@ describe("session adapters — shared contract", () => {
             return { before, id: again.id ?? null, token: again.token ?? null };
           },
           {
-            cookies: { [port.name]: cookieToken },
-            headers: { [`x-${port.name}-session`]: headerToken },
+            cookies: { [variant.name]: cookieToken },
+            headers: { [`x-${variant.name}-session`]: headerToken },
           },
         );
 
@@ -810,18 +485,18 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: reports one unopenable token to onError once however often it is opened",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
-        const body = await port.run(
-          { ...baseConfig(port), hooks: { onError } },
+        const body = await variant.run(
+          { ...baseConfig(variant), hooks: { onError } },
           async (open) => {
             await open();
             await open();
             return { calls: onError.mock.calls.length };
           },
-          { cookies: { [port.name]: "not.a.token" } },
+          { cookies: { [variant.name]: "not.a.token" } },
         );
 
         expect(body).toEqual({ calls: 1 });
@@ -832,11 +507,11 @@ describe("session adapters — shared contract", () => {
 
   // #region key halves
   describe("asymmetric JWE key halves", () => {
-    const jweCases = () => portFamilyCases().filter((port) => port.family === "jwe");
+    const jweCases = () => familyCases().filter((variant) => variant.family === "jwe");
 
     it.each(jweCases())(
       "$label: refuses a password string as the private half before any token is opened",
-      async (port) => {
+      async (variant) => {
         const { publicKey } = rsaEncPair;
         const onError = vi.fn();
         const forged = await encrypt(
@@ -850,9 +525,9 @@ describe("session adapters — shared contract", () => {
           },
         );
 
-        const body = await port.run(
+        const body = await variant.run(
           {
-            name: port.name,
+            name: variant.name,
             key: { publicKey, privateKey: "hunter2" },
             cookie: { secure: false },
             hooks: { onError },
@@ -864,12 +539,12 @@ describe("session adapters — shared contract", () => {
               message: (error as Error | undefined)?.message ?? null,
             };
           },
-          { cookies: { [port.name]: forged } },
+          { cookies: { [variant.name]: forged } },
         );
 
         expect(body.code).toBe(true);
         expect(body.message).toMatch(
-          port.family === "jws" ? /privateKey/ : /an asymmetric key seals with its public half/,
+          variant.family === "jws" ? /privateKey/ : /an asymmetric key seals with its public half/,
         );
         expect(onError).not.toHaveBeenCalled();
       },
@@ -879,15 +554,15 @@ describe("session adapters — shared contract", () => {
 
   // #region writes that fail
   describe("a cookie write that fails", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: rolls the session back and reports to onError",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
         const chunkMaxLength = 64;
-        const body = await port.run(
+        const body = await variant.run(
           {
-            name: port.name,
-            key: port.key,
+            name: variant.name,
+            key: variant.key,
             cookie: { secure: false, chunkMaxLength },
             hooks: { onError },
           },
@@ -930,10 +605,10 @@ describe("session adapters — shared contract", () => {
       const config = { name: "contract-jws", key: jwsKey, maxAge: 1, hooks: { onExpire } };
       vi.useFakeTimers({ shouldAdvanceTime: true });
       try {
-        const session = await defineJWSSessionWeb(config).use(event);
+        const session = await defineJWSSession(config).use(event);
         await session.update({ user: "alice" });
         vi.setSystemTime(Date.now() + 5000);
-        await defineJWSSessionWeb(config).use(event);
+        await defineJWSSession(config).use(event);
       } finally {
         vi.useRealTimers();
       }
@@ -943,14 +618,14 @@ describe("session adapters — shared contract", () => {
       };
     }
 
-    it("web: reports the expiry instant of an in-memory session in milliseconds", async () => {
+    it("reports the expiry instant of an in-memory session in milliseconds", async () => {
       const { error, session } = await inMemoryExpiry();
 
       expect(error.message).toContain(new Date(session.expiresAt).toISOString());
       expect(new Date(session.expiresAt).getUTCFullYear()).toBe(new Date().getUTCFullYear());
     });
 
-    it("web: reports an in-memory expiry with the message claim validation gives for the same instant", async () => {
+    it("reports an in-memory expiry with the message claim validation gives for the same instant", async () => {
       const { error, session } = await inMemoryExpiry();
 
       const token = await sign({ exp: session.expiresAt / 1000 }, jwsKey);
@@ -961,30 +636,30 @@ describe("session adapters — shared contract", () => {
       expect(error.message).toBe((coreError as Error).message);
     });
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a per-issue lifetime longer than the config's ends at the config maxAge",
-      async (port) => {
+      async (variant) => {
         const onExpire = vi.fn();
         const onError = vi.fn();
         const issuedAt = new Date(Date.now() - 5 * SECOND);
         const token = await mintToken(
-          port,
+          variant,
           {
-            ...baseConfig(port),
+            ...baseConfig(variant),
             maxAge: 1,
-            ...issueOptions(port.family, { currentDate: issuedAt }),
+            ...issueOptions(variant.family, { currentDate: issuedAt }),
           },
           { user: "alice" },
           { maxAge: 3600 },
         );
 
-        const body = await port.run(
-          { ...baseConfig(port), maxAge: 1, hooks: { onExpire, onError } },
+        const body = await variant.run(
+          { ...baseConfig(variant), maxAge: 1, hooks: { onExpire, onError } },
           async (open) => {
             const session = await open();
             return { user: session.data.user ?? null };
           },
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body).toEqual({ user: null });
@@ -996,17 +671,17 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a token without exp is refused when the session has a maxAge",
-      async (port) => {
+      async (variant) => {
         const onExpire = vi.fn();
         const onError = vi.fn();
-        const token = await foreignToken(port.family, { jti: "no-exp", iat: nowSeconds() });
+        const token = await foreignToken(variant.family, { jti: "no-exp", iat: nowSeconds() });
 
-        const body = await port.run(
-          { ...baseConfig(port), maxAge: 3600, hooks: { onExpire, onError } },
+        const body = await variant.run(
+          { ...baseConfig(variant), maxAge: 3600, hooks: { onExpire, onError } },
           async (open) => ({ id: (await open()).id ?? null }),
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body).toEqual({ id: null });
@@ -1017,17 +692,17 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a token whose exp has passed goes to onExpire",
-      async (port) => {
+      async (variant) => {
         const onExpire = vi.fn();
         const onError = vi.fn();
-        const token = await foreignToken(port.family, EXPIRED_CLAIMS);
+        const token = await foreignToken(variant.family, EXPIRED_CLAIMS);
 
-        const body = await port.run(
-          { ...baseConfig(port), maxAge: 3600, hooks: { onExpire, onError } },
+        const body = await variant.run(
+          { ...baseConfig(variant), maxAge: 3600, hooks: { onExpire, onError } },
           async (open) => ({ id: (await open()).id ?? null }),
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body).toEqual({ id: null });
@@ -1041,25 +716,25 @@ describe("session adapters — shared contract", () => {
 
   // #region issued in the future
   describe("issued in the future", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a token issued in the future is refused even without a maxAge",
-      async (port) => {
+      async (variant) => {
         const future = new Date(Date.now() + 3600_000);
         const minted = await mintToken(
-          port,
+          variant,
           {
-            ...baseConfig(port),
-            ...(port.family === "jws"
+            ...baseConfig(variant),
+            ...(variant.family === "jws"
               ? { jws: { signOptions: { currentDate: future } } }
               : { jwe: { encryptOptions: { currentDate: future } } }),
           },
           { user: "alice" },
         );
         const onError = vi.fn();
-        const body = await port.run(
-          { ...baseConfig(port), hooks: { onError } },
+        const body = await variant.run(
+          { ...baseConfig(variant), hooks: { onError } },
           async (open) => ({ id: (await open()).id ?? null }),
-          { cookies: { [port.name]: minted } },
+          { cookies: { [variant.name]: minted } },
         );
         expect(body.id).toBeNull();
         expect(onError).toHaveBeenCalledTimes(1);
@@ -1067,15 +742,15 @@ describe("session adapters — shared contract", () => {
           true,
         );
 
-        const tolerated = await port.run(
+        const tolerated = await variant.run(
           {
-            ...baseConfig(port),
-            ...(port.family === "jws"
+            ...baseConfig(variant),
+            ...(variant.family === "jws"
               ? { jws: { verifyOptions: { clockTolerance: "2h" } } }
               : { jwe: { decryptOptions: { clockTolerance: "2h" } } }),
           },
           async (open) => ({ id: (await open()).id ?? null }),
-          { cookies: { [port.name]: minted } },
+          { cookies: { [variant.name]: minted } },
         );
         expect(tolerated.id).toBeTypeOf("string");
       },
@@ -1083,23 +758,23 @@ describe("session adapters — shared contract", () => {
   });
   // #endregion
 
-  // #region adapter-owned claims
-  describe("claims the adapter owns", () => {
-    it.each(portFamilyCases())("$label: issue options cannot set exp or nbf", async (port) => {
+  // #region session-owned claims
+  describe("claims the session owns", () => {
+    it.each(familyCases())("$label: issue options cannot set exp or nbf", async (variant) => {
       const later = new Date(Date.now() + 365 * 24 * 3600 * SECOND);
       for (const options of [{ expiresAt: later }, { notBeforeIn: 30 }, { notBeforeAt: later }]) {
         const token = await mintToken(
-          port,
+          variant,
           {
-            name: port.name,
-            key: port.key,
+            name: variant.name,
+            key: variant.key,
             maxAge: 60,
             cookie: { secure: false },
-            ...issueOptions(port.family, options),
+            ...issueOptions(variant.family, options),
           },
           { user: "alice" },
         );
-        const claims = await claimsOf(port.family, token);
+        const claims = await claimsOf(variant.family, token);
 
         expect((claims.exp as number) - (claims.iat as number)).toBe(60);
         expect(claims).not.toHaveProperty("nbf");
@@ -1110,8 +785,8 @@ describe("session adapters — shared contract", () => {
 
   // #region reserved claims in session data
   describe("reserved claims in session data", () => {
-    const mutate = async (port: PortFamilyCase) =>
-      port.run(baseConfig(port), async (open) => {
+    const mutate = async (variant: FamilyCase) =>
+      variant.run(baseConfig(variant), async (open) => {
         const session = await open();
         await session.update({ user: "alice" });
         Object.assign(session.data, { nbf: 1, exp: 4102444800, iat: 1, jti: "mine" });
@@ -1119,19 +794,19 @@ describe("session adapters — shared contract", () => {
         return { id: session.id ?? null, token: session.token ?? null, data: { ...session.data } };
       });
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: reserved claims written into session.data do not become the session's own",
-      async (port) => {
-        const body = await mutate(port);
+      async (variant) => {
+        const body = await mutate(variant);
         expect(body.id).not.toBe("mine");
         expect(body.data).toEqual({ user: "alice" });
       },
     );
 
-    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
+    it.each(familyCases().filter((variant) => variant.family === "jws"))(
       "$label: reserved claims written into session.data never reach the token",
-      async (port) => {
-        const body = await mutate(port);
+      async (variant) => {
+        const body = await mutate(variant);
         const claims = decodeSegment(String(body.token).split(".")[1] ?? "");
         expect(claims.nbf).toBeUndefined();
         expect(claims.exp).toBeUndefined();
@@ -1144,20 +819,20 @@ describe("session adapters — shared contract", () => {
 
   // #region PBES2 iteration cap
   describe("PBES2 iteration cap", () => {
-    const jweCases = () => portFamilyCases().filter((port) => port.family === "jwe");
+    const jweCases = () => familyCases().filter((variant) => variant.family === "jwe");
 
     it.each(jweCases())(
       "$label: caps unwrap at the session's own count when the key carries the alg",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
         const config = {
-          name: port.name,
+          name: variant.name,
           key: pbes2Key,
           cookie: { secure: false },
           jwe: { encryptOptions: { p2c: 2048 } },
           hooks: { onError },
         };
-        const own = await mintToken(port, config, { user: "alice" });
+        const own = await mintToken(variant, config, { user: "alice" });
         const costly = await encrypt(
           { jti: "costly", iat: nowSeconds(), user: "mallory" },
           pbes2Key,
@@ -1165,8 +840,8 @@ describe("session adapters — shared contract", () => {
         );
 
         const read = (token: string) =>
-          port.run(config, async (open) => ({ user: (await open()).data.user ?? null }), {
-            cookies: { [port.name]: token },
+          variant.run(config, async (open) => ({ user: (await open()).data.user ?? null }), {
+            cookies: { [variant.name]: token },
           });
 
         expect(await read(own)).toEqual({ user: "alice" });
@@ -1180,56 +855,28 @@ describe("session adapters — shared contract", () => {
 
   // #region token-only configs
   describe("token-only configs", () => {
-    it.each(portFamilyCases().filter((port) => port.port !== "elysia"))(
-      "$label: a session manager still needs a token source",
-      async (port) => {
-        const body = await port.run(
-          { name: port.name, key: port.key, cookie: false, sessionHeader: false },
-          async (open) => ({
-            code: isJWTError(await caught(open), "ERR_SESSION_CONFIG_INVALID"),
-          }),
-        );
+    it.each(
+      familyCases().flatMap((variant) =>
+        [{ sessionHeader: false }, {}].map((header) => ({
+          variant,
+          header,
+          label: `${variant.label}, sessionHeader ${"sessionHeader" in header ? "false" : "unset"}`,
+        })),
+      ),
+    )("$label: a session manager still needs a token source", async ({ variant, header }) => {
+      const body = await variant.run(
+        { name: variant.name, key: variant.key, cookie: false, ...header },
+        async (open) => {
+          const error = await caught(open);
+          return {
+            code: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
+            message: (error as Error | undefined)?.message ?? null,
+          };
+        },
+      );
 
-        expect(body).toEqual({ code: true });
-      },
-    );
-  });
-  // #endregion
-
-  // #region elysia session lifecycle
-  describe("elysia session lifecycle", () => {
-    it("reads a cleared header session back as empty while the header still carries its token", async () => {
-      const config = { key: jwsKey, sessionHeader: true } as const;
-      const minted = elysiaContext();
-      const issued = await defineJWSSession(config).use(minted.context);
-      await issued.update({ user: "alice" });
-
-      const { context, store } = elysiaContext({
-        headers: { "x-elysia-jws-session": issued.token! },
-      });
-      const session = await defineJWSSession(config).use(context);
-      expect(session.id).toBe(issued.id);
-      await session.clear();
-
-      expect(session.id).toBeUndefined();
-      expect(session.data).toEqual({});
-      expect(store.get("__Host-elysia-jws")?.lastWrite).toBeUndefined();
-
-      const again = await defineJWSSession(config).use(context);
-      expect(again.id).toBeUndefined();
-      expect(again.token).toBeUndefined();
-    });
-
-    it("gives an issue after a clear a lifetime of its own", async () => {
-      const { context } = elysiaContext();
-      const session = await defineJWSSession({ key: jwsKey, maxAge: 60 }).use(context);
-      await session.update({ user: "alice" });
-      await session.clear();
-      await session.update({ user: "bob" }, { maxAge: 3600 });
-
-      expect(session.id).toBeDefined();
-      expect({ ...session.data }).toEqual({ user: "bob" });
-      expect(session.expiresAt - session.createdAt).toBe(3600 * SECOND);
+      expect(body.code).toBe(true);
+      expect(body.message).toContain('"sessionHeader"');
     });
   });
   // #endregion
@@ -1237,13 +884,15 @@ describe("session adapters — shared contract", () => {
   // #region re-entrant hook matrix
   describe("re-entrant hook matrix", () => {
     const matrixCases = () =>
-      portFamilyCases()
-        .filter((port) => port.family === "jws")
-        .flatMap((port) => hookMatrix().map((entry) => ({ ...entry, port, label: port.port })));
+      familyCases()
+        .filter((variant) => variant.family === "jws")
+        .flatMap((variant) =>
+          hookMatrix().map((entry) => ({ ...entry, variant, label: variant.label })),
+        );
 
     it.each(matrixCases())(
       "$label: $hook may $operation the same session",
-      async ({ port, ...entry }) => {
+      async ({ variant, ...entry }) => {
         const seen: unknown[] = [];
         const config: Record<string, unknown> = {
           name: "matrix-jws",
@@ -1251,11 +900,11 @@ describe("session adapters — shared contract", () => {
           maxAge: "1h",
           cookie: { secure: false },
         };
-        config.hooks = reentrantHooks(entry, (args) => port.reopen(args, config), seen);
+        config.hooks = reentrantHooks(entry, (args) => variant.reopen(args, config), seen);
 
         const cookie = await matrixCookie(entry.hook);
         const body = await within(
-          port.run(
+          variant.run(
             config,
             async (open) => {
               const session = await open();
@@ -1268,7 +917,7 @@ describe("session adapters — shared contract", () => {
             },
             { cookies: cookie ? { "matrix-jws": cookie } : {} },
           ),
-          `${port.port} ${entry.hook} / ${entry.operation}`,
+          `${entry.hook} / ${entry.operation}`,
         );
 
         expect(seen).toHaveLength(1);
@@ -1280,7 +929,7 @@ describe("session adapters — shared contract", () => {
 
   // #region cookie expiry precedence
   describe("cookie expiry", () => {
-    it("lets the token lifetime decide the cookie expiry on every port", async () => {
+    it("lets the token lifetime decide the cookie expiry", async () => {
       const far = new Date(Date.now() + 10 * 365 * 24 * 3600 * 1000);
       const config = {
         name: "expiry-jws",
@@ -1289,42 +938,34 @@ describe("session adapters — shared contract", () => {
         cookie: { secure: false, expires: far },
       } as const;
 
-      const { context, store } = elysiaContext();
-      const elysia = await defineJWSSession(config).use(context);
-      await elysia.update({ user: "alice" });
-      const elysiaExpires = store.get("expiry-jws")!.lastWrite!.expires!;
-
       const headers = new Headers();
-      const web = await defineJWSSessionWeb(config).use({
+      const session = await defineJWSSession(config).use({
         req: new Request("http://localhost/"),
         res: { headers },
       });
-      await web.update({ user: "alice" });
-      const webCookie = headers.getSetCookie()[0];
+      await session.update({ user: "alice" });
 
-      const farYear = String(far.getUTCFullYear());
-      expect(webCookie).not.toContain(farYear);
-      expect(elysiaExpires.getTime()).toBeLessThan(far.getTime());
+      expect(headers.getSetCookie()[0]).not.toContain(String(far.getUTCFullYear()));
     });
   });
   // #endregion
 
   // #region PBES2 cap with a key lookup
   describe("PBES2 iteration cap with a key lookup hook", () => {
-    const jweCases = () => portFamilyCases().filter((port) => port.family === "jwe");
+    const jweCases = () => familyCases().filter((variant) => variant.family === "jwe");
 
     it.each(jweCases())(
       "$label: caps unwrap at the session's own count when a hook supplies the key",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
         const config = {
-          name: port.name,
+          name: variant.name,
           key: pbes2Key,
           cookie: { secure: false },
           jwe: { encryptOptions: { p2c: 2048 } },
           hooks: { onError, onUnsealKeyLookup: () => pbes2Key },
         };
-        const own = await mintToken(port, config, { user: "alice" });
+        const own = await mintToken(variant, config, { user: "alice" });
         const costly = await encrypt(
           { jti: "costly", iat: nowSeconds(), user: "mallory" },
           pbes2Key,
@@ -1332,8 +973,8 @@ describe("session adapters — shared contract", () => {
         );
 
         const read = (token: string) =>
-          port.run(config, async (open) => ({ user: (await open()).data.user ?? null }), {
-            cookies: { [port.name]: token },
+          variant.run(config, async (open) => ({ user: (await open()).data.user ?? null }), {
+            cookies: { [variant.name]: token },
           });
 
         expect(await read(own)).toEqual({ user: "alice" });
@@ -1347,20 +988,20 @@ describe("session adapters — shared contract", () => {
 
   // #region one clock
   describe("one clock per session", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a session issued under a past currentDate stays live for the rest of the request",
-      async (port) => {
+      async (variant) => {
         const onExpire = vi.fn();
         const config = {
-          name: port.name,
-          key: port.key,
+          name: variant.name,
+          key: variant.key,
           maxAge: 60,
           cookie: { secure: false },
-          ...issueOptions(port.family, { currentDate: new Date(Date.now() - 3600 * SECOND) }),
+          ...issueOptions(variant.family, { currentDate: new Date(Date.now() - 3600 * SECOND) }),
           hooks: { onExpire },
         };
 
-        const body = await port.run(config, async (open) => {
+        const body = await variant.run(config, async (open) => {
           const session = await open();
           await session.update({ user: "alice" });
           const again = await open();
@@ -1378,45 +1019,42 @@ describe("session adapters — shared contract", () => {
   describe("session typ", () => {
     const live = () => ({ jti: "live", iat: nowSeconds(), exp: nowSeconds() + 3600 });
 
-    it.each(portFamilyCases())("$label: writes typ session+jwt and no cty", async (port) => {
-      const token = await mintToken(port, expiringConfig(port), { user: "alice" });
+    it.each(familyCases())("$label: writes typ session+jwt and no cty", async (variant) => {
+      const token = await mintToken(variant, expiringConfig(variant), { user: "alice" });
       const header = protectedHeaderOf(token);
 
       expect(header.typ).toBe("session+jwt");
       expect(header).not.toHaveProperty("cty");
     });
 
-    it.each(portFamilyCases())(
-      "$label: passes a configured cty through untouched",
-      async (port) => {
-        const config = {
-          ...expiringConfig(port),
-          ...issueOptions(port.family, { protectedHeader: { cty: "application/json" } }),
-        };
-        const token = await mintToken(port, config, { user: "alice" });
-        const read = await port.run(
-          config,
-          async (open) => ({ user: (await open()).data.user ?? null }),
-          { cookies: { [port.name]: token } },
-        );
+    it.each(familyCases())("$label: passes a configured cty through untouched", async (variant) => {
+      const config = {
+        ...expiringConfig(variant),
+        ...issueOptions(variant.family, { protectedHeader: { cty: "application/json" } }),
+      };
+      const token = await mintToken(variant, config, { user: "alice" });
+      const read = await variant.run(
+        config,
+        async (open) => ({ user: (await open()).data.user ?? null }),
+        { cookies: { [variant.name]: token } },
+      );
 
-        expect(protectedHeaderOf(token)).toMatchObject({
-          typ: "session+jwt",
-          cty: "application/json",
-        });
-        expect(read).toEqual({ user: "alice" });
-      },
-    );
+      expect(protectedHeaderOf(token)).toMatchObject({
+        typ: "session+jwt",
+        cty: "application/json",
+      });
+      expect(read).toEqual({ user: "alice" });
+    });
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: accepts the session typ written as a full media type",
-      async (port) => {
+      async (variant) => {
         for (const typ of ["application/session+jwt", "Application/Session+JWT"]) {
           const onError = vi.fn();
-          const body = await port.run(
-            { ...expiringConfig(port), hooks: { onError } },
+          const body = await variant.run(
+            { ...expiringConfig(variant), hooks: { onError } },
             async (open) => ({ id: (await open()).id ?? null }),
-            { cookies: { [port.name]: await foreignToken(port.family, live(), { typ }) } },
+            { cookies: { [variant.name]: await foreignToken(variant.family, live(), { typ }) } },
           );
 
           expect(body).toEqual({ id: "live" });
@@ -1425,27 +1063,27 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: refuses a JWT-typed token through onError, never onExpire, expired or not",
-      async (port) => {
+      async (variant) => {
         const tokens = [
-          await foreignPlainToken(port.family, live()),
-          await foreignPlainToken(port.family, EXPIRED_CLAIMS),
-          await foreignToken(port.family, EXPIRED_CLAIMS, { typ: "at+jwt" }),
+          await foreignPlainToken(variant.family, live()),
+          await foreignPlainToken(variant.family, EXPIRED_CLAIMS),
+          await foreignToken(variant.family, EXPIRED_CLAIMS, { typ: "at+jwt" }),
         ];
 
         for (const token of tokens) {
           const onError = vi.fn();
           const onExpire = vi.fn();
-          const response = await port.serve(
-            { ...expiringConfig(port), hooks: { onError, onExpire } },
+          const response = await variant.serve(
+            { ...expiringConfig(variant), hooks: { onError, onExpire } },
             async (open) => ({ id: (await open()).id ?? null }),
-            { cookies: { [port.name]: token } },
+            { cookies: { [variant.name]: token } },
           );
 
           expect(response.body).toEqual({ id: null });
           expect(response.cookies).toEqual([
-            expect.stringMatching(new RegExp(`^${port.name}=; .*Max-Age=0`)),
+            expect.stringMatching(new RegExp(`^${variant.name}=; .*Max-Age=0`)),
           ]);
           expect(onExpire).not.toHaveBeenCalled();
           const error = onError.mock.calls[0][0].error;
@@ -1455,15 +1093,15 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: an expired session token still goes to onExpire",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
         const onExpire = vi.fn();
-        const response = await port.serve(
-          { ...expiringConfig(port), hooks: { onError, onExpire } },
+        const response = await variant.serve(
+          { ...expiringConfig(variant), hooks: { onError, onExpire } },
           async (open) => ({ id: (await open()).id ?? null }),
-          { cookies: { [port.name]: await foreignToken(port.family, EXPIRED_CLAIMS) } },
+          { cookies: { [variant.name]: await foreignToken(variant.family, EXPIRED_CLAIMS) } },
         );
 
         expect(response.body).toEqual({ id: null });
@@ -1481,20 +1119,20 @@ describe("session adapters — shared contract", () => {
       jwe: { kty: "oct", k: "A".repeat(27), alg: "A128KW" },
     };
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: fails the read with a key error instead of reporting the token",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
-        const token = await foreignToken(port.family, {
+        const token = await foreignToken(variant.family, {
           jti: "live",
           iat: nowSeconds(),
           exp: nowSeconds() + 3600,
         });
 
-        const body = await port.run(
+        const body = await variant.run(
           {
-            name: port.name,
-            key: unusableKeys[port.family],
+            name: variant.name,
+            key: unusableKeys[variant.family],
             cookie: { secure: false },
             hooks: { onError },
           },
@@ -1505,7 +1143,7 @@ describe("session adapters — shared contract", () => {
               cause: isJWTError((error as Error | undefined)?.cause, "ERR_JWK_INVALID"),
             };
           },
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body).toEqual({ code: true, cause: true });
@@ -1517,10 +1155,10 @@ describe("session adapters — shared contract", () => {
 
   // #region update payloads and typ
   describe("update payloads and the session typ", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: refuses update data that is not a plain object",
-      async (port) => {
-        const body = await port.run(baseConfig(port), async (open) => {
+      async (variant) => {
+        const body = await variant.run(baseConfig(variant), async (open) => {
           const session = await open();
           await session.update({ user: "alice" });
           const before = { id: session.id, token: session.token };
@@ -1546,25 +1184,25 @@ describe("session adapters — shared contract", () => {
     );
 
     it.each(
-      portFamilyCases().flatMap((port) =>
-        ["secevent+jwt", "app-session"].map((typ) => ({ ...port, typ })),
+      familyCases().flatMap((variant) =>
+        ["secevent+jwt", "app-session"].map((typ) => ({ ...variant, typ })),
       ),
     )(
       "$label: signs with a configured typ ($typ) and requires it back",
-      async ({ typ, ...port }) => {
+      async ({ typ, ...variant }) => {
         const onError = vi.fn();
         const typed = {
-          ...baseConfig(port),
-          ...issueOptions(port.family, { protectedHeader: { typ } }),
+          ...baseConfig(variant),
+          ...issueOptions(variant.family, { protectedHeader: { typ } }),
         };
-        const own = await mintToken(port, typed, { user: "alice" });
-        const plain = await mintToken(port, baseConfig(port), { user: "bob" });
+        const own = await mintToken(variant, typed, { user: "alice" });
+        const plain = await mintToken(variant, baseConfig(variant), { user: "bob" });
 
         const read = (token: string) =>
-          port.run(
+          variant.run(
             { ...typed, hooks: { onError } },
             async (open) => ({ user: (await open()).data.user ?? null }),
-            { cookies: { [port.name]: token } },
+            { cookies: { [variant.name]: token } },
           );
 
         expect(protectedHeaderOf(own).typ).toBe(typ);
@@ -1581,12 +1219,12 @@ describe("session adapters — shared contract", () => {
   describe("cookie lifetime", () => {
     const far = new Date(Date.now() + 10 * 365 * 24 * 3600 * SECOND);
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a token with a lifetime drops a configured cookie maxAge and expires with the token",
-      async (port) => {
-        const response = await port.serve(
+      async (variant) => {
+        const response = await variant.serve(
           {
-            ...baseConfig(port),
+            ...baseConfig(variant),
             maxAge: "1m",
             cookie: { secure: false, maxAge: 10 * 365 * 24 * 3600 },
           },
@@ -1597,17 +1235,17 @@ describe("session adapters — shared contract", () => {
           },
         );
 
-        const cookie = liveSetCookie(response.cookies, port.name)!;
+        const cookie = liveSetCookie(response.cookies, variant.name)!;
         expect(cookieAttribute(cookie, "max-age")).toBeUndefined();
         expect(Date.parse(cookieAttribute(cookie, "expires")!)).toBe(response.body.expiresAt);
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a token without a lifetime keeps the configured cookie expires and maxAge",
-      async (port) => {
-        const response = await port.serve(
-          { ...baseConfig(port), cookie: { secure: false, expires: far, maxAge: 3600 } },
+      async (variant) => {
+        const response = await variant.serve(
+          { ...baseConfig(variant), cookie: { secure: false, expires: far, maxAge: 3600 } },
           async (open) => {
             const session = await open();
             await session.update({ user: "alice" });
@@ -1615,7 +1253,7 @@ describe("session adapters — shared contract", () => {
           },
         );
 
-        const cookie = liveSetCookie(response.cookies, port.name)!;
+        const cookie = liveSetCookie(response.cookies, variant.name)!;
         expect(response.body.expiresAt).toBeNull();
         expect(cookieAttribute(cookie, "max-age")).toBe("3600");
         expect(new Date(cookieAttribute(cookie, "expires")!).getUTCFullYear()).toBe(
@@ -1624,15 +1262,15 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a request that carried no token never reports an expiry",
-      async (port) => {
+      async (variant) => {
         const onExpire = vi.fn();
-        const config = { ...baseConfig(port), maxAge: 1, hooks: { onExpire } };
-        const response = await port.serve(config, async (open) => {
+        const config = { ...baseConfig(variant), maxAge: 1, hooks: { onExpire } };
+        const response = await variant.serve(config, async (open) => {
           await open({
             ...config,
-            ...issueOptions(port.family, { currentDate: new Date(Date.now() - 5 * SECOND) }),
+            ...issueOptions(variant.family, { currentDate: new Date(Date.now() - 5 * SECOND) }),
           });
           const again = await open();
           return { id: again.id ?? null, token: again.token ?? null };
@@ -1644,12 +1282,12 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a chunk set that shrinks within one request expires the chunks it no longer uses",
-      async (port) => {
+      async (variant) => {
         const chunkMaxLength = 64;
-        const response = await port.serve(
-          { ...baseConfig(port), cookie: { secure: false, chunkMaxLength } },
+        const response = await variant.serve(
+          { ...baseConfig(variant), cookie: { secure: false, chunkMaxLength } },
           async (open) => {
             const session = await open();
             await session.update(bulkyData(6, chunkMaxLength));
@@ -1660,12 +1298,12 @@ describe("session adapters — shared contract", () => {
         );
 
         const live = liveCookies(response.cookies);
-        const count = parseChunkCount(live[port.name]);
-        const chunks = Object.keys(live).filter((name) => name.startsWith(`${port.name}.`));
+        const count = parseChunkCount(live[variant.name]);
+        const chunks = Object.keys(live).filter((name) => name.startsWith(`${variant.name}.`));
         expect(response.body.shrunk).toBe(true);
-        expect(readChunked({ read: (name) => live[name] }, port.name)).toBe(response.body.token);
+        expect(readChunked({ read: (name) => live[name] }, variant.name)).toBe(response.body.token);
         expect(chunks.toSorted()).toEqual(
-          Array.from({ length: count }, (_, index) => `${port.name}.${index + 1}`).toSorted(),
+          Array.from({ length: count }, (_, index) => `${variant.name}.${index + 1}`).toSorted(),
         );
       },
     );
@@ -1674,22 +1312,22 @@ describe("session adapters — shared contract", () => {
 
   // #region session names
   describe("session names", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a name spelling another name's chunk cookie is a config failure",
-      async (port) => {
-        const body = await port.run(
-          { name: port.name, key: port.key, cookie: { secure: false } },
+      async (variant) => {
+        const body = await variant.run(
+          { name: variant.name, key: variant.key, cookie: { secure: false } },
           async (open) => {
             const codes: boolean[] = [];
-            for (const name of [`${port.name}.1`, `${port.name}.16`]) {
+            for (const name of [`${variant.name}.1`, `${variant.name}.16`]) {
               const error = await caught(() =>
-                open({ name, key: port.key, cookie: { secure: false } }),
+                open({ name, key: variant.key, cookie: { secure: false } }),
               );
               codes.push(isJWTError(error, "ERR_SESSION_CONFIG_INVALID"));
             }
             const dotted = await open({
-              name: `${port.name}.v1`,
-              key: port.key,
+              name: `${variant.name}.v1`,
+              key: variant.key,
               cookie: { secure: false },
             });
             return { codes, dotted: dotted.id ?? null };
@@ -1700,18 +1338,18 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a __Host- prefixed name round-trips under its prefix rules",
-      async (port) => {
-        const config = { name: `__Host-${port.name}`, key: port.key };
-        const minted = await port.serve(config, async (open) => {
+      async (variant) => {
+        const config = { name: `__Host-${variant.name}`, key: variant.key };
+        const minted = await variant.serve(config, async (open) => {
           const session = await open();
           await session.update({ user: "alice" });
           return { token: session.token };
         });
         const cookie = liveSetCookie(minted.cookies, config.name)!;
 
-        const body = await port.run(
+        const body = await variant.run(
           config,
           async (open) => ({ user: (await open()).data.user ?? null }),
           { cookies: { [config.name]: minted.body.token as string } },
@@ -1728,44 +1366,44 @@ describe("session adapters — shared contract", () => {
   // #region cookie name prefixes
   describe("cookie name prefixes", () => {
     const codeOf = async (
-      port: PortFamilyCase,
+      variant: FamilyCase,
       config: Record<string, unknown>,
     ): Promise<string | null> =>
       (
-        await port.run(baseConfig(port), async (open) => {
+        await variant.run(baseConfig(variant), async (open) => {
           const error = await caught(() => open(config));
           return { code: isJWTError(error) ? error.code : null };
         })
       ).code as string | null;
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a __Host- name refuses a Domain, a Path other than / and an insecure cookie",
-      async (port) => {
-        const name = `__Host-${port.name}`;
-        expect(await codeOf(port, { name, key: port.key, cookie: { domain: "example.com" } })).toBe(
+      async (variant) => {
+        const name = `__Host-${variant.name}`;
+        expect(
+          await codeOf(variant, { name, key: variant.key, cookie: { domain: "example.com" } }),
+        ).toBe("ERR_SESSION_CONFIG_INVALID");
+        expect(await codeOf(variant, { name, key: variant.key, cookie: { path: "/app" } })).toBe(
           "ERR_SESSION_CONFIG_INVALID",
         );
-        expect(await codeOf(port, { name, key: port.key, cookie: { path: "/app" } })).toBe(
-          "ERR_SESSION_CONFIG_INVALID",
-        );
-        expect(await codeOf(port, { name, key: port.key, cookie: { secure: false } })).toBe(
+        expect(await codeOf(variant, { name, key: variant.key, cookie: { secure: false } })).toBe(
           "ERR_SESSION_CONFIG_INVALID",
         );
         expect(
-          await codeOf(port, {
-            name: `__Secure-${port.name}`,
-            key: port.key,
+          await codeOf(variant, {
+            name: `__Secure-${variant.name}`,
+            key: variant.key,
             cookie: { secure: false },
           }),
         ).toBe("ERR_SESSION_CONFIG_INVALID");
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a __Host- name with the default attributes, or without a cookie, is accepted",
-      async (port) => {
-        const name = `__Host-${port.name}`;
-        const response = await port.serve({ name, key: port.key }, async (open) => {
+      async (variant) => {
+        const name = `__Host-${variant.name}`;
+        const response = await variant.serve({ name, key: variant.key }, async (open) => {
           const session = await open();
           await session.update({ user: "alice" });
           return { id: session.id ?? null };
@@ -1776,8 +1414,8 @@ describe("session adapters — shared contract", () => {
         ).toBe(true);
         expect(response.cookies.some((c) => /;\s*Domain=/i.test(c))).toBe(false);
 
-        const headerOnly = await port.run(
-          { name, key: port.key, cookie: false, sessionHeader: true },
+        const headerOnly = await variant.run(
+          { name, key: variant.key, cookie: false, sessionHeader: true },
           async (open) => ({
             id: (await open()).id ?? null,
           }),
@@ -1790,13 +1428,13 @@ describe("session adapters — shared contract", () => {
 
   // #region session header
   describe("session header", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a session header that is not a header name is a config failure",
-      async (port) => {
-        const body = await port.run(baseConfig(port), async (open) => {
+      async (variant) => {
+        const body = await variant.run(baseConfig(variant), async (open) => {
           const codes: boolean[] = [];
           for (const sessionHeader of ["bad header", "", "x-session\r\n", "x-sess:ion"]) {
-            const error = await caught(() => open({ ...baseConfig(port), sessionHeader }));
+            const error = await caught(() => open({ ...baseConfig(variant), sessionHeader }));
             codes.push(isJWTError(error, "ERR_SESSION_CONFIG_INVALID"));
           }
           return { codes };
@@ -1806,15 +1444,19 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: an Authorization header without a Bearer token is a token failure",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
-        const config = { ...baseConfig(port), sessionHeader: "authorization", hooks: { onError } };
+        const config = {
+          ...baseConfig(variant),
+          sessionHeader: "authorization",
+          hooks: { onError },
+        };
         const bodies: Record<string, unknown>[] = [];
         for (const value of ["Bearer", "Bearer   ", "Basic dXNlcjpwYXNz", "Bearer a b"]) {
           bodies.push(
-            await port.run(config, async (open) => ({ id: (await open()).id ?? null }), {
+            await variant.run(config, async (open) => ({ id: (await open()).id ?? null }), {
               headers: { authorization: value },
             }),
           );
@@ -1833,12 +1475,12 @@ describe("session adapters — shared contract", () => {
 
   // #region update hooks and payload round trip
   describe("update hooks and the data round trip", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: an onUpdate hook that throws rejects the update, which stays issued",
-      async (port) => {
+      async (variant) => {
         const onError = vi.fn();
         const config = {
-          ...baseConfig(port),
+          ...baseConfig(variant),
           hooks: {
             onUpdate: () => {
               throw new Error("hook failed");
@@ -1846,7 +1488,7 @@ describe("session adapters — shared contract", () => {
             onError,
           },
         };
-        const response = await port.serve(config, async (open) => {
+        const response = await variant.serve(config, async (open) => {
           const session = await open();
           const error = await caught(() => session.update({ user: "alice" }));
           return {
@@ -1859,24 +1501,24 @@ describe("session adapters — shared contract", () => {
 
         expect(response.body).toMatchObject({ message: "hook failed", user: "alice" });
         expect(response.body.id).toBeTypeOf("string");
-        expect(liveCookies(response.cookies)[port.name]).toBe(response.body.token);
+        expect(liveCookies(response.cookies)[variant.name]).toBe(response.body.token);
         expect(onError).not.toHaveBeenCalled();
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: session data reads back as its JSON round trip",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), {
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), {
           at: new Date(0),
           ratio: Number.NaN,
           gone: undefined,
         });
 
-        const body = await port.run(
-          baseConfig(port),
+        const body = await variant.run(
+          baseConfig(variant),
           async (open) => ({ data: { ...(await open()).data } }),
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body).toEqual({ data: { at: "1970-01-01T00:00:00.000Z", ratio: null } });
@@ -1887,18 +1529,18 @@ describe("session adapters — shared contract", () => {
 
   // #region session kid
   describe("session kid", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a configured protectedHeader.kid wins over the key's kid",
-      async (port) => {
+      async (variant) => {
         const config = {
-          ...kidConfig(port),
-          ...issueOptions(port.family, { protectedHeader: { kid: "header-kid" } }),
+          ...kidConfig(variant),
+          ...issueOptions(variant.family, { protectedHeader: { kid: "header-kid" } }),
         };
-        const token = await mintToken(port, config, { user: "alice" });
-        const read = await port.run(
+        const token = await mintToken(variant, config, { user: "alice" });
+        const read = await variant.run(
           config,
           async (open) => ({ user: (await open()).data.user ?? null }),
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(protectedHeaderOf(token).kid).toBe("header-kid");
@@ -1906,10 +1548,10 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: the key's kid is written when the config names none",
-      async (port) => {
-        const token = await mintToken(port, kidConfig(port), { user: "alice" });
+      async (variant) => {
+        const token = await mintToken(variant, kidConfig(variant), { user: "alice" });
 
         expect(protectedHeaderOf(token).kid).toBe("key-kid");
       },
@@ -1919,47 +1561,47 @@ describe("session adapters — shared contract", () => {
 
   // #region options reaching the token check
   describe("options reaching the token check", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a symmetric key set from the lookup hook opens the token",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), { user: "alice" });
-        const lookup = () => ({ keys: [port.key] });
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
+        const lookup = () => ({ keys: [variant.key] });
         const hooks =
-          port.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
+          variant.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
 
-        const read = await port.run(
-          { ...baseConfig(port), hooks },
+        const read = await variant.run(
+          { ...baseConfig(variant), hooks },
           async (open) => ({ user: (await open()).data.user ?? null }),
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(read).toEqual({ user: "alice" });
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: limits.keyCandidates bounds the key set a token is tried against",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
         const other = {
-          ...(await generateJWK(port.family === "jws" ? "HS256" : "A128KW")),
-          kid: (port.key as { kid?: string }).kid,
+          ...(await generateJWK(variant.family === "jws" ? "HS256" : "A128KW")),
+          kid: (variant.key as { kid?: string }).kid,
         };
-        const lookup = () => ({ keys: [other, port.key] });
+        const lookup = () => ({ keys: [other, variant.key] });
         const hooks =
-          port.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
+          variant.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
 
         const reads: Record<string, unknown>[] = [];
         for (const keyCandidates of [1, 2]) {
           reads.push(
-            await port.run(
+            await variant.run(
               {
-                ...baseConfig(port),
-                ...openOptions(port.family, { limits: { keyCandidates } }),
+                ...baseConfig(variant),
+                ...openOptions(variant.family, { limits: { keyCandidates } }),
                 hooks,
               },
               async (open) => ({ user: (await open()).data.user ?? null }),
-              { cookies: { [port.name]: token } },
+              { cookies: { [variant.name]: token } },
             ),
           );
         }
@@ -1994,20 +1636,20 @@ describe("session adapters — shared contract", () => {
       return { id: session.id ?? null, token: session.token ?? null, data: { ...session.data } };
     };
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: onRead fires once per request, however often the session is opened",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
         const onRead = vi.fn();
-        const body = await port.run(
-          { ...baseConfig(port), hooks: { onRead } },
+        const body = await variant.run(
+          { ...baseConfig(variant), hooks: { onRead } },
           async (open) => {
             await open();
             await open();
             const session = await open();
             return { id: session.id ?? null };
           },
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body.id).toBeTypeOf("string");
@@ -2015,26 +1657,26 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a hook that opens the session again gets the same one without firing itself",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
         let reads = 0;
         const seen: (string | undefined)[] = [];
         const config: Record<string, unknown> = {
-          ...baseConfig(port),
+          ...baseConfig(variant),
           hooks: {
             onRead: async (args: Record<string, unknown>) => {
               reads++;
-              seen.push((await port.reopen(args, config)).id);
+              seen.push((await variant.reopen(args, config)).id);
             },
           },
         };
 
-        const body = await port.run(
+        const body = await variant.run(
           config,
           async (open) => ({ ...(await opened(open)), reads, seen }),
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body.reads).toBe(1);
@@ -2043,14 +1685,14 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: hooks receive the session manager, so onRead can update in place",
-      async (port) => {
-        const token = await mintToken(port, baseConfig(port), { user: "alice" });
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
         const onUpdate = vi.fn();
-        const body = await port.run(
+        const body = await variant.run(
           {
-            ...baseConfig(port),
+            ...baseConfig(variant),
             hooks: {
               onRead: async ({ session }: { session: SessionManager }) => {
                 await session.update({ seen: true });
@@ -2059,7 +1701,7 @@ describe("session adapters — shared contract", () => {
             },
           },
           opened,
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body.data).toEqual({ user: "alice", seen: true });
@@ -2069,17 +1711,17 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: rolling: true reissues a valid session on read and reports it to onUpdate",
-      async (port) => {
-        const config = expiringConfig(port);
-        const token = await mintToken(port, config, { user: "alice" });
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
         const onRead = vi.fn();
         const onUpdate = vi.fn();
-        const response = await port.serve(
+        const response = await variant.serve(
           { ...config, rolling: true, hooks: { onRead, onUpdate } },
           opened,
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(response.body.data).toEqual({ user: "alice" });
@@ -2094,36 +1736,36 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a rolling duration reissues only once the token is that old",
-      async (port) => {
-        const config = { ...expiringConfig(port), rolling: "15m" };
-        const fresh = await mintToken(port, config, { user: "alice" });
+      async (variant) => {
+        const config = { ...expiringConfig(variant), rolling: "15m" };
+        const fresh = await mintToken(variant, config, { user: "alice" });
         const issuedAt = nowSeconds() - 20 * 60;
-        const aged = await foreignToken(port.family, {
+        const aged = await foreignToken(variant.family, {
           jti: "aged",
           iat: issuedAt,
           exp: issuedAt + 3600,
           user: "alice",
         });
 
-        const kept = await port.serve(config, opened, { cookies: { [port.name]: fresh } });
+        const kept = await variant.serve(config, opened, { cookies: { [variant.name]: fresh } });
         expect(kept.body.token).toBe(fresh);
         expect(kept.cookies).toEqual([]);
 
-        const rolled = await port.serve(config, opened, { cookies: { [port.name]: aged } });
+        const rolled = await variant.serve(config, opened, { cookies: { [variant.name]: aged } });
         expect(rolled.body.token).not.toBe(aged);
         expect(rolled.cookies.length).toBeGreaterThan(0);
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a hook that clears the session on read stops the roll",
-      async (port) => {
-        const config = expiringConfig(port);
-        const token = await mintToken(port, config, { user: "alice" });
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
         const onUpdate = vi.fn();
-        const response = await port.serve(
+        const response = await variant.serve(
           {
             ...config,
             rolling: true,
@@ -2135,7 +1777,7 @@ describe("session adapters — shared contract", () => {
             },
           },
           opened,
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(response.body.id).toBeNull();
@@ -2143,28 +1785,28 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: rolling needs a maxAge and a true or duration value",
-      async (port) => {
+      async (variant) => {
         const codeOf = async (config: Record<string, unknown>) =>
           (
-            await port.run(config, async (open) => {
+            await variant.run(config, async (open) => {
               const error = await caught(open);
               return { code: isJWTError(error) ? error.code : null };
             })
           ).code;
 
-        expect(await codeOf({ ...baseConfig(port), rolling: true })).toBe(
+        expect(await codeOf({ ...baseConfig(variant), rolling: true })).toBe(
           "ERR_SESSION_CONFIG_INVALID",
         );
-        expect(await codeOf({ ...expiringConfig(port), rolling: "soon" })).toBe(
+        expect(await codeOf({ ...expiringConfig(variant), rolling: "soon" })).toBe(
           "ERR_INVALID_OPTION",
         );
-        expect(await codeOf({ ...expiringConfig(port), rolling: false })).toBe(
+        expect(await codeOf({ ...expiringConfig(variant), rolling: false })).toBe(
           "ERR_INVALID_OPTION",
         );
-        expect(await codeOf({ ...expiringConfig(port), rolling: 0 })).toBe("ERR_INVALID_OPTION");
-        expect(await codeOf({ ...expiringConfig(port), rolling: "1h" })).toBe(
+        expect(await codeOf({ ...expiringConfig(variant), rolling: 0 })).toBe("ERR_INVALID_OPTION");
+        expect(await codeOf({ ...expiringConfig(variant), rolling: "1h" })).toBe(
           "ERR_SESSION_CONFIG_INVALID",
         );
       },
@@ -2174,8 +1816,8 @@ describe("session adapters — shared contract", () => {
 
   // #region key pair halves
   describe("key pair halves", () => {
-    const refusal = (port: PortFamilyCase, key: unknown) =>
-      port.run({ name: port.name, key, cookie: { secure: false } }, async (open) => {
+    const refusal = (variant: FamilyCase, key: unknown) =>
+      variant.run({ name: variant.name, key, cookie: { secure: false } }, async (open) => {
         const error = await caught(open);
         return {
           code: isJWTError(error, "ERR_SESSION_KEY_INVALID"),
@@ -2183,61 +1825,61 @@ describe("session adapters — shared contract", () => {
         };
       });
 
-    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
+    it.each(familyCases().filter((variant) => variant.family === "jws"))(
       "$label: names the private half when it is not a private key",
-      async (port) => {
-        const { publicKey } = rsaPairFor(port);
-        const body = await refusal(port, { publicKey, privateKey: publicKey });
+      async (variant) => {
+        const { publicKey } = rsaPairFor(variant);
+        const body = await refusal(variant, { publicKey, privateKey: publicKey });
 
         expect(body.code).toBe(true);
         expect(body.message).toMatch(/"privateKey"/);
       },
     );
 
-    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
+    it.each(familyCases().filter((variant) => variant.family === "jws"))(
       "$label: names the public half when it is not a public key",
-      async (port) => {
-        const { privateKey } = rsaPairFor(port);
-        const body = await refusal(port, { publicKey: "hunter2", privateKey });
+      async (variant) => {
+        const { privateKey } = rsaPairFor(variant);
+        const body = await refusal(variant, { publicKey: "hunter2", privateKey });
 
         expect(body.code).toBe(true);
         expect(body.message).toMatch(/"publicKey"/);
       },
     );
 
-    it.each(portFamilyCases().filter((port) => port.family === "jwe"))(
+    it.each(familyCases().filter((variant) => variant.family === "jwe"))(
       "$label: refuses a key pair, or its private half alone, as the session key",
-      async (port) => {
-        const { privateKey, publicKey } = rsaPairFor(port);
+      async (variant) => {
+        const { privateKey, publicKey } = rsaPairFor(variant);
         const cryptoPair = await generateKey("RSA-OAEP-256");
         const keys = [{ privateKey, publicKey }, { privateKey }, privateKey, cryptoPair];
 
         for (const key of keys) {
-          const body = await refusal(port, key);
+          const body = await refusal(variant, key);
           expect(body.code).toBe(true);
           expect(body.message).toMatch(/an asymmetric key seals with its public half/);
         }
       },
     );
 
-    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
+    it.each(familyCases().filter((variant) => variant.family === "jws"))(
       "$label: a key pair signs with its private half and reads back with its public half",
-      async (port) => {
-        const { privateKey, publicKey } = rsaPairFor(port);
+      async (variant) => {
+        const { privateKey, publicKey } = rsaPairFor(variant);
         const config = {
-          name: port.name,
+          name: variant.name,
           key: { privateKey, publicKey },
           cookie: { secure: false },
         };
-        const token = await mintToken(port, config, { user: "ada" });
+        const token = await mintToken(variant, config, { user: "ada" });
 
-        const body = await port.run(
+        const body = await variant.run(
           config,
           async (open) => {
             const session = await open();
             return { id: session.id ?? null, data: session.data };
           },
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(body.id).toEqual(expect.any(String));
@@ -2246,14 +1888,14 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases().filter((port) => port.family === "jws"))(
+    it.each(familyCases().filter((variant) => variant.family === "jws"))(
       "$label: refuses a public key list or set carrying an entry that is not a public key",
-      async (port) => {
-        const { privateKey, publicKey } = rsaPairFor(port);
+      async (variant) => {
+        const { privateKey, publicKey } = rsaPairFor(variant);
         const bodies = [
-          await refusal(port, { privateKey, publicKey: [publicKey, privateKey] }),
-          await refusal(port, { privateKey, publicKey: { keys: [publicKey, jwsKey] } }),
-          await refusal(port, { privateKey, publicKey: [] }),
+          await refusal(variant, { privateKey, publicKey: [publicKey, privateKey] }),
+          await refusal(variant, { privateKey, publicKey: { keys: [publicKey, jwsKey] } }),
+          await refusal(variant, { privateKey, publicKey: [] }),
         ];
 
         for (const body of bodies) {
@@ -2279,27 +1921,27 @@ describe("session adapters — shared contract", () => {
       "priority",
     ];
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: writes and expires its cookie with cookie attributes only",
-      async (port) => {
+      async (variant) => {
         const config = {
-          name: port.name,
-          key: port.key,
+          name: variant.name,
+          key: variant.key,
           maxAge: 60,
           cookie: { secure: false, chunkMaxLength: 4000 },
         };
-        const written = await port.serve(config, async (open) => {
+        const written = await variant.serve(config, async (open) => {
           const session = await open();
           await session.update({ user: "alice" });
           return { token: session.token };
         });
-        const cleared = await port.serve(
+        const cleared = await variant.serve(
           config,
           async (open) => {
             await (await open()).clear();
             return { ok: true };
           },
-          { cookies: { [port.name]: written.body.token as string } },
+          { cookies: { [variant.name]: written.body.token as string } },
         );
 
         const headers = [...written.cookies, ...cleared.cookies];
@@ -2313,59 +1955,38 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: an expired cookie carries Max-Age=0 and an epoch Expires",
-      async (port) => {
+      async (variant) => {
         const config = {
-          name: port.name,
-          key: port.key,
+          name: variant.name,
+          key: variant.key,
           maxAge: 3600,
           cookie: { secure: false, maxAge: 3600 },
         };
-        const token = await mintToken(port, config, { user: "alice" });
-        const cleared = await port.serve(
+        const token = await mintToken(variant, config, { user: "alice" });
+        const cleared = await variant.serve(
           config,
           async (open) => {
             await (await open()).clear();
             return { ok: true };
           },
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
-        const dropped = await port.serve(
+        const dropped = await variant.serve(
           config,
           async (open) => ({ id: (await open()).id ?? null }),
           {
-            cookies: { [port.name]: await foreignToken(port.family, EXPIRED_CLAIMS) },
+            cookies: { [variant.name]: await foreignToken(variant.family, EXPIRED_CLAIMS) },
           },
         );
 
         for (const response of [cleared, dropped]) {
-          const expired = expiredSetCookie(response.cookies, port.name);
+          const expired = expiredSetCookie(response.cookies, variant.name);
           expect(expired).toBeDefined();
           expect(cookieAttribute(expired!, "max-age")).toBe("0");
           expect(Date.parse(cookieAttribute(expired!, "expires")!)).toBe(0);
         }
-      },
-    );
-
-    it.each(["jws", "jwe"] as const)(
-      "elysia %s: chunkMaxLength never reaches the cookie jar",
-      async (family) => {
-        const { context, store } = elysiaContext();
-        const name = `jar-${family}`;
-        const cookie = { secure: false, chunkMaxLength: 4000 };
-        const session =
-          family === "jws"
-            ? await defineJWSSession({ name, key: jwsKey, cookie }).use(context)
-            : await defineJWESession({ name, key: jweKey, cookie }).use(context);
-        await session.update({ user: "alice" });
-        const set = store.get(`jar-${family}`)!.lastWrite!;
-        await session.clear();
-        const expired = store.get(`jar-${family}`)!.lastWrite!;
-
-        expect(set).not.toHaveProperty("chunkMaxLength");
-        expect(expired).not.toHaveProperty("chunkMaxLength");
-        expect(expired.value).toBe("");
       },
     );
   });
@@ -2389,54 +2010,32 @@ describe("session adapters — shared contract", () => {
     } as const;
 
     it.each(
-      portFamilyCases().flatMap((port) =>
+      familyCases().flatMap((variant) =>
         HEADER_CASES.map((entry) => ({
-          port,
+          variant,
           entry,
-          label: `${port.label}: sessionHeader ${entry.setting}, cookies ${entry.cookie ? "on" : "off"}`,
+          label: `${variant.label}: sessionHeader ${entry.setting}, cookies ${entry.cookie ? "on" : "off"}`,
         })),
       ),
-    )("$label", async ({ port, entry }) => {
+    )("$label", async ({ variant, entry }) => {
       const config = {
-        name: port.name,
-        key: port.key,
+        name: variant.name,
+        key: variant.key,
         cookie: entry.cookie ? { secure: false } : false,
         ...SETTINGS[entry.setting],
       };
-      const token = await foreignToken(port.family, { jti: "from-header", iat: nowSeconds() });
-      const header = entry.header ?? `x-${port.name}-session`;
+      const token = await foreignToken(variant.family, { jti: "from-header", iat: nowSeconds() });
+      const header = entry.header ?? `x-${variant.name}-session`;
 
-      const body = await port.run(config, async (open) => ({ id: (await open()).id ?? null }), {
+      const body = await variant.run(config, async (open) => ({ id: (await open()).id ?? null }), {
         headers: { [header]: token },
       });
 
       expect(body).toEqual({ id: entry.reads ? "from-header" : null });
     });
 
-    it.each(
-      (["jws", "jwe"] as const).flatMap((family) =>
-        [{ sessionHeader: false }, {}].map((header) => ({
-          family,
-          header,
-          label: `${family}, sessionHeader ${"sessionHeader" in header ? "false" : "unset"}`,
-        })),
-      ),
-    )("elysia $label: a token-only config cannot open a session", async ({ family, header }) => {
-      const { context } = elysiaContext();
-      const define = family === "jws" ? defineJWSSession : defineJWESession;
-      const error = await caught(() =>
-        define({ key: family === "jws" ? jwsKey : jweKey, cookie: false, ...header } as never).use(
-          context,
-        ),
-      );
-
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-      expect((error as Error).message).toContain('"sessionHeader"');
-    });
-
     const READ_ONLY_CONTEXTS = {
       "web request without a response": {
-        port: "web",
         context: (headers: Record<string, string>) => ({
           req: new Request("http://localhost/", { headers }),
         }),
@@ -2452,7 +2051,7 @@ describe("session adapters — shared contract", () => {
       entry: { kind: keyof typeof READ_ONLY_CONTEXTS; family: Family },
       options: { cookie: string; hooks?: Record<string, unknown> },
     ) {
-      const { port, context } = READ_ONLY_CONTEXTS[entry.kind];
+      const { context } = READ_ONLY_CONTEXTS[entry.kind];
       const name = `contract-${entry.family}`;
       const key = entry.family === "jws" ? jwsKey : jweKey;
       const lookup = vi.fn(() => key);
@@ -2467,9 +2066,8 @@ describe("session adapters — shared contract", () => {
             : { onUnsealKeyLookup: lookup }),
         },
       };
-      const carrier = context({ cookie: `${name}=${options.cookie}` });
-      const open = () =>
-        OPENERS[port][entry.family](carrier as never, config as never) as Promise<SessionManager>;
+      const event = context({ cookie: `${name}=${options.cookie}` });
+      const open = () => OPENERS[entry.family](event, config as never) as Promise<SessionManager>;
       return { open, lookup };
     }
 
@@ -2530,7 +2128,7 @@ describe("session adapters — shared contract", () => {
     it.each(readOnlyCases)(
       "$label: a header-only session re-mints its token in place",
       async ({ kind, family }) => {
-        const { port, context } = READ_ONLY_CONTEXTS[kind];
+        const { context } = READ_ONLY_CONTEXTS[kind];
         const name = `contract-${family}`;
         const config = {
           name,
@@ -2539,11 +2137,8 @@ describe("session adapters — shared contract", () => {
           sessionHeader: true,
         };
         const token = await foreignToken(family, { jti: "headers-only", iat: nowSeconds() });
-        const carrier = context({ [`x-${name}-session`]: token });
-        const session = (await OPENERS[port][family](
-          carrier as never,
-          config as never,
-        )) as SessionManager;
+        const event = context({ [`x-${name}-session`]: token });
+        const session = (await OPENERS[family](event, config as never)) as SessionManager;
         expect(session.token).toBe(token);
 
         await session.update({ user: "alice" });
@@ -2555,124 +2150,44 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each([true, false])(
-      "elysia: a session with cookies %s is always writable",
-      async (cookies) => {
-        const { context } = elysiaContext();
-        const session = await defineJWSSession({
+    it("two JWS sessions bound under one name share their state", async () => {
+      const response = await serveRequest(async (event) => {
+        const first = (await OPENERS.jws(event, {
+          name: "shared",
           key: jwsKey,
-          cookie: cookies ? {} : false,
-          sessionHeader: true,
-        }).use(context);
+        } as never)) as SessionManager;
+        await first.update({ who: "first" });
+        const second = (await OPENERS.jws(event, {
+          name: "shared",
+          key: jwsKey,
+          cookie: { secure: false },
+        } as never)) as SessionManager;
+        const shared = { same: second.id === first.id, who: second.data.who ?? null };
+        await second.clear();
+        return { ...shared, cleared: first.id ?? null };
+      });
 
-        await session.update({ user: "alice" });
-        expect(session.id).toBeTypeOf("string");
-        await session.clear();
-        expect(session.id).toBeUndefined();
-      },
-    );
-
-    it.each(["web"] as const)(
-      "%s: two JWS sessions bound under one name share their state",
-      async (port) => {
-        const response = await serveOn(port, async (event) => {
-          const first = (await OPENERS[port].jws(
-            event as never,
-            { name: "shared", key: jwsKey } as never,
-          )) as SessionManager;
-          await first.update({ who: "first" });
-          const second = (await OPENERS[port].jws(
-            event as never,
-            {
-              name: "shared",
-              key: jwsKey,
-              cookie: { secure: false },
-            } as never,
-          )) as SessionManager;
-          const shared = { same: second.id === first.id, who: second.data.who ?? null };
-          await second.clear();
-          return { ...shared, cleared: first.id ?? null };
-        });
-
-        expect(response.body).toEqual({ same: true, who: "first", cleared: null });
-      },
-    );
-
-    it.each(["elysia", "web"] as const)(
-      "%s: the next request binds a name afresh",
-      async (port) => {
-        await serveOn(port, async (carrier) => {
-          const jws = (await OPENERS[port].jws(
-            carrier as never,
-            { name: "per-request", key: jwsKey } as never,
-          )) as SessionManager;
-          await jws.update({ family: "jws" });
-          return { ok: true };
-        });
-
-        const response = await serveOn(port, async (carrier) => {
-          const error = await caught(() =>
-            OPENERS[port].jwe(carrier as never, { name: "per-request", key: jweKey } as never),
-          );
-          return { error: error === undefined ? null : (error as Error).message };
-        });
-
-        expect(response.body).toEqual({ error: null });
-      },
-    );
-
-    it("elysia: the plugin's session and a handler's session share one request state", async () => {
-      const config = { key: jwsKey, name: "resolved", cookie: { secure: false } } as const;
-      const app = new Elysia()
-        .get("/mint", async ({ cookie, request }) => {
-          const session = await defineJWSSession(config).use({ cookie, request });
-          await session.update({ who: "mint" });
-          return { ok: true };
-        })
-        .use(jwsSession(config))
-        .get(
-          "/",
-          async ({ session, cookie, request }) => {
-            const before = session.data.who ?? null;
-            const again = await defineJWSSession(config).use({ cookie, request });
-            await again.update({ who: "handler" });
-            return { before, same: session.id === again.id, who: session.data.who ?? null };
-          },
-          { requireSession: true },
-        );
-
-      const minted = await app.handle(new Request("http://localhost/mint"));
-      const cookie = minted.headers
-        .getSetCookie()
-        .map((setCookie) => setCookie.split(";")[0])
-        .join("; ");
-      const guarded = await app.handle(new Request("http://localhost/"));
-      const first = await app.handle(new Request("http://localhost/", { headers: { cookie } }));
-      const second = await app.handle(new Request("http://localhost/", { headers: { cookie } }));
-
-      expect(guarded.status).toBe(401);
-      const expected = { before: "mint", same: true, who: "handler" };
-      expect(await first.json()).toEqual(expected);
-      expect(await second.json()).toEqual(expected);
+      expect(response.body).toEqual({ same: true, who: "first", cleared: null });
     });
 
-    it("elysia: a JWS and a JWE session plugin under one name refuse each other", async () => {
-      const app = new Elysia()
-        .use(jwsSession({ key: jwsKey, name: "clash", cookie: { secure: false } }))
-        .use(
-          jweSession({
-            key: jweKey,
-            name: "clash",
-            contextKey: "other",
-            cookie: { secure: false },
-          }),
-        )
-        .get("/", ({ session, other }) => ({ jws: session.id ?? null, jwe: other.id ?? null }));
+    it("the next request binds a name afresh", async () => {
+      await serveRequest(async (event) => {
+        const jws = (await OPENERS.jws(event, {
+          name: "per-request",
+          key: jwsKey,
+        } as never)) as SessionManager;
+        await jws.update({ family: "jws" });
+        return { ok: true };
+      });
 
-      const response = await app.handle(new Request("http://localhost/"));
+      const response = await serveRequest(async (event) => {
+        const error = await caught(() =>
+          OPENERS.jwe(event, { name: "per-request", key: jweKey } as never),
+        );
+        return { error: error === undefined ? null : (error as Error).message };
+      });
 
-      expect(response.status).toBe(500);
-      expect(await response.text()).toContain("already used by a JWS session");
+      expect(response.body).toEqual({ error: null });
     });
   });
   // #endregion
@@ -2825,20 +2340,17 @@ describe("session adapters — shared contract", () => {
 
   // #region session definitions
   describe("session definitions", () => {
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: use() shares one request's state with a second use() and the per-call opener",
-      async (port) => {
-        const config = baseConfig(port);
-        const definition = definitionOf(port, config);
+      async (variant) => {
+        const config = baseConfig(variant);
+        const definition = definitionOf(variant, config);
 
-        const first = await serveOn(port.port, async (carrier) => {
-          const session = await definition.use(carrier);
+        const first = await serveRequest(async (event) => {
+          const session = await definition.use(event);
           await session.update({ user: "alice" });
-          const again = await definition.use(carrier);
-          const opened = (await OPENERS[port.port][port.family](
-            carrier as never,
-            config as never,
-          )) as SessionManager;
+          const again = await definition.use(event);
+          const opened = (await OPENERS[variant.family](event, config as never)) as SessionManager;
           return {
             id: session.id ?? null,
             again: again.id ?? null,
@@ -2847,8 +2359,8 @@ describe("session adapters — shared contract", () => {
             openedUser: opened.data.user ?? null,
           };
         });
-        const next = await serveOn(port.port, async (carrier) => {
-          const session = await definition.use(carrier);
+        const next = await serveRequest(async (event) => {
+          const session = await definition.use(event);
           return { id: session.id ?? null, user: session.data.user ?? null };
         });
 
@@ -2865,33 +2377,32 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: token() returns the carried token unopened, the header before the cookie",
-      async (port) => {
-        const definition = definitionOf(port, { ...baseConfig(port), sessionHeader: true });
-        const header = `x-${port.name}-session`;
+      async (variant) => {
+        const definition = definitionOf(variant, { ...baseConfig(variant), sessionHeader: true });
+        const header = `x-${variant.name}-session`;
         const read = async (options?: ServeOptions) =>
           (
-            await serveOn(
-              port.port,
-              async (carrier) => ({ token: definition.token(carrier) ?? null }),
+            await serveRequest(
+              async (event) => ({ token: definition.token(event) ?? null }),
               options,
             )
           ).body;
 
         expect(
           await read({
-            cookies: { [port.name]: "opaque-cookie" },
+            cookies: { [variant.name]: "opaque-cookie" },
             headers: { [header]: "opaque-header" },
           }),
         ).toEqual({ token: "opaque-header" });
         expect(
           await read({
-            cookies: { [port.name]: "opaque-cookie" },
+            cookies: { [variant.name]: "opaque-cookie" },
             headers: { [header]: "Basic opaque-header" },
           }),
         ).toEqual({ token: null });
-        expect(await read({ cookies: { [port.name]: "opaque-cookie" } })).toEqual({
+        expect(await read({ cookies: { [variant.name]: "opaque-cookie" } })).toEqual({
           token: "opaque-cookie",
         });
         expect(await read({ headers: { [header]: "Bearer opaque-header" } })).toEqual({
@@ -2901,10 +2412,10 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: issue() mints a fresh jti and iat per call, exp from maxAge, outside any request",
-      async (port) => {
-        const definition = definitionOf(port, expiringConfig(port));
+      async (variant) => {
+        const definition = definitionOf(variant, expiringConfig(variant));
 
         const tokens = await Promise.all([
           definition.issue({ user: "alice", jti: "forged", iat: 1, exp: 1, nbf: 1 }),
@@ -2912,7 +2423,7 @@ describe("session adapters — shared contract", () => {
           definition.issue({}, { maxAge: 60 }),
         ]);
         const [first, second, shorter] = await Promise.all(
-          tokens.map((token) => claimsOf(port.family, token)),
+          tokens.map((token) => claimsOf(variant.family, token)),
         );
 
         expect(first.jti).toBeTypeOf("string");
@@ -2927,10 +2438,10 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: issue() refuses data carrying a prototype-polluting key",
-      async (port) => {
-        const definition = definitionOf(port, baseConfig(port));
+      async (variant) => {
+        const definition = definitionOf(variant, baseConfig(variant));
 
         for (const poisoned of [
           JSON.parse('{"__proto__":{"admin":true}}'),
@@ -2943,21 +2454,20 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: an issued token opens with open() and through a request",
-      async (port) => {
-        const definition = definitionOf(port, expiringConfig(port));
+      async (variant) => {
+        const definition = definitionOf(variant, expiringConfig(variant));
         const token = await definition.issue({ user: "alice" });
-        const claims = await claimsOf(port.family, token);
+        const claims = await claimsOf(variant.family, token);
 
         const opened = await definition.open(token);
-        const viaRequest = await serveOn(
-          port.port,
-          async (carrier) => {
-            const session = await definition.use(carrier);
+        const viaRequest = await serveRequest(
+          async (event) => {
+            const session = await definition.use(event);
             return { id: session.id ?? null, user: session.data.user ?? null };
           },
-          { cookies: { [port.name]: token } },
+          { cookies: { [variant.name]: token } },
         );
 
         expect(opened.id).toBe(claims.jti);
@@ -2967,26 +2477,26 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: open() refuses a foreign typ, an unpinned algorithm and a missing exp",
-      async (port) => {
+      async (variant) => {
         const claims = { jti: "foreign", iat: nowSeconds() };
         const refused = async (definition: TestDefinition, token: string) =>
           isJWTError(await caught(() => definition.open(token)), "ERR_SESSION_TOKEN_INVALID");
 
-        const typed = definitionOf(port, baseConfig(port));
-        expect(await refused(typed, await foreignPlainToken(port.family, claims))).toBe(true);
-        expect((await typed.open(await foreignToken(port.family, claims))).id).toBe("foreign");
+        const typed = definitionOf(variant, baseConfig(variant));
+        expect(await refused(typed, await foreignPlainToken(variant.family, claims))).toBe(true);
+        expect((await typed.open(await foreignToken(variant.family, claims))).id).toBe("foreign");
 
         const hsKey = await generateJWK("HS512");
         const pinned = definitionOf(
-          port,
-          port.family === "jws"
+          variant,
+          variant.family === "jws"
             ? { key: { ...hsKey, alg: "HS256" }, jws: { signOptions: { alg: "HS256" } } }
             : { key: jweKey, jwe: { encryptOptions: { alg: "A128KW", enc: "A128GCM" } } },
         );
         const offAlgorithm =
-          port.family === "jws"
+          variant.family === "jws"
             ? await sign(claims, hsKey, { protectedHeader: { typ: "session+jwt" } })
             : await encrypt(claims, jweKey, {
                 alg: "A128KW",
@@ -2996,48 +2506,49 @@ describe("session adapters — shared contract", () => {
         expect(await refused(pinned, offAlgorithm)).toBe(true);
         expect((await pinned.open(await pinned.issue({}))).id).toBeTypeOf("string");
 
-        const expiring = definitionOf(port, expiringConfig(port));
-        expect(await refused(expiring, await foreignToken(port.family, claims))).toBe(true);
+        const expiring = definitionOf(variant, expiringConfig(variant));
+        expect(await refused(expiring, await foreignToken(variant.family, claims))).toBe(true);
         const bounded = { ...claims, exp: nowSeconds() + 60 };
-        expect((await expiring.open(await foreignToken(port.family, bounded))).id).toBe("foreign");
+        expect((await expiring.open(await foreignToken(variant.family, bounded))).id).toBe(
+          "foreign",
+        );
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: the key lookup receives the request from use(), and none from open(token)",
-      async (port) => {
+      async (variant) => {
         const seen: string[][] = [];
         const lookup = (args: Record<string, unknown>) => {
           seen.push(Object.keys(args).toSorted());
-          return port.key;
+          return variant.key;
         };
         const hooks =
-          port.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
-        const definition = definitionOf(port, { ...baseConfig(port), hooks });
+          variant.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
+        const definition = definitionOf(variant, { ...baseConfig(variant), hooks });
         const token = await definition.issue({ user: "alice" });
 
         const opened = await definition.open(token);
-        const viaRequest = await serveOn(
-          port.port,
-          async (carrier) => ({ user: (await definition.use(carrier)).data.user ?? null }),
-          { cookies: { [port.name]: token } },
+        const viaRequest = await serveRequest(
+          async (event) => ({ user: (await definition.use(event)).data.user ?? null }),
+          { cookies: { [variant.name]: token } },
         );
 
         expect(opened.data).toEqual({ user: "alice" });
         expect(viaRequest.body).toEqual({ user: "alice" });
         expect(seen).toEqual([
           ["config", "header"],
-          ["config", port.port === "elysia" ? "context" : "event", "header"].toSorted(),
+          ["config", "event", "header"],
         ]);
       },
     );
 
-    it.each(portFamilyCases())(
+    it.each(familyCases())(
       "$label: a token-only definition issues and opens, and refuses use() and token()",
-      async (port) => {
-        const definition = definitionOf(port, {
-          name: port.name,
-          key: port.key,
+      async (variant) => {
+        const definition = definitionOf(variant, {
+          name: variant.name,
+          key: variant.key,
           cookie: false,
           sessionHeader: false,
         });
@@ -3045,9 +2556,9 @@ describe("session adapters — shared contract", () => {
 
         const token = await definition.issue({ user: "alice" });
         const opened = await definition.open(token);
-        const viaRequest = await serveOn(port.port, async (carrier) => ({
-          use: sourceless(await caught(() => definition.use(carrier))),
-          token: sourceless(await caught(async () => definition.token(carrier))),
+        const viaRequest = await serveRequest(async (event) => ({
+          use: sourceless(await caught(() => definition.use(event))),
+          token: sourceless(await caught(async () => definition.token(event))),
         }));
 
         expect({ ...opened.data }).toEqual({ user: "alice" });
@@ -3056,98 +2567,8 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(["jws", "jwe"] as const)(
-      "elysia %s: plugin() answers as the session plugin does",
-      async (family) => {
-        const port = portFamilyCase("elysia", family);
-        const config = baseConfig(port);
-        const definition =
-          family === "jws"
-            ? defineJWSSession<Record<string, unknown>>(config as never)
-            : defineJWESession<Record<string, unknown>>(config as never);
-        const plugin =
-          family === "jws"
-            ? jwsSession<Record<string, unknown>>(config as never)
-            : jweSession<Record<string, unknown>>(config as never);
-        expectTypeOf(definition.plugin()).toEqualTypeOf(plugin);
-        const token = await definition.issue({ user: "alice" });
-
-        const answers = async (mounted: typeof plugin) => {
-          const app = new Elysia()
-            .use(mounted)
-            .get("/", ({ session }) => ({ user: session.data.user ?? null }), {
-              requireSession: true,
-            });
-          const call = async (cookies?: Record<string, string>) => {
-            const response = await app.handle(
-              new Request("http://localhost/", requestInit({ cookies })),
-            );
-            return { status: response.status, body: await response.text() };
-          };
-          return [await call(), await call({ [port.name]: token })];
-        };
-
-        const viaDefinition = await answers(definition.plugin());
-        expect(viaDefinition).toEqual(await answers(plugin));
-        expect(viaDefinition.map((answer) => answer.status)).toEqual([401, 200]);
-        expect(JSON.parse(viaDefinition[1].body)).toEqual({ user: "alice" });
-      },
-    );
-
-    it("elysia: plugin() resolves the session under a custom context key behind its own guard", async () => {
-      const definition = defineJWESession<{ user: string }, 3600, "auth">({
-        name: "contract-auth",
-        key: jweKey,
-        maxAge: 3600,
-        cookie: { secure: false },
-        contextKey: "auth",
-      });
-      expectTypeOf(definition.plugin()).toEqualTypeOf<
-        SessionPlugin<{ auth: SessionManager<{ user: string }, 3600> }, "requireAuth">
-      >();
-      const app = new Elysia().use(definition.plugin()).get(
-        "/",
-        ({ auth }) => {
-          expectTypeOf(auth).toEqualTypeOf<SessionManager<{ user: string }, 3600>>();
-          return { user: auth.data.user, expires: typeof auth.expiresAt };
-        },
-        { requireAuth: true },
-      );
-      const token = await definition.issue({ user: "alice" });
-
-      const denied = await app.handle(new Request("http://localhost/"));
-      const allowed = await app.handle(
-        new Request("http://localhost/", requestInit({ cookies: { "contract-auth": token } })),
-      );
-
-      expect(denied.status).toBe(401);
-      expect(allowed.status).toBe(200);
-      expect(await allowed.json()).toEqual({ user: "alice", expires: "number" });
-    });
-
     it("types: the key lookups take the request as optional, the other hooks as required", () => {
       defineJWSSession({
-        key: jwsKey,
-        hooks: {
-          onVerifyKeyLookup: (args) => {
-            expectTypeOf(args.context).toEqualTypeOf<SessionContext | undefined>();
-            return jwsKey;
-          },
-          onRead: (args) => {
-            expectTypeOf(args.context).toEqualTypeOf<SessionContext>();
-          },
-        },
-      });
-      defineJWESession({
-        key: jweKey,
-        hooks: {
-          onUnsealKeyLookup: (args) => {
-            expectTypeOf(args.context).toEqualTypeOf<SessionContext | undefined>();
-            return jweKey;
-          },
-        },
-      });
-      defineJWSSessionWeb({
         key: jwsKey,
         hooks: {
           onVerifyKeyLookup: (args) => {
@@ -3159,7 +2580,7 @@ describe("session adapters — shared contract", () => {
           },
         },
       });
-      defineJWESessionWeb({
+      defineJWESession({
         key: jweKey,
         hooks: {
           onUnsealKeyLookup: (args) => {
@@ -3172,17 +2593,14 @@ describe("session adapters — shared contract", () => {
 
     it("types: use() resolves to the manager with the data generic first, open() to the state a token carries", () => {
       type Data = { user: string };
-      const jwsWeb = defineJWSSessionWeb<Data, 3600>({ key: jwsKey, maxAge: 3600 });
-      const jweWeb = defineJWESessionWeb<Data, 3600>({ key: jweKey, maxAge: 3600 });
-      const jwsElysia = defineJWSSession<Data, 3600>({ key: jwsKey, maxAge: 3600 });
+      const jwsWeb = defineJWSSession<Data, 3600>({ key: jwsKey, maxAge: 3600 });
+      const jweWeb = defineJWESession<Data, 3600>({ key: jweKey, maxAge: 3600 });
 
       expectTypeOf(jwsWeb.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
       expectTypeOf(jweWeb.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
-      expectTypeOf(jwsElysia.use).returns.resolves.toEqualTypeOf<SessionManager<Data, 3600>>();
 
       expectTypeOf(jwsWeb.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
       expectTypeOf(jweWeb.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
-      expectTypeOf(jwsElysia.open).returns.resolves.toEqualTypeOf<OpenedSessionState<Data, 3600>>();
       expectTypeOf(jwsWeb.open).returns.resolves.toHaveProperty("id").toEqualTypeOf<string>();
       expectTypeOf(jwsWeb.open)
         .returns.resolves.toHaveProperty("createdAt")
@@ -3197,7 +2615,6 @@ describe("session adapters — shared contract", () => {
         .parameter(0)
         .toEqualTypeOf<Partial<SessionData<Data>> | undefined>();
       expectTypeOf(jwsWeb).toEqualTypeOf<SessionDefinition<Data, 3600>>();
-      expectTypeOf(jwsElysia).toMatchTypeOf<SessionDefinition<Data, 3600, SessionContext>>();
     });
   });
   // #endregion
@@ -3246,8 +2663,7 @@ function cookieAttribute(setCookie: string, attribute: string): string | undefin
 }
 
 type Family = "jws" | "jwe";
-type Port = "elysia" | "web";
-type Opener = (carrier: never, config: never) => Promise<unknown>;
+type Opener = (event: WebSessionEvent, config: never) => Promise<unknown>;
 
 interface ServeOptions {
   cookies?: Record<string, string>;
@@ -3260,14 +2676,13 @@ interface Served {
   cookies: string[];
 }
 
-/** What a handler returns to answer `401` the way its framework does. */
+/** What a handler returns to answer `401`. */
 const UNAUTHORIZED: unique symbol = Symbol("unauthorized");
 
-type Handler = (carrier: unknown) => Promise<Record<string, unknown> | typeof UNAUTHORIZED>;
+type Handler = (event: WebSessionEvent) => Promise<Record<string, unknown> | typeof UNAUTHORIZED>;
 
-interface PortFamilyCase {
+interface FamilyCase {
   label: string;
-  port: Port;
   family: Family;
   name: string;
   key: unknown;
@@ -3292,108 +2707,72 @@ interface PortFamilyCase {
     args: Record<string, unknown>,
     config: Record<string, unknown>,
   ) => Promise<SessionManager>;
-  /**
-   * One request behind the framework's session guard: Elysia's session plugin
-   * and its `requireSession` macro, a Web handler answering `401` without a
-   * session id.
-   */
+  /** One request behind a session guard: a handler answering `401` without a session id. */
   guarded: (config: Record<string, unknown>, options?: ServeOptions) => Promise<Served>;
 }
 
-const OPENERS: Record<Port, Record<Family, Opener>> = {
-  elysia: {
-    jws: (context: SessionContext, config: Parameters<typeof defineJWSSession>[0]) =>
-      defineJWSSession(config).use(context),
-    jwe: (context: SessionContext, config: Parameters<typeof defineJWESession>[0]) =>
-      defineJWESession(config).use(context),
-  },
-  web: {
-    jws: (event: WebSessionEvent, config: Parameters<typeof defineJWSSessionWeb>[0]) =>
-      defineJWSSessionWeb(config).use(event),
-    jwe: (event: WebSessionEvent, config: Parameters<typeof defineJWESessionWeb>[0]) =>
-      defineJWESessionWeb(config).use(event),
-  },
+const OPENERS: Record<Family, Opener> = {
+  jws: (event, config: Parameters<typeof defineJWSSession>[0]) =>
+    defineJWSSession(config).use(event),
+  jwe: (event, config: Parameters<typeof defineJWESession>[0]) =>
+    defineJWESession(config).use(event),
 };
 
-type TestDefinition = SessionDefinition<Record<string, unknown>, ExpiresIn | undefined, unknown>;
+type TestDefinition = SessionDefinition<Record<string, unknown>>;
 
 const DEFINERS = {
-  elysia: { jws: defineJWSSession, jwe: defineJWESession },
-  web: { jws: defineJWSSessionWeb, jwe: defineJWESessionWeb },
-} as unknown as Record<Port, Record<Family, (config: Record<string, unknown>) => TestDefinition>>;
+  jws: defineJWSSession,
+  jwe: defineJWESession,
+} as unknown as Record<Family, (config: Record<string, unknown>) => TestDefinition>;
 
-/** The session definition of `port` and its family over `config`. */
-function definitionOf(port: PortFamilyCase, config: Record<string, unknown>): TestDefinition {
-  return DEFINERS[port.port][port.family](config);
+/** The session definition of the family `variant` runs, over `config`. */
+function definitionOf(variant: FamilyCase, config: Record<string, unknown>): TestDefinition {
+  return DEFINERS[variant.family](config);
 }
 
-/** The same session case on every adapter and both families, each through a real app. */
-function portFamilyCases(): PortFamilyCase[] {
-  return (["elysia", "web"] as const).flatMap((port) =>
-    (["jws", "jwe"] as const).map((family) => portFamilyCase(port, family)),
-  );
+/** The same session case on both families, each through one Web request. */
+function familyCases(): FamilyCase[] {
+  return (["jws", "jwe"] as const).map((family) => familyCase(family));
 }
 
-function portFamilyCase(port: Port, family: Family): PortFamilyCase {
-  const openWith = (carrier: unknown, config: Record<string, unknown>) =>
-    OPENERS[port][family](carrier as never, config as never) as Promise<SessionManager>;
+function familyCase(family: Family): FamilyCase {
+  const openWith = (event: WebSessionEvent, config: Record<string, unknown>) =>
+    OPENERS[family](event, config as never) as Promise<SessionManager>;
 
-  const serve: PortFamilyCase["serve"] = (config, body, options) =>
-    serveOn(port, (carrier) => body((override) => openWith(carrier, override ?? config)), options);
+  const serve: FamilyCase["serve"] = (config, body, options) =>
+    serveRequest((event) => body((override) => openWith(event, override ?? config)), options);
 
   return {
-    label: `${port} ${family}`,
-    port,
+    label: family,
     family,
     name: `contract-${family}`,
     key: family === "jws" ? jwsKey : jweKey,
     run: async (config, body, options) => (await serve(config, body, options)).body,
     serve,
-    reopen: (args, config) => openWith("context" in args ? args.context : args.event, config),
-    guarded: async (config, options) => {
-      if (port !== "elysia") {
-        return serve(
-          config,
-          async (open) => {
-            const session = await open();
-            return session.id ? { id: session.id } : UNAUTHORIZED;
-          },
-          options,
-        );
-      }
-      const plugin =
-        family === "jws"
-          ? jwsSession<Record<string, unknown>>(config as never)
-          : jweSession<Record<string, unknown>>(config as never);
-      const app = new Elysia()
-        .use(plugin)
-        .get("/", ({ session }) => ({ id: session.id ?? null }), { requireSession: true });
-      const response = await app.handle(new Request("http://localhost/", requestInit(options)));
-      return served(response.status, await response.text(), response.headers.getSetCookie());
-    },
+    reopen: (args, config) => openWith(args.event as WebSessionEvent, config),
+    guarded: (config, options) =>
+      serve(
+        config,
+        async (open) => {
+          const session = await open();
+          return session.id ? { id: session.id } : UNAUTHORIZED;
+        },
+        options,
+      ),
   };
 }
 
-async function serveOn(port: Port, handler: Handler, options?: ServeOptions): Promise<Served> {
-  if (port === "web") {
-    const headers = new Headers();
-    const request = new Request("http://localhost/", requestInit(options));
-    try {
-      const out = await handler({ req: request, res: { headers } });
-      if (out === UNAUTHORIZED) return served(401, "Unauthorized", headers.getSetCookie());
-      return served(200, JSON.stringify(out), headers.getSetCookie());
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return served(500, JSON.stringify({ message }), headers.getSetCookie());
-    }
+async function serveRequest(handler: Handler, options?: ServeOptions): Promise<Served> {
+  const headers = new Headers();
+  const request = new Request("http://localhost/", requestInit(options));
+  try {
+    const out = await handler({ req: request, res: { headers } });
+    if (out === UNAUTHORIZED) return served(401, "Unauthorized", headers.getSetCookie());
+    return served(200, JSON.stringify(out), headers.getSetCookie());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return served(500, JSON.stringify({ message }), headers.getSetCookie());
   }
-
-  const app = new Elysia().get("/", async ({ cookie, request, status }) => {
-    const out = await handler({ cookie, request });
-    return out === UNAUTHORIZED ? status(401, "Unauthorized") : out;
-  });
-  const response = await app.handle(new Request("http://localhost/", requestInit(options)));
-  return served(response.status, await response.text(), response.headers.getSetCookie());
 }
 
 function requestInit(options: ServeOptions | undefined): { headers: Record<string, string> } {
@@ -3408,14 +2787,14 @@ function served(status: number, text: string, cookies: string[]): Served {
   return { status, body: body as Record<string, unknown>, cookies };
 }
 
-/** A token minted by the adapter itself, through one request of `port`. */
+/** A token minted by the session itself, through one request of `variant`. */
 async function mintToken(
-  port: PortFamilyCase,
+  variant: FamilyCase,
   config: Record<string, unknown>,
   data: Record<string, unknown>,
   options?: { maxAge?: ExpiresIn },
 ): Promise<string> {
-  const body = await port.run(config, async (open) => {
+  const body = await variant.run(config, async (open) => {
     const session = await open();
     await session.update(data, options);
     return { token: session.token };
@@ -3423,7 +2802,7 @@ async function mintToken(
   return body.token as string;
 }
 
-/** A session-shaped token of `family` sealed with the session key, but minted outside the adapter. */
+/** A session-shaped token of `family` sealed with the session key, but minted outside the session. */
 function foreignToken(
   family: Family,
   claims: Record<string, unknown>,
@@ -3625,32 +3004,27 @@ async function triggerHook(entry: MatrixEntry, session: SessionManager): Promise
 }
 
 /** The session config a contract case starts from: its name and key, cookies over plain HTTP. */
-function baseConfig(port: PortFamilyCase) {
-  return { name: port.name, key: port.key, cookie: { secure: false } };
+function baseConfig(variant: FamilyCase) {
+  return { name: variant.name, key: variant.key, cookie: { secure: false } };
 }
 
 /** {@link baseConfig} with a one-hour `maxAge`. */
-function expiringConfig(port: PortFamilyCase) {
-  return { name: port.name, key: port.key, maxAge: 3600, cookie: { secure: false } };
+function expiringConfig(variant: FamilyCase) {
+  return { name: variant.name, key: variant.key, maxAge: 3600, cookie: { secure: false } };
 }
 
 /** {@link baseConfig} with a `kid` on the session key. */
-function kidConfig(port: PortFamilyCase) {
+function kidConfig(variant: FamilyCase) {
   return {
-    name: port.name,
-    key: { ...(port.key as Record<string, unknown>), kid: "key-kid" },
+    name: variant.name,
+    key: { ...(variant.key as Record<string, unknown>), kid: "key-kid" },
     cookie: { secure: false },
   };
 }
 
-/** The cookie names a response sets. */
-function setCookieNames(response: Response): string[] {
-  return response.headers.getSetCookie().map((cookie) => cookie.split("=")[0]);
-}
-
-/** The RSA key pair of the family `port` runs; the halves are only ever read. */
-function rsaPairFor(port: PortFamilyCase) {
-  return port.family === "jws" ? rsaSignPair : rsaEncPair;
+/** The RSA key pair of the family `variant` runs; the halves are only ever read. */
+function rsaPairFor(variant: FamilyCase) {
+  return variant.family === "jws" ? rsaSignPair : rsaEncPair;
 }
 
 function decodeSegment(segment: string): Record<string, unknown> {

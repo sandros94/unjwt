@@ -59,7 +59,6 @@ const MARKERS = {
   thumbprint: "JWK thumbprint",
   cookieEs: "cookie-es",
   h3Import: 'from"h3',
-  elysiaImport: 'from"elysia"',
   dpop: "ERR_DPOP_",
 } as const;
 
@@ -72,8 +71,6 @@ interface Entry {
   measured: { min: number; gzip: number };
   /** Strings that must not appear in the bundle. */
   absent: ReadonlyArray<string>;
-  /** Imports left out of the bundle, as the build leaves out an adapter's framework. */
-  external?: ReadonlyArray<string>;
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
@@ -181,20 +178,13 @@ const ENTRIES: ReadonlyArray<Entry> = [
     imports: ["defineJWSSession"],
     module: "session/index.ts",
     measured: { min: 55372, gzip: 17858 },
-    absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
+    absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
   {
     imports: ["defineJWESession"],
     module: "session/index.ts",
     measured: { min: 77007, gzip: 24351 },
-    absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
-  },
-  {
-    imports: ["jwsSession"],
-    module: "adapters/elysia/index.ts",
-    measured: { min: 49372, gzip: 15944 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
-    external: ["elysia"],
   },
 ];
 
@@ -249,7 +239,6 @@ async function bundleImport(entry: Entry): Promise<string> {
     platform: "neutral",
     treeshake: true,
     logLevel: "silent",
-    external: entry.external ? [...entry.external] : undefined,
     plugins: [
       {
         name: "virtual-entry",
