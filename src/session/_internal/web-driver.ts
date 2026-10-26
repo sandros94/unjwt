@@ -13,10 +13,10 @@ const requestStates = /* @__PURE__ */ new WeakMap<object, Record<string, unknown
 export const webSessionDriver: SessionDriver<WebSessionEvent> = {
   prefix: PREFIX,
 
-  /** `event.context.sessions` when the event has a `context`, so middleware and handler share one state. */
+  /** `event.context.unjwt` when the event has a `context`, so middleware and handler share one state. */
   state: (event) => {
     if (isHanded(event)) return sessionsOf(event);
-    if (event.context) return contextSessions(event.context);
+    if (event.context) return contextState(event.context);
     return sessionsOf(event.req ? webRequest(event.req) : event);
   },
 
@@ -50,15 +50,15 @@ function webRequest(req: Request): Request {
   throw invalidConfigError(`${PREFIX} use() got an event whose "req" is not a web Request.`);
 }
 
-/** The `sessions` slot a framework's own session helper may create too: an existing object is shared, never replaced. */
-function contextSessions(context: Record<string, unknown>): Record<string, unknown> {
-  const existing = context.sessions;
+/** The `unjwt` slot of a context, created on first use: an existing object is reused, never replaced. */
+function contextState(context: Record<string, unknown>): Record<string, unknown> {
+  const existing = context.unjwt;
   if (typeof existing === "object" && existing !== null) {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the slot is a record by contract with the framework
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the slot holds the record this driver created
     return existing as Record<string, unknown>;
   }
   const created: Record<string, unknown> = Object.create(null);
-  context.sessions = created;
+  context.unjwt = created;
   return created;
 }
 

@@ -269,7 +269,8 @@ describe("unjwt/session over a Web request", () => {
       const headers = new Headers();
       const first = await session.use({ req: request, res: { headers }, context });
       await first.update({ user: "ada" });
-      expect(context.sessions).toBeTypeOf("object");
+      expect(context.unjwt).toBeTypeOf("object");
+      expect(context.sessions).toBeUndefined();
 
       const again = await session.use({ req: request, context });
       expect(again.id).toBe(first.id);
@@ -297,6 +298,7 @@ describe("unjwt/session over a Web request", () => {
       expect(atUpgrade.id).toBe(direct.id);
       const peer = await session.use({ headers: request.headers, context });
       expect(peer.id).toBe(direct.id);
+      expect(context.unjwt).toBeTypeOf("object");
     },
   );
 
@@ -324,17 +326,25 @@ describe("unjwt/session over a Web request", () => {
   );
 
   it.each(FAMILIES)(
-    "$family: keeps a context.sessions slot another library created, whatever its prototype",
+    "$family: reuses an existing context.unjwt object and leaves context.sessions untouched",
     async ({ define }) => {
       const session = define();
+      const unjwt: Record<string, unknown> = Object.create(Object.create(null));
       const sessions: Record<string, unknown> = Object.create(Object.create(null));
       sessions.other = { id: "theirs" };
-      const context: Record<string, unknown> = { sessions };
-      const manager = await session.use({ req: get(), res: { headers: new Headers() }, context });
+      const context: Record<string, unknown> = { unjwt, sessions };
+      const request = get();
+      const manager = await session.use({ req: request, res: { headers: new Headers() }, context });
       await manager.update({ user: "ada" });
 
+      expect(context.unjwt).toBe(unjwt);
+      expect(Object.keys(unjwt)).not.toHaveLength(0);
       expect(context.sessions).toBe(sessions);
+      expect(Object.keys(sessions)).toEqual(["other"]);
       expect(sessions.other).toEqual({ id: "theirs" });
+
+      const again = await session.use({ req: request, context });
+      expect(again.id).toBe(manager.id);
     },
   );
 

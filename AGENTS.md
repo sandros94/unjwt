@@ -92,7 +92,7 @@ src/
     jws.ts, jwe.ts      # the two families' define*Session over the Web driver
     types.ts            # the public session types (SessionClaims/Data/Update/Manager/Hooks/State/Definition, WebSessionEvent = SessionRequestEvent | SessionHandedToken)
     _internal/
-      web-driver.ts     # driver: event.context.sessions or per-request WeakMap state, request headers/cookies, handed token
+      web-driver.ts     # driver: event.context.unjwt or per-request WeakMap state, request headers/cookies, handed token
       cookie.ts         # Web cookie jar: cookie-es parse of the Cookie header, Set-Cookie replace on Headers
       define-driver.ts  # defineSessionDriver(): the typed identity for a third-party driver
       contract.ts       # framework-agnostic session contract (error factories, reserved-claim stripping, name/cookie/rolling checks, typ/exp helpers)
