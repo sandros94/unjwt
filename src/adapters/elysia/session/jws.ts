@@ -23,7 +23,7 @@ import { PREFIX, elysiaSessionDriver } from "../_internal/shared.ts";
 
 export type { SessionContext };
 
-const codec = createJWSCodec({ prefix: PREFIX, defaultName: "elysia-jws" });
+const codec = createJWSCodec({ prefix: PREFIX, defaultName: "__Host-elysia-jws" });
 
 export interface SessionJWS<
   T extends SessionRecord = SessionClaims,

@@ -89,7 +89,7 @@ const app = new Elysia()
 ```
 
 - `contextKey` (default `"session"`) — the context property the session is exposed under.
-- `name` (default `"elysia-jws"` / `"elysia-jwe"`) — the cookie name and the default `x-<name>-session` header.
+- `name` (default `"__Host-elysia-jws"` / `"__Host-elysia-jwe"`) — the cookie name and the default `x-<name>-session` header.
 - Guard names follow `contextKey`: `requireAccess`, `requireRefresh`, etc.
 
 With defaults, two plugins would both expose `ctx.session` (later wins) — always set distinct `contextKey` + `name` when combining. Each plugin's Elysia identity is seeded from `name` and `contextKey`, so two differently-named sessions register side by side instead of deduplicating.
@@ -144,7 +144,7 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
       };
   maxAge?: MaxAge;
   rolling?: true | ExpiresIn;
-  name?: string; // default "elysia-jws"
+  name?: string; // default "__Host-elysia-jws"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
   sessionHeader?: boolean | string; // true = x-<name>-session (name without __Host-/__Secure-), read before the cookie; unset or false = no header
@@ -172,7 +172,7 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
   // asymmetric keys throw ERR_SESSION_KEY_INVALID: a pair seals with its public half, so any holder of it mints sessions
   maxAge?: MaxAge;
   rolling?: true | ExpiresIn;
-  name?: string; // default "elysia-jwe"
+  name?: string; // default "__Host-elysia-jwe"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
   sessionHeader?: boolean | string;

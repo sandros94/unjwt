@@ -53,7 +53,7 @@ describe("elysia session — running server via app.handle", () => {
 
     const login = await app.handle(post("/login", { user: "alice" }));
     const setCookies = login.headers.getSetCookie();
-    expect(setCookies.some((c) => c.startsWith("elysia-jws="))).toBe(true);
+    expect(setCookies.some((c) => c.startsWith("__Host-elysia-jws="))).toBe(true);
     expect(setCookies.every((c) => /HttpOnly/i.test(c))).toBe(true);
 
     const cookie = cookieHeader(setCookies);
@@ -87,7 +87,7 @@ describe("elysia session — running server via app.handle", () => {
       .get("/me", ({ session }) => ({ user: (session.data as { user?: string }).user ?? null }));
 
     const login = await app.handle(post("/login", { user: "bob" }));
-    const token = cookieHeader(login.headers.getSetCookie()).replace("elysia-jws=", "");
+    const token = cookieHeader(login.headers.getSetCookie()).replace("__Host-elysia-jws=", "");
 
     const me = await app.handle(
       new Request("http://localhost/me", {
@@ -117,7 +117,7 @@ describe("elysia session — running server via app.handle", () => {
 
     const login = await app.handle(post("/login", { user: "carol", role: "admin" }));
     const setCookies = login.headers.getSetCookie();
-    expect(setCookies.some((c) => c.startsWith("elysia-jwe="))).toBe(true);
+    expect(setCookies.some((c) => c.startsWith("__Host-elysia-jwe="))).toBe(true);
     expect(setCookies.every((c) => /HttpOnly/i.test(c))).toBe(true); // JWE defaults httpOnly
 
     const cookie = cookieHeader(setCookies);

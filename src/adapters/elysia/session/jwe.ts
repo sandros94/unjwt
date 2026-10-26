@@ -23,7 +23,7 @@ export type {
   SessionEncryptOptions,
 } from "../../../session/_internal/codec-jwe.ts";
 
-const codec = createJWECodec({ prefix: PREFIX, defaultName: "elysia-jwe" });
+const codec = createJWECodec({ prefix: PREFIX, defaultName: "__Host-elysia-jwe" });
 
 export interface SessionJWE<
   T extends SessionRecord = SessionClaims,

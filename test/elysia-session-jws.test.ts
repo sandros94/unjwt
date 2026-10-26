@@ -87,7 +87,7 @@ describe("elysia JWS session core", () => {
     expect(session.id).toBeTypeOf("string");
     expect(session.token).toBeTypeOf("string");
     expect(session.data.user).toBe("alice");
-    expect(liveCookies(store)["elysia-jws"]).toBe(session.token);
+    expect(liveCookies(store)["__Host-elysia-jws"]).toBe(session.token);
     expect(onUpdate).toHaveBeenCalledOnce();
     expect(onUpdate.mock.calls[0][0].oldSession.id).toBeUndefined();
     expect(onUpdate.mock.calls[0][0].session.id).toBe(session.id);
@@ -136,7 +136,7 @@ describe("elysia JWS session core", () => {
 
     const onRead = vi.fn();
     const onExpire = vi.fn();
-    const { context } = makeContext({ cookies: { "elysia-jws": minted.token! } });
+    const { context } = makeContext({ cookies: { "__Host-elysia-jws": minted.token! } });
     const session = await defineJWSSession({
       key: hsKey,
       maxAge: "1s",
@@ -152,7 +152,7 @@ describe("elysia JWS session core", () => {
   it("fires onError (not onRead) for a malformed/invalid token", async () => {
     const onRead = vi.fn();
     const onError = vi.fn();
-    const { context } = makeContext({ cookies: { "elysia-jws": "not.a.jwt" } });
+    const { context } = makeContext({ cookies: { "__Host-elysia-jws": "not.a.jwt" } });
     const session = await defineJWSSession({ key: hsKey, hooks: { onRead, onError } }).use(context);
 
     expect(onError).toHaveBeenCalledOnce();
@@ -181,12 +181,12 @@ describe("elysia JWS session core", () => {
     const { context: writer, store: written } = makeContext();
     const session = await defineJWSSession({ key: hsKey }).use(writer);
     await session.update({ user: "frank" });
-    const token = written.get("elysia-jws")!.value as string;
+    const token = written.get("__Host-elysia-jws")!.value as string;
 
-    const { context, store } = makeContext({ cookies: { "elysia-jws": token } });
+    const { context, store } = makeContext({ cookies: { "__Host-elysia-jws": token } });
     const read = await defineJWSSession({ key: hsKey }).use(context);
     expect(read.data).toMatchObject({ user: "frank" });
-    expect(store.get("elysia-jws")?.lastWrite).toBeUndefined();
+    expect(store.get("__Host-elysia-jws")?.lastWrite).toBeUndefined();
   });
 
   it("onUpdate.oldSession.data is a deep pre-update snapshot", async () => {
@@ -226,7 +226,7 @@ describe("elysia JWS session core", () => {
     expect(session.id).toBeUndefined();
     expect(session.token).toBeUndefined();
     expect(Object.keys(session.data)).toHaveLength(0);
-    expect(store.get("elysia-jws")?.lastWrite?.maxAge).toBe(0);
+    expect(store.get("__Host-elysia-jws")?.lastWrite?.maxAge).toBe(0);
     expect(onClear).toHaveBeenCalledOnce();
     expect(onClear.mock.calls[0][0].oldSession.id).toBe(idBefore);
   });

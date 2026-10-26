@@ -86,7 +86,7 @@ describe("elysia JWE session core", () => {
     expect(session.id).toBeTypeOf("string");
     expect(session.token).toBeTypeOf("string");
     expect(session.data.user).toBe("alice");
-    expect(liveCookies(store)["elysia-jwe"]).toBe(session.token);
+    expect(liveCookies(store)["__Host-elysia-jwe"]).toBe(session.token);
     expect(onUpdate).toHaveBeenCalledOnce();
     expect(onUpdate.mock.calls[0][0].oldSession.id).toBeUndefined();
     expect(onUpdate.mock.calls[0][0].session.id).toBe(session.id);
@@ -135,7 +135,7 @@ describe("elysia JWE session core", () => {
 
     const onRead = vi.fn();
     const onExpire = vi.fn();
-    const { context } = makeContext({ cookies: { "elysia-jwe": minted.token! } });
+    const { context } = makeContext({ cookies: { "__Host-elysia-jwe": minted.token! } });
     const session = await defineJWESession({
       key: jweKey,
       maxAge: "1s",
@@ -151,7 +151,7 @@ describe("elysia JWE session core", () => {
   it("fires onError (not onRead) for a malformed/invalid token", async () => {
     const onRead = vi.fn();
     const onError = vi.fn();
-    const { context } = makeContext({ cookies: { "elysia-jwe": "a.b.c.d.e" } });
+    const { context } = makeContext({ cookies: { "__Host-elysia-jwe": "a.b.c.d.e" } });
     const session = await defineJWESession({ key: jweKey, hooks: { onRead, onError } }).use(
       context,
     );
@@ -215,7 +215,7 @@ describe("elysia JWE session core", () => {
     expect(session.id).toBeUndefined();
     expect(session.token).toBeUndefined();
     expect(Object.keys(session.data)).toHaveLength(0);
-    expect(store.get("elysia-jwe")?.lastWrite?.maxAge).toBe(0);
+    expect(store.get("__Host-elysia-jwe")?.lastWrite?.maxAge).toBe(0);
     expect(onClear).toHaveBeenCalledOnce();
     expect(onClear.mock.calls[0][0].oldSession.id).toBe(idBefore);
   });
