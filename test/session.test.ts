@@ -1019,3 +1019,37 @@ function foreignToken(family: Family, claims: Record<string, unknown>): Promise<
   const options = { protectedHeader: { typ: "session+jwt" } };
   return family === "jws" ? sign(claims, jwsKey, options) : encrypt(claims, jweKey, options);
 }
+
+describe("a throwing onRead", () => {
+  it("leaves the session empty for the rest of the request", async () => {
+    let reads = 0;
+    const define = defineJWSSession({
+      name: "web",
+      key: jwsKey,
+      maxAge: "1h",
+      hooks: {
+        onRead: () => {
+          reads += 1;
+          throw new Error("revoked");
+        },
+      },
+    });
+    const headers = new Headers();
+    const signedIn = await define.use({
+      req: new Request("https://app.example/login"),
+      res: { headers },
+    });
+    await signedIn.update({ user: "user_1a2b" });
+    const cookie = headers
+      .getSetCookie()
+      .map((line) => line.split(";")[0])
+      .join("; ");
+
+    const event = { req: new Request("https://app.example/me", { headers: { cookie } }) };
+    await expect(define.use(event)).rejects.toThrow("revoked");
+    const again = await define.use(event);
+    expect(again.id).toBeUndefined();
+    expect(again.data).toEqual({});
+    expect(reads).toBe(1);
+  });
+});

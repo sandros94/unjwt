@@ -115,7 +115,12 @@ export async function loadSession<
     return session;
   }
 
-  await fireRead(binding, session);
+  try {
+    await fireRead(binding, session);
+  } catch (error_) {
+    store.set(emptySession<T, MaxAge, TEvent, Config>(binding));
+    throw error_;
+  }
   await rollSession(binding, session);
   return session;
 }
