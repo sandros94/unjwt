@@ -1,7 +1,7 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { type H3Event, H3, HTTPError } from "h3";
 
-import type { ExpiresIn, JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
+import type { JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
 import type { JWESessionKey } from "../src/session/_internal/codec-jwe.ts";
@@ -32,11 +32,7 @@ const rotation = await Promise.all(
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 type Family = "jws" | "jwe";
-type Definition = SessionDefinition<
-  Record<string, unknown>,
-  ExpiresIn | undefined,
-  WebSessionEvent
->;
+type Definition = SessionDefinition<Record<string, unknown>>;
 
 interface FamilyCase {
   family: Family;
@@ -1207,3 +1203,16 @@ function thrown(run: () => unknown): unknown {
   }
   return undefined;
 }
+
+describe("SessionDefinition defaults its event to WebSessionEvent", () => {
+  it("accepts a definition made without a driver", async () => {
+    const typed: SessionDefinition<{ user: string }, "1h"> = defineJWSSession<
+      { user: string },
+      "1h"
+    >({ key: jwsKey, maxAge: "1h" });
+    expectTypeOf(typed.use).parameter(0).toEqualTypeOf<WebSessionEvent>();
+    const headers = new Headers();
+    const session = await typed.use({ req: new Request("https://app.example/"), res: { headers } });
+    expect(session.id).toBeUndefined();
+  });
+});

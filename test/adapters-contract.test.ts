@@ -464,7 +464,7 @@ describe("session adapters — shared contract", () => {
 
   // #region key and payload failures
   describe("misconfigured keys and payloads", () => {
-    it("web: a public-only JWS key fails the read", async () => {
+    it("web: a public-only JWS key is refused when the session is defined", async () => {
       const error = await caught(() =>
         defineJWSSessionWeb({ name: "publiconly", key: { publicKey: {} } as never }).use({
           req: new Request("http://localhost/"),
@@ -474,7 +474,7 @@ describe("session adapters — shared contract", () => {
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
     });
 
-    it("elysia: an empty key object fails the read", async () => {
+    it("elysia: an empty key object is refused when the session is defined", async () => {
       const { context } = elysiaContext();
       const error = await caught(() =>
         defineJWSSession({ name: "emptykey", key: {} as never }).use(context),
@@ -670,17 +670,20 @@ describe("session adapters — shared contract", () => {
       },
     );
 
-    it.each(portFamilyCases())("$label: a missing key fails the read", async (port) => {
-      const body = await port.run(
-        { name: port.name, key: undefined, cookie: { secure: false } },
-        async (open) => {
-          const error = await caught(open);
-          return { code: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
-        },
-      );
+    it.each(portFamilyCases())(
+      "$label: a missing key is refused when the session is defined",
+      async (port) => {
+        const body = await port.run(
+          { name: port.name, key: undefined, cookie: { secure: false } },
+          async (open) => {
+            const error = await caught(open);
+            return { code: isJWTError(error, "ERR_SESSION_KEY_INVALID") };
+          },
+        );
 
-      expect(body).toEqual({ code: true });
-    });
+        expect(body).toEqual({ code: true });
+      },
+    );
 
     it.each(portFamilyCases())("$label: an unusable name is a config failure", async (port) => {
       const body = await port.run(
@@ -3193,7 +3196,7 @@ describe("session adapters — shared contract", () => {
       expectTypeOf(jwsWeb.issue)
         .parameter(0)
         .toEqualTypeOf<Partial<SessionData<Data>> | undefined>();
-      expectTypeOf(jwsWeb).toEqualTypeOf<SessionDefinition<Data, 3600, WebSessionEvent>>();
+      expectTypeOf(jwsWeb).toEqualTypeOf<SessionDefinition<Data, 3600>>();
       expectTypeOf(jwsElysia).toMatchTypeOf<SessionDefinition<Data, 3600, SessionContext>>();
     });
   });
@@ -3312,7 +3315,7 @@ const OPENERS: Record<Port, Record<Family, Opener>> = {
   },
 };
 
-type TestDefinition = SessionDefinition<Record<string, unknown>>;
+type TestDefinition = SessionDefinition<Record<string, unknown>, ExpiresIn | undefined, unknown>;
 
 const DEFINERS = {
   elysia: { jws: defineJWSSession, jwe: defineJWESession },

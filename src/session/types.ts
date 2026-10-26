@@ -156,7 +156,7 @@ export type OpenedSessionState<
 export interface SessionDefinition<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TEvent = unknown,
+  TEvent = WebSessionEvent,
 > {
   /** Reads the request's session once and returns its manager; later calls on the same request share that state. */
   use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
