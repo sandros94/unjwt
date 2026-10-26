@@ -478,9 +478,17 @@ describe.concurrent("_internal helpers", () => {
       });
 
       it("JWE: returns 'Cannot infer' with a more specific label", () => {
-        const err = checkAlgAllowed("A256KW", undefined, { ctx: JWE_ALG_CTX });
+        const err = checkAlgAllowed("A256KW", {}, { ctx: JWE_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
         expect(err!.message).toContain("Cannot infer allowed algorithms");
+      });
+
+      it("a missing key is ERR_JWK_INVALID, not an algorithm error", () => {
+        for (const key of [undefined, null]) {
+          const err = checkAlgAllowed("A256KW", key, { ctx: JWE_ALG_CTX });
+          expect(isJWTError(err!, "ERR_JWK_INVALID")).toBe(true);
+          expect(err!.message).toBe("A key is required.");
+        }
       });
 
       it("JWE: raw bytes carry no role and must be named by the caller", () => {

@@ -2317,3 +2317,13 @@ describe("time claims keep a present iat", () => {
     expect(typeof payload.exp).toBe("number");
   });
 });
+
+describe("missing key", () => {
+  it("verify without a key is ERR_JWK_INVALID", async () => {
+    const key = await generateJWK("HS256");
+    const token = await sign({ sub: "user_1a2b" }, key);
+    await expect(verify(token, undefined as never)).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+  });
+});

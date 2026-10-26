@@ -45,6 +45,9 @@ export function checkAlgAllowed<A extends JWKAlgorithm>(
   if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
     return isSameAlgorithm(key.alg, alg) ? undefined : notAllowed(alg, ctx);
   }
+  if (key === undefined || key === null) {
+    return new JWTError("A key is required.", "ERR_JWK_INVALID");
+  }
   const inferred = ctx.infer(key);
   if (!inferred) {
     return new JWTError(
