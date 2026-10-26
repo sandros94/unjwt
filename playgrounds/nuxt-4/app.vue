@@ -1,3 +1,4 @@
+<!-- #region docs -->
 <script setup lang="ts">
 const log = ref<string[]>([]);
 const say = (line: string) => log.value.unshift(line);
@@ -27,7 +28,7 @@ function openSocket() {
   <main style="font-family: system-ui; max-width: 40rem; margin: 2rem auto">
     <h1>unjwt on Nuxt 4</h1>
     <p>
-      <button @click="call('/login', 'POST', { user: 'alice' })">login</button>
+      <button @click="call('/login', 'POST', { user: 'user_1a2b' })">login</button>
       <button @click="call('/me')">me</button>
       <button @click="call('/logout', 'POST')">logout</button>
       <button @click="openSocket()">websocket</button>
@@ -36,3 +37,4 @@ function openSocket() {
     <pre v-for="(line, i) in log" :key="i">{{ line }}</pre>
   </main>
 </template>
+<!-- #endregion -->
