@@ -223,6 +223,9 @@ importers:
       automd:
         specifier: 0.4.3
         version: 0.4.3(magicast@0.5.5)
+      nitro:
+        specifier: npm:nitro-nightly@3.0.1-20261024-005652-6bccaad1
+        version: nitro-nightly@3.0.1-20261024-005652-6bccaad1
       undocs:
         specifier: npm:undocs-nightly@0.10.1-20261021-144810-60ffbf3
         version: undocs-nightly@0.10.1-20261021-144810-60ffbf3(@oxc-project/types@0.154.0)(@types/node@24.19.2)(csstype@3.2.3)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(lightningcss@1.33.0)(magicast@0.5.5)(rolldown@1.2.14)(rollup@4.64.10)(terser@5.51.2)(typescript@7.0.2)
