@@ -4,12 +4,15 @@ import { type H3Event, H3, HTTPError } from "h3";
 import type { JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
-import type { JWESessionKey } from "../src/session/_internal/codec-jwe.ts";
 import { rsa } from "./keys.ts";
 import { sign } from "../src/core/jws/index.ts";
 import { encrypt } from "../src/core/jwe/index.ts";
 import {
   type CookieJar,
+  type JWESessionKey,
+  type JWESessionOctJWK,
+  type JWESessionSecret,
+  type JWSSessionKey,
   type OpenedSessionState,
   type SessionClaims,
   type SessionDefinition,
@@ -1175,6 +1178,13 @@ describe("unjwt/session types", () => {
     expectTypeOf<{ token: undefined }>().toExtend<SessionHandedToken>();
     expectTypeOf<{}>().not.toExtend<WebSessionEvent>();
   });
+
+  it("takes an HMAC JWK, a CryptoKey or a pair as a JWS session key", () => {
+    expectTypeOf<typeof jwsKey>().toExtend<JWSSessionKey>();
+    expectTypeOf<CryptoKey>().toExtend<JWSSessionKey>();
+    expectTypeOf<{ privateKey: CryptoKey; publicKey: CryptoKey }>().toExtend<JWSSessionKey>();
+    expectTypeOf<typeof jweKey>().not.toExtend<JWSSessionKey>();
+  });
 });
 
 describe("unjwt/session checks its config when defined", () => {
@@ -1449,6 +1459,12 @@ describe("JWE session keys", () => {
     expectTypeOf<{ privateKey: JWEAsymmetricPrivateJWK }>().not.toExtend<JWESessionKey>();
     expectTypeOf<{ privateKey: CryptoKey; publicKey: CryptoKey }>().not.toExtend<JWESessionKey>();
     expectTypeOf<JWEAsymmetricPrivateJWK>().not.toExtend<JWESessionKey>();
+    expectTypeOf<typeof jweKey>().toExtend<JWESessionOctJWK>();
+    expectTypeOf<JWESessionSecret>().toEqualTypeOf<JWESessionOctJWK | CryptoKey>();
+    expectTypeOf<{
+      current: JWESessionSecret;
+      keys: JWESessionOctJWK[];
+    }>().toExtend<JWESessionKey>();
   });
 });
 

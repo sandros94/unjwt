@@ -18,7 +18,11 @@ import type {
 import { defineSession } from "./_internal/definition.ts";
 import { webSessionDriver } from "./_internal/web-driver.ts";
 
-export type { SessionSignOptions, SessionVerifyOptions } from "./_internal/codec-jws.ts";
+export type {
+  JWSSessionKey,
+  SessionSignOptions,
+  SessionVerifyOptions,
+} from "./_internal/codec-jws.ts";
 
 /** Session state for the current request, from the claims of its JWS token. */
 export interface SessionJWS<

@@ -18,7 +18,13 @@ import type {
 import { defineSession } from "./_internal/definition.ts";
 import { webSessionDriver } from "./_internal/web-driver.ts";
 
-export type { SessionDecryptOptions, SessionEncryptOptions } from "./_internal/codec-jwe.ts";
+export type {
+  JWESessionKey,
+  JWESessionOctJWK,
+  JWESessionSecret,
+  SessionDecryptOptions,
+  SessionEncryptOptions,
+} from "./_internal/codec-jwe.ts";
 
 /** Session state for the current request, from the claims of its JWE token. */
 export interface SessionJWE<

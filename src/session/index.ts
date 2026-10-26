@@ -13,6 +13,7 @@ export type {
   WebSessionEvent,
 } from "./types.ts";
 export {
+  type JWSSessionKey,
   type SessionConfigJWS,
   type SessionHooksJWS,
   type SessionJWS,
@@ -21,6 +22,9 @@ export {
   defineJWSSession,
 } from "./jws.ts";
 export {
+  type JWESessionKey,
+  type JWESessionOctJWK,
+  type JWESessionSecret,
   type SessionConfigJWE,
   type SessionDecryptOptions,
   type SessionEncryptOptions,
