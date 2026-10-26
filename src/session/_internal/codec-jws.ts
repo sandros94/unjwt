@@ -18,7 +18,6 @@ import {
   sessionOpenOptions,
 } from "./codec.ts";
 import { type JWSSessionKey, resolveSessionKeys } from "./codec-jws-keys.ts";
-import { resolveLimit } from "../../core/_internal/limits.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
@@ -53,8 +52,8 @@ export interface JWSSessionConfig<
   /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). `httpOnly: false` lets page scripts read the signed payload. @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
   /**
-   * `signOptions.alg` is what each token is signed with, and names the algorithm of the keys without their own `alg`: both halves of a pair,
-   * a rotation set's `current` alone. Verification accepts every `alg` the keys serve: a JWK's own `alg` (or an EC or OKP JWK's curve),
+   * `signOptions.alg` is what each token is signed with, and names the algorithm of the keys without their own `alg`, both halves of a pair
+   * included. Verification accepts every `alg` the keys serve: a JWK's own `alg` (or an EC or OKP JWK's curve),
    * and for a key without one, the algorithms the pin or `verifyOptions.algorithms` names that its material carries.
    * `signOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11).
    */
@@ -68,7 +67,12 @@ export interface JWSSessionHooks<
   TArgs extends Record<string, unknown>,
   TConfig,
 > extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /** Returns the key or JWK Set that verifies an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for verification: the token's `alg` is still one `key` serves or `verifyOptions.algorithms` lists. `open()` passes it no event. */
+  /**
+   * Returns the key or JWK Set that verifies an incoming token, picked from its protected header, by `kid` when keys rotate. Set, it
+   * replaces `key` for verification: the token's `alg` is still one `key` serves or `verifyOptions.algorithms` lists. A JWK Set offers the
+   * token its keys of the token's `kid` (all of them when it names none) that serve its `alg`, in order, and a token offered more
+   * than `verifyOptions.limits.keyCandidates` keys is refused. `open()` passes it no event.
+   */
   onKeyLookup?: (
     args: Partial<TArgs> & { header: JWSHeaderParameters; config: TConfig },
   ) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
@@ -156,7 +160,6 @@ function resolveKeys(
   return resolveSessionKeys(config.key, {
     pin: config.jws?.signOptions?.alg,
     listed: config.jws?.verifyOptions?.algorithms,
-    keyCandidates: resolveLimit(config.jws?.verifyOptions?.limits, "keyCandidates"),
     lookup: typeof config.hooks?.onKeyLookup === "function",
     prefix,
   });

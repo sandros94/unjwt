@@ -1,5 +1,5 @@
 import { encrypt, decrypt } from "../../core/jwe/index.ts";
-import { DEFAULT_PBES2_ITERATIONS, resolveLimit } from "../../core/_internal/limits.ts";
+import { DEFAULT_PBES2_ITERATIONS } from "../../core/_internal/limits.ts";
 import { isJWK } from "../../utils/guards.ts";
 import type {
   ExpiresIn,
@@ -8,6 +8,7 @@ import type {
   JWEEncryptOptions,
   JWEHeaderParameters,
   JWEKeyLookup,
+  JWKSet,
   KeyManagementAlgorithm,
 } from "../../core/types/index.ts";
 import type { StrictOmit } from "../../utils/types.ts";
@@ -18,7 +19,6 @@ import {
   sessionOpenOptions,
 } from "./codec.ts";
 import { type JWESessionKey, type JWESessionOctJWK, resolveSessionKeys } from "./codec-jwe-keys.ts";
-import { rotationSet } from "./key-algorithms.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
@@ -53,9 +53,9 @@ export interface JWESessionConfig<
   /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
   /**
-   * `encryptOptions.alg` and `enc` are what each token is issued with, and name the algorithm of a `current` key without its own `alg`.
-   * Decryption accepts every `alg` the keys serve: a JWK's own `alg`, and for a key without one, each algorithm of `decryptOptions.algorithms`
-   * its material carries. A `dir` key decrypts its own `enc` alone, a wrapping key every `enc`.
+   * `encryptOptions.alg` and `enc` are what each token is issued with, and name the algorithm of a key without its own `alg`.
+   * Decryption accepts every `alg` the key serves: a JWK's own `alg`, and for a key without one, the pin and each algorithm of
+   * `decryptOptions.algorithms` its material carries. A `dir` key decrypts its own `enc` alone, a wrapping key every `enc`.
    * `encryptOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). A PBES2 session accepts at most the `p2c` it issues with, unless `decryptOptions.maxIterations` is set.
    */
   jwe?: JWESessionOptions;
@@ -68,10 +68,15 @@ export interface JWESessionHooks<
   TArgs extends Record<string, unknown>,
   TConfig,
 > extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /** Returns the key that decrypts an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for decryption: the token's `alg` is still one `key` serves or `decryptOptions.algorithms` lists. `open()` passes it no event. */
+  /**
+   * Returns the key or JWK Set that decrypts an incoming token, picked from its protected header, by `kid` when keys rotate. Set, it
+   * replaces `key` for decryption: the token's `alg` is still one `key` serves or `decryptOptions.algorithms` lists. A JWK Set offers the
+   * token its keys of the token's `kid` (all of them when it names none) that serve its `alg`, in order, and a token offered more
+   * than `decryptOptions.limits.keyCandidates` keys is refused. `open()` passes it no event.
+   */
   onKeyLookup?: (
     args: Partial<TArgs> & { header: JWEHeaderParameters; config: TConfig },
-  ) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
+  ) => JWKSet | JWEDecryptJWK | Promise<JWKSet | JWEDecryptJWK>;
 }
 
 export interface JWECodecConfig extends SessionCoreConfig {
@@ -82,14 +87,14 @@ export interface JWECodecConfig extends SessionCoreConfig {
       header: JWEHeaderParameters;
       config: unknown;
       [arg: string]: unknown;
-    }): JWEDecryptJWK | Promise<JWEDecryptJWK>;
+    }): JWKSet | JWEDecryptJWK | Promise<JWKSet | JWEDecryptJWK>;
   };
 }
 
 /** The configured keys, or with a key lookup hook the lookup of one request. */
 type JWEOpenKey =
   | ReturnType<typeof resolveSessionKeys>
-  | { lookup: JWEKeyLookup<JWEDecryptJWK>; algorithms: KeyManagementAlgorithm[] };
+  | { lookup: JWEKeyLookup<JWKSet | JWEDecryptJWK>; algorithms: KeyManagementAlgorithm[] };
 
 export const JWE_DEFAULT_COOKIE = {
   path: "/",
@@ -105,7 +110,7 @@ export function createJWECodec(options: {
 }): SessionCodec<JWECodecConfig> {
   const { prefix, defaultName } = options;
 
-  return createSessionCodec<JWECodecConfig, JWESessionOctJWK | CryptoKey, JWEOpenKey>({
+  return createSessionCodec<JWECodecConfig, JWESessionKey, JWEOpenKey>({
     family: "jwe",
     prefix,
     defaultName,
@@ -113,7 +118,7 @@ export function createJWECodec(options: {
 
     issueOptions: (config) => config.jwe?.encryptOptions,
     openOptions: (config) => config.jwe?.decryptOptions,
-    issueKey: (config) => resolveKeys(config, prefix).issueKey,
+    issueKey: (config) => resolveKeys(config, prefix).key,
     openKey: (config) => resolveKeys(config, prefix),
     lookup: (config) => {
       const hooks = config.hooks;
@@ -154,8 +159,7 @@ export function createJWECodec(options: {
 function sessionMaxIterations(config: JWECodecConfig): number | undefined {
   const configured = config.jwe?.decryptOptions?.maxIterations;
   if (configured !== undefined) return configured;
-  const key = rotationSet(config.key)?.current ?? config.key;
-  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(key) ? key.alg : undefined);
+  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(config.key) ? config.key.alg : undefined);
   return typeof alg === "string" && alg.startsWith("PBES2")
     ? (config.jwe?.encryptOptions?.p2c ?? DEFAULT_PBES2_ITERATIONS)
     : undefined;
@@ -170,7 +174,6 @@ function resolveKeys(
     alg: encryptOptions?.alg,
     enc: encryptOptions?.enc,
     listed: decryptOptions?.algorithms,
-    keyCandidates: resolveLimit(decryptOptions?.limits, "keyCandidates"),
     lookup: typeof config.hooks?.onKeyLookup === "function",
     prefix,
   });
