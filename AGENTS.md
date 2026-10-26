@@ -30,7 +30,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
 - **Example:** `pnpm dev` runs the h3 playground
-- **Playgrounds:** `playgrounds/{h3,nuxt-4,nitro}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must exist: the `pnpm dev:prepare` stub runs from `src`, or `pnpm build`). All three run on `unjwt/session`. `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1 under `nuxt/server`, `appSecret`-derived key, WebSockets), `pnpm dev:nitro` the Nitro 3 one (same routes on `unjwt/session`, a static `index.html`). They are usage examples, not tests: `test/` covers behaviour.
+- **Playgrounds:** `playgrounds/{h3,nuxt-4,nitro}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must exist: the `pnpm dev:prepare` stub runs from `src`, or `pnpm build`). All three run on `unjwt/session`. `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1 under `nuxt/server`, the session key from `runtimeConfig.sessionKey`, WebSockets), `pnpm dev:nitro` the Nitro 3 one (same routes and key source, a static `index.html`). They are usage examples, not tests: `test/` covers behaviour.
 
 ## Architecture
 
