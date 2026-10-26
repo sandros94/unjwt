@@ -109,7 +109,7 @@ export interface JWEEncryptOptions extends JWTTimeClaimOptions {
 
   /** AES-GCMKW key-wrapping IV. Generated when omitted. */
   keyManagementIV?: Uint8Array<ArrayBuffer>;
-  /** PBES2 Salt (p2s). Required for PBES2 algorithms. */
+  /** PBES2 salt (p2s). Random 16 bytes when omitted. */
   p2s?: Uint8Array<ArrayBuffer>;
   /** PBES2 iteration count (p2c), between `1000` and `600_000`. Default: `600_000`. */
   p2c?: number;

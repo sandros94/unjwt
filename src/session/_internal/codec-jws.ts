@@ -161,7 +161,7 @@ function getSignKey(config: JWSCodecConfig, prefix: string): JWSSignJWK | Crypto
 
   if (!resolved) {
     throw invalidKeyError(
-      `${prefix} Invalid JWS key, expected a symmetric JWK, a private JWK or a CryptoKey.`,
+      `${prefix} Invalid JWS key, expected a symmetric JWK, a key pair or a CryptoKey.`,
       key,
     );
   }
@@ -184,7 +184,7 @@ function getVerifyKey(config: JWSCodecConfig, prefix: string): JWSVerifyJWK | JW
 
   if (!resolved) {
     throw invalidKeyError(
-      `${prefix} Invalid JWS key, expected a symmetric JWK, a public JWK/set or a CryptoKey.`,
+      `${prefix} Invalid JWS key, expected a symmetric JWK, a key pair or a CryptoKey.`,
       key,
     );
   }
