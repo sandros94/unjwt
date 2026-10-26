@@ -28,18 +28,6 @@ import {
 import { loadSession } from "./read.ts";
 import { assertTokenSource, assertWritable } from "./transport.ts";
 
-/** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */
-export async function encodeSession<TEvent, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TEvent, Config>,
-): Promise<string> {
-  const { config, codec, store, transport } = binding;
-  await codec.assertKeys(config);
-  const issue = codec.issuer(config);
-  const session =
-    storedSession(store) || (transport.read ? await loadSession(binding) : emptySession(binding));
-  return issue(session.id === undefined ? { ...session, id: mintSessionId(config) } : session);
-}
-
 /** Update the session data (if provided) and reissue the token; `options.maxAge` overrides this token's lifetime. */
 export async function issueSession<
   T extends SessionRecord,
@@ -52,7 +40,7 @@ export async function issueSession<
   options?: SessionIssueOptions,
   trigger: SessionUpdateTrigger = "update",
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
-  const { config, driver, store, args, transport } = binding;
+  const { config, codec, driver, store, args, transport } = binding;
 
   assertWritable(transport, { operation: "update", prefix: driver.prefix });
 
@@ -78,7 +66,8 @@ export async function issueSession<
 
   let issued: SessionState<T, MaxAge> & { id: string; token: string };
   try {
-    const token = await encodeSession(binding);
+    await codec.assertKeys(config);
+    const token = await codec.issuer(config)(session);
     transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
     issued = Object.assign(session, { id, token });
   } catch (error_) {
