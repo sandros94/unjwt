@@ -17,16 +17,8 @@ import {
   sessionIssueOptions,
   sessionOpenOptions,
 } from "./codec.ts";
-import {
-  type JWESessionKey,
-  type JWESessionOctJWK,
-  type JWESessionSecret,
-  resolveSessionKeys,
-} from "./codec-jwe-keys.ts";
-import { JWE_ALG_CTX } from "../../core/jwe/_internal/algorithms.ts";
-import { createPBES2Budget } from "../../core/jwe/_internal/keys.ts";
-import { type SessionOpeners, rotationSet } from "./key-set.ts";
-import { openWithKeys } from "./open-with-keys.ts";
+import { type JWESessionKey, type JWESessionOctJWK, resolveSessionKeys } from "./codec-jwe-keys.ts";
+import { rotationSet } from "./key-algorithms.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
@@ -96,7 +88,7 @@ export interface JWECodecConfig extends SessionCoreConfig {
 
 /** The configured keys, or with a key lookup hook the lookup of one request. */
 type JWEOpenKey =
-  | SessionOpeners<JWESessionSecret, KeyManagementAlgorithm>
+  | ReturnType<typeof resolveSessionKeys>
   | { lookup: JWEKeyLookup<JWEDecryptJWK>; algorithms: KeyManagementAlgorithm[] };
 
 export const JWE_DEFAULT_COOKIE = {
@@ -113,7 +105,7 @@ export function createJWECodec(options: {
 }): SessionCodec<JWECodecConfig> {
   const { prefix, defaultName } = options;
 
-  return createSessionCodec<JWECodecConfig, JWESessionSecret, JWEOpenKey>({
+  return createSessionCodec<JWECodecConfig, JWESessionOctJWK | CryptoKey, JWEOpenKey>({
     family: "jwe",
     prefix,
     defaultName,
@@ -121,7 +113,7 @@ export function createJWECodec(options: {
 
     issueOptions: (config) => config.jwe?.encryptOptions,
     openOptions: (config) => config.jwe?.decryptOptions,
-    issueKey: (config) => resolveKeys(config, prefix).current,
+    issueKey: (config) => resolveKeys(config, prefix).issueKey,
     openKey: (config) => resolveKeys(config, prefix),
     lookup: (config) => {
       const hooks = config.hooks;
@@ -132,13 +124,6 @@ export function createJWECodec(options: {
         algorithms,
       });
     },
-    importable: (config) => {
-      const { current, entries } = resolveKeys(config, prefix);
-      return entries.map(({ key, algorithms }) => ({
-        key,
-        alg: key === current ? config.jwe?.encryptOptions?.alg : algorithms[0],
-      }));
-    },
 
     issue: (config, payload, key) =>
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key without `alg` reaches here only with `alg` and `enc` pinned
@@ -146,30 +131,21 @@ export function createJWECodec(options: {
 
     open: async (config, sealed, key) => {
       const { decryptOptions, encryptOptions } = config.jwe ?? {};
-      const opening = {
-        ...decryptOptions,
-        maxIterations: sessionMaxIterations(config),
-        ...sessionOpenOptions({
-          maxAge: config.maxAge,
-          requiredClaims: decryptOptions?.requiredClaims,
-          typ: encryptOptions?.protectedHeader?.typ,
-          algorithms: key.algorithms,
-        }),
-      };
-      if ("lookup" in key)
-        return (await decrypt<SessionPayload>(sealed, key.lookup, opening)).payload;
-      const budget = createPBES2Budget(resolveLimit(opening.limits, "pbes2Iterations"));
-      return openWithKeys(key, {
-        ctx: JWE_ALG_CTX,
-        limit: resolveLimit(opening.limits, "keyCandidates"),
-        failure: { code: "ERR_JWE_DECRYPTION_FAILED", message: "JWE decryption failed." },
-        attempt: async (candidate) =>
-          (await decrypt<SessionPayload>(sealed, candidate, opening)).payload,
-        spend: ({ alg, p2c }: JWEHeaderParameters) => {
-          const { minIterations, maxIterations } = opening;
-          if (alg) budget.spend({ alg, p2c, minIterations, maxIterations });
+      const { payload } = await decrypt<SessionPayload>(
+        sealed,
+        "lookup" in key ? key.lookup : key.key,
+        {
+          ...decryptOptions,
+          maxIterations: sessionMaxIterations(config),
+          ...sessionOpenOptions({
+            maxAge: config.maxAge,
+            requiredClaims: decryptOptions?.requiredClaims,
+            typ: encryptOptions?.protectedHeader?.typ,
+            algorithms: key.algorithms,
+          }),
         },
-      });
+      );
+      return payload;
     },
   });
 }

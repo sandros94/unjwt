@@ -1,6 +1,6 @@
 import type { ExpiresIn, JWTClaims, Duration, JWKAlgorithm } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
-import { isCryptoKey, isPrivateJWK } from "../../utils/guards.ts";
+import { isCryptoKey, isJWKSet, isPrivateJWK } from "../../utils/guards.ts";
 import {
   RESERVED_CLAIMS,
   assertImportableKey,
@@ -22,14 +22,12 @@ import type {
 
 export type SessionPayload = JWTClaims & { jti: string; iat: number };
 
-/** A configured key and the `alg` it is imported under, `undefined` for a key that names its own. */
-export interface ImportableKey {
-  key: unknown;
-  alg: JWKAlgorithm | undefined;
-}
-
 /** What a family supplies to build its session codec. */
-export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, OpenKey> {
+export interface SessionCodecSpec<
+  Config extends SessionCoreConfig,
+  IssueKey,
+  OpenKey extends object,
+> {
   family: "jws" | "jwe";
   prefix: string;
   defaultName: string;
@@ -39,19 +37,20 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   /** Returns the `clockTolerance` an incoming token is checked with. */
   openOptions: (config: Config) => { clockTolerance?: number | Duration } | undefined;
   issueKey: (config: Config) => IssueKey;
-  openKey: (config: Config) => OpenKey;
+  /** The configured keys that open tokens: a key or a JWK Set, each JWK to import up front under its `alg`. */
+  openKey: (config: Config) => OpenKey & { key: unknown };
   /** With a key lookup hook set, returns the open key for a request's hook arguments. */
   lookup: (config: Config) => ((args: Record<string, unknown>) => OpenKey) | undefined;
-  /** The keys that open tokens, each to import up front under the `alg` it serves. */
-  importable: (config: Config) => readonly ImportableKey[];
   issue: (config: Config, payload: Record<string, unknown>, key: IssueKey) => Promise<string>;
   open: (config: Config, token: string, key: OpenKey) => Promise<SessionPayload>;
 }
 
 /** Keys are resolved once per config and each configured JWK is imported once. Open failures other than expiry throw `ERR_SESSION_TOKEN_INVALID`. */
-export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, OpenKey>(
-  spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
-): SessionCodec<Config> {
+export function createSessionCodec<
+  Config extends SessionCoreConfig,
+  IssueKey,
+  OpenKey extends object,
+>(spec: SessionCodecSpec<Config, IssueKey, OpenKey>): SessionCodec<Config> {
   const { prefix } = spec;
 
   const now = (config: Config) => spec.issueOptions(config)?.currentDate?.getTime() ?? Date.now();
@@ -78,7 +77,7 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
       const issueKey = spec.issueKey(config);
       const { keyFor, importable } = openingKeys(spec, config);
       const assertOpenKeys = async (): Promise<void> => {
-        for (const { key, alg } of importable) await assertImportableKey(key, { alg, prefix });
+        for (const key of importable) await assertImportableKey(key, { alg: undefined, prefix });
       };
 
       return {
@@ -244,12 +243,13 @@ function openedSession(
 }
 
 /** With a lookup hook, the hook picks each request's open key. Otherwise the configured key opens every token and is imported before the first open. */
-function openingKeys<Config extends SessionCoreConfig, IssueKey, OpenKey>(
+function openingKeys<Config extends SessionCoreConfig, IssueKey, OpenKey extends object>(
   spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
   config: Config,
-): { keyFor: (args: Record<string, unknown>) => OpenKey; importable: readonly ImportableKey[] } {
+): { keyFor: (args: Record<string, unknown>) => OpenKey; importable: readonly unknown[] } {
   const lookup = spec.lookup(config);
   if (lookup) return { keyFor: lookup, importable: [] };
-  const key = spec.openKey(config);
-  return { keyFor: () => key, importable: spec.importable(config) };
+  const opening = spec.openKey(config);
+  const { key } = opening;
+  return { keyFor: () => opening, importable: isJWKSet(key) ? key.keys : [key] };
 }

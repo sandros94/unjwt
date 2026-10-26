@@ -25,7 +25,6 @@ export {
 export {
   type JWESessionKey,
   type JWESessionOctJWK,
-  type JWESessionSecret,
   type SessionConfigJWE,
   type SessionDecryptOptions,
   type SessionEncryptOptions,

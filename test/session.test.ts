@@ -5,13 +5,13 @@ import type { JWEAsymmetricPrivateJWK, JWK_HMAC, JWK_oct } from "../src/core/typ
 import { isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
 import { rsa } from "./keys.ts";
+import { base64UrlStringify } from "../src/utils/base64.ts";
 import { sign } from "../src/core/jws/index.ts";
 import { encrypt } from "../src/core/jwe/index.ts";
 import {
   type CookieJar,
   type JWESessionKey,
   type JWESessionOctJWK,
-  type JWESessionSecret,
   type JWSSessionKey,
   type JWSSessionSecret,
   type OpenedSessionState,
@@ -1268,7 +1268,7 @@ describe("unjwt/session checks its config when defined", () => {
       thrown(() => defineJWESession({ key: wrap })),
     ]) {
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-      expect((error as Error).message).toContain("carries no algorithm");
+      expect((error as Error).message).toContain("names no algorithm");
     }
 
     const jws = defineJWSSession({
@@ -1367,10 +1367,15 @@ describe("JWE session keys", () => {
   });
 
   it("refuses a rotation set whose keys are not a list or a JWK Set of oct JWKs", () => {
-    for (const keys of [undefined, "keys", [{ kty: "oct" }]]) {
+    const refusals: [unknown, string][] = [
+      [undefined, 'The session key "keys" must be a list or a JWK Set of "oct" JWKs.'],
+      ["keys", 'The session key "keys" must be a list or a JWK Set of "oct" JWKs.'],
+      [[{ kty: "oct" }], 'The session key "keys[0]" must be an "oct" JWK.'],
+    ];
+    for (const [keys, message] of refusals) {
       const error = defined({ current: jweKey, keys });
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
-      expect((error as Error).message).toContain('"keys"');
+      expect((error as Error).message).toBe(`[unjwt/session] ${message}`);
     }
   });
 
@@ -1428,24 +1433,19 @@ describe("JWE session keys", () => {
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
     });
 
-    it("a secret CryptoKey current opens its own tokens, and the keys by kid", async () => {
+    it("refuses a secret CryptoKey as current or in keys, pointing at exportJWK and onKeyLookup", async () => {
       const secret = await generateKey("A256KW");
-      const pinned = { jwe: { encryptOptions: { alg: "A256KW", enc: "A256GCM" } } } as const;
-      const session = defineJWESession({
-        name: "web",
-        key: { current: secret, keys: [previous] },
-        ...pinned,
-      });
-      const issued = await session.issue({ user: "ada" });
-      const formerToken = await defineJWESession({ name: "web", key: previous, ...pinned }).issue({
-        user: "ada",
-      });
-
-      expect((await session.open(issued)).data).toEqual({ user: "ada" });
-      expect((await session.open(formerToken)).data).toEqual({ user: "ada" });
-      await expect(session.open(await mint(unknown))).rejects.toSatisfy((error) =>
-        isJWTError(error, "ERR_SESSION_TOKEN_INVALID"),
-      );
+      const refusals: [unknown, string][] = [
+        [{ current: secret, keys: [previous] }, '"current"'],
+        [{ current, keys: [previous, secret] }, '"keys[1]"'],
+      ];
+      for (const [key, subject] of refusals) {
+        const error = defined(key);
+        expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+        expect((error as Error).message).toBe(
+          `[unjwt/session] The session key ${subject} is a CryptoKey: export it as a JWK (exportJWK), or serve it from onKeyLookup.`,
+        );
+      }
     });
   });
 
@@ -1454,16 +1454,19 @@ describe("JWE session keys", () => {
     expectTypeOf<CryptoKey>().toExtend<JWESessionKey>();
     expectTypeOf<{ current: typeof jweKey; keys: (typeof jweKey)[] }>().toExtend<JWESessionKey>();
     expectTypeOf<{
-      current: CryptoKey;
+      current: typeof jweKey;
       keys: { keys: (typeof jweKey)[] };
     }>().toExtend<JWESessionKey>();
+    expectTypeOf<{
+      current: CryptoKey;
+      keys: { keys: (typeof jweKey)[] };
+    }>().not.toExtend<JWESessionKey>();
     expectTypeOf<{ privateKey: JWEAsymmetricPrivateJWK }>().not.toExtend<JWESessionKey>();
     expectTypeOf<{ privateKey: CryptoKey; publicKey: CryptoKey }>().not.toExtend<JWESessionKey>();
     expectTypeOf<JWEAsymmetricPrivateJWK>().not.toExtend<JWESessionKey>();
     expectTypeOf<typeof jweKey>().toExtend<JWESessionOctJWK>();
-    expectTypeOf<JWESessionSecret>().toEqualTypeOf<JWESessionOctJWK | CryptoKey>();
     expectTypeOf<{
-      current: JWESessionSecret;
+      current: JWESessionOctJWK;
       keys: JWESessionOctJWK[];
     }>().toExtend<JWESessionKey>();
   });
@@ -1597,18 +1600,18 @@ describe("a session key that names no algorithm", () => {
   it("JWE: is refused at definition without a pinned alg and enc", async () => {
     const [oct, wrap] = await Promise.all([silent("A256KW"), generateKey("A256KW")]);
     const cases = [
-      { key: oct, jwe: undefined, kind: 'a JWK without "alg"' },
-      { key: oct, jwe: { encryptOptions: { alg: "A256KW" } }, kind: 'a JWK without "alg"' },
-      { key: wrap, jwe: { encryptOptions: { alg: "A256KW" } }, kind: "a CryptoKey (AES-KW)" },
+      { key: oct, jwe: undefined, jwk: true },
+      { key: oct, jwe: { encryptOptions: { alg: "A256KW" } }, jwk: true },
+      { key: wrap, jwe: { encryptOptions: { alg: "A256KW" } }, jwk: false },
     ] as const;
-    for (const { key, jwe, kind } of cases) {
+    for (const { key, jwe, jwk } of cases) {
       expect(refusal(() => defineJWESession({ key, jwe }))).toEqual({
         code: "ERR_SESSION_CONFIG_INVALID",
-        message: `[unjwt/session] The session key is ${kind} and carries no algorithm, set "jwe.encryptOptions.alg" and "enc"${kind.includes("JWK") ? ', or its "alg"' : ""}.`,
+        message: `[unjwt/session] The session key names no algorithm, set "jwe.encryptOptions.alg" and "enc"${jwk ? ', or its "alg"' : ""}.`,
       });
     }
     expect(refusal(() => defineJWESession({ key: { current: oct, keys: [] } })).message).toContain(
-      'The session key "current" is a JWK without "alg" and carries no algorithm',
+      'The session key "current" names no algorithm',
     );
   });
 
@@ -1622,16 +1625,16 @@ describe("a session key that names no algorithm", () => {
     expect(refusal(() => defineJWESession({ key: gcm, jwe: pin }))).toEqual({
       code: "ERR_SESSION_KEY_INVALID",
       message:
-        '[unjwt/session] The session key is a CryptoKey (AES-GCM), which serves A256GCMKW, dir, not the "A256KW" that "jwe.encryptOptions.alg" pins.',
+        '[unjwt/session] The session key serves A256GCMKW, dir, not the "A256KW" that "jwe.encryptOptions.alg" pins.',
     });
     expect(refusal(() => defineJWESession({ key: kw128, jwe: pin })).message).toContain(
-      'which serves A128KW, not the "A256KW"',
+      'The session key serves A128KW, not the "A256KW"',
     );
     expect(
       refusal(() =>
         defineJWESession({ key: oct, jwe: { encryptOptions: { alg: "A128KW", enc: "A128GCM" } } }),
       ).message,
-    ).toContain('which serves A256KW, A256GCMKW, dir, not the "A128KW"');
+    ).toContain('The session key serves A256KW, A256GCMKW, dir, not the "A128KW"');
   });
 
   it("JWE: is refused at definition when a dir key cannot carry the pinned enc", async () => {
@@ -1679,23 +1682,23 @@ describe("a session key that names no algorithm", () => {
     expect(refusal(() => defineJWSSession({ key: oct }))).toEqual({
       code: "ERR_SESSION_CONFIG_INVALID",
       message:
-        '[unjwt/session] The session key is a JWK without "alg" and carries no algorithm, set "jws.signOptions.alg", or its "alg".',
+        '[unjwt/session] The session key names no algorithm, set "jws.signOptions.alg", or its "alg".',
     });
     expect(
       refusal(() => defineJWSSession({ key: oct, jws: { signOptions: { alg: "HS384" } } })),
     ).toEqual({
       code: "ERR_SESSION_KEY_INVALID",
       message:
-        '[unjwt/session] The session key is a JWK without "alg", which serves HS256, not the "HS384" that "jws.signOptions.alg" pins.',
+        '[unjwt/session] The session key serves HS256, not the "HS384" that "jws.signOptions.alg" pins.',
     });
     expect(
       refusal(() => defineJWSSession({ key: hmac, jws: { signOptions: { alg: "HS512" } } }))
         .message,
-    ).toContain('The session key is a CryptoKey (HMAC), which serves HS256, not the "HS512"');
+    ).toContain('The session key serves HS256, not the "HS512"');
     expect(
       refusal(() => defineJWSSession({ key: ecdsa, jws: { signOptions: { alg: "RS256" } } }))
         .message,
-    ).toContain('The session key "privateKey" is a CryptoKey (ECDSA), which serves ES256');
+    ).toContain('The session key "privateKey" serves ES256, not the "RS256"');
     const { publicKey } = await generateKey("ES384");
     expect(
       refusal(() =>
@@ -1704,7 +1707,7 @@ describe("a session key that names no algorithm", () => {
           jws: { signOptions: { alg: "ES256" } },
         }),
       ).message,
-    ).toContain('The session key "publicKey" is a CryptoKey (ECDSA), which serves ES384');
+    ).toContain('The session key "publicKey" serves ES384, not the "ES256"');
 
     const hs512 = await silent("HS512");
     for (const alg of ["HS256", "HS384", "HS512"] as const) {
@@ -1762,7 +1765,7 @@ describe("the algorithms a session accepts", () => {
     const error = thrown(() => defineJWESession({ key: { current, keys: [former] } }));
     expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
     expect((error as Error).message).toBe(
-      '[unjwt/session] The session key "keys[0]" is a JWK without "alg" and carries no algorithm, list one it serves (A256KW, A256GCMKW, dir) in "jwe.decryptOptions.algorithms", or set its "alg".',
+      '[unjwt/session] The session key "keys[0]" names no algorithm, list one it serves (A256KW, A256GCMKW, dir) in "jwe.decryptOptions.algorithms", or set its "alg".',
     );
   });
 
@@ -1843,30 +1846,14 @@ describe("a rotation set opens a token along one path", () => {
   const mint = (key: JWESessionKey) =>
     defineJWESession({ name: "web", key, jwe: pin }).issue({ user: "ada" });
 
-  it("a CryptoKey current opens a token of a former key without kid", async () => {
-    const [current, former] = await Promise.all([generateKey("A256KW"), kidless()]);
+  it("a current with kid opens a token of a former key without kid", async () => {
+    const [current, former] = await Promise.all([generateJWK("A256KW"), kidless()]);
     const session = defineJWESession({ name: "web", key: { current, keys: [former] }, jwe: pin });
 
     expect((await session.open(await mint(former))).data).toEqual({ user: "ada" });
     expect((await session.open(await session.issue({ user: "ada" }))).data).toEqual({
       user: "ada",
     });
-  });
-
-  it("takes CryptoKeys in keys, named through decryptOptions.algorithms", async () => {
-    const [current, former] = await Promise.all([generateJWK("A256KW"), generateKey("A256KW")]);
-    const error = thrown(() => defineJWESession({ key: { current, keys: [former] }, jwe: pin }));
-    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
-    expect((error as Error).message).toBe(
-      '[unjwt/session] The session key "keys[0]" is a CryptoKey (AES-KW) and carries no algorithm, list one it serves (A256KW) in "jwe.decryptOptions.algorithms".',
-    );
-
-    const session = defineJWESession({
-      name: "web",
-      key: { current, keys: [former] },
-      jwe: { ...pin, decryptOptions: { algorithms: ["A256KW"] } },
-    });
-    expect((await session.open(await mint(former))).data).toEqual({ user: "ada" });
   });
 
   it("refuses more keys without kid than limits.keyCandidates at definition", async () => {
@@ -1906,41 +1893,41 @@ describe("a rotation set opens a token along one path", () => {
     const error = await caught(session.open(token));
     expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
     expect((error as Error).message).toBe(
-      '[unjwt/session] Invalid session token: No session key with kid "stranger".',
+      '[unjwt/session] Invalid session token: No key found in JWK Set with kid "stranger".',
     );
     expect(isJWTError((error as Error).cause, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
   });
 
   it("tries current first, then keys in order, and reports each key's failure", async () => {
-    const [current, first, second] = await Promise.all([
-      generateKey("A256KW"),
-      generateKey("A256KW"),
-      generateKey("A256KW"),
-    ]);
+    const [current, first, second] = await Promise.all([kidless(), kidless(), kidless()]);
     const session = defineJWESession({
       name: "web",
       key: { current, keys: [first, current, second] },
-      jwe: { ...pin, decryptOptions: { algorithms: ["A256KW"] } },
+      jwe: pin,
     });
     const stranger = await mint(await kidless());
-    const unwrap = vi.spyOn(crypto.subtle, "unwrapKey");
+    const imported = vi.spyOn(crypto.subtle, "importKey");
     try {
       const error = await caught(session.open(stranger));
-      expect(unwrap.mock.calls.map((call) => call[2])).toEqual([current, first, second]);
+      expect(rawImports(imported.mock.calls)).toEqual([current.k, first.k, second.k]);
       expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
       const cause = (error as Error).cause;
       expect(isJWTError(cause, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
       expect((cause as Error).cause).toHaveLength(3);
     } finally {
-      unwrap.mockRestore();
+      imported.mockRestore();
     }
   });
 
-  it("types: CryptoKeys and oct JWKs in keys", () => {
-    expectTypeOf<{ current: CryptoKey; keys: CryptoKey[] }>().toExtend<JWESessionKey>();
+  it("types: oct JWKs in current and keys, never a CryptoKey", () => {
+    expectTypeOf<{ current: CryptoKey; keys: CryptoKey[] }>().not.toExtend<JWESessionKey>();
     expectTypeOf<{
       current: JWESessionOctJWK;
       keys: (CryptoKey | JWESessionOctJWK)[];
+    }>().not.toExtend<JWESessionKey>();
+    expectTypeOf<{
+      current: JWESessionOctJWK;
+      keys: JWESessionOctJWK[];
     }>().toExtend<JWESessionKey>();
     expectTypeOf<{
       current: CryptoKey;
@@ -1983,32 +1970,31 @@ describe("a JWS rotation set of HMAC secrets", () => {
     expect(onError).toHaveBeenCalledOnce();
     const error = await caught(session.open(token));
     expect((error as Error).message).toBe(
-      '[unjwt/session] Invalid session token: No session key with kid "stranger".',
+      '[unjwt/session] Invalid session token: No key found in JWK Set with kid "stranger".',
     );
   });
 
-  it("a CryptoKey current opens a former key without kid, and a silent former key opens through verifyOptions.algorithms", async () => {
-    const [current, former, silent] = await Promise.all([
-      generateKey("HS256"),
+  it("a current with kid opens a former key without kid, and a silent former key opens through verifyOptions.algorithms", async () => {
+    const [current, former, { alg: _alg, ...silent }] = await Promise.all([
+      hmac("current"),
       hmac(),
-      generateKey("HS256"),
+      hmac(),
     ]);
-    const pin = { signOptions: { alg: "HS256" } } as const;
-    const session = defineJWSSession({ name: "web", key: { current, keys: [former] }, jws: pin });
+    const session = defineJWSSession({ name: "web", key: { current, keys: [former] } });
     expect((await session.open(await mint(former))).data).toEqual({ user: "ada" });
     expect((await session.open(await session.issue({ user: "ada" }))).data).toEqual({
       user: "ada",
     });
 
-    const error = thrown(() => defineJWSSession({ key: { current, keys: [silent] }, jws: pin }));
+    const error = thrown(() => defineJWSSession({ key: { current, keys: [silent] } }));
     expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
     expect((error as Error).message).toBe(
-      '[unjwt/session] The session key "keys[0]" is a CryptoKey (HMAC) and carries no algorithm, list one it serves (HS256) in "jws.verifyOptions.algorithms".',
+      '[unjwt/session] The session key "keys[0]" names no algorithm, list one it serves (HS256, HS384, HS512) in "jws.verifyOptions.algorithms", or set its "alg".',
     );
     const listed = defineJWSSession({
       name: "web",
       key: { current, keys: [silent] },
-      jws: { ...pin, verifyOptions: { algorithms: ["HS256"] } },
+      jws: { verifyOptions: { algorithms: ["HS256"] } },
     });
     expect((await listed.open(await mint(silent, "HS256"))).data).toEqual({ user: "ada" });
   });
@@ -2023,47 +2009,52 @@ describe("a JWS rotation set of HMAC secrets", () => {
     );
     expect(() => defineJWSSession({ key: { current, keys: keys.slice(1) } })).not.toThrow();
 
-    const [{ privateKey }, wrap] = await Promise.all([generateJWK("RS256"), generateKey("A256KW")]);
+    const [{ privateKey }, hmacKey, { kid: _kid, ...wrap }] = await Promise.all([
+      generateJWK("RS256"),
+      generateKey("HS256"),
+      generateJWK("A256KW"),
+    ]);
+    const asJWK = "is a CryptoKey: export it as a JWK (exportJWK), or serve it from onKeyLookup.";
     const refusals: [unknown, string][] = [
-      [{ current: privateKey, keys: [] }, '"current"'],
-      [{ current, keys: [wrap] }, 'each of "keys"'],
+      [{ current: privateKey, keys: [] }, 'The session key "current" must be an HMAC "oct" JWK.'],
+      [{ current: hmacKey, keys: [] }, `The session key "current" ${asJWK}`],
+      [{ current, keys: [hmacKey] }, `The session key "keys[0]" ${asJWK}`],
+      [{ current, keys: [wrap] }, 'The session key "keys[0]" must be an HMAC "oct" JWK.'],
+      [
+        { current, keys: {} },
+        'The session key "keys" must be a list or a JWK Set of HMAC "oct" JWKs.',
+      ],
     ];
-    for (const [key, what] of refusals) {
+    for (const [key, message] of refusals) {
       const refused = thrown(() => defineJWSSession({ key: key as JWSSessionKey }));
       expect(isJWTError(refused, "ERR_SESSION_KEY_INVALID")).toBe(true);
-      expect((refused as Error).message).toBe(
-        `[unjwt/session] Invalid JWS session key: ${what} must be an HMAC "oct" JWK or an HMAC CryptoKey.`,
-      );
+      expect((refused as Error).message).toBe(`[unjwt/session] ${message}`);
     }
   });
 
   it("tries current first, then keys in order, and reports each key's failure", async () => {
-    const [current, first, second] = await Promise.all([
-      generateKey("HS256"),
-      generateKey("HS256"),
-      generateKey("HS256"),
-    ]);
+    const [current, first, second] = await Promise.all([hmac(), hmac(), hmac()]);
     const session = defineJWSSession({
       name: "web",
       key: { current, keys: [first, current, second] },
-      jws: { signOptions: { alg: "HS256" }, verifyOptions: { algorithms: ["HS256"] } },
     });
     const stranger = await mint(await hmac());
-    const verifySpy = vi.spyOn(crypto.subtle, "verify");
+    const imported = vi.spyOn(crypto.subtle, "importKey");
     try {
       const error = await caught(session.open(stranger));
-      expect(verifySpy.mock.calls.map((call) => call[1])).toEqual([current, first, second]);
+      expect(rawImports(imported.mock.calls)).toEqual([current.k, first.k, second.k]);
       const cause = (error as Error).cause;
       expect(isJWTError(cause, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
       expect((cause as Error).cause).toHaveLength(3);
     } finally {
-      verifySpy.mockRestore();
+      imported.mockRestore();
     }
   });
 
-  it("types: HMAC secrets in current and keys", () => {
-    expectTypeOf<JWSSessionSecret>().toEqualTypeOf<JWK_oct<JWK_HMAC> | CryptoKey>();
-    expectTypeOf<{ current: CryptoKey; keys: CryptoKey[] }>().toExtend<JWSSessionKey>();
+  it("types: HMAC oct JWKs in current and keys, never a CryptoKey", () => {
+    expectTypeOf<JWSSessionSecret>().toEqualTypeOf<JWK_oct<JWK_HMAC>>();
+    expectTypeOf<{ current: CryptoKey; keys: CryptoKey[] }>().not.toExtend<JWSSessionKey>();
+    expectTypeOf<{ current: typeof jwsKey; keys: CryptoKey[] }>().not.toExtend<JWSSessionKey>();
     expectTypeOf<{
       current: typeof jwsKey;
       keys: { keys: (typeof jwsKey)[] };
@@ -2074,3 +2065,10 @@ describe("a JWS rotation set of HMAC secrets", () => {
     }>().not.toExtend<JWSSessionKey>();
   });
 });
+
+/** The base64url secrets `crypto.subtle.importKey` was handed as raw bytes, in call order. */
+function rawImports(calls: readonly unknown[][]): string[] {
+  return calls
+    .filter(([format, data]) => format === "raw" && data instanceof Uint8Array)
+    .map(([, data]) => base64UrlStringify(data as Uint8Array));
+}

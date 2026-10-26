@@ -17,10 +17,8 @@ import {
   sessionIssueOptions,
   sessionOpenOptions,
 } from "./codec.ts";
-import { type JWSSessionKey, getSignKey, resolveVerifyKeys } from "./codec-jws-keys.ts";
-import { JWS_ALG_CTX } from "../../core/_internal/algorithms.ts";
+import { type JWSSessionKey, resolveSessionKeys } from "./codec-jws-keys.ts";
 import { resolveLimit } from "../../core/_internal/limits.ts";
-import { openWithKeys } from "./open-with-keys.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
@@ -90,7 +88,7 @@ export interface JWSCodecConfig extends SessionCoreConfig {
 
 /** The configured keys, or with a key lookup hook the lookup of one request. */
 type JWSOpenKey =
-  | ReturnType<typeof resolveVerifyKeys>
+  | ReturnType<typeof resolveSessionKeys>
   | { lookup: JWSKeyLookup<JWKSet | JWSVerifyJWK>; algorithms: JWSAlgorithm[] };
 
 export const JWS_DEFAULT_COOKIE = {
@@ -115,7 +113,7 @@ export function createJWSCodec(options: {
 
     issueOptions: (config) => config.jws?.signOptions,
     openOptions: (config) => config.jws?.verifyOptions,
-    issueKey: (config) => getSignKey(config.key, { pin: config.jws?.signOptions?.alg, prefix }),
+    issueKey: (config) => resolveKeys(config, prefix).issueKey,
     openKey: (config) => resolveKeys(config, prefix),
     lookup: (config) => {
       const hooks = config.hooks;
@@ -126,13 +124,6 @@ export function createJWSCodec(options: {
         algorithms,
       });
     },
-    importable: (config) => {
-      const pin = config.jws?.signOptions?.alg;
-      return resolveKeys(config, prefix).entries.map(({ key, algorithms }) => ({
-        key,
-        alg: pin !== undefined && algorithms.includes(pin) ? pin : algorithms[0],
-      }));
-    },
 
     issue: (config, payload, key) =>
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key without `alg` reaches here only with `alg` pinned
@@ -140,34 +131,29 @@ export function createJWSCodec(options: {
 
     open: async (config, token, key) => {
       const { verifyOptions, signOptions } = config.jws ?? {};
-      const opening = {
-        ...verifyOptions,
-        ...sessionOpenOptions({
-          maxAge: config.maxAge,
-          requiredClaims: verifyOptions?.requiredClaims,
-          typ: signOptions?.protectedHeader?.typ,
-          algorithms: key.algorithms,
-        }),
-      };
-      const attempt = async (candidate: Parameters<typeof verify>[1]) =>
-        (await verify<SessionPayload>(token, candidate, opening)).payload;
-      if ("lookup" in key) return attempt(key.lookup);
-      if ("key" in key) return attempt(key.key);
-      return openWithKeys(key, {
-        ctx: JWS_ALG_CTX,
-        limit: resolveLimit(opening.limits, "keyCandidates"),
-        failure: {
-          code: "ERR_JWS_SIGNATURE_INVALID",
-          message: "JWS signature verification failed.",
+      const { payload } = await verify<SessionPayload>(
+        token,
+        "lookup" in key ? key.lookup : key.key,
+        {
+          ...verifyOptions,
+          ...sessionOpenOptions({
+            maxAge: config.maxAge,
+            requiredClaims: verifyOptions?.requiredClaims,
+            typ: signOptions?.protectedHeader?.typ,
+            algorithms: key.algorithms,
+          }),
         },
-        attempt,
-      });
+      );
+      return payload;
     },
   });
 }
 
-function resolveKeys(config: JWSCodecConfig, prefix: string): ReturnType<typeof resolveVerifyKeys> {
-  return resolveVerifyKeys(config.key, {
+function resolveKeys(
+  config: JWSCodecConfig,
+  prefix: string,
+): ReturnType<typeof resolveSessionKeys> {
+  return resolveSessionKeys(config.key, {
     pin: config.jws?.signOptions?.alg,
     listed: config.jws?.verifyOptions?.algorithms,
     keyCandidates: resolveLimit(config.jws?.verifyOptions?.limits, "keyCandidates"),

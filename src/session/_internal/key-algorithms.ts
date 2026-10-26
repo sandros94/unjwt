@@ -1,10 +1,11 @@
+import type { JWK, JWKSet } from "../../core/types/index.ts";
 import type { JWTError } from "../../error.ts";
-import { isCryptoKey, isJWK } from "../../utils/guards.ts";
+import { quoteTokenValue } from "../../utils/_internal/text.ts";
+import { isCryptoKey, isJWK, isJWKSet } from "../../utils/guards.ts";
 import { invalidConfigError, invalidKeyError } from "./contract.ts";
 
 /** The algorithms a family reads from a key: those it names itself, else those its material can carry. */
 export interface KeyAlgorithms<A extends string = string> {
-  family: "JWS" | "JWE";
   /** A JWK's `alg`, or what its shape names. `undefined` for a key that names none. */
   own: (key: unknown) => readonly A[] | undefined;
   /** The algorithms the material of a key that names none can carry. */
@@ -12,15 +13,71 @@ export interface KeyAlgorithms<A extends string = string> {
 }
 
 /** A configured key and how messages name it. `pin` is the pinned `alg`, for a key the pin names. */
-export interface SessionKeyEntry {
-  key: unknown;
+export interface SessionKeyEntry<K = unknown> {
+  key: K;
   subject: string;
   pin?: string;
 }
 
-/** What a key is, for a message: `a CryptoKey (AES-GCM)` or `a JWK without "alg"`. */
-export function describeKey(key: unknown): string {
-  return isCryptoKey(key) ? `a CryptoKey (${key.algorithm.name})` : 'a JWK without "alg"';
+export function rotationSet(key: unknown): { current: unknown; keys?: unknown } | undefined {
+  return typeof key === "object" && key !== null && "current" in key ? key : undefined;
+}
+
+/**
+ * The keys of a rotation set, `current` first and once, each one `isKey` takes. At most `keyCandidates` of them may lack a `kid`,
+ * unless a key lookup opens tokens.
+ * @throws `ERR_SESSION_KEY_INVALID` if `keys` is not a list or a JWK Set, or a key is a `CryptoKey` or one `isKey` refuses.
+ * @throws `ERR_SESSION_CONFIG_INVALID` for more keys without `kid` than `keyCandidates`.
+ */
+export function rotationEntries<K extends JWK>(
+  set: { current: unknown; keys?: unknown },
+  options: {
+    isKey: (key: unknown) => key is K;
+    refuse?: (key: unknown) => JWTError | undefined;
+    expected: string;
+    pin: string | undefined;
+    optionsPath: string;
+    keyCandidates: number;
+    lookup: boolean;
+    prefix: string;
+  },
+): SessionKeyEntry<K>[] {
+  const { current, keys } = set;
+  const { keyCandidates, prefix, expected } = options;
+  const listed: unknown = isJWKSet(keys) ? keys.keys : keys;
+  if (!Array.isArray(listed)) {
+    throw invalidKeyError(
+      `${prefix} The session key "keys" must be a list or a JWK Set of ${expected}s.`,
+      set,
+    );
+  }
+  const entries: SessionKeyEntry<K>[] = [];
+  [current, ...listed].forEach((key: unknown, index) => {
+    if (index > 0 && key === current) return;
+    const subject = index
+      ? `The session key "keys[${index - 1}]"${kidLabel(key)}`
+      : 'The session key "current"';
+    if (options.isKey(key)) {
+      entries.push({ key, subject, pin: index ? undefined : options.pin });
+      return;
+    }
+    throw (
+      options.refuse?.(key) ??
+      invalidKeyError(
+        isCryptoKey(key)
+          ? `${prefix} ${subject} is a CryptoKey: export it as a JWK (exportJWK), or serve it from onKeyLookup.`
+          : `${prefix} ${subject} must be an ${expected}.`,
+        key,
+      )
+    );
+  });
+  const kidless = entries.filter(({ key }) => key.kid === undefined).length;
+  if (!options.lookup && kidless > keyCandidates) {
+    throw invalidConfigError(
+      `${prefix} ${kidless} session keys carry no "kid", over the limit of ${keyCandidates} ("${options.optionsPath}.limits.keyCandidates"): give each JWK a "kid", drop former keys, or raise the limit.`,
+    );
+  }
+  return entries;
 }
 
 /**
@@ -40,46 +97,40 @@ export function assertPinnedKey(
     prefix: string;
   },
 ): void {
-  const { algorithms, pin, pinPath, subject, prefix } = options;
+  const { algorithms, pin, subject, prefix } = options;
   const own = algorithms.own(key);
-  if (own === undefined) {
-    if (!pin || !options.pinned) {
-      const alg = isJWK(key) ? ', or its "alg"' : "";
-      throw invalidConfigError(
-        `${prefix} ${subject} is ${describeKey(key)} and carries no algorithm, set ${options.hint}${alg}.`,
-      );
-    }
-    const carried = algorithms.carried(key);
-    if (carried.includes(pin)) return;
-    throw invalidKeyError(
-      `${prefix} ${subject} is ${describeKey(key)}, which serves ${carried.join(", ") || "no algorithm"}, not the "${pin}" that "${pinPath}" pins.`,
-      key,
+  if (own === undefined && (!pin || !options.pinned)) {
+    throw invalidConfigError(
+      `${prefix} ${subject} names no algorithm, set ${options.hint}${isJWK(key) ? ', or its "alg"' : ""}.`,
     );
   }
-  if (!pin || own.includes(pin)) return;
-  const named = isJWK(key) && key.alg ? `its "alg" is "${key.alg}"` : `it serves ${own.join(", ")}`;
+  const served = own ?? algorithms.carried(key);
+  if (!pin || served.includes(pin)) return;
   throw invalidKeyError(
-    `${prefix} Invalid ${algorithms.family} key, ${named} but "${pinPath}" pins "${pin}".`,
+    `${prefix} ${subject} serves ${served.join(", ") || "no algorithm"}, not the "${pin}" that "${options.pinPath}" pins.`,
     key,
   );
 }
 
 /**
- * Returns the algorithms each key serves, and all of them together: a key's own, and for a key that names none, those it carries
- * that `listed` or its pin names. With `lookup`, a key lookup hook opens tokens, so `listed` may name algorithms no key serves.
+ * Returns the keys that open tokens and the algorithms they serve together: a key's own, and for a key that names none, those it
+ * carries that `listed` or its pin names. A JWK that names none opens as one copy per algorithm it serves, named by `rename`
+ * when it returns a name, so a JWK Set offers each token only the keys of its `alg`. With `lookup`, a key lookup hook opens tokens,
+ * so `listed` may name algorithms no key serves.
  * @throws `ERR_SESSION_CONFIG_INVALID` if `listed` is empty, a key that names no algorithm carries none it names, or `listed` names one no key serves.
  * @throws `ERR_SESSION_KEY_INVALID` if a key that names no algorithm carries none of its family.
  */
-export function servedAlgorithms<A extends string>(
-  entries: readonly SessionKeyEntry[],
+export function servedAlgorithms<K, A extends string>(
+  entries: readonly SessionKeyEntry<K>[],
   options: {
     algorithms: KeyAlgorithms<A>;
     listed: readonly A[] | undefined;
     listPath: string;
     lookup: boolean;
     prefix: string;
+    rename?: (entry: SessionKeyEntry<K>, alg: A) => string | undefined;
   },
-): { each: (readonly A[])[]; all: A[] } {
+): { keys: K[]; all: A[] } {
   const { algorithms, listed, listPath, prefix } = options;
   if (listed?.length === 0) {
     throw invalidConfigError(
@@ -87,17 +138,18 @@ export function servedAlgorithms<A extends string>(
     );
   }
   const all = new Set<A>();
-  const each = entries.map(({ key, subject, pin }) => {
+  const keys = entries.flatMap((entry): K[] => {
+    const { key, pin } = entry;
     const own = algorithms.own(key);
-    if (own) {
-      for (const alg of own) all.add(alg);
-      return own;
-    }
-    const carried = algorithms.carried(key);
-    const served = carried.filter((alg) => alg === pin || listed?.includes(alg));
-    if (served.length === 0) throw unservedKeyError(key, { carried, subject, listPath, prefix });
+    const carried = own ? [] : algorithms.carried(key);
+    const served = own ?? carried.filter((alg) => alg === pin || listed?.includes(alg));
+    if (served.length === 0) throw unservedKeyError(entry, { carried, listPath, prefix });
     for (const alg of served) all.add(alg);
-    return served;
+    if (!isJWK(key)) return [key];
+    const names = served.map((alg) => options.rename?.(entry, alg) ?? alg);
+    return own && names.every((alg, index) => alg === served[index] || alg === key.alg)
+      ? [key]
+      : names.map((alg) => ({ ...key, alg }));
   });
   if (!options.lookup) {
     for (const alg of listed ?? []) {
@@ -107,7 +159,17 @@ export function servedAlgorithms<A extends string>(
       );
     }
   }
-  return { each, all: [...all] };
+  return { keys, all: [...all] };
+}
+
+/** One key opens alone. Several, or a set, open as a JWK Set, in order. */
+export function openingKey<K>(keys: readonly K[], options: { set: boolean }): K | JWKSet {
+  return keys.length === 1 && !options.set ? keys[0] : { keys: keys.filter((key) => isJWK(key)) };
+}
+
+/** A key's `kid` for a message: ` (kid "x")`, or nothing. */
+export function kidLabel(key: unknown): string {
+  return isJWK(key) && key.kid !== undefined ? ` (kid ${quoteTokenValue(key.kid)})` : "";
 }
 
 /** The bit length of an `oct` JWK's `k`, from its unpadded base64url length. */
@@ -116,18 +178,14 @@ export function octBits(key: { k: string }): number {
 }
 
 function unservedKeyError(
-  key: unknown,
-  options: { carried: readonly string[]; subject: string; listPath: string; prefix: string },
+  entry: SessionKeyEntry,
+  options: { carried: readonly string[]; listPath: string; prefix: string },
 ): JWTError {
-  const { carried, subject, listPath, prefix } = options;
+  const { carried, prefix } = options;
   if (carried.length === 0) {
-    return invalidKeyError(
-      `${prefix} ${subject} is ${describeKey(key)} and serves no algorithm.`,
-      key,
-    );
+    return invalidKeyError(`${prefix} ${entry.subject} serves no algorithm.`, entry.key);
   }
-  const alg = isJWK(key) ? ', or set its "alg"' : "";
   return invalidConfigError(
-    `${prefix} ${subject} is ${describeKey(key)} and carries no algorithm, list one it serves (${carried.join(", ")}) in "${listPath}"${alg}.`,
+    `${prefix} ${entry.subject} names no algorithm, list one it serves (${carried.join(", ")}) in "${options.listPath}", or set its "alg".`,
   );
 }
