@@ -62,6 +62,14 @@ export async function deriveKeyFromPassword(
   const wrappingAlg = innerKeyWrapAlg(alg);
   const defaultUsages: KeyUsage[] = ["wrapKey", "unwrapKey"];
   const finalUsages = keyUsage ?? defaultUsages;
+  for (const usage of finalUsages) {
+    if (!defaultUsages.includes(usage)) {
+      throw new JWTError(
+        `keyUsage "${usage}" is not valid for an AES-KW key, use "wrapKey" or "unwrapKey".`,
+        "ERR_INVALID_OPTION",
+      );
+    }
+  }
   const finalExtractable = exportToJWK ? true : extractable === true;
 
   const derivedKey = await crypto.subtle.importKey(

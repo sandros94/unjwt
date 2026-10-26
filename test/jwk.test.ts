@@ -3239,3 +3239,16 @@ describe("unwrapKey with a content key that is not an AES-GCM key", () => {
     ).resolves.toEqual(cbcKey);
   });
 });
+
+describe("deriveKeyFromPassword keyUsage", () => {
+  it("refuses a usage an AES-KW key cannot have", async () => {
+    await expect(
+      deriveKeyFromPassword("correct horse battery staple", {
+        alg: "PBES2-HS256+A128KW",
+        salt: crypto.getRandomValues(new Uint8Array(16)),
+        iterations: 1000,
+        keyUsage: ["sign" as never],
+      }),
+    ).rejects.toMatchObject({ code: "ERR_INVALID_OPTION" });
+  });
+});
