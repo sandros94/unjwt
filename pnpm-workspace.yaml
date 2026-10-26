@@ -17,7 +17,7 @@ ignoredBuiltDependencies:
   - vue-demi
 minimumReleaseAgeExclude:
   - unsecure
-  - undocs-nightly@0.10.1-20260922-215730-10f5034
+  - undocs-nightly@0.10.1-20261021-144810-60ffbf3
 onlyBuiltDependencies:
   - better-sqlite3
   - simple-git-hooks
