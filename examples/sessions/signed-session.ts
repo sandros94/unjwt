@@ -2,7 +2,6 @@
 import {
   type JWK_EC_Private,
   type SessionDefinition,
-  type WebSessionEvent,
   defineJWSSession,
   toPublicJWK,
 } from "unjwt/session";
@@ -17,10 +16,9 @@ export interface SignedSession {
   locale: string;
 }
 
-export const signedSession: SessionDefinition<SignedSession, "1h", WebSessionEvent> =
-  defineJWSSession({
-    key: { privateKey, publicKey: toPublicJWK(privateKey) },
-    maxAge: "1h",
-    jws: { signOptions: { alg: "ES256" } },
-  });
+export const signedSession: SessionDefinition<SignedSession, "1h"> = defineJWSSession({
+  key: { privateKey, publicKey: toPublicJWK(privateKey) },
+  maxAge: "1h",
+  jws: { signOptions: { alg: "ES256" } },
+});
 // #endregion

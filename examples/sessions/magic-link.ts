@@ -2,14 +2,14 @@ import { generateJWK } from "unjwt/jwk";
 
 // #region docs
 import { isJWTError } from "unjwt/error";
-import { type SessionDefinition, type WebSessionEvent, defineJWESession } from "unjwt/session";
+import { type SessionDefinition, defineJWESession } from "unjwt/session";
 import { appSession } from "./app-session.ts";
 
 // #hide const linkKey = a second "oct" JWK, loaded like SESSION_KEY
 const linkKey = await generateJWK("A256GCM");
 // #endhide
 
-const magicLink: SessionDefinition<{ email: string }, "15m", WebSessionEvent> = defineJWESession({
+const magicLink: SessionDefinition<{ email: string }, "15m"> = defineJWESession({
   key: linkKey,
   maxAge: "15m",
   cookie: false,

@@ -1,11 +1,6 @@
 // #region docs
 import { Hono } from "hono";
-import {
-  type SessionDefinition,
-  type SessionManager,
-  type WebSessionEvent,
-  defineJWSSession,
-} from "unjwt/session";
+import { type SessionDefinition, type SessionManager, defineJWSSession } from "unjwt/session";
 
 interface SessionData {
   user: string;
@@ -16,10 +11,10 @@ type Env = {
   Variables: { session: SessionManager<SessionData, "1h"> };
 };
 
-let appSession: SessionDefinition<SessionData, "1h", WebSessionEvent> | undefined;
+let appSession: SessionDefinition<SessionData, "1h"> | undefined;
 
 /** Workers hand `env` to each request, so the session is defined on the first one. */
-function sessionFor(env: Env["Bindings"]): SessionDefinition<SessionData, "1h", WebSessionEvent> {
+function sessionFor(env: Env["Bindings"]): SessionDefinition<SessionData, "1h"> {
   if (!env.SESSION_KEY) throw new Error("SESSION_KEY is not set");
   return (appSession ??= defineJWSSession<SessionData, "1h">({
     key: JSON.parse(env.SESSION_KEY),

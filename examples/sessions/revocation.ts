@@ -1,7 +1,7 @@
 import { generateJWK } from "unjwt/jwk";
 
 // #region docs
-import { type SessionDefinition, type WebSessionEvent, defineJWESession } from "unjwt/session";
+import { type SessionDefinition, defineJWESession } from "unjwt/session";
 
 // #hide const key = the "oct" JWK from SESSION_KEY (see Configure a session)
 const key = await generateJWK("A256GCM");
@@ -15,7 +15,7 @@ export interface AppSession {
   signedInAt: number;
 }
 
-export const appSession: SessionDefinition<AppSession, "7D", WebSessionEvent> = defineJWESession({
+export const appSession: SessionDefinition<AppSession, "7D"> = defineJWESession({
   key,
   maxAge: "7D",
   rolling: "1D",
