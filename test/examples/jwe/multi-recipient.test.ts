@@ -61,6 +61,26 @@ describe("examples/jwe/multi-recipient", () => {
     expect(() => generalToFlattened(three)).toThrow("exactly one recipient");
   });
 
+  it("reports each recipient's failure when none of several opens", async () => {
+    const sealed = await sealIncident(report, recipients);
+    const otherKey = await generateJWK("A256KW", { kid: "archive-2025" });
+    const error = await decryptMulti(sealed, { keys: [otherKey] }).catch((e: unknown) => e);
+    expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    const causes = (error as Error).cause as unknown[];
+    expect(causes.map((cause) => isJWTError(cause) && cause.code)).toEqual([
+      "ERR_JWE_ALG_NOT_ALLOWED",
+      "ERR_JWE_ALG_NOT_ALLOWED",
+      "ERR_JWK_KEY_NOT_FOUND",
+    ]);
+  });
+
+  it("throws a lone recipient's own error, as decrypt does", async () => {
+    const one = await encryptMulti(report, [{ key: archive }]);
+    const error = await decryptMulti(one, legal.privateKey).catch((e: unknown) => e);
+    expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+    expect((error as Error).cause).toBeUndefined();
+  });
+
   it("under strictRecipientMatch, refuses a key that fits no recipient without trying it", async () => {
     const sealed = await sealIncident(report, recipients);
     const x25519 = await generateJWK("ECDH-ES+A256KW", { namedCurve: "X25519", kid: false });

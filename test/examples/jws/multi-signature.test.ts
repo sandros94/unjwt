@@ -47,6 +47,21 @@ describe("examples/jws/multi-signature", () => {
     ]);
   });
 
+  it("throws a lone signature's own error, as verify does", async () => {
+    const jws = await signContract(contract);
+    const outsider = await generateJWK("ES256", { kid: "outsider" });
+    const error = await verifyMulti(jws, outsider.publicKey).catch((e: unknown) => e);
+    const causes = (error as Error).cause as unknown[];
+    expect(causes.map((cause) => isJWTError(cause) && cause.code)).toEqual([
+      "ERR_JWS_SIGNATURE_INVALID",
+      "ERR_JWS_ALG_NOT_ALLOWED",
+    ]);
+    const lone = { ...jws, signatures: [jws.signatures[1]] };
+    const loneError = await verifyMulti(lone, outsider.publicKey).catch((e: unknown) => e);
+    expect(isJWTError(loneError, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
+    expect((loneError as Error).cause).toBeUndefined();
+  });
+
   it("spends one key-attempt budget across every signature", async () => {
     const jws = await signContract(contract);
     expect((await verifyMulti(jws, signers, { limits: { keyAttempts: 1 } })).signerIndex).toBe(0);

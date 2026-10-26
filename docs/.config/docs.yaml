@@ -2,7 +2,7 @@
 name: unjwt
 url: https://unjwt.s94.dev
 shortDescription: JSON Web Tokens on the Web Crypto API
-description: Sign, verify, encrypt and decrypt JSON Web Tokens, manage their keys, and keep sessions in a cookie on any Web standard runtime or Elysia. JWS, JWE, JWK and DPoP in one zero-dependency package, with one typed error.
+description: Sign, verify, encrypt and decrypt JSON Web Tokens, manage their keys, and keep sessions in a cookie on any Web standard runtime. JWS, JWE, JWK and DPoP in one zero-dependency package, with one typed error.
 
 lang: en
 automd: true
@@ -49,8 +49,8 @@ redirects:
   /frameworks/h3: /examples/h3
   /frameworks/nitro: /examples/nitro
   /frameworks/nuxt: /examples/nuxt
-  /frameworks/elysia: /sessions/elysia
-  /frameworks/elysia/lower-level: /sessions/elysia
+  /frameworks/elysia: /getting-started/migration/to-0.9
+  /frameworks/elysia/lower-level: /getting-started/migration/to-0.9
   /frameworks/hooks: /sessions/hooks
   /frameworks/drivers: /sessions/drivers
   /frameworks/adapters: /getting-started/migration/to-0.9
@@ -59,9 +59,9 @@ redirects:
   /adapters/h3: /getting-started/migration/to-0.9
   /adapters/h3/lower-level: /sessions/use
   /adapters/h3-sessions: /getting-started/migration/to-0.9
-  /adapters/elysia: /sessions/elysia
-  /adapters/elysia/lower-level: /sessions/elysia
-  /adapters/elysia-sessions: /sessions/elysia
+  /adapters/elysia: /getting-started/migration/to-0.9
+  /adapters/elysia/lower-level: /getting-started/migration/to-0.9
+  /adapters/elysia-sessions: /getting-started/migration/to-0.9
   /adapters/session: /sessions/use
   /adapters/hooks: /sessions/hooks
   /adapters/drivers: /sessions/drivers
@@ -71,6 +71,8 @@ redirects:
   /examples/refresh-token-pattern: /sessions
   /examples/end-to-end-encryption: /jwe/encrypt
   /examples/signed-receipts: /jws/sign
+  /sessions/elysia: /getting-started/migration/to-0.9
+  /examples/elysia: /getting-started/migration/to-0.9
 
 socials:
   bluesky: "https://bsky.app/profile/sandros94.com"
@@ -115,7 +117,7 @@ landing:
       description: "Pass a JWK and the algorithm comes from the key, on both sides. Key pairs, JWK Sets with rotation, PEM import and thumbprints as key IDs."
       icon: "i-lucide-key-round"
     - title: "Sessions on any Web runtime"
-      description: "Signed or encrypted cookie sessions over a Web `Request`: h3, Nitro, Nuxt, Hono, Workers, Bun and Deno, a plugin for Elysia, and a driver for any other framework."
+      description: "Signed or encrypted cookie sessions over a Web `Request`: h3, Nitro, Nuxt, Hono, Workers, Bun and Deno, and a driver for any other framework."
       icon: "i-lucide-cookie"
     - title: "One error, one code"
       description: "Every failure, a bad token or a setup mistake, throws a `JWTError` with a `code` you can branch on. Nothing returns a half-checked result."

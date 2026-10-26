@@ -12,10 +12,10 @@ A collection of JWT utilities based on the Web Crypto API, in a single zero-depe
 - **JWE** ([RFC 7516](https://www.rfc-editor.org/rfc/rfc7516)): `dir`, AES-KW, AES-GCM-KW, RSA-OAEP, PBES2, ECDH-ES, with AES-GCM and AES-CBC-HMAC-SHA2 content encryption. Compact and General/Flattened JSON serialization (several recipients for one ciphertext).
 - **JWK** ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517)): generate, import, export, wrap and unwrap keys; `CryptoKey`, JWK and PEM conversion; thumbprints as key IDs; JWK Set lookup and rotation.
 - **DPoP** ([RFC 9449](https://www.rfc-editor.org/rfc/rfc9449)): create and verify proofs with [`unjwt/dpop`](https://unjwt.s94.dev/dpop). Your application owns HTTP and replay storage.
-- **Sessions**: signed or encrypted cookie sessions with [`unjwt/session`](https://unjwt.s94.dev/sessions) over a Web `Request`, on [h3](https://unjwt.s94.dev/examples/h3), [Nitro](https://unjwt.s94.dev/examples/nitro), [Nuxt](https://unjwt.s94.dev/examples/nuxt), [Hono and Workers](https://unjwt.s94.dev/examples/hono), Bun and Deno, or on a token in hand; an [Elysia plugin](https://unjwt.s94.dev/sessions/elysia); a [driver](https://unjwt.s94.dev/sessions/drivers) for any other framework.
+- **Sessions**: signed or encrypted cookie sessions with [`unjwt/session`](https://unjwt.s94.dev/sessions) over a Web `Request`, on [h3](https://unjwt.s94.dev/examples/h3), [Nitro](https://unjwt.s94.dev/examples/nitro), [Nuxt](https://unjwt.s94.dev/examples/nuxt), [Hono and Workers](https://unjwt.s94.dev/examples/hono), Bun and Deno, or on a token in hand; a [driver](https://unjwt.s94.dev/sessions/drivers) for any other framework.
 - **One typed error**: every failure is a `JWTError` with a `code` to branch on.
 - **Runtime-agnostic**: Node.js 22+, Bun, Deno, Cloudflare Workers and browsers, anywhere Web Crypto runs.
-- **Zero runtime dependencies**; `elysia` is an optional peer dependency for the Elysia plugin only.
+- **Zero runtime dependencies**, no peer dependencies.
 
 ## Install
 
@@ -67,7 +67,7 @@ Walkthroughs, recipes and the full API live at **[unjwt.s94.dev](https://unjwt.s
 - [Sessions →](https://unjwt.s94.dev/sessions)
 - [Safety: errors, claims and limits →](https://unjwt.s94.dev/safety)
 - [DPoP proofs →](https://unjwt.s94.dev/dpop)
-- [Recipes →](https://unjwt.s94.dev/examples): sessions on h3, Nitro, Nuxt, Elysia, Hono and Workers, CDN imports, custom drivers.
+- [Recipes →](https://unjwt.s94.dev/examples): sessions on h3, Nitro, Nuxt, Hono and Workers, CDN imports, custom drivers.
 - [Migration guides →](https://unjwt.s94.dev/getting-started/migration)
 
 ## Development
