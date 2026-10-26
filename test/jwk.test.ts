@@ -1550,7 +1550,10 @@ describe.concurrent("JWK Utilities", () => {
       const kp = await generateKey("ECDH-ES", { namedCurve: "P-256" });
       await expect(
         deriveSharedSecret(kp.publicKey, kp.privateKey, { enc: "ECDH-ES" }),
-      ).rejects.toThrow("keyLength");
+      ).rejects.toMatchObject({
+        code: "ERR_INVALID_OPTION",
+        message: expect.stringContaining("keyLength"),
+      });
     });
 
     it("accepts explicit keyLength for ECDH-ES direct", async () => {

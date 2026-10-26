@@ -61,7 +61,7 @@ export async function deriveSharedSecret(
   } else if (alg === "ECDH-ES") {
     throw new JWTError(
       'deriveSharedSecret with enc "ECDH-ES" requires an explicit keyLength in options',
-      "ERR_JWK_INVALID",
+      "ERR_INVALID_OPTION",
     );
   } else if (isECDHESAlgorithm(alg)) {
     keyLength = aesBitsOf(innerKeyWrapAlg(alg));
