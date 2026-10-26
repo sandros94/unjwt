@@ -1832,3 +1832,118 @@ describe("the algorithms a session accepts", () => {
     );
   });
 });
+
+describe("a rotation set opens a token along one path", () => {
+  const pin = { encryptOptions: { alg: "A256KW", enc: "A256GCM" } } as const;
+  const kidless = async () => {
+    const { kid: _kid, ...key } = await generateJWK("A256KW");
+    return key;
+  };
+  const mint = (key: JWESessionKey) =>
+    defineJWESession({ name: "web", key, jwe: pin }).issue({ user: "ada" });
+
+  it("a CryptoKey current opens a token of a former key without kid", async () => {
+    const [current, former] = await Promise.all([generateKey("A256KW"), kidless()]);
+    const session = defineJWESession({ name: "web", key: { current, keys: [former] }, jwe: pin });
+
+    expect((await session.open(await mint(former))).data).toEqual({ user: "ada" });
+    expect((await session.open(await session.issue({ user: "ada" }))).data).toEqual({
+      user: "ada",
+    });
+  });
+
+  it("takes CryptoKeys in keys, named through decryptOptions.algorithms", async () => {
+    const [current, former] = await Promise.all([generateJWK("A256KW"), generateKey("A256KW")]);
+    const error = thrown(() => defineJWESession({ key: { current, keys: [former] }, jwe: pin }));
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      '[unjwt/session] The session key "keys[0]" is a CryptoKey (AES-KW) and carries no algorithm, list one it serves (A256KW) in "jwe.decryptOptions.algorithms".',
+    );
+
+    const session = defineJWESession({
+      name: "web",
+      key: { current, keys: [former] },
+      jwe: { ...pin, decryptOptions: { algorithms: ["A256KW"] } },
+    });
+    expect((await session.open(await mint(former))).data).toEqual({ user: "ada" });
+  });
+
+  it("refuses more keys without kid than limits.keyCandidates at definition", async () => {
+    const keys = await Promise.all(Array.from({ length: 8 }, kidless));
+    const current = await kidless();
+    const error = thrown(() => defineJWESession({ key: { current, keys } }));
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      '[unjwt/session] 9 session keys carry no "kid", over the limit of 8 ("jwe.decryptOptions.limits.keyCandidates"): give each JWK a "kid", drop former keys, or raise the limit.',
+    );
+
+    expect(() => defineJWESession({ key: { current, keys: keys.slice(1) } })).not.toThrow();
+    expect(() =>
+      defineJWESession({ key: { current: { ...current, kid: "current" }, keys } }),
+    ).not.toThrow();
+    const raised = defineJWESession({
+      name: "web",
+      key: { current, keys },
+      jwe: { decryptOptions: { limits: { keyCandidates: 9 } } },
+    });
+    expect((await raised.open(await mint(keys[7]))).data).toEqual({ user: "ada" });
+  });
+
+  it("refuses a token whose kid names no key, as a token failure", async () => {
+    const [current, former] = rotation;
+    const onError = vi.fn();
+    const session = defineJWESession({
+      name: "web",
+      key: { current, keys: [former] },
+      hooks: { onError },
+    });
+    const token = await mint({ ...(await kidless()), kid: "stranger" });
+
+    const read = await session.use({ req: get({ cookie: `web=${token}` }) });
+    expect(read.id).toBeUndefined();
+    expect(onError).toHaveBeenCalledOnce();
+    const error = await caught(session.open(token));
+    expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      '[unjwt/session] Invalid session token: No session key with kid "stranger".',
+    );
+    expect(isJWTError((error as Error).cause, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+  });
+
+  it("tries current first, then keys in order, and reports each key's failure", async () => {
+    const [current, first, second] = await Promise.all([
+      generateKey("A256KW"),
+      generateKey("A256KW"),
+      generateKey("A256KW"),
+    ]);
+    const session = defineJWESession({
+      name: "web",
+      key: { current, keys: [first, current, second] },
+      jwe: { ...pin, decryptOptions: { algorithms: ["A256KW"] } },
+    });
+    const stranger = await mint(await kidless());
+    const unwrap = vi.spyOn(crypto.subtle, "unwrapKey");
+    try {
+      const error = await caught(session.open(stranger));
+      expect(unwrap.mock.calls.map((call) => call[2])).toEqual([current, first, second]);
+      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      const cause = (error as Error).cause;
+      expect(isJWTError(cause, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+      expect((cause as Error).cause).toHaveLength(3);
+    } finally {
+      unwrap.mockRestore();
+    }
+  });
+
+  it("types: CryptoKeys and oct JWKs in keys", () => {
+    expectTypeOf<{ current: CryptoKey; keys: CryptoKey[] }>().toExtend<JWESessionKey>();
+    expectTypeOf<{
+      current: JWESessionOctJWK;
+      keys: (CryptoKey | JWESessionOctJWK)[];
+    }>().toExtend<JWESessionKey>();
+    expectTypeOf<{
+      current: CryptoKey;
+      keys: { keys: CryptoKey[] };
+    }>().not.toExtend<JWESessionKey>();
+  });
+});

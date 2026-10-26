@@ -81,32 +81,6 @@ export function getSignKey(key: JWSSessionKey, options: PinOptions): JWSSignJWK 
   return resolved;
 }
 
-/** The key that verifies: the symmetric key, or a pair's `publicKey` (a list as a JWK Set). A single public half must serve the pinned `alg`. */
-function getVerifyKey(key: JWSSessionKey, options: PinOptions): JWSVerifyJWK | JWKSet | CryptoKey {
-  const { prefix } = options;
-  assertKeyMaterial(key, { prefix });
-
-  let resolved: JWSVerifyJWK | JWKSet | CryptoKey | undefined;
-  if (isCryptoKey(key) || isSymmetricJWK(key)) {
-    resolved = key;
-  } else if (isKeyPair(key)) {
-    assertJWSKeyPair(key, prefix);
-    resolved = Array.isArray(key.publicKey) ? { keys: key.publicKey } : key.publicKey;
-  }
-
-  if (!resolved) {
-    throw invalidKeyError(
-      `${prefix} Invalid JWS key, expected a symmetric JWK, a key pair or a CryptoKey.`,
-      key,
-    );
-  }
-
-  if (isKeyPair(key) && (isJWK(resolved) || isCryptoKey(resolved))) {
-    assertPinnedAlg(resolved, { ...options, subject: 'The session key "publicKey"' });
-  }
-  return resolved;
-}
-
 /**
  * Resolves and checks the keys that verify, each with the algorithms it serves. `algorithms` is what they serve together,
  * the `alg` values an incoming token may carry. A JWK Set offers each token only its entries that serve the token's `alg`.
@@ -148,6 +122,32 @@ export function resolveVerifyKeys(
       })
     : resolved;
   return { key: narrowed, entries, algorithms: served.all };
+}
+
+/** The key that verifies: the symmetric key, or a pair's `publicKey` (a list as a JWK Set). A single public half must serve the pinned `alg`. */
+function getVerifyKey(key: JWSSessionKey, options: PinOptions): JWSVerifyJWK | JWKSet | CryptoKey {
+  const { prefix } = options;
+  assertKeyMaterial(key, { prefix });
+
+  let resolved: JWSVerifyJWK | JWKSet | CryptoKey | undefined;
+  if (isCryptoKey(key) || isSymmetricJWK(key)) {
+    resolved = key;
+  } else if (isKeyPair(key)) {
+    assertJWSKeyPair(key, prefix);
+    resolved = Array.isArray(key.publicKey) ? { keys: key.publicKey } : key.publicKey;
+  }
+
+  if (!resolved) {
+    throw invalidKeyError(
+      `${prefix} Invalid JWS key, expected a symmetric JWK, a key pair or a CryptoKey.`,
+      key,
+    );
+  }
+
+  if (isKeyPair(key) && (isJWK(resolved) || isCryptoKey(resolved))) {
+    assertPinnedAlg(resolved, { ...options, subject: 'The session key "publicKey"' });
+  }
+  return resolved;
 }
 
 function assertJWSKeyPair(

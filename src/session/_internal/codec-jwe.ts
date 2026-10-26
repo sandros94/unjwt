@@ -1,6 +1,6 @@
 import { encrypt, decrypt } from "../../core/jwe/index.ts";
-import { DEFAULT_PBES2_ITERATIONS } from "../../core/_internal/limits.ts";
-import { isCryptoKey, isJWK } from "../../utils/guards.ts";
+import { DEFAULT_PBES2_ITERATIONS, resolveLimit } from "../../core/_internal/limits.ts";
+import { isJWK } from "../../utils/guards.ts";
 import type {
   ExpiresIn,
   JWEDecryptJWK,
@@ -8,7 +8,6 @@ import type {
   JWEEncryptOptions,
   JWEHeaderParameters,
   JWEKeyLookup,
-  JWKSet,
   KeyManagementAlgorithm,
 } from "../../core/types/index.ts";
 import type { StrictOmit } from "../../utils/types.ts";
@@ -25,6 +24,7 @@ import {
   resolveSessionKeys,
   rotationSet,
 } from "./codec-jwe-keys.ts";
+import { type JWESessionOpeners, decryptWithKeys } from "./codec-jwe-open.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
@@ -92,10 +92,10 @@ export interface JWECodecConfig extends SessionCoreConfig {
   };
 }
 
-interface JWEOpenKey {
-  key: JWEDecryptJWK | JWKSet | CryptoKey | JWEKeyLookup<JWEDecryptJWK | JWKSet | CryptoKey>;
-  algorithms: KeyManagementAlgorithm[];
-}
+/** The configured keys, or with a key lookup hook the lookup of one request. */
+type JWEOpenKey =
+  | JWESessionOpeners
+  | { lookup: JWEKeyLookup<JWEDecryptJWK>; algorithms: KeyManagementAlgorithm[] };
 
 export const JWE_DEFAULT_COOKIE = {
   path: "/",
@@ -120,13 +120,13 @@ export function createJWECodec(options: {
     issueOptions: (config) => config.jwe?.encryptOptions,
     openOptions: (config) => config.jwe?.decryptOptions,
     issueKey: (config) => resolveKeys(config, prefix).current,
-    openKey: (config) => getDecryptKey(config, prefix),
+    openKey: (config) => resolveKeys(config, prefix),
     lookup: (config) => {
       const hooks = config.hooks;
       if (!hooks?.onUnsealKeyLookup) return undefined;
       const { algorithms } = resolveKeys(config, prefix);
       return (args) => ({
-        key: (header: JWEHeaderParameters) =>
+        lookup: (header: JWEHeaderParameters) =>
           hooks.onUnsealKeyLookup?.({ header, ...args, config }),
         algorithms,
       });
@@ -143,19 +143,20 @@ export function createJWECodec(options: {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key without `alg` reaches here only with `alg` and `enc` pinned
       encrypt(payload, key as JWESessionOctJWK, sessionIssueOptions(config.jwe?.encryptOptions)),
 
-    open: async (config, sealed, { key, algorithms }) => {
+    open: async (config, sealed, key) => {
       const { decryptOptions, encryptOptions } = config.jwe ?? {};
-      const { payload } = await decrypt<SessionPayload>(sealed, key, {
+      const opening = {
         ...decryptOptions,
         maxIterations: sessionMaxIterations(config),
         ...sessionOpenOptions({
           maxAge: config.maxAge,
           requiredClaims: decryptOptions?.requiredClaims,
           typ: encryptOptions?.protectedHeader?.typ,
-          algorithms,
+          algorithms: key.algorithms,
         }),
-      });
-      return payload;
+      };
+      if ("entries" in key) return decryptWithKeys(sealed, key, opening);
+      return (await decrypt<SessionPayload>(sealed, key.lookup, opening)).payload;
     },
   });
 }
@@ -171,19 +172,6 @@ function sessionMaxIterations(config: JWECodecConfig): number | undefined {
     : undefined;
 }
 
-/** `current` alone, or for a rotation set a JWK Set of `current` and `keys`. With a `CryptoKey` `current`, a token whose `kid` names one of `keys` gets `keys`, any other `current`. */
-function getDecryptKey(config: JWECodecConfig, prefix: string): JWEOpenKey {
-  const { current, previous, algorithms } = resolveKeys(config, prefix);
-  if (!previous) return { key: current, algorithms };
-  if (!isCryptoKey(current)) {
-    return { key: { keys: [current, ...previous.filter((key) => key !== current)] }, algorithms };
-  }
-  const set = { keys: previous };
-  const key = (header: JWEHeaderParameters) =>
-    header.kid !== undefined && previous.some((entry) => entry.kid === header.kid) ? set : current;
-  return { key, algorithms };
-}
-
 function resolveKeys(
   config: JWECodecConfig,
   prefix: string,
@@ -193,6 +181,7 @@ function resolveKeys(
     alg: encryptOptions?.alg,
     enc: encryptOptions?.enc,
     listed: decryptOptions?.algorithms,
+    keyCandidates: resolveLimit(decryptOptions?.limits, "keyCandidates"),
     lookup: typeof config.hooks?.onUnsealKeyLookup === "function",
     prefix,
   });

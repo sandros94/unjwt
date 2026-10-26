@@ -183,7 +183,7 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["defineJWESession"],
     module: "session/index.ts",
-    measured: { min: 80589, gzip: 25536 },
+    measured: { min: 81946, gzip: 25993 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
 ];

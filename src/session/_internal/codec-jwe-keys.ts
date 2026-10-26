@@ -4,12 +4,6 @@ import type {
   JWKSet,
   KeyManagementAlgorithm,
 } from "../../core/types/index.ts";
-import { lengthOf } from "../../core/_crypto/_key-algorithm.ts";
-import {
-  PBES2_ALGORITHMS,
-  inferJWEAllowedAlgorithms,
-  isContentEncryptionAlgorithm,
-} from "../../utils/algorithms.ts";
 import {
   isAsymmetricJWK,
   isCryptoKey,
@@ -18,16 +12,11 @@ import {
   isSymmetricJWK,
 } from "../../utils/guards.ts";
 import type { JWTError } from "../../error.ts";
-import { assertKeyMaterial, invalidKeyError } from "./contract.ts";
+import { assertKeyMaterial, invalidConfigError, invalidKeyError } from "./contract.ts";
 import { isKeyPair } from "./codec.ts";
 import { quoteTokenValue } from "../../utils/_internal/text.ts";
-import {
-  type KeyAlgorithms,
-  type SessionKeyEntry,
-  assertPinnedKey,
-  octBits,
-  servedAlgorithms,
-} from "./key-algorithms.ts";
+import { type SessionKeyEntry, servedAlgorithms } from "./key-algorithms.ts";
+import { JWE_KEY_ALGORITHMS, assertIssuingKey, directEncryptions } from "./key-algorithms-jwe.ts";
 
 /** An `oct` JWK that JWE key management accepts. */
 export type JWESessionOctJWK = Extract<JWEDecryptJWK, { kty: "oct" }>;
@@ -37,52 +26,34 @@ export type JWESessionSecret = JWESessionOctJWK | CryptoKey;
 
 /**
  * A symmetric key that encrypts and decrypts, or a rotation set: `current` encrypts (its `kid` is written to the header) and decrypts,
- * and `keys` decrypt too, picked by the token's `kid`. An asymmetric key throws `ERR_SESSION_KEY_INVALID`: its public half encrypts,
- * so anyone holding that half could forge a session the server accepts. Use `defineJWSSession` for a key pair.
+ * and `keys` decrypt too. A token that names a `kid` is tried with the keys of that `kid` alone, one that names none with every key;
+ * of those, the keys that serve its `alg` are tried in order, `current` first. An asymmetric key throws `ERR_SESSION_KEY_INVALID`:
+ * its public half encrypts, so anyone holding that half could forge a session the server accepts. Use `defineJWSSession` for a key pair.
  */
 export type JWESessionKey =
   | JWESessionSecret
   | {
       /** Encrypts every token, and decrypts. */
       current: JWESessionSecret;
-      /** Decrypt too, `current` need not be repeated. With a `CryptoKey` `current`, a token whose `kid` names none of them is decrypted with `current`. */
-      keys: JWESessionOctJWK[] | JWKSet<JWESessionOctJWK[]>;
+      /**
+       * Decrypt too, `current` need not be repeated: `oct` JWKs and secret `CryptoKey`s, or a JWK Set of `oct` JWKs.
+       * At most `jwe.decryptOptions.limits.keyCandidates` keys, `current` included, may lack a `kid`, as any `CryptoKey` does.
+       */
+      keys: JWESessionSecret[] | JWKSet<JWESessionOctJWK[]>;
     };
 
-/** The configured key and rotation keys. Asymmetric material throws: its public half encrypts, so its holder could forge sessions. */
-export function sessionKeys(
-  key: unknown,
-  prefix: string,
-): { current: JWESessionSecret; previous?: JWESessionOctJWK[] } {
-  assertKeyMaterial(key, { prefix });
-  const set = rotationSet(key);
-  if (!set) return { current: sessionSecret(key, { prefix, what: "" }) };
-
-  const previous: unknown = isJWKSet(set.keys) ? set.keys.keys : set.keys;
-  if (!Array.isArray(previous)) {
-    throw invalidKeyError(
-      `${prefix} Invalid JWE session key: "keys" must be a list or a JWK Set of "oct" JWKs.`,
-      key,
-    );
-  }
-  return {
-    current: sessionSecret(set.current, { prefix, what: '"current"' }),
-    previous: previous.map((entry: unknown) => {
-      if (isOctJWK(entry)) return entry;
-      throw keyError(entry, { prefix, expected: '"keys" must hold "oct" JWKs' });
-    }),
-  };
-}
-
-/** A key that decrypts, with the algorithms it serves. */
+/** A key that decrypts: its `kid`, the algorithms it serves and, should it serve `dir`, the `enc` values it decrypts. */
 export interface JWESessionEntry {
   key: JWESessionSecret;
+  kid: string | undefined;
   algorithms: readonly KeyManagementAlgorithm[];
+  encryptions: readonly ContentEncryptionAlgorithm[];
 }
 
 /**
  * Resolves and checks the configured keys: `current`, which encrypts, and every key that decrypts, `current` first.
- * `algorithms` is what they serve together, the `alg` values an incoming token may carry.
+ * `algorithms` is what they serve together, the `alg` values an incoming token may carry. `rotation` is set for a `{ current, keys }` set.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if more keys without `kid` than `keyCandidates` decrypt, unless a key lookup opens tokens.
  */
 export function resolveSessionKeys(
   key: unknown,
@@ -90,16 +61,17 @@ export function resolveSessionKeys(
     alg: KeyManagementAlgorithm | undefined;
     enc: ContentEncryptionAlgorithm | undefined;
     listed: KeyManagementAlgorithm[] | undefined;
+    keyCandidates: number;
     lookup: boolean;
     prefix: string;
   },
 ): {
   current: JWESessionSecret;
-  previous: JWESessionOctJWK[] | undefined;
   entries: JWESessionEntry[];
+  rotation: boolean;
   algorithms: KeyManagementAlgorithm[];
 } {
-  const { alg, enc, listed, lookup, prefix } = options;
+  const { alg, enc, listed, keyCandidates, lookup, prefix } = options;
   const { current, previous } = sessionKeys(key, prefix);
   const subject = previous ? 'The session key "current"' : "The session key";
   assertIssuingKey(current, { alg, enc, subject, prefix });
@@ -108,9 +80,15 @@ export function resolveSessionKeys(
   ];
   previous?.forEach((entry, index) => {
     if (entry === current) return;
-    const kid = entry.kid === undefined ? "" : ` (kid ${quoteTokenValue(entry.kid)})`;
+    const kid = kidOf(entry) === undefined ? "" : ` (kid ${quoteTokenValue(kidOf(entry))})`;
     named.push({ key: entry, subject: `The session key "keys[${index}]"${kid}` });
   });
+  const kidless = named.filter((entry) => kidOf(entry.key) === undefined).length;
+  if (!lookup && kidless > keyCandidates) {
+    throw invalidConfigError(
+      `${prefix} ${kidless} session keys carry no "kid", over the limit of ${keyCandidates} ("jwe.decryptOptions.limits.keyCandidates"): give each JWK a "kid", drop former keys, or raise the limit.`,
+    );
+  }
   const served = servedAlgorithms(named, {
     algorithms: JWE_KEY_ALGORITHMS,
     listed,
@@ -120,81 +98,44 @@ export function resolveSessionKeys(
   });
   return {
     current,
-    previous,
-    entries: named.map((entry, index) => ({ key: entry.key, algorithms: served.each[index] })),
+    entries: named.map((entry, index) => ({
+      key: entry.key,
+      kid: kidOf(entry.key),
+      algorithms: served.each[index],
+      encryptions:
+        entry.key === current && alg === "dir" && enc ? [enc] : directEncryptions(entry.key),
+    })),
+    rotation: previous !== undefined,
     algorithms: served.all,
   };
 }
 
-/**
- * The key that encrypts must serve the pinned `alg`, and a `dir` key the pinned `enc`. A key that names no algorithm needs both pinned.
- * @throws `ERR_SESSION_CONFIG_INVALID` for a key that names no algorithm without a pinned `alg` and `enc`.
- * @throws `ERR_SESSION_KEY_INVALID` for a key that cannot serve the pinned `alg` or `enc`.
- */
-export function assertIssuingKey(
-  key: JWESessionSecret,
-  options: {
-    alg: KeyManagementAlgorithm | undefined;
-    enc: ContentEncryptionAlgorithm | undefined;
-    subject: string;
-    prefix: string;
-  },
-): void {
-  const { alg, enc, subject, prefix } = options;
-  assertPinnedKey(key, {
-    algorithms: JWE_KEY_ALGORITHMS,
-    pin: alg,
-    pinned: Boolean(alg && enc),
-    pinPath: "jwe.encryptOptions.alg",
-    hint: '"jwe.encryptOptions.alg" and "enc"',
-    subject,
-    prefix,
-  });
-  const issuing = alg ?? JWE_KEY_ALGORITHMS.own(key)?.[0];
-  if (issuing !== "dir" || !enc) return;
-  const encs = directEncryptions(key);
-  if (encs.includes(enc)) return;
-  throw invalidKeyError(
-    `${prefix} ${subject} serves "dir" with ${encs.join(", ") || "no content encryption"}, not the "${enc}" that "jwe.encryptOptions.enc" pins.`,
-    key,
-  );
-}
-
-/** RFC 7518 §4: a JWK's `alg` names its role. Without one, an AES-KW `CryptoKey` wraps, an AES-GCM one wraps or is the CEK, a PBKDF2 one derives, and raw bytes serve what their length fits. */
-export const JWE_KEY_ALGORITHMS: KeyAlgorithms<KeyManagementAlgorithm> = {
-  family: "JWE",
-  own: (key) => (isJWK(key) && key.alg ? (inferJWEAllowedAlgorithms(key) ?? []) : undefined),
-  carried: (key) => {
-    if (isCryptoKey(key)) {
-      const name = key.algorithm.name;
-      if (name === "PBKDF2") return PBES2_ALGORITHMS;
-      const wraps = inferJWEAllowedAlgorithms(key) ?? [];
-      return name === "AES-GCM" && wraps.length > 0 ? [...wraps, "dir"] : wraps;
-    }
-    if (!isSymmetricJWK(key)) return [];
-    const algs = aesWraps(octBits(key));
-    return directEncryptions(key).length > 0 ? [...algs, "dir"] : algs;
-  },
-};
-
-/** The `enc` values a `dir` key encrypts with: a JWK's own `enc` `alg`, else every one its length fits (RFC 7518 §5). */
-export function directEncryptions(key: unknown): readonly ContentEncryptionAlgorithm[] {
-  if (isJWK(key) && typeof key.alg === "string" && isContentEncryptionAlgorithm(key.alg)) {
-    return [key.alg];
-  }
-  if (isCryptoKey(key)) {
-    const bits = lengthOf(key.algorithm) ?? 0;
-    return key.algorithm.name === "AES-GCM"
-      ? GCM_ENCRYPTIONS.filter((enc) => enc === `A${bits}GCM`)
-      : [];
-  }
-  if (!isSymmetricJWK(key)) return [];
-  const bits = octBits(key);
-  return [...GCM_ENCRYPTIONS, ...CBC_ENCRYPTIONS].filter((enc) => encryptionBits(enc) === bits);
-}
-
 export function rotationSet(key: unknown): { current: unknown; keys?: unknown } | undefined {
   return isObject(key) && "current" in key ? key : undefined;
+}
+
+/** The configured key and rotation keys. Asymmetric material throws: its public half encrypts, so its holder could forge sessions. */
+function sessionKeys(
+  key: unknown,
+  prefix: string,
+): { current: JWESessionSecret; previous?: JWESessionSecret[] } {
+  assertKeyMaterial(key, { prefix });
+  const set = rotationSet(key);
+  if (!set) return { current: sessionSecret(key, { prefix, what: "" }) };
+
+  const previous: unknown = isJWKSet(set.keys) ? set.keys.keys : set.keys;
+  if (!Array.isArray(previous)) {
+    throw invalidKeyError(
+      `${prefix} Invalid JWE session key: "keys" must be a list of "oct" JWKs and secret CryptoKeys, or a JWK Set of "oct" JWKs.`,
+      key,
+    );
+  }
+  return {
+    current: sessionSecret(set.current, { prefix, what: '"current"' }),
+    previous: previous.map((entry: unknown) =>
+      sessionSecret(entry, { prefix, what: 'each of "keys"' }),
+    ),
+  };
 }
 
 function sessionSecret(key: unknown, options: { prefix: string; what: string }): JWESessionSecret {
@@ -222,6 +163,10 @@ function keyError(
   return invalidKeyError(`${options.prefix} Invalid JWE session key: ${options.expected}.`, key);
 }
 
+function kidOf(key: JWESessionSecret): string | undefined {
+  return isJWK(key) ? key.kid : undefined;
+}
+
 /** An `oct` JWK. An `alg` outside JWE fails when the key is imported. */
 function isOctJWK(key: unknown): key is JWESessionOctJWK {
   return isSymmetricJWK(key);
@@ -229,32 +174,4 @@ function isOctJWK(key: unknown): key is JWESessionOctJWK {
 
 function isObject(value: unknown): value is object {
   return typeof value === "object" && value !== null;
-}
-
-const GCM_ENCRYPTIONS: readonly ContentEncryptionAlgorithm[] = ["A128GCM", "A192GCM", "A256GCM"];
-
-const CBC_ENCRYPTIONS: readonly ContentEncryptionAlgorithm[] = [
-  "A128CBC-HS256",
-  "A192CBC-HS384",
-  "A256CBC-HS512",
-];
-
-/** RFC 7518 §4.4, §4.7: the wrapping algorithms of an AES key of `bits`. */
-function aesWraps(bits: number): KeyManagementAlgorithm[] {
-  switch (bits) {
-    case 128:
-      return ["A128KW", "A128GCMKW"];
-    case 192:
-      return ["A192KW", "A192GCMKW"];
-    case 256:
-      return ["A256KW", "A256GCMKW"];
-    default:
-      return [];
-  }
-}
-
-/** RFC 7518 §5.2.3–§5.2.5, §5.3: a CBC-HMAC key is twice its AES size. */
-function encryptionBits(enc: ContentEncryptionAlgorithm): number {
-  const bits = Number(enc.slice(1, 4));
-  return enc.includes("CBC") ? bits * 2 : bits;
 }
