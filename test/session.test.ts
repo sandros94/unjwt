@@ -1,7 +1,7 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { type H3Event, H3, HTTPError } from "h3";
 
-import type { JWEAsymmetricPrivateJWK } from "../src/core/types/index.ts";
+import type { JWEAsymmetricPrivateJWK, JWK_HMAC, JWK_oct } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
 import { rsa } from "./keys.ts";
@@ -13,6 +13,7 @@ import {
   type JWESessionOctJWK,
   type JWESessionSecret,
   type JWSSessionKey,
+  type JWSSessionSecret,
   type OpenedSessionState,
   type SessionClaims,
   type SessionDefinition,
@@ -1945,5 +1946,131 @@ describe("a rotation set opens a token along one path", () => {
       current: CryptoKey;
       keys: { keys: CryptoKey[] };
     }>().not.toExtend<JWESessionKey>();
+  });
+});
+
+describe("a JWS rotation set of HMAC secrets", () => {
+  const hmac = async (kid?: string) => {
+    const { kid: _kid, ...key } = await generateJWK("HS256");
+    return kid === undefined ? key : { ...key, kid };
+  };
+  const mint = (key: JWSSessionKey, alg?: "HS256") =>
+    defineJWSSession({ name: "web", key, jws: { signOptions: { alg } } }).issue({ user: "ada" });
+
+  it("signs under current and verifies a token of a former key", async () => {
+    const [current, former] = await Promise.all([hmac("current"), hmac("former")]);
+    const session = defineJWSSession({ name: "web", key: { current, keys: [former] } });
+    const issued = await session.issue({ user: "ada" });
+
+    expect(JSON.parse(atob(issued.split(".")[0])).kid).toBe("current");
+    expect((await session.open(issued)).data).toEqual({ user: "ada" });
+    expect((await session.open(await mint(former))).data).toEqual({ user: "ada" });
+    const read = await session.use({ req: get({ cookie: `web=${await mint(former)}` }) });
+    expect(read.data).toEqual({ user: "ada" });
+  });
+
+  it("refuses a token whose kid names no key, as a token failure", async () => {
+    const [current, former] = await Promise.all([hmac("current"), hmac("former")]);
+    const onError = vi.fn();
+    const session = defineJWSSession({
+      name: "web",
+      key: { current, keys: [former] },
+      hooks: { onError },
+    });
+    const token = await mint(await hmac("stranger"));
+
+    expect((await session.use({ req: get({ cookie: `web=${token}` }) })).id).toBeUndefined();
+    expect(onError).toHaveBeenCalledOnce();
+    const error = await caught(session.open(token));
+    expect((error as Error).message).toBe(
+      '[unjwt/session] Invalid session token: No session key with kid "stranger".',
+    );
+  });
+
+  it("a CryptoKey current opens a former key without kid, and a silent former key opens through verifyOptions.algorithms", async () => {
+    const [current, former, silent] = await Promise.all([
+      generateKey("HS256"),
+      hmac(),
+      generateKey("HS256"),
+    ]);
+    const pin = { signOptions: { alg: "HS256" } } as const;
+    const session = defineJWSSession({ name: "web", key: { current, keys: [former] }, jws: pin });
+    expect((await session.open(await mint(former))).data).toEqual({ user: "ada" });
+    expect((await session.open(await session.issue({ user: "ada" }))).data).toEqual({
+      user: "ada",
+    });
+
+    const error = thrown(() => defineJWSSession({ key: { current, keys: [silent] }, jws: pin }));
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      '[unjwt/session] The session key "keys[0]" is a CryptoKey (HMAC) and carries no algorithm, list one it serves (HS256) in "jws.verifyOptions.algorithms".',
+    );
+    const listed = defineJWSSession({
+      name: "web",
+      key: { current, keys: [silent] },
+      jws: { ...pin, verifyOptions: { algorithms: ["HS256"] } },
+    });
+    expect((await listed.open(await mint(silent, "HS256"))).data).toEqual({ user: "ada" });
+  });
+
+  it("refuses more keys without kid than limits.keyCandidates at definition, and keys that are not HMAC secrets", async () => {
+    const keys = await Promise.all(Array.from({ length: 8 }, () => hmac()));
+    const current = await hmac();
+    const error = thrown(() => defineJWSSession({ key: { current, keys } }));
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message).toBe(
+      '[unjwt/session] 9 session keys carry no "kid", over the limit of 8 ("jws.verifyOptions.limits.keyCandidates"): give each JWK a "kid", drop former keys, or raise the limit.',
+    );
+    expect(() => defineJWSSession({ key: { current, keys: keys.slice(1) } })).not.toThrow();
+
+    const [{ privateKey }, wrap] = await Promise.all([generateJWK("RS256"), generateKey("A256KW")]);
+    const refusals: [unknown, string][] = [
+      [{ current: privateKey, keys: [] }, '"current"'],
+      [{ current, keys: [wrap] }, 'each of "keys"'],
+    ];
+    for (const [key, what] of refusals) {
+      const refused = thrown(() => defineJWSSession({ key: key as JWSSessionKey }));
+      expect(isJWTError(refused, "ERR_SESSION_KEY_INVALID")).toBe(true);
+      expect((refused as Error).message).toBe(
+        `[unjwt/session] Invalid JWS session key: ${what} must be an HMAC "oct" JWK or an HMAC CryptoKey.`,
+      );
+    }
+  });
+
+  it("tries current first, then keys in order, and reports each key's failure", async () => {
+    const [current, first, second] = await Promise.all([
+      generateKey("HS256"),
+      generateKey("HS256"),
+      generateKey("HS256"),
+    ]);
+    const session = defineJWSSession({
+      name: "web",
+      key: { current, keys: [first, current, second] },
+      jws: { signOptions: { alg: "HS256" }, verifyOptions: { algorithms: ["HS256"] } },
+    });
+    const stranger = await mint(await hmac());
+    const verifySpy = vi.spyOn(crypto.subtle, "verify");
+    try {
+      const error = await caught(session.open(stranger));
+      expect(verifySpy.mock.calls.map((call) => call[1])).toEqual([current, first, second]);
+      const cause = (error as Error).cause;
+      expect(isJWTError(cause, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
+      expect((cause as Error).cause).toHaveLength(3);
+    } finally {
+      verifySpy.mockRestore();
+    }
+  });
+
+  it("types: HMAC secrets in current and keys", () => {
+    expectTypeOf<JWSSessionSecret>().toEqualTypeOf<JWK_oct<JWK_HMAC> | CryptoKey>();
+    expectTypeOf<{ current: CryptoKey; keys: CryptoKey[] }>().toExtend<JWSSessionKey>();
+    expectTypeOf<{
+      current: typeof jwsKey;
+      keys: { keys: (typeof jwsKey)[] };
+    }>().toExtend<JWSSessionKey>();
+    expectTypeOf<{
+      current: CryptoKey;
+      keys: { keys: CryptoKey[] };
+    }>().not.toExtend<JWSSessionKey>();
   });
 });

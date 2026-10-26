@@ -4,18 +4,11 @@ import type {
   JWKSet,
   KeyManagementAlgorithm,
 } from "../../core/types/index.ts";
-import {
-  isAsymmetricJWK,
-  isCryptoKey,
-  isJWK,
-  isJWKSet,
-  isSymmetricJWK,
-} from "../../utils/guards.ts";
+import { isAsymmetricJWK, isCryptoKey, isJWKSet, isSymmetricJWK } from "../../utils/guards.ts";
 import type { JWTError } from "../../error.ts";
-import { assertKeyMaterial, invalidConfigError, invalidKeyError } from "./contract.ts";
+import { assertKeyMaterial, invalidKeyError } from "./contract.ts";
 import { isKeyPair } from "./codec.ts";
-import { quoteTokenValue } from "../../utils/_internal/text.ts";
-import { type SessionKeyEntry, servedAlgorithms } from "./key-algorithms.ts";
+import { type SessionOpeners, resolveKeySet, rotationSet } from "./key-set.ts";
 import { JWE_KEY_ALGORITHMS, assertIssuingKey, directEncryptions } from "./key-algorithms-jwe.ts";
 
 /** An `oct` JWK that JWE key management accepts. */
@@ -42,18 +35,10 @@ export type JWESessionKey =
       keys: JWESessionSecret[] | JWKSet<JWESessionOctJWK[]>;
     };
 
-/** A key that decrypts: its `kid`, the algorithms it serves and, should it serve `dir`, the `enc` values it decrypts. */
-export interface JWESessionEntry {
-  key: JWESessionSecret;
-  kid: string | undefined;
-  algorithms: readonly KeyManagementAlgorithm[];
-  encryptions: readonly ContentEncryptionAlgorithm[];
-}
-
 /**
  * Resolves and checks the configured keys: `current`, which encrypts, and every key that decrypts, `current` first.
- * `algorithms` is what they serve together, the `alg` values an incoming token may carry. `rotation` is set for a `{ current, keys }` set.
- * @throws `ERR_SESSION_CONFIG_INVALID` if more keys without `kid` than `keyCandidates` decrypt, unless a key lookup opens tokens.
+ * `algorithms` is what they serve together, the `alg` values an incoming token may carry. A `dir` key decrypts the pinned `enc`
+ * when it is `current`, else every `enc` its length fits.
  */
 export function resolveSessionKeys(
   key: unknown,
@@ -65,53 +50,26 @@ export function resolveSessionKeys(
     lookup: boolean;
     prefix: string;
   },
-): {
-  current: JWESessionSecret;
-  entries: JWESessionEntry[];
-  rotation: boolean;
-  algorithms: KeyManagementAlgorithm[];
-} {
-  const { alg, enc, listed, keyCandidates, lookup, prefix } = options;
+): SessionOpeners<JWESessionSecret, KeyManagementAlgorithm> & { current: JWESessionSecret } {
+  const { alg, enc, prefix } = options;
   const { current, previous } = sessionKeys(key, prefix);
   const subject = previous ? 'The session key "current"' : "The session key";
   assertIssuingKey(current, { alg, enc, subject, prefix });
-  const named: (SessionKeyEntry & { key: JWESessionSecret })[] = [
-    { key: current, subject, pin: alg },
-  ];
-  previous?.forEach((entry, index) => {
-    if (entry === current) return;
-    const kid = kidOf(entry) === undefined ? "" : ` (kid ${quoteTokenValue(kidOf(entry))})`;
-    named.push({ key: entry, subject: `The session key "keys[${index}]"${kid}` });
-  });
-  const kidless = named.filter((entry) => kidOf(entry.key) === undefined).length;
-  if (!lookup && kidless > keyCandidates) {
-    throw invalidConfigError(
-      `${prefix} ${kidless} session keys carry no "kid", over the limit of ${keyCandidates} ("jwe.decryptOptions.limits.keyCandidates"): give each JWK a "kid", drop former keys, or raise the limit.`,
-    );
-  }
-  const served = servedAlgorithms(named, {
+  const set = resolveKeySet(current, previous, {
+    ...options,
     algorithms: JWE_KEY_ALGORITHMS,
-    listed,
-    listPath: "jwe.decryptOptions.algorithms",
-    lookup,
-    prefix,
+    pin: alg,
+    optionsPath: "jwe.decryptOptions",
   });
   return {
+    ...set,
     current,
-    entries: named.map((entry, index) => ({
-      key: entry.key,
-      kid: kidOf(entry.key),
-      algorithms: served.each[index],
+    entries: set.entries.map((entry) => ({
+      ...entry,
       encryptions:
         entry.key === current && alg === "dir" && enc ? [enc] : directEncryptions(entry.key),
     })),
-    rotation: previous !== undefined,
-    algorithms: served.all,
   };
-}
-
-export function rotationSet(key: unknown): { current: unknown; keys?: unknown } | undefined {
-  return isObject(key) && "current" in key ? key : undefined;
 }
 
 /** The configured key and rotation keys. Asymmetric material throws: its public half encrypts, so its holder could forge sessions. */
@@ -161,10 +119,6 @@ function keyError(
     );
   }
   return invalidKeyError(`${options.prefix} Invalid JWE session key: ${options.expected}.`, key);
-}
-
-function kidOf(key: JWESessionSecret): string | undefined {
-  return isJWK(key) ? key.kid : undefined;
 }
 
 /** An `oct` JWK. An `alg` outside JWE fails when the key is imported. */

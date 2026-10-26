@@ -22,9 +22,11 @@ import {
   type JWESessionOctJWK,
   type JWESessionSecret,
   resolveSessionKeys,
-  rotationSet,
 } from "./codec-jwe-keys.ts";
-import { type JWESessionOpeners, decryptWithKeys } from "./codec-jwe-open.ts";
+import { JWE_ALG_CTX } from "../../core/jwe/_internal/algorithms.ts";
+import { createPBES2Budget } from "../../core/jwe/_internal/keys.ts";
+import { type SessionOpeners, rotationSet } from "./key-set.ts";
+import { openWithKeys } from "./open-with-keys.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
@@ -94,7 +96,7 @@ export interface JWECodecConfig extends SessionCoreConfig {
 
 /** The configured keys, or with a key lookup hook the lookup of one request. */
 type JWEOpenKey =
-  | JWESessionOpeners
+  | SessionOpeners<JWESessionSecret, KeyManagementAlgorithm>
   | { lookup: JWEKeyLookup<JWEDecryptJWK>; algorithms: KeyManagementAlgorithm[] };
 
 export const JWE_DEFAULT_COOKIE = {
@@ -154,8 +156,20 @@ export function createJWECodec(options: {
           algorithms: key.algorithms,
         }),
       };
-      if ("entries" in key) return decryptWithKeys(sealed, key, opening);
-      return (await decrypt<SessionPayload>(sealed, key.lookup, opening)).payload;
+      if ("lookup" in key)
+        return (await decrypt<SessionPayload>(sealed, key.lookup, opening)).payload;
+      const budget = createPBES2Budget(resolveLimit(opening.limits, "pbes2Iterations"));
+      return openWithKeys(key, {
+        ctx: JWE_ALG_CTX,
+        limit: resolveLimit(opening.limits, "keyCandidates"),
+        failure: { code: "ERR_JWE_DECRYPTION_FAILED", message: "JWE decryption failed." },
+        attempt: async (candidate) =>
+          (await decrypt<SessionPayload>(sealed, candidate, opening)).payload,
+        spend: ({ alg, p2c }: JWEHeaderParameters) => {
+          const { minIterations, maxIterations } = opening;
+          if (alg) budget.spend({ alg, p2c, minIterations, maxIterations });
+        },
+      });
     },
   });
 }

@@ -18,6 +18,9 @@ import {
   sessionOpenOptions,
 } from "./codec.ts";
 import { type JWSSessionKey, getSignKey, resolveVerifyKeys } from "./codec-jws-keys.ts";
+import { JWS_ALG_CTX } from "../../core/_internal/algorithms.ts";
+import { resolveLimit } from "../../core/_internal/limits.ts";
+import { openWithKeys } from "./open-with-keys.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
@@ -52,9 +55,9 @@ export interface JWSSessionConfig<
   /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). `httpOnly: false` lets page scripts read the signed payload. @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
   /**
-   * `signOptions.alg` is what each token is signed with, and names the algorithm of the session's keys without their own `alg`.
-   * Verification accepts every `alg` the keys serve: a JWK's own `alg` (or an EC or OKP JWK's curve), and for a key without one,
-   * the pinned `alg` and each algorithm of `verifyOptions.algorithms` its material carries.
+   * `signOptions.alg` is what each token is signed with, and names the algorithm of the keys without their own `alg`: both halves of a pair,
+   * a rotation set's `current` alone. Verification accepts every `alg` the keys serve: a JWK's own `alg` (or an EC or OKP JWK's curve),
+   * and for a key without one, the algorithms the pin or `verifyOptions.algorithms` names that its material carries.
    * `signOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11).
    */
   jws?: JWSSessionOptions;
@@ -85,10 +88,10 @@ export interface JWSCodecConfig extends SessionCoreConfig {
   };
 }
 
-interface JWSOpenKey {
-  key: JWSVerifyJWK | JWKSet | CryptoKey | JWSKeyLookup<JWKSet | JWSVerifyJWK>;
-  algorithms: JWSAlgorithm[];
-}
+/** The configured keys, or with a key lookup hook the lookup of one request. */
+type JWSOpenKey =
+  | ReturnType<typeof resolveVerifyKeys>
+  | { lookup: JWSKeyLookup<JWKSet | JWSVerifyJWK>; algorithms: JWSAlgorithm[] };
 
 export const JWS_DEFAULT_COOKIE = {
   path: "/",
@@ -119,32 +122,46 @@ export function createJWSCodec(options: {
       if (!hooks?.onKeyLookup) return undefined;
       const { algorithms } = resolveKeys(config, prefix);
       return (args) => ({
-        key: (header: JWSHeaderParameters) => hooks.onKeyLookup?.({ header, ...args, config }),
+        lookup: (header: JWSHeaderParameters) => hooks.onKeyLookup?.({ header, ...args, config }),
         algorithms,
       });
     },
-    importable: (config) =>
-      resolveKeys(config, prefix).entries.map(({ key, algorithms }) => ({
+    importable: (config) => {
+      const pin = config.jws?.signOptions?.alg;
+      return resolveKeys(config, prefix).entries.map(({ key, algorithms }) => ({
         key,
-        alg: algorithms[0],
-      })),
+        alg: pin !== undefined && algorithms.includes(pin) ? pin : algorithms[0],
+      }));
+    },
 
     issue: (config, payload, key) =>
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key without `alg` reaches here only with `alg` pinned
       sign(payload, key as JWSSignJWK, sessionIssueOptions(config.jws?.signOptions)),
 
-    open: async (config, token, { key, algorithms }) => {
+    open: async (config, token, key) => {
       const { verifyOptions, signOptions } = config.jws ?? {};
-      const { payload } = await verify<SessionPayload>(token, key, {
+      const opening = {
         ...verifyOptions,
         ...sessionOpenOptions({
           maxAge: config.maxAge,
           requiredClaims: verifyOptions?.requiredClaims,
           typ: signOptions?.protectedHeader?.typ,
-          algorithms,
+          algorithms: key.algorithms,
         }),
+      };
+      const attempt = async (candidate: Parameters<typeof verify>[1]) =>
+        (await verify<SessionPayload>(token, candidate, opening)).payload;
+      if ("lookup" in key) return attempt(key.lookup);
+      if ("key" in key) return attempt(key.key);
+      return openWithKeys(key, {
+        ctx: JWS_ALG_CTX,
+        limit: resolveLimit(opening.limits, "keyCandidates"),
+        failure: {
+          code: "ERR_JWS_SIGNATURE_INVALID",
+          message: "JWS signature verification failed.",
+        },
+        attempt,
       });
-      return payload;
     },
   });
 }
@@ -153,6 +170,7 @@ function resolveKeys(config: JWSCodecConfig, prefix: string): ReturnType<typeof 
   return resolveVerifyKeys(config.key, {
     pin: config.jws?.signOptions?.alg,
     listed: config.jws?.verifyOptions?.algorithms,
+    keyCandidates: resolveLimit(config.jws?.verifyOptions?.limits, "keyCandidates"),
     lookup: typeof config.hooks?.onKeyLookup === "function",
     prefix,
   });

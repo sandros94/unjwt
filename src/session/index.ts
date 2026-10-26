@@ -14,6 +14,7 @@ export type {
 } from "./types.ts";
 export {
   type JWSSessionKey,
+  type JWSSessionSecret,
   type SessionConfigJWS,
   type SessionHooksJWS,
   type SessionJWS,
