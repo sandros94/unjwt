@@ -137,10 +137,10 @@ export function createJWECodec(options: {
     openOptions: (config) => config.jwe?.decryptOptions,
     issueKey: (config) => getEncryptKey(config, prefix),
     openKey: (config) => getDecryptKey(config, prefix),
-    lookup: (config, args) => {
+    lookup: (config) => {
       const hooks = config.hooks;
       if (!hooks?.onUnsealKeyLookup) return undefined;
-      return (header: JWEHeaderParameters) =>
+      return (args) => (header: JWEHeaderParameters) =>
         hooks.onUnsealKeyLookup?.({ header, ...args, config });
     },
     importable: (_key, config) => {

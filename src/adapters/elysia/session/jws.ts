@@ -51,7 +51,7 @@ export interface SessionConfigJWS<
   hooks?: SessionHooksJWS<T, MaxAge, TContext>;
 }
 
-/** Defines a JWS (signed, not encrypted) session once: `use`, `token`, `issue` and `open` serve every request, `plugin()` mounts it on an app. */
+/** Defines a JWS (signed, not encrypted) session once: `use`, `token`, `issue` and `open` serve every request, `plugin()` mounts it on an app. Throws at definition for a config it cannot use. */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -72,7 +72,7 @@ export function defineJWSSession<
   };
 }
 
-/** The Elysia plugin of a JWS (signed, not encrypted) session: `defineJWSSession(config).plugin()`. */
+/** The Elysia plugin of a JWS (signed, not encrypted) session: `defineJWSSession(config).plugin()`; throws for a config it cannot use. */
 export function jwsSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

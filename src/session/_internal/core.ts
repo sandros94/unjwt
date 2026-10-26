@@ -12,6 +12,7 @@ import type {
   SessionBinding,
   SessionCodec,
   SessionCoreConfig,
+  SessionKeys,
   SessionStore,
 } from "./types.ts";
 import type { OpenedSessionState, SessionRecord, SessionState } from "../types.ts";
@@ -62,16 +63,11 @@ export function blankSession<T extends SessionRecord, MaxAge extends ExpiresIn |
   return typedSession<T, MaxAge>({ expiresAt: undefined, data: {} });
 }
 
-export function openSessionToken<
-  T extends SessionRecord,
-  MaxAge extends ExpiresIn | undefined,
-  Config extends SessionCoreConfig,
->(
-  codec: SessionCodec<Config>,
-  config: Config,
+export function openSessionToken<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
+  keys: SessionKeys,
   options: { token: string; args: Record<string, unknown> },
 ): Promise<OpenedSessionState<T, MaxAge>> {
-  return codec.open(config, options.token, options.args).then(typedOpened<T, MaxAge>);
+  return keys.open(options.token, options.args).then(typedOpened<T, MaxAge>);
 }
 
 function typedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(

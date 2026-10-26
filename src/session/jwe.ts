@@ -49,13 +49,13 @@ export interface SessionConfigJWE<
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
 }
 
-/** Defines a JWE (encrypted) session once; `use`, `token`, `issue` and `open` serve every request. */
+/** Defines a JWE (encrypted) session once; `use`, `token`, `issue` and `open` serve every request. Throws at definition for a config it cannot use. */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends WebSessionEvent = WebSessionEvent,
 >(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
-/** Defines a JWE (encrypted) session over a framework driver of your own. */
+/** Defines a JWE (encrypted) session over a framework driver of your own. Throws at definition for a config it cannot use. */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

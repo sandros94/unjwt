@@ -53,16 +53,19 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   defaultName: string;
   defaultCookie: Record<string, unknown>;
   now: (config: Config) => number;
-  /** Resolves the issuing key before any session is read; returns the bound issuer. */
-  issuer: (config: Config) => (state: StoredSession) => Promise<string>;
+  /** Resolves the configured keys once; throws `ERR_SESSION_KEY_INVALID` or `ERR_SESSION_CONFIG_INVALID` for a key the session cannot use. */
+  keys: (config: Config) => SessionKeys;
+}
+
+/** The keys of one config, resolved: what issues and opens its tokens. */
+export interface SessionKeys {
   /** Imports every configured key, once per key object; throws `ERR_SESSION_KEY_INVALID` for an unusable one. */
-  assertKeys: (config: Config) => Promise<void>;
-  /** Resolves the opening key before the token is read (a missing key is a config error); returns the bound opener. */
-  opener: (
-    config: Config,
-    args: Record<string, unknown>,
-  ) => (token: string) => Promise<OpenedSession>;
-  open: (config: Config, token: string, args: Record<string, unknown>) => Promise<OpenedSession>;
+  assertKeys: () => Promise<void>;
+  issue: (state: StoredSession) => Promise<string>;
+  /** The opener of one request, its key lookup given that request's hook arguments. */
+  opener: (args: Record<string, unknown>) => (token: string) => Promise<OpenedSession>;
+  /** Imports the opening keys, then opens. */
+  open: (token: string, args: Record<string, unknown>) => Promise<OpenedSession>;
 }
 
 /** The write side as the read path reaches it: the manager hooks receive, and the reissue `rolling` asks for. */
@@ -77,6 +80,7 @@ export interface SessionBinding<TEvent, Config extends SessionCoreConfig> {
   config: Config;
   driver: SessionDriver<TEvent>;
   codec: SessionCodec<Config>;
+  keys: SessionKeys;
   actions: SessionActions<TEvent, Config>;
   /** Session name — drives the cookie name and the default session header. */
   name: string;

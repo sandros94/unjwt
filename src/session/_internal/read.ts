@@ -21,11 +21,11 @@ export async function loadSession<
   TEvent,
   Config extends SessionCoreConfig,
 >(binding: SessionBinding<TEvent, Config>): Promise<SessionState<T, MaxAge>> {
-  const { config, codec, store, args, transport } = binding;
+  const { config, codec, keys, store, args, transport } = binding;
 
   // Key errors are misconfiguration: thrown, never reported through `onError`.
-  await codec.assertKeys(config);
-  const open = codec.opener(config, args);
+  await keys.assertKeys();
+  const open = keys.opener(args);
   assertTokenSource(transport, { prefix: binding.driver.prefix });
 
   const existing = storedSession<T, MaxAge>(store);

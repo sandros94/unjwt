@@ -11,6 +11,7 @@ import type {
   SessionBinding,
   SessionCodec,
   SessionCoreConfig,
+  SessionKeys,
   SessionStore,
 } from "./types.ts";
 import {
@@ -23,35 +24,44 @@ import {
 /** The session names bound on one request, in a slot of its state record. */
 const kSessionNames: unique symbol = Symbol("unjwt_session_names");
 
-/** Validates the config, claims its name on the request and resolves where its token travels. */
+/** Checks what the config alone decides: its name, session header, cookie prefix and `rolling`. */
+export function assertSessionConfig(
+  config: SessionCoreConfig,
+  options: { name: string; prefix: string; defaultCookie: Record<string, unknown> },
+): void {
+  const { name, prefix } = options;
+  assertSessionName(name, { prefix });
+  assertSessionHeader(config.sessionHeader, { prefix });
+  if (config.cookie !== false) {
+    const attrs: Record<string, unknown> = { ...options.defaultCookie, ...config.cookie };
+    assertCookiePrefix(name, attrs, { prefix });
+  }
+  assertRolling(config, { prefix });
+}
+
+/** Claims the session's name on the request and resolves where its token travels; the config was checked when the session was defined. */
 export function bindSession<TEvent, Config extends SessionCoreConfig>(
   event: TEvent,
-  config: Config,
   options: {
+    config: Config;
+    name: string;
     driver: SessionDriver<TEvent>;
     codec: SessionCodec<Config>;
+    keys: SessionKeys;
     actions: SessionActions<TEvent, Config>;
     /** The hook argument naming the request, as the public entry names it: `{ event }` or `{ context }`. */
     hookArgs: (event: TEvent) => Record<string, unknown>;
   },
 ): SessionBinding<TEvent, Config> {
-  const { driver, codec, actions, hookArgs } = options;
-  const { prefix } = driver;
-  const name = config.name || codec.defaultName;
-  assertSessionName(name, { prefix });
-  assertSessionHeader(config.sessionHeader, { prefix });
-  if (config.cookie !== false) {
-    const attrs: Record<string, unknown> = { ...codec.defaultCookie, ...config.cookie };
-    assertCookiePrefix(name, attrs, { prefix });
-  }
-  assertRolling(config, { prefix });
+  const { config, name, driver, codec, keys, actions, hookArgs } = options;
   const record = driver.state(event);
-  claimSessionName(record, { name, family: codec.family, prefix });
+  claimSessionName(record, { name, family: codec.family, prefix: driver.prefix });
   return {
     event,
     config,
     driver,
     codec,
+    keys,
     actions,
     name,
     args: hookArgs(event),

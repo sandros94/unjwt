@@ -40,7 +40,7 @@ export async function issueSession<
   options?: SessionIssueOptions,
   trigger: SessionUpdateTrigger = "update",
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
-  const { config, codec, driver, store, args, transport } = binding;
+  const { config, keys, driver, store, args, transport } = binding;
 
   assertWritable(transport, { operation: "update", prefix: driver.prefix });
 
@@ -66,8 +66,8 @@ export async function issueSession<
 
   let issued: SessionState<T, MaxAge> & { id: string; token: string };
   try {
-    await codec.assertKeys(config);
-    const token = await codec.issuer(config)(session);
+    await keys.assertKeys();
+    const token = await keys.issue(session);
     transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
     issued = Object.assign(session, { id, token });
   } catch (error_) {

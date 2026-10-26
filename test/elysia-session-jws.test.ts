@@ -6,8 +6,10 @@ import type {
   JWSAsymmetricPrivateJWK,
   JWSAsymmetricPublicJWK,
 } from "../src/core/types/index.ts";
+import { isJWTError } from "../src/error.ts";
 import {
   defineJWSSession,
+  jwsSession,
   type SessionConfigJWS,
   type SessionContext,
 } from "../src/adapters/elysia/session/jws.ts";
@@ -244,6 +246,21 @@ describe("elysia JWS session core", () => {
     expect(s2.data.user).toBe("grace");
   });
 
+  it("refuses a config it cannot use at definition, the plugin factory included", () => {
+    for (const define of [defineJWSSession, jwsSession]) {
+      const rolling = thrown(() => define({ key: hsKey, maxAge: 60, rolling: 60 }));
+      expect(isJWTError(rolling, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((rolling as Error).message).toBe(
+        '[unjwt/elysia] "rolling" must be shorter than "maxAge".',
+      );
+
+      const pair = thrown(() =>
+        define({ key: { privateKey: rsa.publicKey, publicKey: rsa.publicKey } as never }),
+      );
+      expect(isJWTError(pair, "ERR_SESSION_KEY_INVALID")).toBe(true);
+    }
+  });
+
   it("omits exp when maxAge is unset and enforces it when set", async () => {
     const noExp = makeContext();
     const s1 = await defineJWSSession({ key: hsKey }).use(noExp.context);
@@ -264,3 +281,12 @@ describe("elysia JWS session core", () => {
     defineJWSSession<SessionClaims, undefined, "auth">({ key: hsKey });
   });
 });
+
+function thrown(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}

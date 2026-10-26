@@ -172,4 +172,6 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 | `ERR_SESSION_READONLY_EVENT` | `update()` on a cookie session opened without a `res`; `update()`/`clear()` once a driver's `writable()` is `false`. |
 | `ERR_INVALID_OPTION` | `update()` data not a plain object, or a `__proto__`-like key. |
 
+`defineJWSSession()`/`defineJWESession()` throw for what the config alone decides: `name`, `sessionHeader`, `__Host-`/`__Secure-` cookie options, `rolling` (`ERR_INVALID_OPTION` when neither `true` nor a duration), a `key` missing, a string or of the wrong shape (a JWE key asymmetric), an unpinned `CryptoKey`. Key import, the token source and the event throw from the call that needs them: `use()`, `token()`, `issue()`, `open()`.
+
 An unreadable incoming token goes to `onError` as `ERR_SESSION_TOKEN_INVALID` and its cookie is dropped (kept only when a key lookup hook threw); an expired one, cookie dropped too, to `onExpire`. Neither throws from `use()`.

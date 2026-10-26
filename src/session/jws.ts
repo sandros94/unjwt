@@ -49,13 +49,13 @@ export interface SessionConfigJWS<
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 
-/** Defines a JWS (signed, not encrypted) session once, its data readable by clients; `use`, `token`, `issue` and `open` serve every request. */
+/** Defines a JWS (signed, not encrypted) session once, its data readable by clients; `use`, `token`, `issue` and `open` serve every request. Throws at definition for a config it cannot use. */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends WebSessionEvent = WebSessionEvent,
 >(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
-/** Defines a JWS (signed, not encrypted) session over a framework driver of your own. */
+/** Defines a JWS (signed, not encrypted) session over a framework driver of your own. Throws at definition for a config it cannot use. */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

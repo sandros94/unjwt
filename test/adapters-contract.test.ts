@@ -3537,12 +3537,16 @@ function coreBinding(
     family === "jws"
       ? createJWSCodec({ prefix: "[test]", defaultName: "core-jws" })
       : createJWECodec({ prefix: "[test]", defaultName: "core-jwe" });
+  const core = codec as unknown as SessionCodec<SessionCoreConfig>;
+  const bound = { key: family === "jws" ? jwsKey : jweKey, ...config } as SessionCoreConfig;
   return bindSession<object, SessionCoreConfig>(
     {},
-    { key: family === "jws" ? jwsKey : jweKey, ...config } as SessionCoreConfig,
     {
+      config: bound,
+      name: bound.name || core.defaultName,
       driver,
-      codec: codec as unknown as SessionCodec<SessionCoreConfig>,
+      codec: core,
+      keys: core.keys(bound),
       actions: sessionActions(),
       hookArgs: () => ({}),
     },

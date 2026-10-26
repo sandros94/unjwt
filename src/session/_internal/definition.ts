@@ -1,14 +1,14 @@
 import type { ExpiresIn } from "../../core/types/index.ts";
 import type { SessionDriver } from "./driver.ts";
 import { resolveExpiresAt, sanitizeSessionUpdate } from "./contract.ts";
-import { bindSession, sessionToken } from "./bind.ts";
+import { assertSessionConfig, bindSession, sessionToken } from "./bind.ts";
 import type { SessionActions, SessionCodec, SessionCoreConfig } from "./types.ts";
 import { mintSessionId, openSessionToken, sessionInstant } from "./core.ts";
 import { loadSession } from "./read.ts";
 import { sessionActions, sessionManager } from "./write.ts";
 import type { SessionDefinition, SessionRecord } from "../types.ts";
 
-/** Binds a config to a framework driver and a codec; nothing is validated or read until a method runs. */
+/** Binds a config to a framework driver and a codec, checking the config and resolving its keys up front; key imports and requests wait for a method to run. */
 export function defineSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -24,8 +24,12 @@ export function defineSession<
   },
 ): SessionDefinition<T, MaxAge, TEvent> {
   const { driver, codec, hookArgs } = options;
+  const name = config.name || codec.defaultName;
+  assertSessionConfig(config, { name, prefix: driver.prefix, defaultCookie: codec.defaultCookie });
+  const keys = codec.keys(config);
   const actions: SessionActions<TEvent, Config> = sessionActions();
-  const bind = (event: TEvent) => bindSession(event, config, { driver, codec, actions, hookArgs });
+  const bind = (event: TEvent) =>
+    bindSession(event, { config, name, driver, codec, keys, actions, hookArgs });
 
   return {
     use: async (event) => {
@@ -37,10 +41,9 @@ export function defineSession<
     token: (event) => sessionToken(bind(event)),
 
     issue: async (data, issueOptions) => {
-      await codec.assertKeys(config);
-      const issue = codec.issuer(config);
+      await keys.assertKeys();
       const createdAt = sessionInstant({ codec, config });
-      return issue({
+      return keys.issue({
         id: mintSessionId(config),
         createdAt,
         expiresAt: resolveExpiresAt(createdAt, { maxAge: issueOptions?.maxAge ?? config.maxAge }),
@@ -49,6 +52,6 @@ export function defineSession<
       });
     },
 
-    open: (token) => openSessionToken<T, MaxAge, Config>(codec, config, { token, args: {} }),
+    open: (token) => openSessionToken<T, MaxAge>(keys, { token, args: {} }),
   };
 }

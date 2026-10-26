@@ -852,18 +852,163 @@ describe("unjwt/session types", () => {
   });
 });
 
+describe("unjwt/session checks its config when defined", () => {
+  type Code = "ERR_SESSION_CONFIG_INVALID" | "ERR_SESSION_KEY_INVALID" | "ERR_INVALID_OPTION";
+  const refusals: {
+    label: string;
+    config: Record<string, unknown>;
+    code: Code;
+    message: string;
+  }[] = [
+    {
+      label: "rolling without a maxAge",
+      config: { rolling: true },
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message: '"rolling" needs a "maxAge" to extend.',
+    },
+    {
+      label: "rolling not shorter than maxAge",
+      config: { maxAge: 60, rolling: "1m" },
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message: '"rolling" must be shorter than "maxAge".',
+    },
+    {
+      label: "rolling neither true nor a duration",
+      config: { maxAge: 60, rolling: false },
+      code: "ERR_INVALID_OPTION",
+      message: '"rolling" must be true or a duration.',
+    },
+    {
+      label: "a name that is not a cookie name",
+      config: { name: "bad name" },
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message: 'Session "name" must be a valid cookie name',
+    },
+    {
+      label: "a name spelling a chunk cookie",
+      config: { name: "web.1" },
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message: "cannot end in a dot and digits",
+    },
+    {
+      label: "a sessionHeader that is not a header name",
+      config: { sessionHeader: "x session" },
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message: 'Session "sessionHeader" must be true, false or a header name',
+    },
+    {
+      label: "a __Host- name with a Domain",
+      config: { name: "__Host-web", cookie: { domain: "example.com" } },
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message: 'a "__Host-" cookie must be Secure, with Path=/ and no Domain',
+    },
+    {
+      label: "a missing key",
+      config: { key: undefined },
+      code: "ERR_SESSION_KEY_INVALID",
+      message: 'Session "key" is required.',
+    },
+    {
+      label: "a password string as key",
+      config: { key: "secret" },
+      code: "ERR_SESSION_KEY_INVALID",
+      message: 'Session "key" cannot be a string',
+    },
+  ];
+
+  it.each(FAMILIES.flatMap((family) => refusals.map((refusal) => ({ ...family, ...refusal }))))(
+    "$family: refuses $label",
+    ({ define, config, code, message }) => {
+      const error = thrown(() => define(config));
+      expect(isJWTError(error, code)).toBe(true);
+      expect((error as Error).message).toContain(message);
+    },
+  );
+
+  it("refuses a CryptoKey without its algorithm pinned, and takes one with it", async () => {
+    const [hmac, wrap] = await Promise.all([generateKey("HS256"), generateKey("A128KW")]);
+    for (const error of [
+      thrown(() => defineJWSSession({ key: hmac })),
+      thrown(() => defineJWESession({ key: wrap })),
+    ]) {
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((error as Error).message).toContain("carries no algorithm");
+    }
+
+    const jws = defineJWSSession({
+      name: "web",
+      key: hmac,
+      jws: { signOptions: { alg: "HS256" } },
+    });
+    const jwe = defineJWESession({
+      name: "web",
+      key: wrap,
+      jwe: { encryptOptions: { alg: "A128KW", enc: "A128GCM" } },
+    });
+    expect((await jws.open(await jws.issue({ user: "ada" }))).data).toEqual({ user: "ada" });
+    expect((await jwe.open(await jwe.issue({ user: "ada" }))).data).toEqual({ user: "ada" });
+  });
+
+  it("refuses a JWS key pair whose halves are not what they are named", async () => {
+    const { publicKey } = await generateJWK("RS256");
+    const error = thrown(() =>
+      defineJWSSession({ key: { privateKey: publicKey, publicKey } as never }),
+    );
+    expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+    expect((error as Error).message).toContain('"privateKey" must be a private JWK or a CryptoKey');
+  });
+
+  it.each(FAMILIES)(
+    "$family: defines a key that fails only on import, and throws on use",
+    async ({ family, define }) => {
+      const key =
+        family === "jws"
+          ? { kty: "oct", k: "!!!not-base64url!!!", alg: "HS256" }
+          : { kty: "oct", k: "A".repeat(27), alg: "A128KW" };
+      const session = define({ key });
+      const errors = [
+        await caught(session.use({ req: get(), res: { headers: new Headers() } })),
+        await caught(session.issue({ user: "ada" })),
+      ];
+      for (const error of errors) expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: defines a session without a token source, refused per request",
+    async ({ define }) => {
+      const session = define({ cookie: false, sessionHeader: false });
+      const error = await caught(session.use({ req: get() }));
+      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((await session.open(await session.issue({ user: "ada" }))).data).toEqual({
+        user: "ada",
+      });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a valid rolling session defines, reads and rolls as before",
+    async ({ define }) => {
+      const session = define({ maxAge: 60, rolling: true });
+      const token = await session.issue({ user: "ada" });
+      const headers = new Headers();
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+      expect(manager.data).toEqual({ user: "ada" });
+      expect(headers.getSetCookie().some((line) => line.startsWith("web="))).toBe(true);
+    },
+  );
+});
+
 describe("JWE session keys", () => {
   const asymmetric = (error: unknown) =>
     isJWTError(error, "ERR_SESSION_KEY_INVALID") &&
     error.message.includes("an asymmetric key seals with its public half") &&
     error.message.includes("defineJWSSession");
 
-  const firstUse = (key: unknown) =>
-    defineJWESession({ name: "web", key: key as JWESessionKey })
-      .use({ req: get(), res: { headers: new Headers() } })
-      .catch((error: unknown) => error);
+  const defined = (key: unknown) =>
+    thrown(() => defineJWESession({ name: "web", key: key as JWESessionKey }));
 
-  it("refuses a key pair, a lone private or public JWK and a non-secret CryptoKey on first use", async () => {
+  it("refuses a key pair, a lone private or public JWK and a non-secret CryptoKey at definition", async () => {
     const [jwkPair, cryptoPair] = await Promise.all([
       generateJWK("RSA-OAEP-256"),
       generateKey("RSA-OAEP-256"),
@@ -882,12 +1027,12 @@ describe("JWE session keys", () => {
       { current: cryptoPair.privateKey, keys: [] },
     ];
 
-    for (const key of refused) expect(asymmetric(await firstUse(key))).toBe(true);
+    for (const key of refused) expect(asymmetric(defined(key))).toBe(true);
   });
 
-  it("refuses a rotation set whose keys are not a list or a JWK Set of oct JWKs", async () => {
+  it("refuses a rotation set whose keys are not a list or a JWK Set of oct JWKs", () => {
     for (const keys of [undefined, "keys", [{ kty: "oct" }]]) {
-      const error = await firstUse({ current: jweKey, keys });
+      const error = defined({ current: jweKey, keys });
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
       expect((error as Error).message).toContain('"keys"');
     }
@@ -1053,3 +1198,12 @@ describe("a throwing onRead", () => {
     expect(reads).toBe(1);
   });
 });
+
+function thrown(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}

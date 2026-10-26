@@ -8,6 +8,7 @@ import type {
 import { isJWTError } from "../src/error.ts";
 import {
   defineJWESession,
+  jweSession,
   type SessionConfigJWE,
   type SessionContext,
 } from "../src/adapters/elysia/session/jwe.ts";
@@ -220,16 +221,25 @@ describe("elysia JWE session core", () => {
     expect(onClear.mock.calls[0][0].oldSession.id).toBe(idBefore);
   });
 
-  it("refuses an asymmetric key pair, or its private half alone, on first use", async () => {
+  it("refuses an asymmetric key pair, or its private half alone, at definition", () => {
     for (const key of [rsa, { privateKey: rsa.privateKey }, rsa.privateKey]) {
-      const error = await defineJWESession({
-        key: key as never,
-      })
-        .use(makeContext().context)
-        .catch((error_: unknown) => error_);
+      const error = thrown(() => defineJWESession({ key: key as never }));
 
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
       expect((error as Error).message).toContain("an asymmetric key seals with its public half");
+    }
+  });
+
+  it("refuses a config it cannot use at definition, the plugin factory included", () => {
+    for (const define of [defineJWESession, jweSession]) {
+      const rolling = thrown(() => define({ key: jweKey, rolling: true }));
+      expect(isJWTError(rolling, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect((rolling as Error).message).toBe(
+        '[unjwt/elysia] "rolling" needs a "maxAge" to extend.',
+      );
+
+      const header = thrown(() => define({ key: jweKey, sessionHeader: "x session" }));
+      expect(isJWTError(header, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
     }
   });
 
@@ -262,3 +272,12 @@ describe("elysia JWE session core", () => {
     expect(typeof s2.expiresAt).toBe("number");
   });
 });
+
+function thrown(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}

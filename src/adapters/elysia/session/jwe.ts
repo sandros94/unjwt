@@ -51,7 +51,7 @@ export interface SessionConfigJWE<
   hooks?: SessionHooksJWE<T, MaxAge, TContext>;
 }
 
-/** Defines a JWE (encrypted) session once: `use`, `token`, `issue` and `open` serve every request, `plugin()` mounts it on an app. */
+/** Defines a JWE (encrypted) session once: `use`, `token`, `issue` and `open` serve every request, `plugin()` mounts it on an app. Throws at definition for a config it cannot use. */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -72,7 +72,7 @@ export function defineJWESession<
   };
 }
 
-/** The Elysia plugin of a JWE (encrypted) session: `defineJWESession(config).plugin()`. */
+/** The Elysia plugin of a JWE (encrypted) session: `defineJWESession(config).plugin()`; throws for a config it cannot use. */
 export function jweSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

@@ -119,10 +119,10 @@ export function createJWSCodec(options: {
     openOptions: (config) => config.jws?.verifyOptions,
     issueKey: (config) => getSignKey(config, prefix),
     openKey: (config) => getVerifyKey(config, prefix),
-    lookup: (config, args) => {
+    lookup: (config) => {
       const hooks = config.hooks;
       if (!hooks?.onVerifyKeyLookup) return undefined;
-      return (header: JWSHeaderParameters) =>
+      return (args) => (header: JWSHeaderParameters) =>
         hooks.onVerifyKeyLookup?.({ header, ...args, config });
     },
     importable: (key) => (isJWKSet(key) ? key.keys : [key]),

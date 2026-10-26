@@ -13,7 +13,13 @@ import {
   sessionTyp,
   invalidTokenError,
 } from "./contract.ts";
-import type { OpenedSession, SessionCodec, SessionCoreConfig, StoredSession } from "./types.ts";
+import type {
+  OpenedSession,
+  SessionCodec,
+  SessionCoreConfig,
+  SessionKeys,
+  StoredSession,
+} from "./types.ts";
 
 export type SessionPayload = JWTClaims & { jti: string; iat: number };
 
@@ -29,22 +35,19 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   openOptions: (config: Config) => { clockTolerance?: number | Duration } | undefined;
   issueKey: (config: Config) => IssueKey;
   openKey: (config: Config) => OpenKey;
-  lookup: (config: Config, args: Record<string, unknown>) => OpenKey | undefined;
+  /** With a key lookup hook configured, the open key of a request's hook arguments. */
+  lookup: (config: Config) => ((args: Record<string, unknown>) => OpenKey) | undefined;
   /** The JWKs of an open key to import up front. */
   importable?: (key: OpenKey, config: Config) => readonly unknown[];
   issue: (config: Config, payload: Record<string, unknown>, key: IssueKey) => Promise<string>;
   open: (config: Config, token: string, key: OpenKey) => Promise<SessionPayload>;
 }
 
-/** Keys resolve before any token is read, each configured key checked once per key object; open failures other than expiry become `ERR_SESSION_TOKEN_INVALID`. */
+/** Keys resolve once per config, each configured key imported once per key object; open failures other than expiry become `ERR_SESSION_TOKEN_INVALID`. */
 export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, OpenKey>(
   spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
 ): SessionCodec<Config> {
   const { prefix } = spec;
-  const alg = (config: Config) => spec.issueOptions(config)?.alg;
-
-  const keyFor = (config: Config, args: Record<string, unknown>): OpenKey =>
-    spec.lookup(config, args) ?? spec.openKey(config);
 
   const now = (config: Config) => spec.issueOptions(config)?.currentDate?.getTime() ?? Date.now();
 
@@ -59,14 +62,6 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
     return opened;
   };
 
-  const assertOpenKey = async (config: Config): Promise<void> => {
-    if (spec.lookup(config, {})) return;
-    const key = spec.openKey(config);
-    for (const candidate of spec.importable ? spec.importable(key, config) : [key]) {
-      await assertImportableKey(candidate, { alg: alg(config), prefix });
-    }
-  };
-
   return {
     family: spec.family,
     defaultName: spec.defaultName,
@@ -74,25 +69,32 @@ export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, O
 
     now,
 
-    issuer: (config) => {
-      const key = spec.issueKey(config);
-      return (state) => spec.issue(config, sessionPayload(state), key);
-    },
+    keys: (config): SessionKeys => {
+      const issueKey = spec.issueKey(config);
+      const { keyFor, importable } = openingKeys(spec, config);
+      const imports = { alg: spec.issueOptions(config)?.alg, prefix };
+      const assertOpenKeys = async (): Promise<void> => {
+        for (const candidate of importable) await assertImportableKey(candidate, imports);
+      };
 
-    assertKeys: async (config) => {
-      const key = spec.issueKey(config);
-      await assertImportableKey(key, { alg: alg(config), prefix });
-      await assertOpenKey(config);
-    },
+      return {
+        assertKeys: async () => {
+          await assertImportableKey(issueKey, imports);
+          await assertOpenKeys();
+        },
 
-    opener: (config, args) => {
-      const key = keyFor(config, args);
-      return (token) => openWith(config, token, key);
-    },
+        issue: (state) => spec.issue(config, sessionPayload(state), issueKey),
 
-    open: async (config, token, args) => {
-      await assertOpenKey(config);
-      return openWith(config, token, keyFor(config, args));
+        opener: (args) => {
+          const key = keyFor(args);
+          return (token) => openWith(config, token, key);
+        },
+
+        open: async (token, args) => {
+          await assertOpenKeys();
+          return openWith(config, token, keyFor(args));
+        },
+      };
     },
   };
 }
@@ -247,4 +249,15 @@ function openedSession(
     expiresAt: exp === undefined || bound === undefined ? (exp ?? bound) : Math.min(exp, bound),
     data,
   };
+}
+
+/** The lookup hook picks a request's open key, else the configured one serves every request and is imported up front. */
+function openingKeys<Config extends SessionCoreConfig, IssueKey, OpenKey>(
+  spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
+  config: Config,
+): { keyFor: (args: Record<string, unknown>) => OpenKey; importable: readonly unknown[] } {
+  const lookup = spec.lookup(config);
+  if (lookup) return { keyFor: lookup, importable: [] };
+  const key = spec.openKey(config);
+  return { keyFor: () => key, importable: spec.importable ? spec.importable(key, config) : [key] };
 }
