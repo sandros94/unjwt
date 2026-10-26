@@ -26,9 +26,9 @@ export interface SessionCookie {
 
 /** How one session reads its token from the request and writes it to the response. */
 export interface SessionTransport {
-  /** Where the token is read from: the driver's handed token, the session header, or the cookie. Only a cookie is written back. */
-  source: "handed" | "header" | "cookie";
-  /** The handed token, else the session header's, else the cookie this response wrote, else the request's. Absent without a token source. */
+  /** Where the token is read from: the driver's token in hand, the session header, or the cookie. Only a cookie is written back. */
+  source: "token" | "header" | "cookie";
+  /** The token in hand, else the session header's, else the cookie this response wrote, else the request's. Absent without a token source. */
   read?: () => string | undefined;
   /** The session header is present but holds neither a bare token nor `Bearer <token>`. */
   malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID">;
@@ -43,8 +43,9 @@ export interface SessionTransport {
 }
 
 /**
- * Resolves the transport of one request: a token the driver hands in, else the session header the request sends, else the cookie.
- * A handed or header token is reissued onto the session only. Only a cookie session writes back.
+ * Resolves the transport of one request, before any token is opened: a token the driver hands in, else the session header the request sends, else the cookie.
+ * A header that holds the very token of the request's cookie is the cookie. Any other header is read alone, the cookie left as it is.
+ * A token in hand or a header token is reissued onto the session only. Only a cookie session writes back.
  */
 export function resolveTransport<TEvent>(
   driver: SessionDriver<TEvent>,
@@ -53,22 +54,17 @@ export function resolveTransport<TEvent>(
 ): SessionTransport {
   const handed = driver.handed?.(event);
   if (handed) {
-    return { source: "handed", read: () => handed.token, readonly: false, writable: () => true };
+    return { source: "token", read: () => handed.token, readonly: false, writable: () => true };
   }
 
   const { config, name } = options;
   const header = presentedHeader(driver, event, options);
-  if (header || config.cookie === false) {
-    return {
-      source: "header",
-      read: readsHeader(config) ? () => header?.token : undefined,
-      malformed: header?.malformed,
-      readonly: false,
-      writable: () => true,
-    };
+  if (config.cookie === false) return headerTransport(config, header);
+  const jar = driver.cookies(event);
+  if (header && (header.token === undefined || header.token !== readChunked(jar, name))) {
+    return headerTransport(config, header);
   }
 
-  const jar = driver.cookies(event);
   const store = responseStore(jar);
   const transport: SessionTransport = {
     source: "cookie",
@@ -162,6 +158,20 @@ function presentedHeader<TEvent>(
     malformed: invalidTokenError(
       `${driver.prefix} Invalid session token: the "${header}" header holds neither a token nor "Bearer <token>".`,
     ),
+  };
+}
+
+/** Reads the session header when `sessionHeader` enables it, and writes nothing back. */
+function headerTransport(
+  config: SessionTokenSource,
+  header: ReturnType<typeof presentedHeader>,
+): SessionTransport {
+  return {
+    source: "header",
+    read: readsHeader(config) ? () => header?.token : undefined,
+    malformed: header?.malformed,
+    readonly: false,
+    writable: () => true,
   };
 }
 

@@ -73,7 +73,8 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   name?: string;
   /**
    * Request header to read a bare or `Bearer` token from: a header name, `true` for `x-<name>-session` (without a `__Host-` or `__Secure-` prefix), or `false` for none.
-   * A request that sends it is read from it alone and gets no cookie back. A value that is not a token runs `onError`.
+   * A request that sends it is read from it alone and its cookie is left as it is, unless the header holds the very token of the request's session cookie: that request is a cookie session.
+   * A value that is not a token runs `onError`.
    * With no header read and `cookie: false`, the session has no token source and reading it throws `ERR_SESSION_CONFIG_INVALID`. @default undefined (no header is read)
    */
   sessionHeader?: boolean | string;

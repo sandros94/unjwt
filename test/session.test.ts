@@ -20,6 +20,8 @@ import {
   defineJWSSession,
   defineSessionDriver,
 } from "../src/session/index.ts";
+import { resolveTransport } from "../src/session/_internal/transport.ts";
+import { webSessionDriver } from "../src/session/_internal/web-driver.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
 const rotation = await Promise.all(
@@ -561,6 +563,163 @@ describe("unjwt/session token sources", () => {
 
       const manager = await session.use({ req: get({ cookie: `web=${fromCookie}` }) });
       expect(manager.data).toEqual({ who: "cookie" });
+    },
+  );
+});
+
+describe("unjwt/session decides the token source once per request", () => {
+  const SOURCES = [
+    {
+      label: "the header alone",
+      event: { req: get({ "x-web-session": "abc" }) },
+      config: { sessionHeader: true },
+      source: "header",
+    },
+    {
+      label: "the cookie alone",
+      event: { req: get({ cookie: "web=abc" }) },
+      config: { sessionHeader: true },
+      source: "cookie",
+    },
+    {
+      label: "the header and the cookie holding the same token",
+      event: { req: get({ "cookie": "web=abc", "x-web-session": "Bearer abc" }) },
+      config: { sessionHeader: true },
+      source: "cookie",
+    },
+    {
+      label: "the header and a chunked cookie holding the same token",
+      event: {
+        req: get({ "cookie": "web=__chunked__2; web.1=ab; web.2=c", "x-web-session": "abc" }),
+      },
+      config: { sessionHeader: true },
+      source: "cookie",
+    },
+    {
+      label: "the header and a cookie holding another token",
+      event: { req: get({ "cookie": "web=abc", "x-web-session": "abd" }) },
+      config: { sessionHeader: true },
+      source: "header",
+    },
+    {
+      label: "a malformed header and a cookie",
+      event: { req: get({ "cookie": "web=abc", "x-web-session": "Basic abc" }) },
+      config: { sessionHeader: true },
+      source: "header",
+    },
+    {
+      label: "the header and the same token with cookies off",
+      event: { req: get({ "cookie": "web=abc", "x-web-session": "abc" }) },
+      config: { sessionHeader: true, cookie: false },
+      source: "header",
+    },
+    {
+      label: "the header with sessionHeader unset",
+      event: { req: get({ "cookie": "web=abc", "x-web-session": "abd" }) },
+      config: {},
+      source: "cookie",
+    },
+    { label: "a token in hand", event: { token: "abc" }, config: {}, source: "token" },
+  ] as const;
+
+  it.each(SOURCES)("$label: $source", ({ event, config, source }) => {
+    const transport = resolveTransport(webSessionDriver, event, { config, name: "web" });
+    expect(transport.source).toBe(source);
+  });
+
+  it.each(FAMILIES)(
+    "$family: a header holding the cookie's token is a cookie session",
+    async ({ define }) => {
+      const session = define({ sessionHeader: true });
+      const token = await session.issue({ who: "both" });
+      const headers = new Headers();
+      const manager = await session.use({
+        req: get({ "cookie": `web=${token}`, "x-web-session": token }),
+        res: { headers },
+      });
+      expect(manager.data).toEqual({ who: "both" });
+
+      await manager.update({ who: "updated" });
+      const [line = ""] = linesOf(headers, "web");
+      expect(line.startsWith(`web=${manager.token}`)).toBe(true);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a header holding the chunked cookie's token is a cookie session",
+    async ({ define }) => {
+      const session = define({ sessionHeader: true, cookie: { chunkMaxLength: 64 } });
+      const signIn = new Headers();
+      const signedIn = await session.use({ req: get(), res: { headers: signIn } });
+      await signedIn.update({ who: "chunked" });
+      expect(chunkCount(signIn)).toBeGreaterThan(1);
+
+      const headers = new Headers();
+      const manager = await session.use({
+        req: get({ "cookie": replay(signIn), "x-web-session": String(signedIn.token) }),
+        res: { headers },
+      });
+      expect(manager.data).toEqual({ who: "chunked" });
+      await manager.update({ who: "updated" });
+      expect(chunkCount(headers)).toBeGreaterThan(1);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a bad token in both the header and the cookie drops the cookie",
+    async ({ define }) => {
+      const onError = vi.fn();
+      const session = define({ sessionHeader: true, hooks: { onError } });
+      const headers = new Headers();
+      const manager = await session.use({
+        req: get({ "cookie": "web=garbage", "x-web-session": "garbage" }),
+        res: { headers },
+      });
+      expect(manager.id).toBeUndefined();
+      expect(onError).toHaveBeenCalledOnce();
+      expect(linesOf(headers, "web")).toEqual([expect.stringContaining("Max-Age=0")]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a header holding another token leaves the cookie untouched",
+    async ({ define }) => {
+      const session = define({ sessionHeader: true });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const fromHeader = await session.issue({ who: "header" });
+      const headers = new Headers();
+      const event = {
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": fromHeader }),
+        res: { headers },
+      };
+
+      const manager = await session.use(event);
+      expect(manager.data).toEqual({ who: "header" });
+      await manager.update({ who: "updated" });
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a header token that fails to open does not fall back to the cookie",
+    async ({ define }) => {
+      const onError = vi.fn();
+      const onRead = vi.fn();
+      const session = define({ sessionHeader: true, hooks: { onError, onRead } });
+      const fromCookie = await session.issue({ who: "cookie" });
+      const headers = new Headers();
+      const event = {
+        req: get({ "cookie": `web=${fromCookie}`, "x-web-session": "garbage" }),
+        res: { headers },
+      };
+
+      const manager = await session.use(event);
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(session.token(event)).toBeUndefined();
+      expect(onRead).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledOnce();
+      expect(headers.getSetCookie()).toEqual([]);
     },
   );
 });

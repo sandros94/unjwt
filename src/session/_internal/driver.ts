@@ -22,6 +22,6 @@ export interface SessionDriver<TEvent> {
   cookies(event: TEvent): CookieJar;
   /** Returns `false` once the response was sent (Node `headersSent`): `update()` and `clear()` then throw `ERR_SESSION_READONLY_EVENT`. Omitted, the response stays writable. */
   writable?(event: TEvent): boolean;
-  /** Returns `{ token }` when the event holds the token itself. No cookie or header is read then. */
+  /** Returns `{ token }` when the event holds the token itself. No cookie or header is read then, and the session's source is `"token"`. */
   handed?(event: TEvent): { token: string | undefined } | undefined;
 }
