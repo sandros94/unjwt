@@ -12,13 +12,15 @@ import { keyToJWK } from "../_crypto/index.ts";
 import { assertNoReservedJWKParams } from "./_internal/members.ts";
 
 /**
- * Exports an extractable `CryptoKey` as a JWK, merging optional `jwkParams` metadata.
+ * Exports an extractable `CryptoKey` as a JWK and copies the `jwkParams` metadata onto it.
+ * The JWK has no `ext` or `key_ops` member.
  *
- * The `alg` is WebCrypto's, which knows no JOSE roles: an AES-GCM key minted for `A128GCMKW`
- * exports as `A128GCM`, so key-wrapping keys are minted with `generateJWK` instead.
+ * The `alg` is the one Web Crypto exports: an AES-GCM key exports as `A128GCM`, even one meant
+ * for `A128GCMKW`. Use `generateJWK` for a key wrapping JWK.
  *
- * @throws `ERR_INVALID_OPTION` if `key` is not a `CryptoKey` or `jwkParams` sets a reserved member
- *   (`alg`, `kty`, `key_ops`, `ext`, key material); `ERR_JWK_INVALID` for a non-extractable key.
+ * @throws `ERR_INVALID_OPTION` if `key` is not a `CryptoKey`, or `jwkParams` holds a non-JSON value
+ *   or sets `alg`, `kty`, `key_ops`, `ext` or a key material member.
+ * @throws `ERR_JWK_INVALID` if the key is not extractable.
  */
 export async function exportJWK<T extends JWK = JWK>(
   key: CryptoKey,
@@ -46,11 +48,11 @@ export async function exportJWK<T extends JWK = JWK>(
 }
 
 /**
- * Utility to derive the public half of an asymmetric JWK, or throw if the input is not asymmetric.
+ * Returns the public half of an asymmetric JWK.
  *
- * @param jwk An asymmetric JWK (EC, OKP, RSA) with a private scalar (`d`).
- * @throws `ERR_JWK_INVALID` if the input is not an asymmetric JWK.
- * @returns A JWK with the same public members, without the private scalar or a `k` member.
+ * @param jwk An asymmetric JWK (EC, OKP, RSA), private or public.
+ * @throws `ERR_JWK_INVALID` if `jwk` is not an asymmetric JWK, holds a non-JSON value, or lacks the public members of its key type.
+ * @returns A copy without the private members. `key_ops` keeps the public operations only (`sign` becomes `verify`).
  */
 export function toPublicJWK<T extends JWK_Asymmetric>(jwk: T): ToPublicJWKReturn<T>;
 export function toPublicJWK(jwk: JWK_Asymmetric): JWK_Public {
@@ -96,7 +98,7 @@ const PUBLIC_KEY_OPS = new Map<string, KeyUsage>([
   ["wrapKey", "wrapKey"],
 ]);
 
-/** The public operations of a private half's `key_ops`; ECDH's `deriveBits`/`deriveKey` have no public counterpart. */
+/** The public operations of a private half's `key_ops`. ECDH's `deriveBits` and `deriveKey` have no public counterpart. */
 function publicKeyOps(keyOps: unknown): KeyUsage[] {
   if (!Array.isArray(keyOps)) return [];
   const ops: KeyUsage[] = [];

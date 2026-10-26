@@ -4,7 +4,7 @@ import type { SessionDriver } from "./driver.ts";
 import type { SessionTokenSource, SessionTransport } from "./transport.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
 
-/** Session state with the in-flight read a second reader on the same request awaits. */
+/** Session state with the pending read that a second reader on the same request awaits. */
 export type PendingSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -22,7 +22,7 @@ export interface OpenedSession {
   data: Record<string, unknown>;
 }
 
-/** Declared as methods so a family's hook can take a narrower argument type. */
+/** Declared as methods, so a family's hook can take a narrower argument type. */
 export interface SessionCoreHooks {
   onRead?(args: Record<string, unknown>): void | Promise<void>;
   onUpdate?(args: Record<string, unknown>): void | Promise<void>;
@@ -53,28 +53,28 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   defaultName: string;
   defaultCookie: Record<string, unknown>;
   now: (config: Config) => number;
-  /** Resolves the configured keys once; throws `ERR_SESSION_KEY_INVALID` or `ERR_SESSION_CONFIG_INVALID` for a key the session cannot use. */
+  /** Resolves the configured keys once. Throws `ERR_SESSION_KEY_INVALID` or `ERR_SESSION_CONFIG_INVALID` for a key the session cannot use. */
   keys: (config: Config) => SessionKeys;
 }
 
-/** The keys of one config, resolved: what issues and opens its tokens. */
+/** The resolved keys of one config, which issue and open its tokens. */
 export interface SessionKeys {
-  /** Imports every configured key, once per key object; throws `ERR_SESSION_KEY_INVALID` for an unusable one. */
+  /** Imports every configured key, once per key object. Throws `ERR_SESSION_KEY_INVALID` for an unusable one. */
   assertKeys: () => Promise<void>;
   issue: (state: StoredSession) => Promise<string>;
-  /** The opener of one request, its key lookup given that request's hook arguments. */
+  /** The opener of one request, whose key lookup gets that request's hook arguments. */
   opener: (args: Record<string, unknown>) => (token: string) => Promise<OpenedSession>;
   /** Imports the opening keys, then opens. */
   open: (token: string, args: Record<string, unknown>) => Promise<OpenedSession>;
 }
 
-/** The write side as the read path reaches it: the manager hooks receive, and the reissue `rolling` asks for. */
+/** The write side the read path calls: the manager hooks receive, and the reissue `rolling` asks for. */
 export interface SessionActions<TEvent, Config extends SessionCoreConfig> {
   manager: (binding: SessionBinding<TEvent, Config>) => object;
   roll: (binding: SessionBinding<TEvent, Config>) => Promise<void>;
 }
 
-/** One session of one request: its config, its framework, its codec, its write side and its token transport. */
+/** One session of one request: its config, driver, codec, write side and token transport. */
 export interface SessionBinding<TEvent, Config extends SessionCoreConfig> {
   event: TEvent;
   config: Config;
@@ -82,7 +82,7 @@ export interface SessionBinding<TEvent, Config extends SessionCoreConfig> {
   codec: SessionCodec<Config>;
   keys: SessionKeys;
   actions: SessionActions<TEvent, Config>;
-  /** Session name — drives the cookie name and the default session header. */
+  /** Session name, used as the cookie name and the base of the default session header. */
   name: string;
   /** The hook argument naming the request. */
   args: Record<string, unknown>;

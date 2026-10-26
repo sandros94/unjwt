@@ -30,66 +30,65 @@ import {
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
-/** An `oct` JWK admissible for JWE key management. */
+/** An `oct` JWK that JWE key management accepts. */
 export type JWESessionOctJWK = Extract<JWEDecryptJWK, { kty: "oct" }>;
 
-/** One symmetric key: an `oct` JWK, or a secret `CryptoKey` (requires pinned `alg` and `enc`). */
+/** One symmetric key: an `oct` JWK, or a secret `CryptoKey` (requires a pinned `jwe.encryptOptions.alg` and `enc`). */
 export type JWESessionSecret = JWESessionOctJWK | CryptoKey;
 
 /**
- * A symmetric key that seals and unseals, or a rotation set: `current` seals (its `kid` goes into
- * the header) and opens, `keys` open too, picked by the token's `kid`. An asymmetric key is refused
- * with `ERR_SESSION_KEY_INVALID`: a pair seals with its public half, so anyone holding that half could
- * mint a session the server accepts; `defineJWSSession` takes a key pair.
+ * A symmetric key that encrypts and decrypts, or a rotation set: `current` encrypts (its `kid` is written to the header) and decrypts,
+ * and `keys` decrypt too, picked by the token's `kid`. An asymmetric key throws `ERR_SESSION_KEY_INVALID`: its public half encrypts,
+ * so anyone holding that half could forge a session the server accepts. Use `defineJWSSession` for a key pair.
  */
 export type JWESessionKey =
   | JWESessionSecret
   | {
-      /** Seals every token, and opens. */
+      /** Encrypts every token, and decrypts. */
       current: JWESessionSecret;
-      /** Open as well; `current` need not be repeated. With a `CryptoKey` `current`, a token whose `kid` names none of them opens with `current`. */
+      /** Decrypt too, `current` need not be repeated. With a `CryptoKey` `current`, a token whose `kid` names none of them is decrypted with `current`. */
       keys: JWESessionOctJWK[] | JWKSet<JWESessionOctJWK[]>;
     };
 
-/** JWE decrypt overrides, minus the options the adapter owns. */
+/** JWE decrypt options a session accepts. The session sets `algorithms`, `encryptionAlgorithms`, `typ`, `maxTokenAge`, `validateClaims` and `payload` itself. */
 export type SessionDecryptOptions = StrictOmit<
   JWEDecryptOptions,
   "algorithms" | "encryptionAlgorithms" | "typ" | "maxTokenAge" | "validateClaims" | "payload"
 >;
 
-/** JWE encrypt options, minus those setting `exp`/`nbf` (the adapter mints `exp` from `maxAge`). */
+/** JWE encrypt options a session accepts. The session sets `exp` from `maxAge` and never sets `nbf`. */
 export type SessionEncryptOptions = StrictOmit<
   JWEEncryptOptions,
   "expiresIn" | "expiresAt" | "notBeforeIn" | "notBeforeAt"
 >;
 
-/** JWE encrypt/decrypt overrides a session accepts. */
+/** The JWE options of a session: `encryptOptions` for each issued token, `decryptOptions` for each incoming one. */
 export interface JWESessionOptions {
   encryptOptions?: SessionEncryptOptions;
   decryptOptions?: SessionDecryptOptions;
 }
 
-/** The config of a JWE-backed (encrypted) session, minus its hooks. */
+/** The config of a JWE session, without its hooks. */
 export interface JWESessionConfig<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TCookie extends object = object,
 > extends SessionBaseConfig<MaxAge> {
-  /** Key used for sealing — see {@link JWESessionKey}. */
+  /** The key that encrypts and decrypts the token. See {@link JWESessionKey}. */
   key: JWESessionKey;
-  /** `false` to disable. Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`. */
+  /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
-  /** Pinned `encryptOptions.alg`/`enc` restrict unsealing; `protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). */
+  /** A pinned `encryptOptions.alg` and `enc` are the only algorithms decryption accepts. `encryptOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). A PBES2 session accepts at most the `p2c` it issues with, unless `decryptOptions.maxIterations` is set. */
   jwe?: JWESessionOptions;
 }
 
-/** JWE session hooks, plus the unseal key lookup. */
+/** JWE session hooks, with the decrypt key lookup. */
 export interface JWESessionHooks<
   TSession,
   TManager,
   TArgs extends Record<string, unknown>,
   TConfig,
 > extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /** Resolve the decryption key for the incoming token from its protected header (e.g. by `kid`). */
+  /** Returns the key that decrypts an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for decryption. `open()` passes it no event. */
   onUnsealKeyLookup?: (
     args: Partial<TArgs> & { header: JWEHeaderParameters; config: TConfig },
   ) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
@@ -120,7 +119,7 @@ export const JWE_DEFAULT_COOKIE = {
   sameSite: "lax",
 } as const;
 
-/** Seals session claims into a compact JWE; unsealing validates claims and `typ`, pinning algorithms when configured. */
+/** Encrypts session claims into a compact JWE and decrypts them, checking claims, `typ` and the pinned algorithms. */
 export function createJWECodec(options: {
   prefix: string;
   defaultName: string;
@@ -171,7 +170,7 @@ export function createJWECodec(options: {
   });
 }
 
-/** Caps a PBES2 session's accepted `p2c` at the count it mints itself. */
+/** Caps the `p2c` a PBES2 session accepts at the count it issues with. */
 function sessionMaxIterations(config: JWECodecConfig): number | undefined {
   const configured = config.jwe?.decryptOptions?.maxIterations;
   if (configured !== undefined) return configured;
@@ -188,7 +187,7 @@ function getEncryptKey(config: JWECodecConfig, prefix: string): JWESessionSecret
   return current;
 }
 
-/** `current` alone; with a rotation set, a JWK Set of `current` and `keys`, or with a `CryptoKey` `current`, `keys` for a token whose `kid` names one of them. */
+/** `current` alone, or for a rotation set a JWK Set of `current` and `keys`. With a `CryptoKey` `current`, a token whose `kid` names one of `keys` gets `keys`, any other `current`. */
 function getDecryptKey(config: JWECodecConfig, prefix: string): JWEOpenKey {
   const { current, previous } = sessionKeys(config, prefix);
   assertPinnedAlgEnc(current, config, prefix);
@@ -201,7 +200,7 @@ function getDecryptKey(config: JWECodecConfig, prefix: string): JWEOpenKey {
     header.kid !== undefined && previous.some((key) => key.kid === header.kid) ? set : current;
 }
 
-/** The configured key, refusing asymmetric material: a public half that seals lets its holder mint sessions. */
+/** The configured key and rotation keys. Asymmetric material throws: its public half encrypts, so its holder could forge sessions. */
 function sessionKeys(
   config: JWECodecConfig,
   prefix: string,
@@ -252,7 +251,7 @@ function keyError(
   return invalidKeyError(`${options.prefix} Invalid JWE session key: ${options.expected}.`, key);
 }
 
-/** An `oct` JWK; an `alg` outside JWE fails as the key is imported. */
+/** An `oct` JWK. An `alg` outside JWE fails when the key is imported. */
 function isOctJWK(key: unknown): key is JWESessionOctJWK {
   return isSymmetricJWK(key);
 }

@@ -12,10 +12,10 @@ export const JWE_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
   op: "enc",
 });
 
-/** RFC 7518 §4.5 / §4.6 — algorithms that agree on the CEK directly. */
+/** RFC 7518 §4.5 / §4.6: the algorithms that agree on the CEK directly. */
 export const JWE_DIRECT_ALGS: ReadonlySet<string> = /* @__PURE__ */ new Set(["dir", "ECDH-ES"]);
 
-/** Reject `"none"` and any key management `alg` outside the implemented set. */
+/** Rejects `"none"` and any key management `alg` outside the implemented set. */
 export function checkJWEAlgSupported(alg: string): JWTError | undefined {
   return checkAlgSupported(alg, {
     supported: isKeyManagementAlgorithm,

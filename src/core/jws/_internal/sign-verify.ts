@@ -13,7 +13,7 @@ import { assertProducerCrit } from "../../_internal/headers.ts";
 import { buildJWKSetFilter } from "../../_internal/keys.ts";
 import { copyJsonObject } from "../../_internal/errors.ts";
 
-/** Build a signature's protected header; precedence: `alg` > caller's header > the JWK's `kid`. */
+/** Builds a signature's protected header. `alg` overrides the caller's header, which overrides the JWK's `kid`. */
 export function buildJWSProtectedHeader(
   alg: JWSAlgorithm,
   key: unknown,
@@ -46,7 +46,7 @@ export interface VerifyWithKeyOptions {
   keyAttempts?: KeyAttemptBudget;
 }
 
-/** Verify one signature; a JWK Set tries each candidate, failing with one `ERR_JWS_SIGNATURE_INVALID` carrying every attempt. */
+/** Verifies one signature. A JWK Set tries each candidate and fails with one `ERR_JWS_SIGNATURE_INVALID`, every attempt as `cause`. */
 export async function verifyWithKey(
   alg: JWSAlgorithm,
   rawKeyMaterial: VerificationKeyMaterial,

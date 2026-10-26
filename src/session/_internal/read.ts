@@ -14,7 +14,7 @@ import type { SessionRecord, SessionState } from "../types.ts";
 import { emptySession, kSessionPending, storedSession } from "./core.ts";
 import { assertTokenSource } from "./transport.ts";
 
-/** Get (and lazily initialize) the session for the current request. */
+/** Returns the session of the current request, reading its token on the first call. */
 export async function loadSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -106,7 +106,7 @@ export async function loadSession<
         error: failure.error,
       });
     } else {
-      // A token that cannot be read is dropped like an expired one; a lookup that threw keeps it.
+      // A token that cannot be read is dropped like an expired one. A key lookup that threw keeps it.
       if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID") && isTokenFailure(failure.error)) {
         dropSessionCookie(binding);
       }
@@ -137,7 +137,7 @@ async function fireRead<TEvent, Config extends SessionCoreConfig>(
   });
 }
 
-/** Reissues the session just read when `rolling` asks, unless a hook replaced it; an event without a cookie or a sealed response leaves it to the next request. */
+/** Reissues the session it read when `rolling` asks, unless a hook replaced it. A cookie session without a response, or with one already sent, leaves it to the next request. */
 async function rollSession<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
   session: StoredSession,

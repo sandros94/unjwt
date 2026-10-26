@@ -20,13 +20,13 @@ import { webSessionDriver } from "./_internal/web-driver.ts";
 
 export type { SessionDecryptOptions, SessionEncryptOptions } from "./_internal/codec-jwe.ts";
 
-/** Session state for the current request, mirroring the claims of its JWE token. */
+/** Session state for the current request, from the claims of its JWE token. */
 export interface SessionJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
-/** JWE session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
+/** JWE session hooks. `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
 export interface SessionHooksJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -38,24 +38,35 @@ export interface SessionHooksJWE<
   SessionConfigJWE<T, MaxAge, TEvent>
 > {}
 
-/** Configuration for a JWE-backed (encrypted) session. */
+/** Configuration of an encrypted JWE session. */
 export interface SessionConfigJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent = WebSessionEvent,
 > extends JWESessionConfig<MaxAge, CookieAttributes> {
-  /** Cookie and session-header name. Default `"__Host-unjwt-jwe"` (header `x-unjwt-jwe-session`); a `.<digits>` suffix throws `ERR_SESSION_CONFIG_INVALID`. */
+  /** Cookie name, also the base of the default session header `x-unjwt-jwe-session`. A trailing `.<digits>` throws `ERR_SESSION_CONFIG_INVALID`. @default "__Host-unjwt-jwe" */
   name?: string;
+  /** Lifecycle hooks and `onUnsealKeyLookup`. */
   hooks?: SessionHooksJWE<T, MaxAge, TEvent>;
 }
 
-/** Defines a JWE (encrypted) session once; `use`, `token`, `issue` and `open` serve every request. Throws at definition for a config it cannot use. */
+/**
+ * Defines a JWE session once: encrypted, so clients cannot read its data. `use`, `token`, `issue` and `open` serve every request.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jwe.encryptOptions.alg` and `enc`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, or not an `oct` JWK, a secret `CryptoKey` or a `{ current, keys }` set.
+ * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
+ */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends WebSessionEvent = WebSessionEvent,
 >(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
-/** Defines a JWE (encrypted) session over a framework driver of your own. Throws at definition for a config it cannot use. */
+/**
+ * Defines a JWE session over a framework driver of your own, passed as `{ driver }`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jwe.encryptOptions.alg` and `enc`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, or not an `oct` JWK, a secret `CryptoKey` or a `{ current, keys }` set.
+ * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
+ */
 export function defineJWESession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

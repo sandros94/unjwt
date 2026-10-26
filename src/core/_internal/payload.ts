@@ -2,7 +2,7 @@ import type { JWTClaimValidationOptions, JWTClaims, JOSEPayloadMode } from "../t
 import { JWTError } from "../../error.ts";
 import { validateJwtClaims } from "../../utils/jwt.ts";
 
-/** Validate JWT claims of a `"json"` payload unless `validateClaims: false`. */
+/** Validates the JWT claims of a `"json"` payload, unless `validateClaims` is `false`. */
 export function validateClaimsIfJson(
   payload: unknown,
   mode: JOSEPayloadMode,
@@ -28,8 +28,10 @@ const CLAIM_OPTIONS = [
 ] as const satisfies readonly (keyof JWTClaimValidationOptions)[];
 
 /**
- * Resolve the payload mode from `payload`; an unknown mode, `validateClaims: true` off `"json"`,
- * or a claim expectation the call will not check is `ERR_INVALID_OPTION`.
+ * Returns the payload mode, `"json"` by default.
+ *
+ * @throws `ERR_INVALID_OPTION` if `payload` is not `"json"`, `"string"` or `"bytes"`, `validateClaims: true`
+ *   is set with a non-JSON payload, or a claim option is set while claims go unchecked.
  */
 export function resolvePayloadMode(
   options: JWTClaimValidationOptions & {

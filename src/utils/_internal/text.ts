@@ -1,9 +1,6 @@
 const MAX_QUOTED_VALUE = 64;
 
-/**
- * A token- or key-supplied value as an error message may name it: JSON-quoted
- * and cut to a bounded length.
- */
+/** Returns `value` as text an error message can quote: JSON-quoted, cut to 64 characters. */
 export function quoteTokenValue(value: unknown): string {
   const text = String(value);
   return JSON.stringify(

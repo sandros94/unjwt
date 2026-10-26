@@ -6,7 +6,7 @@ export const CHUNK_MARKER = "__chunked__";
 /** Chunk payload size before a token is split across `name.1` … `name.N`. */
 export const DEFAULT_CHUNK_MAX_LENGTH = 4000;
 
-/** Max chunks per session; also bounds the cleanup a forged `__chunked__N` marker can trigger. */
+/** Max chunks per session. It also bounds the cleanup a forged `__chunked__N` marker can trigger. */
 export const MAX_CHUNK_COUNT = 16;
 
 export interface ExpirableCookieAttributes {
@@ -76,7 +76,7 @@ export function writeChunked<A extends ExpirableCookieAttributes>(
   }
 }
 
-/** Expire the base cookie and every chunk the current value claims. */
+/** Expires the base cookie and every chunk the current value names. */
 export function removeChunked<A extends ExpirableCookieAttributes>(
   store: ChunkedCookieStore<A>,
   name: string,
@@ -103,7 +103,7 @@ export function setCookieName(setCookie: string): string | undefined {
   return setCookiePair(setCookie)?.name;
 }
 
-/** Replaces the `Set-Cookie` lines of `name` in `to` with those `from` holds; every other line of `to` stays. */
+/** Replaces the `Set-Cookie` lines of `name` in `to` with those `from` holds. Every other line of `to` stays. */
 export function mirrorSetCookie(name: string, headers: { from: Headers; to: Headers }): void {
   const { from, to } = headers;
   const isThisCookie = (line: string) => setCookieName(line) === name;

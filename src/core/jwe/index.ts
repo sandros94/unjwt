@@ -84,8 +84,19 @@ export { encryptMulti, decryptMulti, generalToFlattened } from "./multi.ts";
 export { DEFAULT_JOSE_LIMITS } from "../_internal/limits.ts";
 
 /**
- * Encrypt a payload into a JWE Compact Serialization string. `key` is a CryptoKey, a JWK, or
- * a PBES2 password; `alg` is inferred from it when omitted and `enc` defaults to `A256GCM`.
+ * Encrypts `payload` and returns a JWE Compact Serialization (RFC 7516 §7.1).
+ * `key` is a `CryptoKey`, a JWK, raw bytes, or a password string for PBES2.
+ * Without `alg`, a password uses `PBES2-HS256+A128KW` and an `oct` JWK whose `alg` is an `enc` uses `dir`.
+ * Any other JWK uses its own `alg`.
+ * Without `enc`, the JWK's `enc` applies, else `A256GCM`. For `dir`, `enc` comes from the CEK JWK.
+ *
+ * @throws `ERR_JWE_ALG_MISSING` if no `alg` is given and none can be inferred.
+ * @throws `ERR_JWE_ENC_MISSING` if `alg` is `dir` and neither `enc` nor the JWK names one.
+ * @throws `ERR_JWE_ALG_NOT_ALLOWED` if `alg` is `"none"` or not a supported key management algorithm.
+ * @throws `ERR_JWE_INVALID` if `enc` is not a supported content encryption algorithm.
+ * @throws `ERR_JWK_INVALID` if the key cannot serve `alg`, or a string key is used without PBES2.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, `cek` or `contentEncryptionIV` has the wrong length, or a time option is set on a string or bytes payload.
+ * @throws `ERR_JWT_CLAIM_INVALID` if both members of a time option pair are set, or `cnf.jwk` is not a public JWK.
  */
 export async function encrypt(
   payload: JOSEPayload,
@@ -220,7 +231,7 @@ export async function encrypt(
     iv: actualContentIV,
   } = await joseEncrypt(enc, plaintextBytes, finalCek, contentIVBytes, aadBytes);
 
-  // `dir` and `ECDH-ES` (direct key agreement) have no encrypted key — RFC 7516 §5.2 step 6.
+  // RFC 7516 §5.2 step 6: `dir` and `ECDH-ES` (direct key agreement) have an empty encrypted key.
   const encryptedKeyEncoded = jweEncryptedKey ? base64UrlStringify(jweEncryptedKey) : "";
 
   const jweParts: string[] = [
@@ -235,16 +246,30 @@ export async function encrypt(
 }
 
 /**
- * Decrypt a JWE Compact Serialization string; `key` may be a lookup function.
- * The payload type follows `options.payload` (claims `T` by default).
- * A compact JWE has five sections (RFC 7516 §3).
+ * Decrypts a JWE Compact Serialization (RFC 7516 §7.1) with a key, a JWK Set, a password or a key lookup function.
+ * The header `alg` must be in `algorithms`, else match the JWK's `alg`, else fit the key type.
+ * `encryptionAlgorithms` restricts the header `enc`.
+ * The payload type follows `options.payload`: claims `T` for `"json"` (default), `string`, or `Uint8Array`.
+ * With `returnCek`, the result includes the CEK and the AAD.
+ *
+ * @throws `ERR_JWE_INVALID` if the token is malformed, uses `zip`, has the wrong `typ`, an unrecognized `crit` member, or an unsupported `enc`.
+ * @throws `ERR_JWE_INVALID` if a PBES2 `p2c` is outside the iteration bounds or `limits.pbes2Iterations`.
+ * @throws `ERR_JWE_ALG_NOT_ALLOWED` if the header `alg` is unsupported or not allowed, or `enc` is outside `encryptionAlgorithms`.
+ * @throws `ERR_JWE_DECRYPTION_FAILED` if the CEK does not unwrap or the content does not decrypt.
+ * @throws `ERR_JWK_INVALID` if no key is given, or the key cannot serve the header `alg`.
+ * @throws `ERR_JWK_KEY_NOT_FOUND` if the lookup returns no key, or a JWK Set has no candidate.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, a claim option is set where claims are not validated, or `returnCek` meets a non-extractable CEK.
+ * @throws `ERR_JWT_EXPIRED` if `exp` has passed or the token is older than `maxTokenAge`.
+ * @throws `ERR_JWT_NBF` if `nbf` is in the future.
+ * @throws `ERR_JWT_CLAIM_INVALID` if a claim does not match its option or has the wrong type.
+ * @throws `ERR_JWT_CLAIM_MISSING` if a claim in `requiredClaims` or one an option checks is absent.
  */
 export async function decrypt<T extends object = JWTClaims>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
   options?: JWEDecryptOptions<"json">,
 ): Promise<JWEDecryptResult<T>>;
-/** Decrypts a compact JWE whose plaintext decodes under `options.payload`; see {@link PayloadOf}. */
+/** Decrypts a JWE Compact Serialization whose plaintext decodes under `options.payload`. See {@link PayloadOf}. */
 export async function decrypt<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jwe: string,
   key: CryptoKey | JWKSet | JWEDecryptJWK | string | Uint8Array<ArrayBuffer> | JWEKeyLookup,
@@ -377,7 +402,7 @@ function _buildJWEHeader(
   return header;
 }
 
-/** A protected header naming an `alg` and an `enc` the library implements. */
+/** Asserts the protected header names a supported `alg` and `enc`. */
 function assertHeaderAlgorithms(header: JWEHeaderParameters): asserts header is JWEProtectedHeader {
   if (!header.alg || !header.enc) {
     throw new JWTError(

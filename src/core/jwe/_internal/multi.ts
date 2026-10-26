@@ -54,7 +54,7 @@ export function _buildPerRecipientHeader(
   return header;
 }
 
-/** RFC 7516 §7.2.1 — protected, shared unprotected and per-recipient headers are disjoint. */
+/** RFC 7516 §7.2.1: the protected, shared unprotected and per-recipient headers are disjoint. */
 export function _assertDisjointHeaders(
   protectedHeader: Record<string, unknown> | undefined,
   sharedUnprotected: Record<string, unknown> | undefined,
@@ -94,7 +94,7 @@ export function _normalizeSerialization(
 ): JWEGeneralSerialization {
   assertSerializationObject(input, "JWE");
 
-  // RFC 7516 §7.2 — only `recipients` tells General from Flattened; never both.
+  // RFC 7516 §7.2: only `recipients` tells General from Flattened. The two forms never mix.
   if ("recipients" in input) {
     if ("encrypted_key" in input || "header" in input) {
       throw new JWTError(
@@ -121,7 +121,7 @@ export function _normalizeSerialization(
   return general;
 }
 
-/** RFC 7516 §7.2.1 — the JWE AAD is octets, given as bytes or as text to UTF-8 encode. */
+/** RFC 7516 §7.2.1: the JWE AAD is octets, given as bytes or as text to UTF-8 encode. */
 export function _assertAADOption(aad: unknown): void {
   if (aad === undefined || typeof aad === "string" || aad instanceof Uint8Array) return;
   throw new JWTError('"aad" must be a string or a Uint8Array.', "ERR_INVALID_OPTION");

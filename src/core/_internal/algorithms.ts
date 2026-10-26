@@ -29,7 +29,11 @@ export const JWS_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
   op: "sig",
 });
 
-/** Check the header `alg` against the allowlist, else the JWK's own `alg`, else the key-shape inference. */
+/**
+ * Returns an error when the header `alg` is not allowed. The policy is `algorithms` when set,
+ * else the JWK's own `alg`, else the algorithms inferred from the key shape.
+ * Without `algorithms` or a JWK `alg`, a missing key is `ERR_JWK_INVALID`.
+ */
 export function checkAlgAllowed<A extends JWKAlgorithm>(
   alg: A,
   key: unknown,
@@ -62,7 +66,7 @@ function notAllowed(alg: JWKAlgorithm, ctx: AlgCheckContext): JWTError {
   return new JWTError(`${ctx.label} not allowed: ${alg}`, ctx.errorCode);
 }
 
-/** Whether key material could be the one the header was produced for (RFC 7515 §4.1.4 / RFC 7516 §4.1.6 `kid` hint). */
+/** Whether key material can serve the header's `alg` (RFC 7515 §4.1.4, RFC 7516 §4.1.6 `kid` hint). A JWK Set with no candidate matches. */
 export function keyMatchesHeader(
   header: { alg?: JWKAlgorithm; kid?: string; epk?: { crv?: string } },
   keyMaterial: unknown,

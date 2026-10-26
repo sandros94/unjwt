@@ -9,7 +9,7 @@ import type {
 import { hashNameOf, lengthOf, namedCurveOf } from "../core/_crypto/_key-algorithm.ts";
 import { hasMisplacedSecret, isCryptoKey, isCryptoKeyPair, isJWK, isJWKSet } from "./guards.ts";
 
-/** RFC 7518 §4.8 — the password-based key management algorithms. */
+/** RFC 7518 §4.8: the password-based key management algorithms. */
 export const PBES2_ALGORITHMS: readonly JWK_PBES2[] = [
   "PBES2-HS256+A128KW",
   "PBES2-HS384+A192KW",
@@ -22,7 +22,7 @@ export function isPBES2Algorithm(alg: string): alg is JWK_PBES2 {
   return PBES2_ALGORITHM_SET.has(alg);
 }
 
-/** RFC 7518 §3.1 — every JWS `alg` this library implements; `satisfies` keeps the set in lockstep with the union. */
+/** RFC 7518 §3.1: every JWS `alg` this library implements. `satisfies` keeps the set equal to the union. */
 const JWS_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set(
   Object.keys({
     HS256: true,
@@ -46,7 +46,7 @@ export function isJWSAlgorithm(alg: string): alg is JWSAlgorithm {
   return JWS_ALGORITHMS.has(alg);
 }
 
-/** RFC 7518 §4.1 — every JWE `alg` this library accepts on the wire; the `A*GCM` members of the union are an `oct` JWK shorthand, never a header value. */
+/** RFC 7518 §4.1: every JWE `alg` accepted in a header. The union's `A*GCM` members are an `oct` JWK shorthand only. */
 const KEY_MANAGEMENT_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set(
   Object.keys({
     "dir": true,
@@ -74,7 +74,7 @@ export function isKeyManagementAlgorithm(alg: string): alg is KeyManagementAlgor
   return KEY_MANAGEMENT_ALGORITHMS.has(alg);
 }
 
-/** RFC 7518 §4.6 — the key agreement algorithms. */
+/** RFC 7518 §4.6: the key agreement algorithms. */
 const ECDH_ES_ALGORITHMS: readonly JWK_ECDH_ES[] = [
   "ECDH-ES",
   "ECDH-ES+A128KW",
@@ -89,8 +89,8 @@ export function isECDHESAlgorithm(alg: string): alg is JWK_ECDH_ES {
 }
 
 /**
- * Infer the JWS algorithms a key unambiguously supports, or `undefined` when it cannot
- * (raw bytes, ambiguous JWK, lookup function) and `options.algorithms` must be passed.
+ * Returns the JWS algorithms `key` unambiguously supports: a pair's public key's, a JWK Set's union.
+ * Raw bytes, a string, a lookup function or an ambiguous JWK yield `undefined`: pass `algorithms`.
  */
 export function inferJWSAllowedAlgorithms(key: unknown): JWSAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
@@ -106,8 +106,8 @@ export function inferJWSAllowedAlgorithms(key: unknown): JWSAlgorithm[] | undefi
 }
 
 /**
- * Infer the JWE key management algorithms a key unambiguously supports, or `undefined`
- * when it cannot; a password string infers the PBES2 variants, raw bytes nothing.
+ * Returns the JWE key management algorithms `key` unambiguously supports: a pair's private key's,
+ * a JWK Set's union, the PBES2 three for a password. Raw bytes, a function or an ambiguous JWK yield `undefined`.
  */
 export function inferJWEAllowedAlgorithms(key: unknown): KeyManagementAlgorithm[] | undefined {
   if (!key || typeof key === "function") return undefined;
@@ -125,7 +125,7 @@ export function inferJWEAllowedAlgorithms(key: unknown): KeyManagementAlgorithm[
   return undefined;
 }
 
-/** Union the algorithms of every well-formed JWK Set entry; `undefined` when none contributes. */
+/** The union of the algorithms of every well-formed JWK Set entry, `undefined` when none adds one. */
 function unionFromJWKSet<T extends string>(
   keys: readonly JWK[],
   mapper: (k: JWK) => T[] | undefined,
@@ -150,7 +150,6 @@ export function isSameAlgorithm(a: string, b: string): boolean {
   return a === b || (isEd25519Signature(a) && isEd25519Signature(b));
 }
 
-/** RFC 7517 §4.4: a JWK's `alg` serves an operation's `alg` when they are the same, or when an `oct` content key (`A256GCM`, …) is used with `dir`. */
 /** Whether a key of `kty` can serve `alg` at all (RFC 7518 §3.1, §4.1): the family, not the size or curve. */
 export function jwkKtyServes(kty: string, alg: string): boolean {
   switch (kty) {
@@ -167,6 +166,7 @@ export function jwkKtyServes(kty: string, alg: string): boolean {
   }
 }
 
+/** RFC 7517 §4.4: a JWK's `alg` serves an operation's `alg` when both match, or for an `oct` content key (`A256GCM`, …) under `dir`. */
 export function jwkAlgServes(jwk: { kty: string; alg: string }, alg: string): boolean {
   return (
     isSameAlgorithm(jwk.alg, alg) ||
@@ -177,7 +177,7 @@ export function jwkAlgServes(jwk: { kty: string; alg: string }, alg: string): bo
 function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
   if (jwk.alg && isEd25519Signature(jwk.alg)) return ["EdDSA", "Ed25519"];
   if (jwk.alg) return isJWSAlgorithm(jwk.alg) ? [jwk.alg] : undefined;
-  // WebCrypto exports omit `alg` for EC/OKP JWKs; the curve alone identifies the signature alg.
+  // WebCrypto exports omit `alg` for EC and OKP JWKs. The curve alone names the signature algorithm.
   if (jwk.kty === "EC") {
     const crv = jwk.crv;
     if (crv === "P-256") return ["ES256"];
@@ -186,7 +186,7 @@ function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
   }
   if (jwk.kty === "OKP") {
     const crv = jwk.crv;
-    // `EdDSA` (RFC 8037) leads as the interoperable spelling.
+    // `EdDSA` (RFC 8037) comes first: it is the interoperable spelling.
     if (crv === "Ed25519") return ["EdDSA", "Ed25519"];
   }
   return undefined;
@@ -210,7 +210,7 @@ function jweAlgsFromJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   return undefined;
 }
 
-/** A content encryption `alg` names a CEK (`dir` only); any other `alg` names itself. */
+/** An `oct` JWK whose `alg` is an `enc` value is a CEK for `dir`. Any other `alg` names itself. */
 function jweAlgsFromOctJWK(jwk: JWK): KeyManagementAlgorithm[] | undefined {
   const alg = jwk.alg;
   if (!alg) return undefined;
@@ -290,7 +290,7 @@ function jweAlgsFromCryptoKey(key: CryptoKey): KeyManagementAlgorithm[] | undefi
   }
 }
 
-/** The digest sizes a JWS algorithm name can carry (RFC 7518 §3.1). */
+/** The digest sizes a JWS algorithm name encodes (RFC 7518 §3.1). */
 function jwsHashBits(hashName: string | undefined): "256" | "384" | "512" | undefined {
   if (hashName === "SHA-256") return "256";
   if (hashName === "SHA-384") return "384";

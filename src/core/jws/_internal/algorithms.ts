@@ -3,7 +3,7 @@ import type { JWTError } from "../../../error.ts";
 import { isJWSAlgorithm } from "../../../utils/algorithms.ts";
 import { checkAlgSupported } from "../../_internal/algorithms.ts";
 
-/** Reject `"none"` (RFC 7518 §3.6) and any `alg` outside `JWSAlgorithm`. */
+/** Rejects `"none"` (RFC 7518 §3.6) and any `alg` outside `JWSAlgorithm`. */
 export function assertJWSAlgSupported(alg: string): asserts alg is JWSAlgorithm {
   const error = checkJWSAlgSupported(alg);
   if (error) throw error;

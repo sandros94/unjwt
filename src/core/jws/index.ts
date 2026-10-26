@@ -61,8 +61,16 @@ export { signMulti, verifyMulti, verifyMultiAll, generalToFlattenedJWS } from ".
 export { DEFAULT_JOSE_LIMITS } from "../_internal/limits.ts";
 
 /**
- * Creates a JWS Compact Serialization; an object payload is JSON-serialized, `alg` is required unless the JWK carries one.
- * An unencoded (`b64: false`) compact payload cannot contain "." (RFC 7797 §5.2).
+ * Signs `payload` and returns a JWS Compact Serialization (RFC 7515 §7.1).
+ * An object payload is serialized as JSON and gets `typ: "JWT"` unless `protectedHeader` sets one.
+ * Pass `alg` unless the JWK has one. With `b64: false`, the payload must not contain "." (RFC 7797 §5.2).
+ *
+ * @throws `ERR_JWS_ALG_MISSING` if no `alg` is given and the key has none.
+ * @throws `ERR_JWS_ALG_NOT_ALLOWED` if `alg` is `"none"` or not a supported signing algorithm.
+ * @throws `ERR_JWK_INVALID` if the key is a string or cannot sign with `alg`.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, or a time option is set on a string or bytes payload.
+ * @throws `ERR_JWT_CLAIM_INVALID` if both members of a time option pair are set, or `cnf.jwk` is not a public JWK.
+ * @throws `ERR_JWS_INVALID` if an unencoded payload contains ".".
  */
 export async function sign(
   payload: JOSEPayload,
@@ -147,8 +155,22 @@ export async function sign(
 }
 
 /**
- * Verifies a JWS Compact Serialization against a key, JWK Set or key resolver.
+ * Verifies a JWS Compact Serialization against a key, a JWK Set or a key lookup function.
+ * The header `alg` must be in `algorithms`, else match the JWK's `alg`, else fit the key type.
+ * Pass `algorithms` for a raw-bytes key.
  * The payload type follows `options.payload`: claims `T` for `"json"` (default), `string`, or `Uint8Array`.
+ * A `"json"` payload has its claims validated unless `validateClaims: false`.
+ *
+ * @throws `ERR_JWS_INVALID` if the token is malformed, its `b64` or `typ` is wrong, or a `crit` member is not recognized.
+ * @throws `ERR_JWS_ALG_NOT_ALLOWED` if the header `alg` is unsupported or not allowed for the key.
+ * @throws `ERR_JWS_SIGNATURE_INVALID` if the signature does not verify.
+ * @throws `ERR_JWK_INVALID` if no key is given, or the key cannot verify with the header `alg`.
+ * @throws `ERR_JWK_KEY_NOT_FOUND` if the lookup returns no key, or a JWK Set has no candidate.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, or a claim option is set where claims are not validated.
+ * @throws `ERR_JWT_EXPIRED` if `exp` has passed or the token is older than `maxTokenAge`.
+ * @throws `ERR_JWT_NBF` if `nbf` is in the future.
+ * @throws `ERR_JWT_CLAIM_INVALID` if a claim does not match its option or has the wrong type.
+ * @throws `ERR_JWT_CLAIM_MISSING` if a claim in `requiredClaims` or one an option checks is absent.
  */
 export async function verify<T extends object = JWTClaims>(
   jws: string,

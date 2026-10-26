@@ -8,7 +8,7 @@ import { loadSession } from "./read.ts";
 import { sessionActions, sessionManager } from "./write.ts";
 import type { SessionDefinition, SessionRecord } from "../types.ts";
 
-/** Binds a config to a framework driver and a codec, checking the config and resolving its keys up front; key imports and requests wait for a method to run. */
+/** Binds a config to a driver and a codec. Checks the config and resolves its keys at once. Key imports wait for the first `use()`, `issue()` or `open()`. */
 export function defineSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,

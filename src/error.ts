@@ -1,101 +1,94 @@
 import { UnsecureError, type UnsecureErrorCode } from "unsecure/errors";
 
 /**
- * The `UnsecureError` class unjwt itself throws.
+ * The error class the `unjwt/utils` encoding, JSON and random primitives throw.
+ * A {@link JWTError} keeps it as `cause` when a token segment or key field fails to decode.
  *
- * `unsecure` is inlined into unjwt's dist, so the class a consumer gets from
- * their own `unsecure` dependency is a *different* class — `instanceof` against
- * it never matches what unjwt throws. This re-export is the identity that does
- * match, both for errors thrown directly by the `unjwt/utils` primitives and
- * for the `cause` carried by a {@link JWTError}.
+ * Use this export with `instanceof`. A separately installed copy of the class is a different class and never matches.
  */
 export { UnsecureError, type UnsecureErrorCode };
 
 /**
- * The closed union of error codes unjwt itself throws.
+ * Every error code unjwt throws, as a closed union.
  *
- * Code naming follows the JOSE spec hierarchy:
- *   ERR_JWT_*  — RFC 7519 JSON Web Token claim validation
- *   ERR_JWS_*  — RFC 7515 JSON Web Signature
- *   ERR_JWE_*  — RFC 7516 JSON Web Encryption
- *   ERR_JWK_*  — RFC 7517 JSON Web Key
- *   ERR_DPOP_* — RFC 9449 proof validation
- *   ERR_SESSION_* — the framework session adapters
+ * Prefixes follow the specs:
+ *   ERR_JWT_*: RFC 7519 claim validation
+ *   ERR_JWS_*: RFC 7515 signatures
+ *   ERR_JWE_*: RFC 7516 encryption
+ *   ERR_JWK_*: RFC 7517 keys
+ *   ERR_DPOP_*: RFC 9449 proofs
+ *   ERR_SESSION_*: sessions
  *
- * Use this type where a typo must not compile — {@link isJWTError} takes it,
- * so `isJWTError(err, "ERR_JWS_INVALD")` is a type error rather than a check
- * that silently never matches. Use {@link JWTErrorCode} for values that may
- * legitimately carry a code this version does not know about.
+ * {@link isJWTError} takes this type, so a misspelled code such as `"ERR_JWS_INVALD"` is a type error.
+ * Use {@link JWTErrorCode} for a value that may hold a code outside this union.
  */
 export type KnownJWTErrorCode =
   // JWT claim validation (RFC 7519)
-  | "ERR_JWT_EXPIRED" // exp elapsed or maxTokenAge exceeded
-  | "ERR_JWT_NBF" // nbf is in the future
-  | "ERR_JWT_CLAIM_INVALID" // iss / sub / aud / custom claim mismatch
-  | "ERR_JWT_CLAIM_MISSING" // required claim absent
+  | "ERR_JWT_EXPIRED" // `exp` has passed or `iat` is older than `maxTokenAge`
+  | "ERR_JWT_NBF" // `nbf` is in the future
+  | "ERR_JWT_CLAIM_INVALID" // `iss`, `sub` or `aud` mismatch, or a malformed claim
+  | "ERR_JWT_CLAIM_MISSING" // a required claim is absent
   // JWS (RFC 7515)
-  | "ERR_JWS_INVALID" // structural / format error
-  | "ERR_JWS_INVALID_SERIALIZATION" // JSON not a valid General / Flattened shape
-  | "ERR_JWS_SIGNATURE_INVALID" // cryptographic signature verification failed
-  | "ERR_JWS_ALG_NOT_ALLOWED" // algorithm rejected by caller policy
-  | "ERR_JWS_ALG_MISSING" // required `alg` option absent on sign
-  | "ERR_JWS_SIGNER_ALG_INFERENCE" // cannot infer `alg` for a signer's JWK
-  | "ERR_JWS_NO_MATCHING_SIGNER" // no signature matched the provided key
-  | "ERR_JWS_HEADER_PARAMS_NOT_DISJOINT" // protected / unprotected header overlap on a signer
-  | "ERR_JWS_B64_INCONSISTENT" // RFC 7797 §3 — `b64` must be identical across all signers
+  | "ERR_JWS_INVALID" // malformed token, header or option
+  | "ERR_JWS_INVALID_SERIALIZATION" // not a General or Flattened JSON JWS
+  | "ERR_JWS_SIGNATURE_INVALID" // no signature verified with the key
+  | "ERR_JWS_ALG_NOT_ALLOWED" // `alg` not allowed, not supported, or not fit for the key
+  | "ERR_JWS_ALG_MISSING" // `sign` has no `alg` and the key names none
+  | "ERR_JWS_SIGNER_ALG_INFERENCE" // a signer's key gives no `alg` to infer
+  | "ERR_JWS_NO_MATCHING_SIGNER" // no signature matches the key under `strictSignerMatch`
+  | "ERR_JWS_HEADER_PARAMS_NOT_DISJOINT" // a signer's protected and unprotected headers share a name
+  | "ERR_JWS_B64_INCONSISTENT" // signers disagree on `b64` (RFC 7797 §3)
   // JWE (RFC 7516)
-  | "ERR_JWE_INVALID" // structural / format / option error
-  | "ERR_JWE_INVALID_SERIALIZATION" // JSON not a valid General / Flattened shape
-  | "ERR_JWE_DECRYPTION_FAILED" // content decryption or key unwrap failed
-  | "ERR_JWE_ALG_NOT_ALLOWED" // algorithm rejected by caller policy
-  | "ERR_JWE_ALG_MISSING" // required `alg` option absent on encrypt
-  | "ERR_JWE_ALG_FORBIDDEN_IN_MULTI" // `dir` or bare `ECDH-ES` passed to encryptMulti
-  | "ERR_JWE_ENC_MISSING" // required `enc` option absent on encrypt
-  | "ERR_JWE_RECIPIENT_ALG_INFERENCE" // cannot infer `alg` for a recipient's JWK
-  | "ERR_JWE_NO_MATCHING_RECIPIENT" // no recipient matched the provided key
-  | "ERR_JWE_HEADER_PARAMS_NOT_DISJOINT" // protected/unprotected/per-recipient header overlap
+  | "ERR_JWE_INVALID" // malformed token, header or option
+  | "ERR_JWE_INVALID_SERIALIZATION" // not a General or Flattened JSON JWE
+  | "ERR_JWE_DECRYPTION_FAILED" // key unwrap or content decryption failed
+  | "ERR_JWE_ALG_NOT_ALLOWED" // `alg` or `enc` not allowed, not supported, or not fit for the key
+  | "ERR_JWE_ALG_MISSING" // `encrypt` has no `alg` and none can be inferred
+  | "ERR_JWE_ALG_FORBIDDEN_IN_MULTI" // `dir` or bare `ECDH-ES` given to `encryptMulti`
+  | "ERR_JWE_ENC_MISSING" // `dir` with no `enc` in the options or the key
+  | "ERR_JWE_RECIPIENT_ALG_INFERENCE" // a recipient's key gives no `alg` to infer
+  | "ERR_JWE_NO_MATCHING_RECIPIENT" // no recipient matches the key under `strictRecipientMatch`
+  | "ERR_JWE_HEADER_PARAMS_NOT_DISJOINT" // protected, shared and per-recipient headers share a name
   // JWK (RFC 7517)
-  | "ERR_JWK_INVALID" // malformed or unsupported key material
-  | "ERR_JWK_KEY_NOT_FOUND" // no matching key in a JWK Set
-  | "ERR_JWK_UNSUPPORTED" // caller requested an algorithm or format the library does not support
+  | "ERR_JWK_INVALID" // key missing, malformed, or of the wrong type for the operation
+  | "ERR_JWK_KEY_NOT_FOUND" // no usable key: empty JWK Set, failed key lookup, or key limit reached
+  | "ERR_JWK_UNSUPPORTED" // an algorithm or key format unjwt does not support
   // DPoP (RFC 9449)
   | "ERR_DPOP_INVALID" // proof form, header, key, algorithm or signature rejected
   | "ERR_DPOP_CLAIM_INVALID" // proof claims fail the time, target or token-binding checks
   | "ERR_DPOP_NONCE_INVALID" // the expected nonce is missing or different
-  | "ERR_DPOP_REPLAY" // replay callback rejected the proof or failed
-  // Session adapters
-  | "ERR_SESSION_TOKEN_INVALID" // an incoming session token failed verification or decryption
-  | "ERR_SESSION_READONLY_EVENT" // update on a context that takes no cookie, update / clear once the response was sent
+  | "ERR_DPOP_REPLAY" // the replay callback rejected the proof or threw
+  // Sessions
+  | "ERR_SESSION_TOKEN_INVALID" // the incoming session token failed verification or decryption
+  | "ERR_SESSION_READONLY_EVENT" // `update` with no writable cookie, or `update`/`clear` after the response is sent
   | "ERR_SESSION_KEY_INVALID" // session key missing, of the wrong shape, or a password string
-  | "ERR_SESSION_CONFIG_INVALID" // a session config combination that cannot work
+  | "ERR_SESSION_CONFIG_INVALID" // the session config is invalid
   // Caller input that is not token or key material
-  | "ERR_INVALID_OPTION"; // an option value is malformed or out of its documented range
+  | "ERR_INVALID_OPTION"; // an option value is malformed or out of range
 
 /**
- * A {@link JWTError} `code`: every {@link KnownJWTErrorCode}, plus any other
- * string for forward compatibility — a newer unjwt (or a caller constructing
- * its own `JWTError`) may carry a code this version's union does not list.
+ * A {@link JWTError} `code`: any {@link KnownJWTErrorCode} or any other string.
+ * A `JWTError` built outside unjwt can hold a code outside the union.
  */
 export type JWTErrorCode = KnownJWTErrorCode | (string & {});
 
 /**
- * Maps known error codes to their structured `cause` shapes.
- * Only codes that carry decoded context beyond the message appear here.
- * Extend this interface when new structured causes are introduced.
+ * The structured `cause` of each code that has one.
+ * {@link isJWTError} narrows `cause` to this shape for the listed codes.
  */
 export interface JWTErrorCauseMap {
-  /** Decoded claims available at the point the lifetime check failed. */
+  /** The token's `jti` (when a string), `iat` and `exp` claims. */
   ERR_JWT_EXPIRED: { jti?: string; iat?: number; exp?: number };
 }
 
 /**
- * Base error class for all unjwt errors. Every error thrown by the library is
- * an instance of `JWTError`, so a single `instanceof` check is sufficient to
- * distinguish library errors from other thrown values. Use the `code` property
- * (or the `isJWTError` type guard) to narrow to a specific error condition.
+ * The error class of the JWS, JWE, JWK, DPoP and session operations.
+ * `code` names the condition. Narrow on it with {@link isJWTError}.
+ *
+ * The `unjwt/utils` primitives throw {@link UnsecureError} instead.
  *
  * @example
- * import { JWTError, isJWTError } from "unjwt/jws";
+ * import { verify, isJWTError } from "unjwt/jws";
  *
  * try {
  *   await verify(token, key);
@@ -118,16 +111,11 @@ export class JWTError<TCode extends JWTErrorCode = JWTErrorCode> extends Error {
 }
 
 /**
- * Type guard that narrows `error` to `JWTError`.
+ * Returns `true` when `error` is a {@link JWTError}, and with `code`, only when its `code` is that one.
  *
- * When called with a code that is a key of `JWTErrorCauseMap`, the return
- * type is additionally narrowed to include the structured `cause` shape for
- * that code. When called with any other `KnownJWTErrorCode`, `code` is narrowed
- * but `cause` remains `unknown`. When called without a code, narrows only to
- * `JWTError`.
- *
- * `code` is a {@link KnownJWTErrorCode}, so a misspelled code fails to
- * type-check instead of silently never matching.
+ * With a code listed in {@link JWTErrorCauseMap}, `cause` narrows to that shape.
+ * With any other code, `code` narrows and `cause` stays `unknown`.
+ * `code` is a {@link KnownJWTErrorCode}, so a misspelled code is a type error.
  *
  * @example
  * if (isJWTError(err, "ERR_JWT_EXPIRED")) {
@@ -149,17 +137,13 @@ export function isJWTError(error: unknown, code?: string): boolean {
 }
 
 /**
- * Type guard that narrows `error` to the bundled {@link UnsecureError}, the
- * class thrown by unjwt's codec / JSON / random primitives and carried as the
- * `cause` of a {@link JWTError} when a wire segment or key field fails to
- * decode. Pass a `code` to narrow further.
+ * Returns `true` when `error` is the {@link UnsecureError} unjwt throws, and with `code`, only when its `code` is that one.
+ * Use it on the `cause` of a {@link JWTError} whose token segment or key field failed to decode.
  *
- * Check against this export rather than a `UnsecureError` imported from a
- * consumer-installed `unsecure`: unjwt bundles its own copy, so the two classes
- * are distinct and `instanceof` against the latter is always `false`.
+ * A separately installed copy of the class never matches.
  *
  * @example
- * import { isJWTError, isUnsecureError } from "unjwt/jws";
+ * import { verify, isJWTError, isUnsecureError } from "unjwt/jws";
  *
  * const error = await verify(token, key).catch((e) => e);
  * if (isJWTError(error, "ERR_JWS_INVALID") && isUnsecureError(error.cause, "MALFORMED")) {

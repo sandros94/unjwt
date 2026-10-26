@@ -1,33 +1,40 @@
 import { UnsecureError } from "unsecure/errors";
 import { textEncoder } from "unsecure/utils";
 
-/** Decoder output shape. `"bytes"` aliases `"uint8array"`. */
+/** The decoder output: `"string"` for UTF-8 text, `"uint8array"` or `"bytes"` for the bytes. */
 export type DecodeReturnAs = "string" | "uint8array" | "bytes";
 
 export interface Base64ParseOptions {
   /**
-   * Output shape: UTF-8 text, or the bytes themselves.
+   * Return the decoded bytes as UTF-8 text (`"string"`) or as a `Uint8Array`.
    * @default "string"
    */
   returnAs?: DecodeReturnAs;
 }
 
-/** Encode bytes, or the UTF-8 bytes of a string, as unpadded base64url (RFC 7515 §2). */
+/**
+ * Encodes bytes, or the UTF-8 bytes of a string, as unpadded base64url (RFC 7515 §2).
+ * @throws {UnsecureError} `INVALID_TYPE` if `data` is neither a string nor a `Uint8Array`.
+ */
 export function base64UrlStringify(data: string | Uint8Array): string {
   return encode(bytesOf(data, "Base64Url"), "base64url");
 }
 
-/** Encode bytes, or the UTF-8 bytes of a string, as padded standard base64 (RFC 4648 §4). */
+/**
+ * Encodes bytes, or the UTF-8 bytes of a string, as padded standard base64 (RFC 4648 §4).
+ * @throws {UnsecureError} `INVALID_TYPE` if `data` is neither a string nor a `Uint8Array`.
+ */
 export function base64Stringify(data: string | Uint8Array): string {
   return encode(bytesOf(data, "Base64"), "base64");
 }
 
 /**
- * Decode unpadded base64url (RFC 7515 §2). Strict: only the canonical encoding of a byte string
- * is accepted, so `=`, whitespace, characters outside the URL-safe alphabet and set bits past
- * the final byte are rejected; a `string` result must be valid UTF-8.
+ * Decodes unpadded base64url (RFC 7515 §2). Only the canonical encoding of a byte string passes.
+ * `=`, whitespace, characters outside the URL-safe alphabet and set bits past the final byte fail.
+ * A `string` result must be valid UTF-8.
  *
- * @throws {UnsecureError} `MALFORMED` for text that is not such an encoding; `INVALID_TYPE` for input that is not a string
+ * @throws {UnsecureError} `MALFORMED` if `text` is not such an encoding.
+ * @throws {UnsecureError} `INVALID_TYPE` if `text` is not a string.
  */
 export function base64UrlParse<T extends DecodeReturnAs>(
   text: string,
@@ -42,10 +49,12 @@ export function base64UrlParse(
 }
 
 /**
- * Decode padded standard base64 (RFC 4648 §4). Strict: the canonical encoding with its `=` run
- * present, no whitespace, no set bits past the final byte; a `string` result must be valid UTF-8.
+ * Decodes padded standard base64 (RFC 4648 §4). Only the canonical encoding passes.
+ * The `=` padding must be present. Whitespace and set bits past the final byte fail.
+ * A `string` result must be valid UTF-8.
  *
- * @throws {UnsecureError} `MALFORMED` for text that is not such an encoding; `INVALID_TYPE` for input that is not a string
+ * @throws {UnsecureError} `MALFORMED` if `text` is not such an encoding.
+ * @throws {UnsecureError} `INVALID_TYPE` if `text` is not a string.
  */
 export function base64Parse<T extends DecodeReturnAs>(
   text: string,
@@ -85,10 +94,10 @@ interface ToBase64 {
 type Alphabet = "base64" | "base64url";
 
 /**
- * Node's `Buffer` writes padded `base64` and unpadded `base64url`, the two shapes this module
- * emits, and the platform `toBase64` does the same when told so; both leave the loop for runtimes
- * without them. `toBase64` is only ever handed a view spanning its whole buffer: an engine behind a
- * flag has read a subarray from its buffer's start.
+ * Node's `Buffer` writes padded `base64` and unpadded `base64url`, the two outputs required here.
+ * `toBase64` writes the same when told so. The loop serves runtimes without either.
+ * `toBase64` receives only a view spanning its whole buffer: an engine behind a flag reads a
+ * subarray from its buffer's start.
  */
 function encode(bytes: Uint8Array, name: Alphabet): string {
   const buffer = (globalThis as { Buffer?: NodeBufferCtor }).Buffer;
@@ -131,9 +140,9 @@ function encode(bytes: Uint8Array, name: Alphabet): string {
 }
 
 /**
- * Canonical means exactly one text per byte string: alphabet characters only (so whitespace and a
- * stray `=` fail), a symbol count some byte string produces, exactly the padding the alphabet calls
- * for, and no set bits past the final byte.
+ * Canonical means exactly one text per byte string: alphabet characters only, so whitespace and a
+ * stray `=` fail. The symbol count must be one a byte string produces. The padding must be exactly
+ * what the alphabet requires, and no bits may be set past the final byte.
  */
 function parse(
   text: string,

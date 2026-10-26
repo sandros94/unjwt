@@ -28,7 +28,7 @@ import {
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
 import type { SessionBaseConfig, SessionHooks } from "../types.ts";
 
-/** HS* `oct` JWK, `CryptoKey` (requires pinned `alg`), or a pair: private signs, public JWK/list/set verifies. */
+/** An HMAC `oct` JWK, a `CryptoKey` (requires a pinned `jws.signOptions.alg`), or a pair: `privateKey` signs, `publicKey` (a JWK, a JWK list, a JWK Set or a `CryptoKey`) verifies. */
 export type JWSSessionKey =
   | CryptoKey
   | JWK_oct<JWK_HMAC>
@@ -37,45 +37,45 @@ export type JWSSessionKey =
       publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet | CryptoKey;
     };
 
-/** JWS verify overrides, minus the options the adapter owns. */
+/** JWS verify options a session accepts. The session sets `algorithms`, `typ`, `maxTokenAge`, `validateClaims` and `payload` itself. */
 export type SessionVerifyOptions = StrictOmit<
   JWSVerifyOptions,
   "algorithms" | "typ" | "maxTokenAge" | "validateClaims" | "payload"
 >;
 
-/** JWS sign options, minus those setting `exp`/`nbf` (the adapter mints `exp` from `maxAge`). */
+/** JWS sign options a session accepts. The session sets `exp` from `maxAge` and never sets `nbf`. */
 export type SessionSignOptions = StrictOmit<
   JWSSignOptions,
   "expiresIn" | "expiresAt" | "notBeforeIn" | "notBeforeAt"
 >;
 
-/** JWS sign/verify overrides a session accepts. */
+/** The JWS options of a session: `signOptions` for each issued token, `verifyOptions` for each incoming one. */
 export interface JWSSessionOptions {
   signOptions?: SessionSignOptions;
   verifyOptions?: SessionVerifyOptions;
 }
 
-/** The config of a JWS-backed (signed, not encrypted) session, minus its hooks. */
+/** The config of a JWS session, without its hooks. */
 export interface JWSSessionConfig<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TCookie extends object = object,
 > extends SessionBaseConfig<MaxAge> {
-  /** Key used for signing — see {@link JWSSessionKey}. */
+  /** The key that signs and verifies the token. See {@link JWSSessionKey}. */
   key: JWSSessionKey;
-  /** `false` to disable. Defaults: `path="/"`, `secure`, `sameSite: "lax"`, `httpOnly: true`; `httpOnly: false` lets page scripts read the (signed, not encrypted) payload. */
+  /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). `httpOnly: false` lets page scripts read the signed payload. @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
-  /** Pinned `signOptions.alg` restricts verification; `protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). */
+  /** A pinned `signOptions.alg` is the only algorithm verification accepts. `signOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11). */
   jws?: JWSSessionOptions;
 }
 
-/** JWS session hooks, plus the verify key lookup. */
+/** JWS session hooks, with the verify key lookup. */
 export interface JWSSessionHooks<
   TSession,
   TManager,
   TArgs extends Record<string, unknown>,
   TConfig,
 > extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /** Resolve the verification key(s) for the incoming token from its protected header (e.g. by `kid`). */
+  /** Returns the key or JWK Set that verifies an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for verification. `open()` passes it no event. */
   onVerifyKeyLookup?: (
     args: Partial<TArgs> & { header: JWSHeaderParameters; config: TConfig },
   ) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
@@ -102,7 +102,7 @@ export const JWS_DEFAULT_COOKIE = {
   sameSite: "lax",
 } as const;
 
-/** Signs session claims into a compact JWS; verifying validates claims and `typ`, pinning `alg` when configured. */
+/** Signs session claims into a compact JWS and verifies them, checking claims, `typ` and the pinned `alg`. */
 export function createJWSCodec(options: {
   prefix: string;
   defaultName: string;

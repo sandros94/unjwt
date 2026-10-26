@@ -20,13 +20,13 @@ import { webSessionDriver } from "./_internal/web-driver.ts";
 
 export type { SessionSignOptions, SessionVerifyOptions } from "./_internal/codec-jws.ts";
 
-/** Session state for the current request, mirroring the claims of its JWS token. */
+/** Session state for the current request, from the claims of its JWS token. */
 export interface SessionJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
-/** JWS session hooks; `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
+/** JWS session hooks. `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
 export interface SessionHooksJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
@@ -38,24 +38,35 @@ export interface SessionHooksJWS<
   SessionConfigJWS<T, MaxAge, TEvent>
 > {}
 
-/** Configuration for a JWS-backed (signed, not encrypted) session. */
+/** Configuration of a JWS session, signed but not encrypted. */
 export interface SessionConfigJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent = WebSessionEvent,
 > extends JWSSessionConfig<MaxAge, CookieAttributes> {
-  /** Cookie and session-header name. Default `"__Host-unjwt-jws"` (header `x-unjwt-jws-session`); a `.<digits>` suffix throws `ERR_SESSION_CONFIG_INVALID`. */
+  /** Cookie name, also the base of the default session header `x-unjwt-jws-session`. A trailing `.<digits>` throws `ERR_SESSION_CONFIG_INVALID`. @default "__Host-unjwt-jws" */
   name?: string;
+  /** Lifecycle hooks and `onVerifyKeyLookup`. */
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 
-/** Defines a JWS (signed, not encrypted) session once, its data readable by clients; `use`, `token`, `issue` and `open` serve every request. Throws at definition for a config it cannot use. */
+/**
+ * Defines a JWS session once: signed, not encrypted, so clients can read its data. `use`, `token`, `issue` and `open` serve every request.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jws.signOptions.alg`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, or not a symmetric JWK, a key pair or a `CryptoKey`.
+ * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
+ */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent extends WebSessionEvent = WebSessionEvent,
 >(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
-/** Defines a JWS (signed, not encrypted) session over a framework driver of your own. Throws at definition for a config it cannot use. */
+/**
+ * Defines a JWS session over a framework driver of your own, passed as `{ driver }`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a `CryptoKey` key lacks a pinned `jws.signOptions.alg`.
+ * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, or not a symmetric JWK, a key pair or a `CryptoKey`.
+ * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
+ */
 export function defineJWSSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

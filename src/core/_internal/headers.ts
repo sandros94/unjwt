@@ -11,7 +11,7 @@ import { assertPlainObject, isPlainObject, isPublicJWK } from "../../utils/guard
 import { assertCritShape } from "./jwt.ts";
 import { assertClaimValidationOptions, assertStringList } from "../../utils/jwt.ts";
 
-/** A header with no JSON form is `ERR_INVALID_OPTION`. */
+/** Serializes a protected header as JSON. A header `JSON.stringify` rejects is `ERR_INVALID_OPTION`. */
 export function serializeProtectedHeader(header: object): string {
   try {
     return JSON.stringify(header);
@@ -24,7 +24,7 @@ export function serializeProtectedHeader(header: object): string {
   }
 }
 
-/** RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — each `crit` entry is a parameter the header carries. */
+/** RFC 7515 §4.1.11 and RFC 7516 §4.1.13: each `crit` entry names a member of the header, else `ERR_INVALID_OPTION`. */
 export function assertProducerCrit(header: Record<string, unknown>, family: "JWS" | "JWE"): void {
   const crit = header.crit;
   if (crit === undefined) return;
@@ -43,7 +43,7 @@ const PROTECTED_ONLY_PARAMS = {
   JWE: ["crit"],
 } as const;
 
-/** Refuse `crit` (RFC 7515 §4.1.11 / RFC 7516 §4.1.13) and JWS `b64` (RFC 7797 §3) outside the protected header. */
+/** Refuses `crit` (RFC 7515 §4.1.11, RFC 7516 §4.1.13) and JWS `b64` (RFC 7797 §3) outside the protected header. */
 export function assertProtectedOnlyOption(
   header: object | undefined,
   options: { tier: string; family: "JWS" | "JWE" },
@@ -60,8 +60,8 @@ export function assertProtectedOnlyOption(
 }
 
 /**
- * RFC 7515 §4.1.3 / RFC 7516 §4.1.5: a `jwk` header carries the public key alone; `epk`
- * (RFC 7518 §4.6.1.1) is key-agreement output the producer writes itself.
+ * RFC 7515 §4.1.3 and RFC 7516 §4.1.5: a `jwk` header holds a public JWK only.
+ * `epk` (RFC 7518 §4.6.1.1) is refused: the producer writes it from `ecdh.ephemeralKey`.
  */
 export function assertProducerKeyHeaders(
   header: object | undefined,
@@ -83,7 +83,7 @@ export function assertProducerKeyHeaders(
   }
 }
 
-/** RFC 7800 §3.2: a `cnf.jwk` confirmation key is a public JWK, never private material or a secret. */
+/** RFC 7800 §3.2: a `cnf.jwk` confirmation key is a public JWK, else `ERR_JWT_CLAIM_INVALID`. */
 export function assertProducerConfirmation(payload: unknown): void {
   if (typeof payload !== "object" || payload === null) return;
   const cnf: unknown = Reflect.get(payload, "cnf");
@@ -93,7 +93,7 @@ export function assertProducerConfirmation(payload: unknown): void {
   }
 }
 
-/** Assert an options entry and each member listed in `objects` are plain objects. */
+/** Asserts that an options entry and each member listed in `objects` are plain objects. */
 export function assertOptionEntry(
   entry: unknown,
   options: { label: string; objects: readonly string[] },
@@ -105,7 +105,7 @@ export function assertOptionEntry(
   }
 }
 
-/** Refuse present-but-empty or malformed consumer options rather than reading them as "no check". */
+/** Refuses empty or malformed consumer options with `ERR_INVALID_OPTION` instead of skipping the check. */
 export function assertConsumerOptions(
   options: JWTClaimValidationOptions & {
     algorithms?: readonly string[];
@@ -141,7 +141,7 @@ export function assertSerializationObject(
   }
 }
 
-/** RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — an entry is an object with object `objects` and string `strings` members. */
+/** RFC 7515 §7.2.1 and RFC 7516 §7.2.1: an entry is an object, its `objects` members objects and its `strings` members strings. */
 export function checkSerializationEntry(
   entry: unknown,
   options: {
@@ -169,13 +169,13 @@ export function checkSerializationEntry(
   return undefined;
 }
 
-/** RFC 7515 §4.1.9 — case-insensitive `typ` match with an optional `application/` prefix. */
+/** RFC 7515 §4.1.9: matches `typ` case-insensitively, with an optional `application/` prefix. */
 export function typMatches(expected: string, actual: unknown): boolean {
   if (typeof actual !== "string") return false;
   return normalizeTyp(expected) === normalizeTyp(actual);
 }
 
-/** RFC 7515 §4.1.9 / RFC 7516 §4.1.11 — an expected `typ` is matched against the protected header only. */
+/** RFC 7515 §4.1.9 and RFC 7516 §4.1.11: an expected `typ` is matched against the protected header only. */
 export function checkProtectedTyp(
   expected: string | undefined,
   protectedHeader: { typ?: unknown },
@@ -203,7 +203,7 @@ export interface ProtectedHeaderOf {
   JWE: JWEHeaderParameters;
 }
 
-/** Decode a protected header; absent is `{}` (RFC 7515 §7.2 / RFC 7516 §7.2.1). */
+/** Decodes a protected header. An absent header is `{}` (RFC 7515 §7.2, RFC 7516 §7.2.1). */
 export function decodeProtectedHeader<F extends keyof ProtectedHeaderOf>(
   encoded: string | undefined,
   family: F,
@@ -231,7 +231,7 @@ export function decodeProtectedHeader<F extends keyof ProtectedHeaderOf>(
   return parsed as ProtectedHeaderOf[F];
 }
 
-/** Strictly decode a base64url segment (RFC 7515 §2); failure is `ERR_{family}_INVALID`. */
+/** Strictly decodes a base64url segment (RFC 7515 §2). A failure is `ERR_{family}_INVALID`. */
 export function decodeSegment(
   encoded: string,
   options: { family: "JWS" | "JWE" | "JWK"; what: string },

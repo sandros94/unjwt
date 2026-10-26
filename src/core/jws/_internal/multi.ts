@@ -45,7 +45,7 @@ const INVALID_CLAIMS = {
   message: "JWT claim validation failed.",
 } as const;
 
-/** Error codes that condemn one signature rather than the whole token. */
+/** Error codes that fail one signature rather than the whole token. */
 export const PER_SIGNATURE_ERROR_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "ERR_JWS_SIGNATURE_INVALID",
   "ERR_JWK_KEY_NOT_FOUND",
@@ -79,7 +79,7 @@ type SignatureHeaders =
       unprotectedHeader?: JWSHeaderParameters;
     };
 
-/** Reads and checks one `signatures[]` entry's headers; `alg` may sit in either tier (RFC 7515 §7.2.1). */
+/** Reads and checks one `signatures[]` entry's headers. `alg` may be in either header (RFC 7515 §7.2.1). */
 export function _readSignatureHeaders(entry: JWSGeneralSignature, index: number): SignatureHeaders {
   const shapeError = checkSerializationEntry(entry, {
     family: "JWS",
@@ -172,7 +172,7 @@ function _inferSignerAlg(key: JWSMultiSigner["key"], index: number): JWSAlgorith
   return inferred[0];
 }
 
-/** RFC 7797 §3 — every signer uses the same `b64` value. */
+/** RFC 7797 §3: every signer uses the same `b64` value. */
 export function _resolveB64(signers: JWSMultiSigner[]): boolean {
   let decided: boolean | undefined;
   for (let i = 0; i < signers.length; i++) {
@@ -186,7 +186,7 @@ export function _resolveB64(signers: JWSMultiSigner[]): boolean {
   return decided ?? true;
 }
 
-/** RFC 7515 §7.2.1 — a signature's protected and unprotected headers are disjoint. */
+/** RFC 7515 §7.2.1: a signature's protected and unprotected headers are disjoint. */
 export function _assertDisjointHeaders(
   protectedHeader: Record<string, unknown> | undefined,
   unprotectedHeader: Record<string, unknown> | undefined,

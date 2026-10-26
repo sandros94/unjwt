@@ -29,13 +29,13 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   prefix: string;
   defaultName: string;
   defaultCookie: Record<string, unknown>;
-  /** Supplies the pinned `alg` and the `currentDate` the session runs on. */
+  /** Returns the pinned `alg` and the `currentDate` the session takes as the current time. */
   issueOptions: (config: Config) => { alg?: JWKAlgorithm; currentDate?: Date } | undefined;
-  /** Supplies the `clockTolerance` an incoming token is read with. */
+  /** Returns the `clockTolerance` an incoming token is checked with. */
   openOptions: (config: Config) => { clockTolerance?: number | Duration } | undefined;
   issueKey: (config: Config) => IssueKey;
   openKey: (config: Config) => OpenKey;
-  /** With a key lookup hook configured, the open key of a request's hook arguments. */
+  /** With a key lookup hook set, returns the open key for a request's hook arguments. */
   lookup: (config: Config) => ((args: Record<string, unknown>) => OpenKey) | undefined;
   /** The JWKs of an open key to import up front. */
   importable?: (key: OpenKey, config: Config) => readonly unknown[];
@@ -43,7 +43,7 @@ export interface SessionCodecSpec<Config extends SessionCoreConfig, IssueKey, Op
   open: (config: Config, token: string, key: OpenKey) => Promise<SessionPayload>;
 }
 
-/** Keys resolve once per config, each configured key imported once per key object; open failures other than expiry become `ERR_SESSION_TOKEN_INVALID`. */
+/** Keys are resolved once per config and each configured JWK is imported once. Open failures other than expiry throw `ERR_SESSION_TOKEN_INVALID`. */
 export function createSessionCodec<Config extends SessionCoreConfig, IssueKey, OpenKey>(
   spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
 ): SessionCodec<Config> {
@@ -107,7 +107,7 @@ export interface SessionIssueOverrides {
   protectedHeader: { typ: string };
 }
 
-/** `exp` comes from the session lifetime as a claim, never `nbf`; the header carries the session `typ`. */
+/** Clears the `exp` and `nbf` options, as `exp` is a claim set from the session lifetime. Sets the session `typ` in the protected header. */
 export function sessionIssueOptions<O extends { protectedHeader?: { typ?: string } }>(
   options: O | undefined,
 ): O & SessionIssueOverrides {
@@ -123,7 +123,7 @@ export function sessionIssueOptions<O extends { protectedHeader?: { typ?: string
   });
 }
 
-/** Claim validation, session `typ` and pinned `alg`; `maxAge` bounds a token's life in the session layer, not through `maxTokenAge`. */
+/** Claim validation, the session `typ` and the pinned `alg`. The session checks `maxAge` itself, not through `maxTokenAge`. */
 export function sessionOpenOptions<A extends string>(options: {
   maxAge: ExpiresIn | undefined;
   requiredClaims: string[] | undefined;
@@ -177,7 +177,7 @@ export function assertKeyPair(
   }
 }
 
-/** A `CryptoKey` carries no algorithm: it serves a session only with the config's algorithm pinned. */
+/** A `CryptoKey` names no JOSE algorithm, so a session accepts one only with the algorithm pinned. */
 export function assertPinnedCryptoKey(
   key: unknown,
   options: { pinned: boolean; prefix: string; hint: string },
@@ -202,7 +202,7 @@ function sessionPayload(state: StoredSession): Record<string, unknown> {
   return payload;
 }
 
-/** A session issued after "now" is refused whatever its `exp`; `clockTolerance` widens "now" (RFC 7519 §4.1.6). */
+/** A session issued after the current time is refused whatever its `exp`. `clockTolerance` widens that bound (RFC 7519 §4.1.6). */
 function assertNotFromTheFuture(
   payload: SessionPayload,
   options: { now: number; clockTolerance: number | Duration | undefined; prefix: string },
@@ -251,7 +251,7 @@ function openedSession(
   };
 }
 
-/** The lookup hook picks a request's open key, else the configured one serves every request and is imported up front. */
+/** With a lookup hook, the hook picks each request's open key. Otherwise the configured key opens every token and is imported before the first open. */
 function openingKeys<Config extends SessionCoreConfig, IssueKey, OpenKey>(
   spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
   config: Config,

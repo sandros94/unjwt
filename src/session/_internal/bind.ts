@@ -39,7 +39,7 @@ export function assertSessionConfig(
   assertRolling(config, { prefix });
 }
 
-/** Claims the session's name on the request and resolves where its token travels; the config was checked when the session was defined. */
+/** Registers the session's name on the request and resolves its token transport. The config is checked when the session is defined. */
 export function bindSession<TEvent, Config extends SessionCoreConfig>(
   event: TEvent,
   options: {
@@ -70,7 +70,7 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
   };
 }
 
-/** The token of the session this request read or wrote, else the one its transport carries. */
+/** The token of the session this request read or wrote, else the one its transport reads. */
 export function sessionToken<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): string | undefined {
@@ -104,7 +104,7 @@ export function sessionCookie<TEvent, Config extends SessionCoreConfig>(
   return { attrs, chunkMaxLength };
 }
 
-/** Drops an expired session's cookie; a sealed response leaves it to the next request, which carries the same token. */
+/** Expires the session cookie. A response already sent leaves it to the next request, which sends the same token. */
 export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): void {
@@ -113,7 +113,7 @@ export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
   transport.drop(sessionCookie(binding));
 }
 
-/** One name is one cookie: the first family to bind a name on a request holds it. */
+/** One name is one cookie: the first family to bind a name on a request keeps it. */
 function claimSessionName(
   record: Record<string, unknown>,
   options: { name: string; family: "jws" | "jwe"; prefix: string },

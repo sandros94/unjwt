@@ -22,16 +22,18 @@ import {
 } from "./_internal/members.ts";
 
 /**
- * Derives an AES-KW key from a password with PBKDF2 per PBES2 (RFC 7518 §4.8).
+ * Derives an AES-KW key from a password with PBKDF2, as PBES2 does (RFC 7518 §4.8).
+ * A string password or salt is encoded as UTF-8.
  *
  * @param options
- *   - `alg` — a PBES2 algorithm; any other throws `ERR_JWK_UNSUPPORTED`.
- *   - `salt` — PBKDF2 salt (`p2s`), at least 8 octets (RFC 7518 §4.8.1.1).
- *   - `iterations` — PBKDF2 count (`p2c`), an integer of at least 1000 (RFC 7518 §4.8.1.2);
- *     anything else throws `ERR_INVALID_OPTION`.
- *   - `keyUsage?` — defaults to `["wrapKey", "unwrapKey"]`.
- *   - `extractable?` — defaults to `false`; ignored when `toJWK` is set.
- *   - `toJWK?` — return a `JWK_oct` carrying the inner AES-KW `alg` instead of a `CryptoKey`.
+ *   - `alg`: a PBES2 algorithm.
+ *   - `salt`: the PBKDF2 salt (`p2s`), at least 8 octets (RFC 7518 §4.8.1.1).
+ *   - `iterations`: the PBKDF2 count (`p2c`), an integer of at least 1000 (RFC 7518 §4.8.1.2).
+ *   - `keyUsage?`: AES-KW usages, written as `key_ops` with `toJWK`. Defaults to `["wrapKey", "unwrapKey"]`.
+ *   - `extractable?`: ignored with `toJWK`. Defaults to `false`.
+ *   - `toJWK?`: returns a `JWK_oct` with the inner AES-KW `alg` (`A128KW` for `PBES2-HS256+A128KW`) instead of a `CryptoKey`.
+ * @throws `ERR_JWK_UNSUPPORTED` if `alg` is not a PBES2 algorithm.
+ * @throws `ERR_INVALID_OPTION` if `password`, `salt` or `iterations` is invalid.
  */
 export async function deriveKeyFromPassword<TOptions extends DeriveKeyOptions>(
   password: string | Uint8Array<ArrayBuffer>,
@@ -82,17 +84,16 @@ export async function deriveKeyFromPassword(
 }
 
 /**
- * Derives a `JWK_oct` from a password per PBES2 (RFC 7518 §4.8); its `alg` is the inner AES-KW
- * variant and its `kid` the caller's, none with `kid: false`, or else its RFC 7638 thumbprint.
+ * Derives a `JWK_oct` from a password, as PBES2 does (RFC 7518 §4.8).
+ * Its `alg` is the inner AES-KW algorithm (`A128KW` for `PBES2-HS256+A128KW`).
  *
  * @param options
- *   - `alg` (PBES2 only, else `ERR_JWK_UNSUPPORTED`), `salt` (at least 8 octets), `iterations`
- *     (integer of at least 1000, else `ERR_INVALID_OPTION`), `keyUsage?` (default
- *     `["wrapKey", "unwrapKey"]`).
- *   - `kid?` — a string set verbatim or `false` for no `kid`, either skipping the thumbprint
- *     digest; anything else throws `ERR_INVALID_OPTION`.
- *   - JWK metadata (`use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the result;
- *     `alg`, `kty`, `key_ops`, `ext` and key-material members are reserved (`ERR_INVALID_OPTION`).
+ *   - `alg`, `salt`, `iterations`, `keyUsage?`: as on `deriveKeyFromPassword`.
+ *   - `kid?`: a string used as is or `false` for no `kid`. Defaults to the RFC 7638 thumbprint.
+ *   - JWK metadata (`use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is copied onto the JWK.
+ * @throws `ERR_JWK_UNSUPPORTED` if `alg` is not a PBES2 algorithm.
+ * @throws `ERR_INVALID_OPTION` if `password`, `salt`, `iterations` or `kid` is invalid,
+ *   or the metadata sets `alg`, `kty`, `key_ops`, `ext` or a key material member.
  */
 export async function deriveJWKFromPassword<
   TAlg extends JWK_PBES2,

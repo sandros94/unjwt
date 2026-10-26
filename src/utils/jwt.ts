@@ -2,7 +2,7 @@ import type { JWTClaims, JWTClaimValidationOptions, Duration } from "../core/typ
 import { maybeArray } from "./array.ts";
 import { JWTError, type JWTErrorCauseMap } from "../error.ts";
 
-/** Whether headers declare JSON content: a string `typ` naming JWT, or a JSON `cty`. */
+/** Whether the header declares JSON content: a `typ` containing `jwt` in any case, or a JSON `cty`. */
 export function isJWTContent(header: { typ?: string; cty?: string } | undefined): boolean {
   if (!header) return false;
   const typ: unknown = header.typ;
@@ -39,7 +39,7 @@ const TIME_CONSTANTS: Readonly<Record<string, number>> = Object.freeze({
 const DURATION_REGEX =
   /^(\d+)(s|second|seconds|m|minute|minutes|h|hour|hours|D|day|days|W|week|weeks|M|month|months|Y|year|years)?$/;
 
-/** Parse a `Duration` into integer seconds, zero and negatives included. */
+/** Parses a `Duration` into integer seconds, zero and negatives included. */
 export function parseDurationSeconds(value: Duration): number {
   if (typeof value === "number") {
     if (!Number.isInteger(value)) {
@@ -65,7 +65,10 @@ export function parseDurationSeconds(value: Duration): number {
   );
 }
 
-/** Parse a `Duration` (e.g. `3600` or `"10m"`) into positive integer seconds; else `ERR_INVALID_OPTION`. */
+/**
+ * Parses a `Duration` (`3600`, `"10m"`, `"7D"`) into positive integer seconds.
+ * @throws `ERR_INVALID_OPTION` if `duration` is malformed or not positive.
+ */
 export function computeDurationInSeconds(duration: Duration): number {
   const seconds = parseDurationSeconds(duration);
   if (seconds <= 0) {
@@ -77,14 +80,18 @@ export function computeDurationInSeconds(duration: Duration): number {
   return seconds;
 }
 
-/** The `ERR_JWT_EXPIRED` message for a token whose `exp` (NumericDate seconds) has passed. */
+/** The `ERR_JWT_EXPIRED` message for an `exp` (NumericDate seconds) in the past. */
 export function expiredClaimMessage(exp: number): string {
   return `JWT "exp" is in the past (${_formatNumericDate(exp)}).`;
 }
 
 /**
- * Validate JWT claims against the set expectations. A malformed expectation throws
- * `ERR_INVALID_OPTION`; an empty `audience` or `issuer` list matches no token.
+ * Checks `jwtClaims` against `options`. An empty `audience` or `issuer` list matches no token.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed.
+ * @throws `ERR_JWT_CLAIM_MISSING` if a claim that `requiredClaims` or a claim option names is absent.
+ * @throws `ERR_JWT_CLAIM_INVALID` if a claim does not match or a time claim is not a NumericDate.
+ * @throws `ERR_JWT_NBF` if `nbf` is in the future.
+ * @throws `ERR_JWT_EXPIRED` if `exp` has passed or `iat` is older than `maxTokenAge`.
  */
 export function validateJwtClaims(
   jwtClaims: JWTClaims,
@@ -192,7 +199,7 @@ export function validateJwtClaims(
   }
 }
 
-/** Assert every claim validation expectation is well-formed. */
+/** Throws `ERR_INVALID_OPTION` if a claim validation option is malformed. */
 export function assertClaimValidationOptions(options: JWTClaimValidationOptions): void {
   _assertExpectedValues(options.issuer, "issuer");
   _assertExpectedValues(options.audience, "audience");
@@ -205,14 +212,14 @@ export function assertClaimValidationOptions(options: JWTClaimValidationOptions)
   _normalizeClockTolerance(options.clockTolerance);
 }
 
-/** Assert a list option is an array of strings when present. */
+/** Throws `ERR_INVALID_OPTION` if `value` is present and not an array of strings. */
 export function assertStringList(value: unknown, name: string): void {
   if (value === undefined) return;
   if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) return;
   throw new JWTError(`"${name}" must be an array of strings.`, "ERR_INVALID_OPTION");
 }
 
-/** Normalize `clockTolerance` (seconds or a `Duration`) into non-negative seconds. */
+/** Returns `clockTolerance` (seconds or a `Duration`) as non-negative seconds. */
 function _normalizeClockTolerance(value: number | Duration | undefined): number {
   if (value === undefined) return 0;
   let seconds: number;
@@ -252,7 +259,7 @@ function _isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value !== "";
 }
 
-/** RFC 7519 §2 — a NumericDate is a finite, non-negative number (fractions allowed). */
+/** RFC 7519 §2: a NumericDate is a finite, non-negative number. Fractions are allowed. */
 function _assertNumericDate(value: unknown, claim: string): void {
   if (value === undefined) return;
   if (typeof value !== "number" || !Number.isFinite(value)) {

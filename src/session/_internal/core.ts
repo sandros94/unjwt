@@ -20,7 +20,7 @@ import type { OpenedSessionState, SessionRecord, SessionState } from "../types.t
 /** In-flight read of a session, awaited by a second reader on the same request. */
 export const kSessionPending: unique symbol = Symbol("unjwt_session_pending");
 
-/** The codec's now, truncated to whole seconds as `iat` carries it. */
+/** The codec's current time, truncated to whole seconds as in `iat`. */
 export function sessionInstant<Config extends SessionCoreConfig>(source: {
   codec: SessionCodec<Config>;
   config: Config;
@@ -73,13 +73,13 @@ export function openSessionToken<T extends SessionRecord, MaxAge extends Expires
 function typedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
   state: unknown,
 ): PendingSession<T, MaxAge> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- storage and codecs carry session state untyped
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- storage and codecs hold session state untyped
   return state as PendingSession<T, MaxAge>;
 }
 
 function typedOpened<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
   opened: OpenedSession,
 ): OpenedSessionState<T, MaxAge> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- codecs carry session data untyped
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- codecs return session data untyped
   return opened as OpenedSessionState<T, MaxAge>;
 }

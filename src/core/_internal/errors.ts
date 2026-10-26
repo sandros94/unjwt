@@ -2,7 +2,7 @@ import { sanitizeObjectCopy } from "unsecure/sanitize";
 import type { JWTErrorCode } from "../../error.ts";
 import { JWTError } from "../../error.ts";
 
-/** Wrap a non-`JWTError` thrown by a key lookup as `ERR_JWK_KEY_NOT_FOUND`. */
+/** Wraps a non-`JWTError` thrown by a key lookup as `ERR_JWK_KEY_NOT_FOUND`. */
 export function asKeyLookupError(error: unknown, what: string): JWTError {
   return asJWTError(error, {
     code: "ERR_JWK_KEY_NOT_FOUND",
@@ -10,7 +10,7 @@ export function asKeyLookupError(error: unknown, what: string): JWTError {
   });
 }
 
-/** Pass a `JWTError` through; wrap anything else under `message` / `code` with it as `cause`. */
+/** Returns a `JWTError` as is. Wraps anything else under `message` and `code`, with the original as `cause`. */
 export function asJWTError(
   error: unknown,
   options: { code: JWTErrorCode; message: string },
@@ -19,7 +19,7 @@ export function asJWTError(
   return new JWTError(options.message, options.code, error);
 }
 
-/** A sanitized deep copy of a JSON object; a value JSON cannot carry (a `Date`, a `Map`, a class instance) is the given error, the refusal as `cause`. */
+/** Returns a sanitized deep copy of a JSON object. A value JSON cannot hold (a `Date`, a `Map`, a class instance) throws the given error. */
 export function copyJsonObject<T>(value: T, options: { code: JWTErrorCode; message: string }): T {
   try {
     return sanitizeObjectCopy(value);
@@ -28,7 +28,7 @@ export function copyJsonObject<T>(value: T, options: { code: JWTErrorCode; messa
   }
 }
 
-/** RFC 7516 §11.5 — a failed unwrap or decryption says only that it failed. */
+/** RFC 7516 §11.5: wraps a non-`JWTError` unwrap or decryption failure as `ERR_JWE_DECRYPTION_FAILED` with a fixed message. */
 export function asDecryptionError(error: unknown): JWTError {
   return asJWTError(error, {
     code: "ERR_JWE_DECRYPTION_FAILED",

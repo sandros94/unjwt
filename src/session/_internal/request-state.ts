@@ -1,4 +1,4 @@
-/** Session state per request object, created on first use and released with the object; each call keeps its own map. */
+/** Returns a lookup of session state per request object, created on first use and released with the object. Each call creates its own map. */
 export function createRequestState(): (request: object) => Record<string, unknown> {
   const states = new WeakMap<object, Record<string, unknown>>();
   return (request) => {

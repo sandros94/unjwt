@@ -28,7 +28,7 @@ import {
 
 export type DecryptionKeyMaterial = CryptoKey | JWK | JWKSet | Uint8Array<ArrayBuffer> | string;
 
-/** Build one recipient's key management parameters; PBES2 gets a fresh salt and the default count unless given. */
+/** Builds one recipient's key management parameters. PBES2 gets a random 16-byte salt and the default count unless given. */
 export function buildKeyManagementParams(
   alg: KeyManagementAlgorithm,
   source: Pick<JWEEncryptOptions, "keyManagementIV" | "p2s" | "p2c" | "ecdh">,
@@ -58,7 +58,7 @@ export interface UnwrapAndDecryptOptions {
   keyAttempts?: KeyAttemptBudget;
 }
 
-/** Unwrap the CEK and decrypt; a JWK Set tries each candidate, failing with one `ERR_JWE_DECRYPTION_FAILED` (RFC 7516 §11.5). */
+/** Unwraps the CEK and decrypts the content. A JWK Set tries each candidate and fails with one `ERR_JWE_DECRYPTION_FAILED`, every attempt as `cause` (RFC 7516 §11.5). */
 export async function unwrapAndDecrypt(
   alg: KeyManagementAlgorithm,
   rawKeyMaterial: DecryptionKeyMaterial,
