@@ -1,8 +1,8 @@
 # yaml-language-server: $schema=https://unpkg.com/undocs/schema/config.json
 name: unjwt
 url: https://unjwt.s94.dev
-shortDescription: Low-level JWT toolkit on the Web Crypto API
-description: Sign, verify, encrypt and decrypt JSON Web Tokens with Web Crypto. JWS, JWE and JWK in one zero-dependency package, with cookie sessions for h3, Nitro, Nuxt, Elysia and any Web standard runtime.
+shortDescription: JSON Web Tokens on the Web Crypto API
+description: Sign, verify, encrypt and decrypt JSON Web Tokens, manage their keys, and keep sessions in a cookie on any Web standard runtime or Elysia. JWS, JWE, JWK and DPoP in one zero-dependency package, with one typed error.
 
 lang: en
 automd: true
@@ -13,30 +13,64 @@ redirects:
   /guide: /getting-started
   /blog: /
   /getting-started/core-concepts: /getting-started/concepts
-  /jwt/jws/signing: /jwt/jws/sign
-  /jwt/jws/verifying: /jwt/jws/verify
-  /jwt/jws/multi-signature: /jwt/jws/multi
-  /jwt/jwe/encrypting: /jwt/jwe/encrypt
-  /jwt/jwe/decrypting: /jwt/jwe/decrypt
-  /jwt/jwe/multi-recipient: /jwt/jwe/multi
-  /jwt/jwe/ecdh-es: /jwt/jwe/algorithms
+  /jwt: /getting-started/concepts
+  /jwt/jws: /jws
+  /jwt/jws/sign: /jws/sign
+  /jwt/jws/verify: /jws/verify
+  /jwt/jws/multi: /jws/multi
+  /jwt/jws/algorithms: /jws/algorithms
+  /jwt/jws/signing: /jws/sign
+  /jwt/jws/verifying: /jws/verify
+  /jwt/jws/multi-signature: /jws/multi
+  /jwt/jwe: /jwe
+  /jwt/jwe/encrypt: /jwe/encrypt
+  /jwt/jwe/decrypt: /jwe/decrypt
+  /jwt/jwe/multi: /jwe/multi
+  /jwt/jwe/algorithms: /jwe/algorithms
+  /jwt/jwe/encrypting: /jwe/encrypt
+  /jwt/jwe/decrypting: /jwe/decrypt
+  /jwt/jwe/multi-recipient: /jwe/multi
+  /jwt/jwe/ecdh-es: /jwe/algorithms
   /jwk/generating: /jwk/generate
-  /jwk/wrapping: /jwk/wrap-unwrap
+  /jwk/wrap-unwrap: /jwk/wrap
+  /jwk/wrapping: /jwk/wrap
   /jwk/password-derivation: /jwk/password
   /jwk/jwk-sets: /jwk/sets
-  /utilities: /utils
-  /adapters: /frameworks
-  /adapters/h3: /frameworks/adapters
-  /adapters/h3/lower-level: /frameworks/definition
-  /adapters/h3-sessions: /frameworks/adapters
-  /adapters/elysia: /frameworks/elysia
-  /adapters/elysia/lower-level: /frameworks/elysia/lower-level
-  /adapters/elysia-sessions: /frameworks/elysia
-  /adapters/session: /frameworks/session
-  /adapters/hooks: /frameworks/hooks
-  /adapters/drivers: /frameworks/drivers
-  /adapters/lower-level: /frameworks/definition
-  /frameworks/adapters/lower-level: /frameworks/definition
+  /utils: /safety/utils
+  /utils/encoding: /safety/utils
+  /utils/guards: /safety/utils
+  /utils/claims: /safety/claims
+  /utils/internal: /safety/utils
+  /utilities: /safety/utils
+  /errors: /safety/errors
+  /frameworks: /sessions
+  /frameworks/session: /sessions/use
+  /frameworks/definition: /sessions/use
+  /frameworks/h3: /examples/h3
+  /frameworks/nitro: /examples/nitro
+  /frameworks/nuxt: /examples/nuxt
+  /frameworks/elysia: /sessions/elysia
+  /frameworks/elysia/lower-level: /sessions/elysia
+  /frameworks/hooks: /sessions/hooks
+  /frameworks/drivers: /sessions/drivers
+  /frameworks/adapters: /getting-started/migration/to-0.9
+  /frameworks/adapters/lower-level: /sessions/use
+  /adapters: /sessions
+  /adapters/h3: /getting-started/migration/to-0.9
+  /adapters/h3/lower-level: /sessions/use
+  /adapters/h3-sessions: /getting-started/migration/to-0.9
+  /adapters/elysia: /sessions/elysia
+  /adapters/elysia/lower-level: /sessions/elysia
+  /adapters/elysia-sessions: /sessions/elysia
+  /adapters/session: /sessions/use
+  /adapters/hooks: /sessions/hooks
+  /adapters/drivers: /sessions/drivers
+  /adapters/lower-level: /sessions/use
+  /examples/authentication-basics: /getting-started/quickstart
+  /examples/jwks-endpoint: /jwk/sets
+  /examples/refresh-token-pattern: /sessions
+  /examples/end-to-end-encryption: /jwe/encrypt
+  /examples/signed-receipts: /jws/sign
 
 socials:
   bluesky: "https://bsky.app/profile/sandros94.com"
@@ -55,30 +89,37 @@ landing:
     lang: "ts"
     title: "app.ts"
     content: |
-      // Sign a JWT (JWS)
+      // Sign with the private half, verify with the public one
       import { sign, verify } from "unjwt/jws";
       import { generateJWK } from "unjwt/jwk";
 
-      const key = await generateJWK("HS256");
-      const token = await sign({ sub: "user_1" }, key, { expiresIn: "1h" });
-      const { payload } = await verify(token, key);
+      const { privateKey, publicKey } = await generateJWK("ES256");
+      const token = await sign({ sub: "user_1a2b" }, privateKey, { expiresIn: "15m" });
+      const { payload } = await verify(token, publicKey);
 
-      // Encrypt a JWT (JWE)
-      import { encrypt, decrypt } from "unjwt/jwe";
+      // Keep a session in a cookie, on any Web Request
+      import { defineJWESession } from "unjwt/session";
 
-      const jwe = await encrypt({ secret: "data" }, "my-password");
-      const { payload: p } = await decrypt(jwe, "my-password");
+      const appSession = defineJWESession({ key: await generateJWK("A256GCM"), maxAge: "7D" });
+      const session = await appSession.use({ req: request, res: { headers } });
+      await session.update({ user: "user_1a2b" });
   contributors: false
   features:
     - title: "Web Crypto, zero dependencies"
-      description: "Built on the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API). No Node built-ins, no runtime dependencies. Install once, run in Node, Bun, Deno, Workers and browsers."
+      description: "Built on the [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API). No runtime dependencies, no Node built-ins: the same code runs in Node.js, Bun, Deno, Workers and browsers."
       icon: "i-lucide-lock"
-    - title: "JWS, JWE and JWK under one roof"
-      description: "Signing ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)), encryption ([RFC 7516](https://www.rfc-editor.org/rfc/rfc7516)) and key management ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517)) in one package, compact and JSON serialisations alike."
+    - title: "JWS, JWE and JWK in one package"
+      description: "Signing ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)), encryption ([RFC 7516](https://www.rfc-editor.org/rfc/rfc7516)) and keys ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517)), compact and JSON serializations, plus [DPoP](https://www.rfc-editor.org/rfc/rfc9449) proofs."
       icon: "i-lucide-layers"
-    - title: "Keys first, algorithms inferred"
-      description: "Pass a JWK and the algorithm comes from the key. Import CryptoKeys, JWKs, PEM and raw bytes through one function. Thumbprints as default key ids."
+    - title: "Keys pick the algorithm"
+      description: "Pass a JWK and the algorithm comes from the key, on both sides. Key pairs, JWK Sets with rotation, PEM import and thumbprints as key IDs."
       icon: "i-lucide-key-round"
-    - title: "Sessions for H3 and Elysia"
-      description: "Cookie-based JWT sessions with chunking, hooks and one typed error. The same session core behind every adapter."
+    - title: "Sessions on any Web runtime"
+      description: "Signed or encrypted cookie sessions over a Web `Request`: h3, Nitro, Nuxt, Hono, Workers, Bun and Deno, a plugin for Elysia, and a driver for any other framework."
       icon: "i-lucide-cookie"
+    - title: "One error, one code"
+      description: "Every failure, a bad token or a setup mistake, throws a `JWTError` with a `code` you can branch on. Nothing returns a half-checked result."
+      icon: "i-lucide-triangle-alert"
+    - title: "Limits that fail closed"
+      description: "Every call that reads a token bounds its work: signatures, recipients, key trials and PBES2 iterations. Past a limit the token is refused."
+      icon: "i-lucide-shield-check"
