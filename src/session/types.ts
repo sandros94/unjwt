@@ -1,5 +1,6 @@
 import type { ExpiresIn, JWTClaims } from "../core/types/index.ts";
 import type { StrictOmit } from "../utils/types.ts";
+import type { JWTError } from "../error.ts";
 
 /** Session data shape; `any` values let an `interface` (no index signature) satisfy it. */
 // oxlint-disable-next-line typescript/no-explicit-any -- an interface has no implicit index signature
@@ -109,7 +110,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
         expiresAt: number | undefined;
         token: string;
       };
-      error: Error;
+      error: JWTError;
       config: TConfig;
     },
   ) => void | Promise<void>;
