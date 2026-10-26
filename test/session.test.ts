@@ -540,6 +540,33 @@ describe("unjwt/session token sources", () => {
     },
   );
 
+  it.each(["jws", "jwe"] as const)(
+    "%s: a header session updates and clears after the response was sent, and the client keeps its token",
+    async (family) => {
+      const driver = { ...webSessionDriver, writable: () => false };
+      const config = { name: "web", sessionHeader: true };
+      const session =
+        family === "jws"
+          ? defineJWSSession({ ...config, key: jwsKey }, { driver })
+          : defineJWESession({ ...config, key: jweKey }, { driver });
+      const fromHeader = await session.issue({ who: "header" });
+      const headers = new Headers();
+
+      const manager = await session.use({
+        req: get({ "x-web-session": fromHeader }),
+        res: { headers },
+      });
+      await manager.update({ who: "updated" });
+      expect(manager.token).not.toBe(fromHeader);
+      await manager.clear();
+      expect(manager.token).toBeUndefined();
+      expect(headers.getSetCookie()).toEqual([]);
+
+      const next = await session.use({ req: get({ "x-web-session": fromHeader }) });
+      expect(next.data).toEqual({ who: "header" });
+    },
+  );
+
   it.each(FAMILIES)(
     "$family: a header session updates without response headers",
     async ({ define }) => {

@@ -45,23 +45,34 @@ export interface SessionManager<
   readonly expiresAt: ConfigMaxAge extends ExpiresIn ? number : number | undefined;
   /** Session data, without `jti`, `iat`, `exp` and `nbf`. */
   readonly data: SessionData<T>;
-  /** The token read or issued on this request, `undefined` when there is none or it failed to open. */
+  /**
+   * The token read or issued on this request, `undefined` when there is none or it failed to open.
+   * On a `"cookie"` session, a token `update()` issues is also written to the cookie. On a `"header"` or `"token"` session it is here alone, and reaches the client only if you send it.
+   */
   readonly token: string | undefined;
-  /** Where the token of this request comes from. It holds for the whole request, `update()` and `clear()` included. */
+  /**
+   * Where the token of this request comes from, which decides what `update()` and `clear()` reach. It holds for the whole request.
+   * - `"cookie"`: `update()` writes the new token to the cookie, and `clear()` expires it.
+   * - `"header"` or `"token"`: `update()` re-mints onto `token` and writes nothing, and `clear()` empties the session for this request alone. The client keeps the token it sent, valid until it expires.
+   */
   readonly source: SessionSource;
   /**
    * Merges `update` into the data and issues a token with a fresh `jti` and `iat`. `options.maxAge` overrides the config's `maxAge` for this token.
-   * A cookie session writes the token to the response. Later requests read the data back through JSON.
+   * A `"cookie"` session writes the token to the response's cookie. A `"header"` or `"token"` session writes nothing: the token is on `token` alone, for you to send. Later requests read the data back through JSON.
    * If issuing or the cookie write fails, the session is restored, `onError` runs and the call rejects. A throwing `onUpdate` rejects the call and keeps the new session.
-   * @throws `ERR_SESSION_READONLY_EVENT` if a cookie session has no response, or the response was already sent.
+   * @throws `ERR_SESSION_READONLY_EVENT` if a `"cookie"` session has no response, or the response was already sent.
    * @throws `ERR_INVALID_OPTION` if the update is not a plain object or holds `__proto__`, `constructor` or `prototype`.
-   * @throws `ERR_SESSION_CONFIG_INVALID` if the token needs more than 16 cookie chunks.
+   * @throws `ERR_SESSION_CONFIG_INVALID` if a `"cookie"` session's token needs more than 16 cookie chunks.
    */
   update: (
     update?: SessionUpdate<T>,
     options?: SessionIssueOptions,
   ) => Promise<SessionManager<T, ConfigMaxAge>>;
-  /** Empties the session, expires its cookie on a cookie session with a response, and runs `onClear`. @throws `ERR_SESSION_READONLY_EVENT` if the response was already sent. */
+  /**
+   * Empties the session for the rest of the request and runs `onClear`.
+   * A `"cookie"` session with a response expires its cookie. A `"header"` or `"token"` session writes nothing: the client keeps the token it sent, valid until it expires.
+   * @throws `ERR_SESSION_READONLY_EVENT` if a `"cookie"` session's response was already sent.
+   */
   clear: () => Promise<SessionManager<T, ConfigMaxAge>>;
 }
 
