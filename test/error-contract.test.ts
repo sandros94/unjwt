@@ -31,7 +31,6 @@ import {
 import { computeDurationInSeconds } from "../src/utils/index.ts";
 import type {
   ContentEncryptionAlgorithm,
-  JWK_EC_Private,
   JWK_EC_Public,
   JWEGeneralSerialization,
   JWSGeneralSerialization,
@@ -309,11 +308,9 @@ describe("key management errors", () => {
   });
 
   it("deriveSharedSecret imports JWKs under the requested ECDH-ES variant", async () => {
-    const secret = await deriveSharedSecret(
-      ecdhPair.publicKey as JWK_EC_Public,
-      ecdhPair.privateKey as JWK_EC_Private,
-      { enc: "ECDH-ES+A256KW" },
-    );
+    const secret = await deriveSharedSecret(ecdhPair.publicKey, ecdhPair.privateKey, {
+      enc: "ECDH-ES+A256KW",
+    });
     expect(secret).toBeInstanceOf(Uint8Array);
     expect(secret.length).toBe(32);
   });

@@ -3207,3 +3207,18 @@ describe("deriveSharedSecret with mismatched keys", () => {
     ).rejects.toMatchObject({ code: "ERR_JWK_INVALID", cause: expect.any(Error) });
   });
 });
+
+describe("deriveSharedSecret with OKP JWKs", () => {
+  it("takes X25519 pairs from generateJWK without narrowing", async () => {
+    const [alice, bob] = await Promise.all([
+      generateJWK("ECDH-ES", { namedCurve: "X25519" }),
+      generateJWK("ECDH-ES", { namedCurve: "X25519" }),
+    ]);
+    const [fromAlice, fromBob] = await Promise.all([
+      deriveSharedSecret(bob.publicKey, alice.privateKey, { enc: "A256GCM" }),
+      deriveSharedSecret(alice.publicKey, bob.privateKey, { enc: "A256GCM" }),
+    ]);
+    expect(fromAlice).toEqual(fromBob);
+    expect(fromAlice.length).toBe(32);
+  });
+});

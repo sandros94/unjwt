@@ -2,6 +2,8 @@ import { assertJWEEncSupported } from "../_internal/algorithms.ts";
 import type {
   JWK_EC_Public,
   JWK_EC_Private,
+  JWK_OKP_Public,
+  JWK_OKP_Private,
   JWK_ECDH_ES,
   ContentEncryptionAlgorithm,
 } from "../types/index.ts";
@@ -19,8 +21,8 @@ import { aesBitsOf, innerKeyWrapAlg } from "../_crypto/_key-algorithm.ts";
  * @param privateKey The ephemeral private key (the recipient's static one when decrypting).
  */
 export async function deriveSharedSecret(
-  publicKey: CryptoKey | JWK_EC_Public,
-  privateKey: CryptoKey | JWK_EC_Private,
+  publicKey: CryptoKey | JWK_EC_Public | JWK_OKP_Public,
+  privateKey: CryptoKey | JWK_EC_Private | JWK_OKP_Private,
   options: {
     /** Algorithm identifier fed to the concat KDF as `AlgorithmID`. */
     enc: JWK_ECDH_ES | ContentEncryptionAlgorithm;
