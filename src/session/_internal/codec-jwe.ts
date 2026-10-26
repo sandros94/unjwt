@@ -74,8 +74,8 @@ export interface JWESessionHooks<
   TArgs extends Record<string, unknown>,
   TConfig,
 > extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /** Returns the key that decrypts an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for decryption. `open()` passes it no event. */
-  onUnsealKeyLookup?: (
+  /** Returns the key that decrypts an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for decryption: the token's `alg` is still one `key` serves or `decryptOptions.algorithms` lists. `open()` passes it no event. */
+  onKeyLookup?: (
     args: Partial<TArgs> & { header: JWEHeaderParameters; config: TConfig },
   ) => JWEDecryptJWK | Promise<JWEDecryptJWK>;
 }
@@ -84,7 +84,7 @@ export interface JWECodecConfig extends SessionCoreConfig {
   key: JWESessionKey;
   jwe?: JWESessionOptions;
   hooks?: SessionCoreHooks & {
-    onUnsealKeyLookup?(args: {
+    onKeyLookup?(args: {
       header: JWEHeaderParameters;
       config: unknown;
       [arg: string]: unknown;
@@ -123,11 +123,10 @@ export function createJWECodec(options: {
     openKey: (config) => resolveKeys(config, prefix),
     lookup: (config) => {
       const hooks = config.hooks;
-      if (!hooks?.onUnsealKeyLookup) return undefined;
+      if (!hooks?.onKeyLookup) return undefined;
       const { algorithms } = resolveKeys(config, prefix);
       return (args) => ({
-        lookup: (header: JWEHeaderParameters) =>
-          hooks.onUnsealKeyLookup?.({ header, ...args, config }),
+        lookup: (header: JWEHeaderParameters) => hooks.onKeyLookup?.({ header, ...args, config }),
         algorithms,
       });
     },
@@ -182,7 +181,7 @@ function resolveKeys(
     enc: encryptOptions?.enc,
     listed: decryptOptions?.algorithms,
     keyCandidates: resolveLimit(decryptOptions?.limits, "keyCandidates"),
-    lookup: typeof config.hooks?.onUnsealKeyLookup === "function",
+    lookup: typeof config.hooks?.onKeyLookup === "function",
     prefix,
   });
 }

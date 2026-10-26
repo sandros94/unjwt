@@ -328,9 +328,7 @@ describe("session contract", () => {
             cookie: { secure: false },
             hooks: {
               onError,
-              ...(variant.family === "jws"
-                ? { onVerifyKeyLookup: lookup }
-                : { onUnsealKeyLookup: lookup }),
+              onKeyLookup: lookup,
             },
           },
           async (open) => ({ id: (await open()).id ?? null }),
@@ -963,7 +961,7 @@ describe("session contract", () => {
           key: pbes2Key,
           cookie: { secure: false },
           jwe: { encryptOptions: { p2c: 2048 } },
-          hooks: { onError, onUnsealKeyLookup: () => pbes2Key },
+          hooks: { onError, onKeyLookup: () => pbes2Key },
         };
         const own = await mintToken(variant, config, { user: "alice" });
         const costly = await encrypt(
@@ -1566,8 +1564,7 @@ describe("session contract", () => {
       async (variant) => {
         const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
         const lookup = () => ({ keys: [variant.key] });
-        const hooks =
-          variant.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
+        const hooks = { onKeyLookup: lookup };
 
         const read = await variant.run(
           { ...baseConfig(variant), hooks },
@@ -1588,8 +1585,7 @@ describe("session contract", () => {
           kid: (variant.key as { kid?: string }).kid,
         };
         const lookup = () => ({ keys: [other, variant.key] });
-        const hooks =
-          variant.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
+        const hooks = { onKeyLookup: lookup };
 
         const reads: Record<string, unknown>[] = [];
         for (const keyCandidates of [1, 2]) {
@@ -2062,9 +2058,7 @@ describe("session contract", () => {
         cookie: { secure: false },
         hooks: {
           ...options.hooks,
-          ...(entry.family === "jws"
-            ? { onVerifyKeyLookup: lookup }
-            : { onUnsealKeyLookup: lookup }),
+          onKeyLookup: lookup,
         },
       };
       const event = context({ cookie: `${name}=${options.cookie}` });
@@ -2527,8 +2521,7 @@ describe("session contract", () => {
           seen.push(Object.keys(args).toSorted());
           return variant.key;
         };
-        const hooks =
-          variant.family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup };
+        const hooks = { onKeyLookup: lookup };
         const definition = definitionOf(variant, { ...baseConfig(variant), hooks });
         const token = await definition.issue({ user: "alice" });
 
@@ -2575,7 +2568,7 @@ describe("session contract", () => {
       defineJWSSession({
         key: jwsKey,
         hooks: {
-          onVerifyKeyLookup: (args) => {
+          onKeyLookup: (args) => {
             expectTypeOf(args.event).toEqualTypeOf<WebSessionEvent | undefined>();
             return jwsKey;
           },
@@ -2587,7 +2580,7 @@ describe("session contract", () => {
       defineJWESession({
         key: jweKey,
         hooks: {
-          onUnsealKeyLookup: (args) => {
+          onKeyLookup: (args) => {
             expectTypeOf(args.event).toEqualTypeOf<WebSessionEvent | undefined>();
             return jweKey;
           },

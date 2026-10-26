@@ -47,7 +47,7 @@ export interface SessionConfigJWS<
 > extends JWSSessionConfig<MaxAge, CookieAttributes> {
   /** Cookie name, also the base of the default session header `x-unjwt-jws-session`. A trailing `.<digits>` throws `ERR_SESSION_CONFIG_INVALID`. @default "__Host-unjwt-jws" */
   name?: string;
-  /** Lifecycle hooks and `onVerifyKeyLookup`. */
+  /** Lifecycle hooks and `onKeyLookup`. */
   hooks?: SessionHooksJWS<T, MaxAge, TEvent>;
 }
 

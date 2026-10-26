@@ -193,7 +193,7 @@ describe("unjwt/session over a Web request", () => {
       const session = define({
         hooks: {
           onClear,
-          ...(family === "jws" ? { onVerifyKeyLookup: lookup } : { onUnsealKeyLookup: lookup }),
+          onKeyLookup: lookup,
         },
       });
       const request = get({ cookie: `web=${await session.issue({ user: "ada" })}` });
@@ -1794,7 +1794,7 @@ describe("the algorithms a session accepts", () => {
       defineJWSSession({
         key: jwsKey,
         jws: { verifyOptions: { algorithms: ["ES256"] } },
-        hooks: { onVerifyKeyLookup: () => jwsKey },
+        hooks: { onKeyLookup: () => jwsKey },
       }),
     ).not.toThrow();
   });

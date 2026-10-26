@@ -67,8 +67,8 @@ export interface JWSSessionHooks<
   TArgs extends Record<string, unknown>,
   TConfig,
 > extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /** Returns the key or JWK Set that verifies an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for verification. `open()` passes it no event. */
-  onVerifyKeyLookup?: (
+  /** Returns the key or JWK Set that verifies an incoming token, picked from its protected header (by `kid`, for example). Set, it replaces `key` for verification: the token's `alg` is still one `key` serves or `verifyOptions.algorithms` lists. `open()` passes it no event. */
+  onKeyLookup?: (
     args: Partial<TArgs> & { header: JWSHeaderParameters; config: TConfig },
   ) => JWKSet | JWSVerifyJWK | Promise<JWKSet | JWSVerifyJWK>;
 }
@@ -77,7 +77,7 @@ export interface JWSCodecConfig extends SessionCoreConfig {
   key: JWSSessionKey;
   jws?: JWSSessionOptions;
   hooks?: SessionCoreHooks & {
-    onVerifyKeyLookup?(args: {
+    onKeyLookup?(args: {
       header: JWSHeaderParameters;
       config: unknown;
       [arg: string]: unknown;
@@ -116,11 +116,10 @@ export function createJWSCodec(options: {
     openKey: (config) => resolveKeys(config, prefix),
     lookup: (config) => {
       const hooks = config.hooks;
-      if (!hooks?.onVerifyKeyLookup) return undefined;
+      if (!hooks?.onKeyLookup) return undefined;
       const { algorithms } = resolveKeys(config, prefix);
       return (args) => ({
-        key: (header: JWSHeaderParameters) =>
-          hooks.onVerifyKeyLookup?.({ header, ...args, config }),
+        key: (header: JWSHeaderParameters) => hooks.onKeyLookup?.({ header, ...args, config }),
         algorithms,
       });
     },
@@ -154,7 +153,7 @@ function resolveKeys(config: JWSCodecConfig, prefix: string): ReturnType<typeof 
   return resolveVerifyKeys(config.key, {
     pin: config.jws?.signOptions?.alg,
     listed: config.jws?.verifyOptions?.algorithms,
-    lookup: typeof config.hooks?.onVerifyKeyLookup === "function",
+    lookup: typeof config.hooks?.onKeyLookup === "function",
     prefix,
   });
 }
