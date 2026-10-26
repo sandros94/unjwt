@@ -38,6 +38,7 @@ The documentation site is the single source of truth, and every page is also ser
 | Configure a session (key, lifetime, cookie, header) | `/raw/sessions/configure.md` |
 | Read, update, clear, issue and open sessions | `/raw/sessions/use.md` |
 | Session hooks, revocation, key rotation | `/raw/sessions/hooks.md` |
+| Sessions without cookies: the session header, CLI and service-account clients, tokens in links | `/raw/sessions/api-clients.md` |
 | A session driver for another framework | `/raw/sessions/drivers.md`, recipe `/raw/examples/custom-driver.md` |
 | Sessions on h3, Nitro, Nuxt, Hono or Workers | `/raw/examples/h3.md`, `/raw/examples/nitro.md`, `/raw/examples/nuxt.md`, `/raw/examples/hono.md` |
 | Use the library from a CDN in a browser | `/raw/examples/cdn-import.md` |
@@ -54,5 +55,5 @@ The documentation site is the single source of truth, and every page is also ser
 - Every failure throws a `JWTError` with a `code` (`ERR_JWT_EXPIRED`, `ERR_JWS_SIGNATURE_INVALID`, `ERR_JWK_KEY_NOT_FOUND`, …); nothing returns `false`. Branch on `code`, never on the message. The base64url codecs throw `UnsecureError` instead.
 - Claims are validated by default; an option that cannot be honoured (`audience` with a non-JSON payload, time options on a string payload) is `ERR_INVALID_OPTION`.
 - Limits fail closed: signatures and recipients per token, key candidates from a set, key trials per multi call, PBES2 iterations.
-- Sessions: `defineJWSSession`/`defineJWESession` throw at definition for a config they cannot use; `use({ req, res })`, `use({ headers })`, `use({ token })`; `id` is `undefined` until `update()`; a JWE session key is symmetric; default cookie names start with `__Host-`.
+- Sessions: `defineJWSSession`/`defineJWESession` throw at definition for a config they cannot use; `use({ req, res })`, `use({ headers })`, `use({ token })`; `id` is `undefined` until `update()`; a JWE session key is symmetric; default cookie names start with `__Host-`; `sessionHeader` is opt-in, a header holding the cookie's token is a cookie session, and a header or `{ token }` session (`session.source`) writes nothing and never rolls.
 - The library holds no state and does no HTTP: JWK Set fetching, nonce issuance, replay storage and revocation lists are the application's.
