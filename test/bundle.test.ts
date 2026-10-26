@@ -105,7 +105,7 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["importKey"],
     module: "core/jwk/index.ts",
-    measured: { min: 7431, gzip: 2904 },
+    measured: { min: 7755, gzip: 3015 },
     absent: [MARKERS.pem],
   },
   // the thumbprint is the default `kid` of every JWK it emits

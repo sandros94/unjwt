@@ -3169,3 +3169,29 @@ describe("JSON-only JWK input", () => {
     );
   });
 });
+
+describe("importKey algorithm hint against kty", () => {
+  it("refuses an oct JWK without alg under an asymmetric alg", async () => {
+    const oct = await generateJWK("HS256");
+    const { alg: _alg, ...bare } = oct;
+    await expect(importKey(bare, { alg: "ES256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "RSA-OAEP-256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "HS384" })).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it("refuses an EC JWK without alg under a symmetric or RSA alg", async () => {
+    const pair = await generateJWK("ES256");
+    const { alg: _alg, ...bare } = pair.privateKey;
+    await expect(importKey(bare, { alg: "HS256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "RS256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "ES256" })).resolves.toBeDefined();
+  });
+});

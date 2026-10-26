@@ -151,6 +151,22 @@ export function isSameAlgorithm(a: string, b: string): boolean {
 }
 
 /** RFC 7517 §4.4: a JWK's `alg` serves an operation's `alg` when they are the same, or when an `oct` content key (`A256GCM`, …) is used with `dir`. */
+/** Whether a key of `kty` can serve `alg` at all (RFC 7518 §3.1, §4.1): the family, not the size or curve. */
+export function jwkKtyServes(kty: string, alg: string): boolean {
+  switch (kty) {
+    case "oct":
+      return !/^(RS|PS|ES|Ed|EC)/.test(alg);
+    case "RSA":
+      return /^(RS|PS)/.test(alg);
+    case "EC":
+      return /^E(S|C)/.test(alg);
+    case "OKP":
+      return /^E(d|C)/.test(alg);
+    default:
+      return false;
+  }
+}
+
 export function jwkAlgServes(jwk: { kty: string; alg: string }, alg: string): boolean {
   return (
     isSameAlgorithm(jwk.alg, alg) ||

@@ -9,7 +9,7 @@ import type {
 import { decodeSegment } from "./headers.ts";
 import { stringKeyError } from "./keys.ts";
 import { hasMisplacedSecret, isCryptoKey, isJWK, isJWKSet } from "../../utils/guards.ts";
-import { jwkAlgServes } from "../../utils/algorithms.ts";
+import { jwkAlgServes, jwkKtyServes } from "../../utils/algorithms.ts";
 import { JWTError } from "../../error.ts";
 import { jwkTokey, assertOctKeyLength } from "../_crypto/index.ts";
 
@@ -199,11 +199,16 @@ export async function importKey(
 
 /** RFC 7517 §4.4: a JWK's `alg` is authoritative, except an `oct` CEK consumed by `dir`. */
 function assertJWKAlgAuthority(jwk: JWK, alg: JWKAlgorithm | undefined): void {
-  if (!alg || !jwk.alg || jwkAlgServes({ kty: jwk.kty, alg: jwk.alg }, alg)) return;
-  throw new JWTError(
-    `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
-    "ERR_JWK_INVALID",
-  );
+  if (!alg) return;
+  if (jwk.alg) {
+    if (jwkAlgServes({ kty: jwk.kty, alg: jwk.alg }, alg)) return;
+    throw new JWTError(
+      `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
+      "ERR_JWK_INVALID",
+    );
+  }
+  if (jwkKtyServes(jwk.kty, alg)) return;
+  throw new JWTError(`JWK "kty" is "${jwk.kty}", which cannot serve "${alg}".`, "ERR_JWK_INVALID");
 }
 
 function assertIntentOnJWK(jwk: JWK, expect: "public" | "private" | undefined): void {
