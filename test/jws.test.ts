@@ -2307,3 +2307,13 @@ describe("JSON-only header input", () => {
     expect(await sign({ when: new Date(0) }, key)).toEqual(expect.any(String));
   });
 });
+
+describe("time claims keep a present iat", () => {
+  it("keeps iat: 0 when expiresIn is set", async () => {
+    const key = await generateJWK("HS256");
+    const token = await sign({ iat: 0, sub: "user_1a2b" }, key, { expiresIn: "1h" });
+    const { payload } = await verify(token, key);
+    expect(payload.iat).toBe(0);
+    expect(typeof payload.exp).toBe("number");
+  });
+});

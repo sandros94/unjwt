@@ -160,7 +160,7 @@ export function computeJwtTimeClaims(
 
   const now = Math.floor((currentDate ?? new Date()).getTime() / 1000);
   const claims: JWTClaims = { ...payload };
-  claims.iat ||=
+  claims.iat ??=
     issuedAt instanceof Date ? Math.floor(_instantOf(issuedAt, "issuedAt") / 1000) : now;
 
   if (wantsExp) {
