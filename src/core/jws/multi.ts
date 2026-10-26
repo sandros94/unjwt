@@ -159,7 +159,8 @@ export async function signMulti(
  * Once a signature verifies, a `crit`, payload or claim failure throws at once.
  * The payload type follows `options.payload`, as in `verify`.
  *
- * @throws `ERR_JWS_SIGNATURE_INVALID` if no signature verifies, with one `JWTError` per signature as `cause`, in order.
+ * @throws its own error if the only signature fails, as `verify` would.
+ * @throws `ERR_JWS_SIGNATURE_INVALID` if none of several signatures verifies, with one `JWTError` per signature as `cause`, in order.
  * @throws `ERR_JWS_NO_MATCHING_SIGNER` if `strictSignerMatch` is set and no signature fits the key.
  * @throws `ERR_JWS_INVALID_SERIALIZATION` if the object is not a General or Flattened JWS.
  * @throws `ERR_JWS_INVALID` if the signatures exceed `limits.signatures`, or the verified signature fails `crit` or payload decoding.
@@ -306,6 +307,7 @@ export async function verifyMulti(
       "ERR_JWS_NO_MATCHING_SIGNER",
     );
   }
+  if (failures.length === 1) throw failures[0];
   throw new JWTError(INVALID_SIGNATURE.message, INVALID_SIGNATURE.code, failures);
 }
 

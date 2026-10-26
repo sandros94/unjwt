@@ -232,7 +232,8 @@ export async function encryptMulti(
  * Once a recipient opens, a payload or claim failure throws at once.
  * The payload type follows `options.payload`.
  *
- * @throws `ERR_JWE_DECRYPTION_FAILED` if no recipient opens, with one `JWTError` per recipient as `cause`, in order.
+ * @throws its own error if the only recipient fails, as `decrypt` would.
+ * @throws `ERR_JWE_DECRYPTION_FAILED` if none of several recipients opens, with one `JWTError` per recipient as `cause`, in order.
  * @throws `ERR_JWE_NO_MATCHING_RECIPIENT` if `strictRecipientMatch` is set and no recipient fits the key.
  * @throws `ERR_JWE_INVALID_SERIALIZATION` if the object is not a General or Flattened JWE.
  * @throws `ERR_JWE_INVALID` if the recipients exceed `limits.recipients`, or a shared header or content segment is invalid.
@@ -489,6 +490,7 @@ export async function decryptMulti(
       "ERR_JWE_NO_MATCHING_RECIPIENT",
     );
   }
+  if (failures.length === 1) throw failures[0];
   throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", failures);
 }
 

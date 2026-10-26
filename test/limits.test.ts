@@ -119,14 +119,9 @@ describe("limits", () => {
     it("applies to verifyMulti", async () => {
       const jws = await signMulti({ sub: "u1" }, [{ key: signer }]);
       const set: JWKSet = { keys: [decoys[0], publicKey] };
-      const error = await verifyMulti(jws, set, { limits: { keyCandidates: 1 } }).catch((e) => e);
-      expect(isJWTError(error, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
-      expect(error.cause).toMatchObject([
-        {
-          code: "ERR_JWK_KEY_NOT_FOUND",
-          message: '2 candidate keys exceed the limit of 1, narrow them with a "kid".',
-        },
-      ]);
+      await expect(verifyMulti(jws, set, { limits: { keyCandidates: 1 } })).rejects.toThrow(
+        '2 candidate keys exceed the limit of 1, narrow them with a "kid".',
+      );
       const { payload } = await verifyMulti<{ sub: string }>(jws, set, {
         limits: { keyCandidates: 2 },
       });
@@ -150,9 +145,9 @@ describe("limits", () => {
     it("applies to decryptMulti", async () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: octKeys[2] }], { enc: "A256GCM" });
       const set: JWKSet = { keys: [octKeys[0], octKeys[1], octKeys[2]] };
-      const error = await decryptMulti(jwe, set, { limits: { keyCandidates: 2 } }).catch((e) => e);
-      expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
-      expect(error.cause).toMatchObject([{ code: "ERR_JWK_KEY_NOT_FOUND" }]);
+      await expect(decryptMulti(jwe, set, { limits: { keyCandidates: 2 } })).rejects.toSatisfy(
+        (error) => isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+      );
       const { payload } = await decryptMulti<{ sub: string }>(jwe, set, {
         limits: { keyCandidates: 3 },
       });
