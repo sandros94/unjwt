@@ -167,7 +167,7 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 
 | Code | When |
 | --- | --- |
-| `ERR_SESSION_KEY_INVALID` | `key` missing, a password string, wrong shape, or not importable. |
+| `ERR_SESSION_KEY_INVALID` | `key` missing, a password string, wrong shape, its `alg` contradicting a pinned `signOptions.alg` / `encryptOptions.alg`, or not importable. |
 | `ERR_SESSION_CONFIG_INVALID` | Bad `name`/`sessionHeader`, `__Host-`/`__Secure-` violation, an event whose `req` is not a web `Request` (Nuxt handler not from `nuxt/server`), `use(event)` with no token source, unpinned `CryptoKey`, over 16 chunks, JWS + JWE under one `name`. |
 | `ERR_SESSION_READONLY_EVENT` | `update()` on a cookie session opened without a `res`; `update()`/`clear()` once a driver's `writable()` is `false`. |
 | `ERR_INVALID_OPTION` | `update()` data not a plain object, or a `__proto__`-like key. |

@@ -19,6 +19,7 @@ import type {
 import type { StrictOmit } from "../../utils/types.ts";
 import type { JWTError } from "../../error.ts";
 import { assertKeyMaterial, invalidKeyError } from "./contract.ts";
+import { jwkAlgServes } from "../../utils/algorithms.ts";
 import {
   type SessionPayload,
   assertPinnedCryptoKey,
@@ -271,4 +272,10 @@ function assertPinnedAlgEnc(key: unknown, config: JWECodecConfig, prefix: string
     prefix,
     hint: '"jwe.encryptOptions.alg" and "enc"',
   });
+  if (alg && isJWK(key) && key.alg && !jwkAlgServes({ kty: key.kty, alg: key.alg }, alg)) {
+    throw invalidKeyError(
+      `${prefix} Invalid JWE key, its "alg" is "${key.alg}" but "jwe.encryptOptions.alg" pins "${alg}".`,
+      key,
+    );
+  }
 }

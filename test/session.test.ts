@@ -1216,3 +1216,19 @@ describe("SessionDefinition defaults its event to WebSessionEvent", () => {
     expect(session.id).toBeUndefined();
   });
 });
+
+describe("a pinned algorithm the key cannot serve", () => {
+  it("is refused when the session is defined", async () => {
+    const hs = await generateJWK("HS256");
+    expect(() => defineJWSSession({ key: hs, jws: { signOptions: { alg: "ES256" } } })).toThrow(
+      expect.objectContaining({ code: "ERR_SESSION_KEY_INVALID" }),
+    );
+    const gcm = await generateJWK("A256GCM");
+    expect(() =>
+      defineJWESession({ key: gcm, jwe: { encryptOptions: { alg: "A256KW", enc: "A256GCM" } } }),
+    ).toThrow(expect.objectContaining({ code: "ERR_SESSION_KEY_INVALID" }));
+    expect(() =>
+      defineJWESession({ key: gcm, jwe: { encryptOptions: { alg: "dir", enc: "A256GCM" } } }),
+    ).not.toThrow();
+  });
+});

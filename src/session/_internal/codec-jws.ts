@@ -1,5 +1,6 @@
 import { sign, verify } from "../../core/jws/index.ts";
-import { isCryptoKey, isJWKSet, isSymmetricJWK, isPublicJWK } from "../../utils/guards.ts";
+import { isCryptoKey, isJWK, isJWKSet, isSymmetricJWK, isPublicJWK } from "../../utils/guards.ts";
+import { jwkAlgServes } from "../../utils/algorithms.ts";
 import type {
   ExpiresIn,
   JWKSet,
@@ -213,9 +214,12 @@ function isPublicKeyList(keys: readonly unknown[] | undefined): boolean {
 }
 
 function assertPinnedAlg(key: unknown, config: JWSCodecConfig, prefix: string): void {
-  assertPinnedCryptoKey(key, {
-    pinned: Boolean(config.jws?.signOptions?.alg),
-    prefix,
-    hint: '"jws.signOptions.alg"',
-  });
+  const pinned = config.jws?.signOptions?.alg;
+  assertPinnedCryptoKey(key, { pinned: Boolean(pinned), prefix, hint: '"jws.signOptions.alg"' });
+  if (pinned && isJWK(key) && key.alg && !jwkAlgServes({ kty: key.kty, alg: key.alg }, pinned)) {
+    throw invalidKeyError(
+      `${prefix} Invalid JWS key, its "alg" is "${key.alg}" but "jws.signOptions.alg" pins "${pinned}".`,
+      key,
+    );
+  }
 }
