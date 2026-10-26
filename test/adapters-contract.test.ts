@@ -12,16 +12,8 @@ import {
   parseChunkCount,
   readChunked,
 } from "../src/session/_internal/chunked-cookie.ts";
-import {
-  createJWSSession,
-  defineJWSSession,
-  jwsSession,
-} from "../src/adapters/elysia/session/jws.ts";
-import {
-  createJWESession,
-  defineJWESession,
-  jweSession,
-} from "../src/adapters/elysia/session/jwe.ts";
+import { defineJWSSession, jwsSession } from "../src/adapters/elysia/session/jws.ts";
+import { defineJWESession, jweSession } from "../src/adapters/elysia/session/jwe.ts";
 import type { SessionPlugin } from "../src/adapters/elysia/_internal/plugin.ts";
 import type { SessionContext } from "../src/adapters/elysia/session/types.ts";
 import {
@@ -142,32 +134,32 @@ describe("session adapters — shared contract", () => {
   describe("elysia", () => {
     it("reads the session header in preference to the cookie", async () => {
       const minted = elysiaContext();
-      const cookieSession = await createJWSSession(minted.context, { key: jwsKey });
+      const cookieSession = await defineJWSSession({ key: jwsKey }).use(minted.context);
       await cookieSession.update({ who: "cookie" });
 
       const headerContext = elysiaContext();
-      const headerSession = await createJWSSession(headerContext.context, { key: jwsKey });
+      const headerSession = await defineJWSSession({ key: jwsKey }).use(headerContext.context);
       await headerSession.update({ who: "header" });
 
       const { context } = elysiaContext({
         cookies: { "elysia-jws": cookieSession.token! },
         headers: { "x-elysia-jws-session": `Bearer ${headerSession.token!}` },
       });
-      const session = await createJWSSession(context, { key: jwsKey, sessionHeader: true });
+      const session = await defineJWSSession({ key: jwsKey, sessionHeader: true }).use(context);
 
       expect((session.data as Record<string, unknown>).who).toBe("header");
     });
 
     it("a blank session header is a token failure, the cookie unread", async () => {
       const minted = elysiaContext();
-      const cookieSession = await createJWSSession(minted.context, { key: jwsKey });
+      const cookieSession = await defineJWSSession({ key: jwsKey }).use(minted.context);
       await cookieSession.update({ who: "cookie" });
 
       const { context } = elysiaContext({
         cookies: { "elysia-jws": cookieSession.token! },
         headers: { "x-elysia-jws-session": " " },
       });
-      const session = await createJWSSession(context, { key: jwsKey, sessionHeader: true });
+      const session = await defineJWSSession({ key: jwsKey, sessionHeader: true }).use(context);
 
       expect(session.id).toBeUndefined();
       expect((session.data as Record<string, unknown>).who).toBeUndefined();
@@ -176,7 +168,7 @@ describe("session adapters — shared contract", () => {
     it("rejects a session with neither a cookie nor a header to read from", async () => {
       const { context } = elysiaContext();
       const error = await caught(() =>
-        createJWSSession(context, { key: jwsKey, cookie: false, sessionHeader: false }),
+        defineJWSSession({ key: jwsKey, cookie: false, sessionHeader: false }).use(context),
       );
 
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
@@ -184,7 +176,9 @@ describe("session adapters — shared contract", () => {
 
     it("rejects a password string where key material is required", async () => {
       const { context } = elysiaContext();
-      const error = await caught(() => createJWESession(context, { key: "a password" as never }));
+      const error = await caught(() =>
+        defineJWESession({ key: "a password" as never }).use(context),
+      );
 
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
       expect((error as Error).message).toMatch(/deriveJWKFromPassword/);
@@ -195,7 +189,7 @@ describe("session adapters — shared contract", () => {
         cookie: {} as SessionContext["cookie"],
         request: { headers: new Headers() },
       };
-      const session = await createJWSSession(context, { key: jwsKey });
+      const session = await defineJWSSession({ key: jwsKey }).use(context);
       const error = await caught(() => session.update({ user: "alice" }));
 
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
@@ -204,7 +198,7 @@ describe("session adapters — shared contract", () => {
 
     it("strips the adapter-owned claims from an update payload", async () => {
       const { context } = elysiaContext();
-      const session = await createJWSSession(context, { key: jwsKey });
+      const session = await defineJWSSession({ key: jwsKey }).use(context);
       await session.update({ user: "alice", jti: "forged", exp: 2, nbf: 3 });
 
       expect({ ...session.data }).toEqual({ user: "alice" });
@@ -213,7 +207,7 @@ describe("session adapters — shared contract", () => {
 
     it("rejects prototype-poisoning keys in an update", async () => {
       const { context } = elysiaContext();
-      const session = await createJWSSession(context, { key: jwsKey });
+      const session = await defineJWSSession({ key: jwsKey }).use(context);
       const error = await caught(() => session.update({ ["constructor"]: 1 }));
 
       expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
@@ -222,7 +216,7 @@ describe("session adapters — shared contract", () => {
 
     it("gives one issue a lifetime of its own", async () => {
       const { context } = elysiaContext();
-      const session = await createJWSSession(context, { key: jwsKey, maxAge: 60 });
+      const session = await defineJWSSession({ key: jwsKey, maxAge: 60 }).use(context);
       await session.update({ user: "alice" }, { maxAge: 3600 });
 
       expect(session.expiresAt - session.createdAt).toBe(3600 * SECOND);
@@ -243,11 +237,11 @@ describe("session adapters — shared contract", () => {
       );
       const { context } = elysiaContext({ cookies: { "elysia-jws": token } });
 
-      const session = await createJWSSession(context, {
+      const session = await defineJWSSession({
         key: jwsKey,
         maxAge: 3600,
         hooks: { onError, onExpire },
-      });
+      }).use(context);
 
       expect(session.id).toBeUndefined();
       expect(onExpire).not.toHaveBeenCalled();
@@ -265,11 +259,11 @@ describe("session adapters — shared contract", () => {
       });
       const { context, store } = elysiaContext({ cookies: { "elysia-jws": expired } });
 
-      const session = await createJWSSession(context, {
+      const session = await defineJWSSession({
         key: jwsKey,
         maxAge: 3600,
         hooks: { onExpire },
-      });
+      }).use(context);
 
       expect(session.token).toBeUndefined();
       expect(onExpire).toHaveBeenCalledOnce();
@@ -293,7 +287,7 @@ describe("session adapters — shared contract", () => {
       });
       const { context } = elysiaContext({ cookies: { "elysia-jwe": costly } });
 
-      const session = await createJWESession(context, { ...pinned, hooks: { onError } });
+      const session = await defineJWESession({ ...pinned, hooks: { onError } }).use(context);
 
       expect(session.id).toBeUndefined();
       expect(isJWTError(onError.mock.calls[0][0].error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
@@ -308,21 +302,23 @@ describe("session adapters — shared contract", () => {
       } as const;
 
       const minted = elysiaContext();
-      const first = await createJWESession(minted.context, pinned);
+      const first = await defineJWESession(pinned).use(minted.context);
       await first.update({ user: "alice" });
 
       const { context } = elysiaContext({ cookies: { "elysia-jwe": first.token! } });
-      const second = await createJWESession(context, pinned);
+      const second = await defineJWESession(pinned).use(context);
 
       expect(second.id).toBe(first.id);
     });
 
     it("refuses a JWE session under a name a JWS session already holds", async () => {
       const { context } = elysiaContext();
-      const jws = await createJWSSession(context, { name: "shared", key: jwsKey });
+      const jws = await defineJWSSession({ name: "shared", key: jwsKey }).use(context);
       await jws.update({ family: "jws" });
 
-      const error = await caught(() => createJWESession(context, { name: "shared", key: jweKey }));
+      const error = await caught(() =>
+        defineJWESession({ name: "shared", key: jweKey }).use(context),
+      );
 
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
       expect((error as Error).message).toContain("already used by a JWS session");
@@ -330,9 +326,9 @@ describe("session adapters — shared contract", () => {
 
     it("shares one state between two sessions bound under the same name", async () => {
       const { context } = elysiaContext();
-      const first = await createJWSSession(context, { name: "shared", key: jwsKey });
+      const first = await defineJWSSession({ name: "shared", key: jwsKey }).use(context);
       await first.update({ who: "first" });
-      const second = await createJWSSession(context, { name: "shared", key: jwsKey });
+      const second = await defineJWSSession({ name: "shared", key: jwsKey }).use(context);
 
       expect(second.id).toBe(first.id);
       expect({ ...second.data }).toEqual({ who: "first" });
@@ -399,13 +395,13 @@ describe("session adapters — shared contract", () => {
         ...readerConfig,
         hooks: {
           onExpire: async () => {
-            const again = await createJWSSession(context, { ...readerConfig });
+            const again = await defineJWSSession({ ...readerConfig }).use(context);
             seen.push(again.id);
           },
         },
       };
 
-      const session = await within(createJWSSession(context, config), "elysia onExpire");
+      const session = await within(defineJWSSession(config).use(context), "elysia onExpire");
 
       expect(session.id).toBeUndefined();
       expect(seen).toEqual([undefined]);
@@ -418,13 +414,13 @@ describe("session adapters — shared contract", () => {
         ...readerConfig,
         hooks: {
           onError: async () => {
-            const again = await createJWSSession(context, { ...readerConfig });
+            const again = await defineJWSSession({ ...readerConfig }).use(context);
             seen.push(again.id);
           },
         },
       };
 
-      const session = await within(createJWSSession(context, config), "elysia onError");
+      const session = await within(defineJWSSession(config).use(context), "elysia onError");
 
       expect(session.id).toBeUndefined();
       expect(seen).toEqual([undefined]);
@@ -481,7 +477,7 @@ describe("session adapters — shared contract", () => {
     it("elysia: an empty key object fails the read", async () => {
       const { context } = elysiaContext();
       const error = await caught(() =>
-        createJWSSession(context, { name: "emptykey", key: {} as never }),
+        defineJWSSession({ name: "emptykey", key: {} as never }).use(context),
       );
 
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
@@ -490,7 +486,7 @@ describe("session adapters — shared contract", () => {
     it("elysia: a cookie name outside the RFC 6265 token characters is a config error", async () => {
       const { context } = elysiaContext();
       const error = await caught(() =>
-        createJWSSession(context, { name: "bad name", key: jwsKey }),
+        defineJWSSession({ name: "bad name", key: jwsKey }).use(context),
       );
 
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
@@ -498,7 +494,7 @@ describe("session adapters — shared contract", () => {
 
     it("leaves session.token undefined after a failed verification", async () => {
       const { context } = elysiaContext({ cookies: { "elysia-jws": "not.a.token" } });
-      const session = await createJWSSession(context, { key: jwsKey });
+      const session = await defineJWSSession({ key: jwsKey }).use(context);
 
       expect(session.token).toBeUndefined();
     });
@@ -516,7 +512,7 @@ describe("session adapters — shared contract", () => {
 
     it("refuses a token needing more chunks than the limit", async () => {
       const { context } = elysiaContext();
-      const session = await createJWSSession(context, chunked);
+      const session = await defineJWSSession(chunked).use(context);
       const error = await caught(() =>
         session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
       );
@@ -529,7 +525,7 @@ describe("session adapters — shared contract", () => {
       "reads a forged %s marker as no session",
       async (marker) => {
         const { context } = elysiaContext({ cookies: { "chunk-jws": marker } });
-        const session = await createJWSSession(context, chunked);
+        const session = await defineJWSSession(chunked).use(context);
 
         expect(session.id).toBeUndefined();
         expect(session.token).toBeUndefined();
@@ -538,7 +534,7 @@ describe("session adapters — shared contract", () => {
 
     it("bounds cleanup of a forged chunk marker", async () => {
       const { context, store } = elysiaContext({ cookies: { "chunk-jws": "__chunked__100" } });
-      const session = await createJWSSession(context, chunked);
+      const session = await defineJWSSession(chunked).use(context);
       await session.update({ user: "alice" });
 
       const written = [...store.keys()].filter((name) => name.startsWith("chunk-jws"));
@@ -547,13 +543,13 @@ describe("session adapters — shared contract", () => {
 
     it("round-trips a token across the chunks it needs", async () => {
       const minted = elysiaContext();
-      const session = await createJWSSession(minted.context, chunked);
+      const session = await defineJWSSession(chunked).use(minted.context);
       await session.update(bulkyData(3, chunkMaxLength));
 
       const cookies: Record<string, string> = {};
       for (const [name, entry] of minted.store) cookies[name] = entry.value as string;
       const { context } = elysiaContext({ cookies });
-      const again = await createJWSSession(context, chunked);
+      const again = await defineJWSSession(chunked).use(context);
 
       expect(again.id).toBe(session.id);
     });
@@ -571,8 +567,8 @@ describe("session adapters — shared contract", () => {
       const { context, store } = elysiaContext();
       const session =
         family === "jws"
-          ? await createJWSSession(context, { name: `attr-${family}`, key: jwsKey })
-          : await createJWESession(context, { name: `attr-${family}`, key: jweKey });
+          ? await defineJWSSession({ name: `attr-${family}`, key: jwsKey }).use(context)
+          : await defineJWESession({ name: `attr-${family}`, key: jweKey }).use(context);
       await session.update({ user: "alice" });
 
       const write = store.get(`attr-${family}`)!.lastWrite!;
@@ -1202,13 +1198,13 @@ describe("session adapters — shared contract", () => {
     it("reads a cleared header session back as empty while the header still carries its token", async () => {
       const config = { key: jwsKey, cookie: { secure: false }, sessionHeader: true } as const;
       const minted = elysiaContext();
-      const issued = await createJWSSession(minted.context, config);
+      const issued = await defineJWSSession(config).use(minted.context);
       await issued.update({ user: "alice" });
 
       const { context, store } = elysiaContext({
         headers: { "x-elysia-jws-session": issued.token! },
       });
-      const session = await createJWSSession(context, config);
+      const session = await defineJWSSession(config).use(context);
       expect(session.id).toBe(issued.id);
       await session.clear();
 
@@ -1216,18 +1212,18 @@ describe("session adapters — shared contract", () => {
       expect(session.data).toEqual({});
       expect(store.get("elysia-jws")?.lastWrite).toBeUndefined();
 
-      const again = await createJWSSession(context, config);
+      const again = await defineJWSSession(config).use(context);
       expect(again.id).toBeUndefined();
       expect(again.token).toBeUndefined();
     });
 
     it("gives an issue after a clear a lifetime of its own", async () => {
       const { context } = elysiaContext();
-      const session = await createJWSSession(context, {
+      const session = await defineJWSSession({
         key: jwsKey,
         maxAge: 60,
         cookie: { secure: false },
-      });
+      }).use(context);
       await session.update({ user: "alice" });
       await session.clear();
       await session.update({ user: "bob" }, { maxAge: 3600 });
@@ -1295,7 +1291,7 @@ describe("session adapters — shared contract", () => {
       } as const;
 
       const { context, store } = elysiaContext();
-      const elysia = await createJWSSession(context, config);
+      const elysia = await defineJWSSession(config).use(context);
       await elysia.update({ user: "alice" });
       const elysiaExpires = store.get("expiry-jws")!.lastWrite!.expires!;
 
@@ -2361,8 +2357,8 @@ describe("session adapters — shared contract", () => {
         const cookie = { secure: false, chunkMaxLength: 4000 };
         const session =
           family === "jws"
-            ? await createJWSSession(context, { name, key: jwsKey, cookie })
-            : await createJWESession(context, { name, key: jweKey, cookie });
+            ? await defineJWSSession({ name, key: jwsKey, cookie }).use(context)
+            : await defineJWESession({ name, key: jweKey, cookie }).use(context);
         await session.update({ user: "alice" });
         const set = store.get(`jar-${family}`)!.lastWrite!;
         await session.clear();
@@ -2428,13 +2424,11 @@ describe("session adapters — shared contract", () => {
       ),
     )("elysia $label: a token-only config cannot open a session", async ({ family, header }) => {
       const { context } = elysiaContext();
-      const create = family === "jws" ? createJWSSession : createJWESession;
+      const define = family === "jws" ? defineJWSSession : defineJWESession;
       const error = await caught(() =>
-        create(context, {
-          key: family === "jws" ? jwsKey : jweKey,
-          cookie: false,
-          ...header,
-        } as never),
+        define({ key: family === "jws" ? jwsKey : jweKey, cookie: false, ...header } as never).use(
+          context,
+        ),
       );
 
       expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
@@ -2566,11 +2560,11 @@ describe("session adapters — shared contract", () => {
       "elysia: a session with cookies %s is always writable",
       async (cookies) => {
         const { context } = elysiaContext();
-        const session = await createJWSSession(context, {
+        const session = await defineJWSSession({
           key: jwsKey,
           cookie: cookies ? { secure: false } : false,
           sessionHeader: true,
-        });
+        }).use(context);
 
         await session.update({ user: "alice" });
         expect(session.id).toBeTypeOf("string");
@@ -2632,7 +2626,7 @@ describe("session adapters — shared contract", () => {
       const config = { key: jwsKey, name: "resolved", cookie: { secure: false } } as const;
       const app = new Elysia()
         .get("/mint", async ({ cookie, request }) => {
-          const session = await createJWSSession({ cookie, request }, config);
+          const session = await defineJWSSession(config).use({ cookie, request });
           await session.update({ who: "mint" });
           return { ok: true };
         })
@@ -2641,7 +2635,7 @@ describe("session adapters — shared contract", () => {
           "/",
           async ({ session, cookie, request }) => {
             const before = session.data.who ?? null;
-            const again = await createJWSSession({ cookie, request }, config);
+            const again = await defineJWSSession(config).use({ cookie, request });
             await again.update({ who: "handler" });
             return { before, same: session.id === again.id, who: session.data.who ?? null };
           },
@@ -3308,7 +3302,12 @@ interface PortFamilyCase {
 }
 
 const OPENERS: Record<Port, Record<Family, Opener>> = {
-  elysia: { jws: createJWSSession, jwe: createJWESession },
+  elysia: {
+    jws: (context: SessionContext, config: Parameters<typeof defineJWSSession>[0]) =>
+      defineJWSSession(config).use(context),
+    jwe: (context: SessionContext, config: Parameters<typeof defineJWESession>[0]) =>
+      defineJWESession(config).use(context),
+  },
   web: {
     jws: (event: WebSessionEvent, config: Parameters<typeof defineJWSSessionWeb>[0]) =>
       defineJWSSessionWeb(config).use(event),

@@ -38,6 +38,13 @@ export type SessionPlugin<
   { derive: {}; resolve: {}; schema: {}; standaloneSchema: {}; response: {} }
 >;
 
+/** `contextKey` as a config takes it: optional for `"session"` and for a key typed only as `string`, required for any other literal `K`. */
+export type ContextKeyOption<K extends string> = K extends "session"
+  ? { contextKey?: K }
+  : string extends K
+    ? { contextKey?: string }
+    : { contextKey: K };
+
 /** A session definition on Elysia, plus the plugin that resolves its manager under `contextKey` (`K`). */
 export interface SessionPluginDefinition<
   T extends SessionRecord = SessionClaims,
@@ -62,7 +69,7 @@ export function sessionPlugin<
   contextKey: string | undefined;
   create: (context: SessionContext) => Promise<Manager>;
 }): SessionPlugin<{ [P in K]: Manager }, `require${Capitalize<K>}`> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the factory's config type requires `contextKey` whenever K is not "session", so the default only ever stands for K = "session"
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the factory's config type requires `contextKey` whenever K is a literal other than "session", so the default only ever stands for K = "session" or K = string
   const contextKey = (options.contextKey ?? "session") as K;
   // The seed carries the session name as well as the context key, so two
   // differently-named sessions register as two plugins rather than one.

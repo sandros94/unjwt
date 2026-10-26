@@ -7,7 +7,7 @@ import type {
 } from "../src/core/types/index.ts";
 import { isJWTError } from "../src/error.ts";
 import {
-  createJWESession,
+  defineJWESession,
   type SessionConfigJWE,
   type SessionContext,
 } from "../src/adapters/elysia/session/jwe.ts";
@@ -68,7 +68,7 @@ describe("elysia JWE session core", () => {
   it("starts empty when no token is present (no hooks fire)", async () => {
     const onRead = vi.fn();
     const { context } = makeContext();
-    const session = await createJWESession(context, { key: jweKey, hooks: { onRead } });
+    const session = await defineJWESession({ key: jweKey, hooks: { onRead } }).use(context);
 
     expect(session.id).toBeUndefined();
     expect(session.token).toBeUndefined();
@@ -79,7 +79,7 @@ describe("elysia JWE session core", () => {
   it("update() mints a session, writes a cookie, and fires onUpdate with the empty oldSession", async () => {
     const onUpdate = vi.fn();
     const { context, store } = makeContext();
-    const session = await createJWESession(context, { key: jweKey, hooks: { onUpdate } });
+    const session = await defineJWESession({ key: jweKey, hooks: { onUpdate } }).use(context);
 
     await session.update({ user: "alice" });
 
@@ -95,12 +95,12 @@ describe("elysia JWE session core", () => {
   it("round-trips a session token from the cookie on the next request (fires onRead)", async () => {
     const cfg: SessionConfigJWE = { key: jweKey };
     const first = makeContext();
-    const s1 = await createJWESession(first.context, cfg);
+    const s1 = await defineJWESession(cfg).use(first.context);
     await s1.update({ user: "bob", role: "admin" });
 
     const onRead = vi.fn();
     const second = makeContext({ cookies: liveCookies(first.store) });
-    const s2 = await createJWESession(second.context, { ...cfg, hooks: { onRead } });
+    const s2 = await defineJWESession({ ...cfg, hooks: { onRead } }).use(second.context);
 
     expect(s2.id).toBe(s1.id);
     expect(s2.data.user).toBe("bob");
@@ -110,14 +110,14 @@ describe("elysia JWE session core", () => {
 
   it("reads the token from the session header (Bearer stripped) and fires onRead", async () => {
     const cfg: SessionConfigJWE = { key: jweKey, sessionHeader: true };
-    const minted = await createJWESession(makeContext().context, cfg);
+    const minted = await defineJWESession(cfg).use(makeContext().context);
     await minted.update({ user: "carol" });
 
     const onRead = vi.fn();
     const { context } = makeContext({
       headers: { "x-elysia-jwe-session": `Bearer ${minted.token}` },
     });
-    const session = await createJWESession(context, { ...cfg, hooks: { onRead } });
+    const session = await defineJWESession({ ...cfg, hooks: { onRead } }).use(context);
 
     expect(session.id).toBe(minted.id);
     expect(session.data.user).toBe("carol");
@@ -130,17 +130,17 @@ describe("elysia JWE session core", () => {
       maxAge: "1s",
       jwe: { encryptOptions: { currentDate: new Date(1000) } },
     };
-    const minted = await createJWESession(makeContext().context, issueCfg);
+    const minted = await defineJWESession(issueCfg).use(makeContext().context);
     await minted.update({ user: "dave" });
 
     const onRead = vi.fn();
     const onExpire = vi.fn();
     const { context } = makeContext({ cookies: { "elysia-jwe": minted.token! } });
-    const session = await createJWESession(context, {
+    const session = await defineJWESession({
       key: jweKey,
       maxAge: "1s",
       hooks: { onRead, onExpire },
-    });
+    }).use(context);
 
     expect(onExpire).toHaveBeenCalledOnce();
     expect(onRead).not.toHaveBeenCalled();
@@ -152,7 +152,9 @@ describe("elysia JWE session core", () => {
     const onRead = vi.fn();
     const onError = vi.fn();
     const { context } = makeContext({ cookies: { "elysia-jwe": "a.b.c.d.e" } });
-    const session = await createJWESession(context, { key: jweKey, hooks: { onRead, onError } });
+    const session = await defineJWESession({ key: jweKey, hooks: { onRead, onError } }).use(
+      context,
+    );
 
     expect(onError).toHaveBeenCalledOnce();
     expect(onRead).not.toHaveBeenCalled();
@@ -162,7 +164,7 @@ describe("elysia JWE session core", () => {
   it("rolls back session.data and fires onError when sealing fails mid-update", async () => {
     const onError = vi.fn();
     const { context } = makeContext();
-    const session = await createJWESession(context, { key: jweKey, hooks: { onError } });
+    const session = await defineJWESession({ key: jweKey, hooks: { onError } }).use(context);
     await session.update({ user: "erin" });
     const idBefore = session.id;
 
@@ -179,7 +181,7 @@ describe("elysia JWE session core", () => {
   it("onUpdate.oldSession.data is a deep pre-update snapshot", async () => {
     const snapshots: Array<{ oldRole: unknown; newRole: unknown }> = [];
     const { context } = makeContext();
-    const session = await createJWESession(context, {
+    const session = await defineJWESession({
       key: jweKey,
       hooks: {
         onUpdate: ({ session: s, oldSession }) => {
@@ -189,7 +191,7 @@ describe("elysia JWE session core", () => {
           });
         },
       },
-    });
+    }).use(context);
 
     await session.update({ user: { role: "user" } });
     await session.update((data) => {
@@ -204,7 +206,7 @@ describe("elysia JWE session core", () => {
   it("clear() resets state, expires the cookie, and fires onClear with the old session", async () => {
     const onClear = vi.fn();
     const { context, store } = makeContext();
-    const session = await createJWESession(context, { key: jweKey, hooks: { onClear } });
+    const session = await defineJWESession({ key: jweKey, hooks: { onClear } }).use(context);
     await session.update({ user: "frank" });
     const idBefore = session.id;
 
@@ -220,9 +222,11 @@ describe("elysia JWE session core", () => {
 
   it("refuses an asymmetric key pair, or its private half alone, on first use", async () => {
     for (const key of [rsa, { privateKey: rsa.privateKey }, rsa.privateKey]) {
-      const error = await createJWESession(makeContext().context, {
+      const error = await defineJWESession({
         key: key as never,
-      }).catch((error_: unknown) => error_);
+      })
+        .use(makeContext().context)
+        .catch((error_: unknown) => error_);
 
       expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
       expect((error as Error).message).toContain("an asymmetric key seals with its public half");
@@ -233,12 +237,12 @@ describe("elysia JWE session core", () => {
     const current = { ...(await generateJWK("A256GCMKW")), kid: "current" };
     const former = { ...jweKey, kid: "former" };
     const minted = makeContext();
-    const s1 = await createJWESession(minted.context, { key: former });
+    const s1 = await defineJWESession({ key: former }).use(minted.context);
     await s1.update({ user: "grace" });
 
     const cfg: SessionConfigJWE = { key: { current, keys: [former] } };
     const second = makeContext({ cookies: liveCookies(minted.store) });
-    const s2 = await createJWESession(second.context, cfg);
+    const s2 = await defineJWESession(cfg).use(second.context);
     expect(s2.id).toBe(s1.id);
     expect(s2.data.user).toBe("grace");
 
@@ -248,12 +252,12 @@ describe("elysia JWE session core", () => {
 
   it("omits exp when maxAge is unset and enforces it when set", async () => {
     const noExp = makeContext();
-    const s1 = await createJWESession(noExp.context, { key: jweKey });
+    const s1 = await defineJWESession({ key: jweKey }).use(noExp.context);
     await s1.update({ user: "heidi" });
     expect(s1.expiresAt).toBeUndefined();
 
     const withExp = makeContext();
-    const s2 = await createJWESession(withExp.context, { key: jweKey, maxAge: "1h" });
+    const s2 = await defineJWESession({ key: jweKey, maxAge: "1h" }).use(withExp.context);
     await s2.update({ user: "ivan" });
     expect(typeof s2.expiresAt).toBe("number");
   });

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { Elysia, t } from "elysia";
 import { generateJWK } from "../src/core/jwk/index.ts";
 import type { JWK_oct, JWK_HMAC } from "../src/core/types/index.ts";
-import { createJWSSession, jwsSession } from "../src/adapters/elysia/session/jws.ts";
-import { createJWESession, jweSession } from "../src/adapters/elysia/session/jwe.ts";
+import { defineJWSSession, jwsSession } from "../src/adapters/elysia/session/jws.ts";
+import { defineJWESession, jweSession } from "../src/adapters/elysia/session/jwe.ts";
 
 function cookieHeader(setCookies: string[]): string {
   return setCookies
@@ -32,7 +32,7 @@ describe("elysia session — running server via app.handle", () => {
   it("JWS: round-trips a session across requests through real cookies", async () => {
     const app = new Elysia()
       .resolve(async ({ cookie, request }) => ({
-        session: await createJWSSession({ cookie, request }, { key: jwsKey, maxAge: "1h" }),
+        session: await defineJWSSession({ key: jwsKey, maxAge: "1h" }).use({ cookie, request }),
       }))
       .post(
         "/login",
@@ -71,10 +71,10 @@ describe("elysia session — running server via app.handle", () => {
   it("JWS: reads the session from the x-<name>-session header", async () => {
     const app = new Elysia()
       .resolve(async ({ cookie, request }) => ({
-        session: await createJWSSession(
-          { cookie, request },
-          { key: jwsKey, maxAge: "1h", sessionHeader: true },
-        ),
+        session: await defineJWSSession({ key: jwsKey, maxAge: "1h", sessionHeader: true }).use({
+          cookie,
+          request,
+        }),
       }))
       .post(
         "/login",
@@ -100,7 +100,7 @@ describe("elysia session — running server via app.handle", () => {
   it("JWE: round-trips an encrypted session and defaults to HttpOnly", async () => {
     const app = new Elysia()
       .resolve(async ({ cookie, request }) => ({
-        session: await createJWESession({ cookie, request }, { key: jweKey, maxAge: "1h" }),
+        session: await defineJWESession({ key: jweKey, maxAge: "1h" }).use({ cookie, request }),
       }))
       .post(
         "/login",
@@ -133,7 +133,7 @@ describe("elysia session — running server via app.handle", () => {
   it("starts with an empty session when no cookie/header is present", async () => {
     const app = new Elysia()
       .resolve(async ({ cookie, request }) => ({
-        session: await createJWSSession({ cookie, request }, { key: jwsKey }),
+        session: await defineJWSSession({ key: jwsKey }).use({ cookie, request }),
       }))
       .get("/me", ({ session }) => ({ id: session.id ?? null }));
 

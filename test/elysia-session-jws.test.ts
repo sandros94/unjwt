@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, expectTypeOf, vi, beforeAll } from "vitest";
 import { generateJWK } from "../src/core/jwk/index.ts";
 import type {
   JWK_oct,
@@ -7,10 +7,11 @@ import type {
   JWSAsymmetricPublicJWK,
 } from "../src/core/types/index.ts";
 import {
-  createJWSSession,
+  defineJWSSession,
   type SessionConfigJWS,
   type SessionContext,
 } from "../src/adapters/elysia/session/jws.ts";
+import type { SessionClaims } from "../src/adapters/elysia/session/types.ts";
 import type { CookieAttributes } from "../src/adapters/elysia/_internal/cookie.ts";
 
 interface MockEntry {
@@ -68,7 +69,7 @@ describe("elysia JWS session core", () => {
   it("starts empty when no token is present (no hooks fire)", async () => {
     const onRead = vi.fn();
     const { context } = makeContext();
-    const session = await createJWSSession(context, { key: hsKey, hooks: { onRead } });
+    const session = await defineJWSSession({ key: hsKey, hooks: { onRead } }).use(context);
 
     expect(session.id).toBeUndefined();
     expect(session.token).toBeUndefined();
@@ -79,7 +80,7 @@ describe("elysia JWS session core", () => {
   it("update() mints a session, writes a cookie, and fires onUpdate with the empty oldSession", async () => {
     const onUpdate = vi.fn();
     const { context, store } = makeContext();
-    const session = await createJWSSession(context, { key: hsKey, hooks: { onUpdate } });
+    const session = await defineJWSSession({ key: hsKey, hooks: { onUpdate } }).use(context);
 
     await session.update({ user: "alice" });
 
@@ -95,12 +96,12 @@ describe("elysia JWS session core", () => {
   it("round-trips a session token from the cookie on the next request (fires onRead)", async () => {
     const cfg: SessionConfigJWS = { key: hsKey };
     const first = makeContext();
-    const s1 = await createJWSSession(first.context, cfg);
+    const s1 = await defineJWSSession(cfg).use(first.context);
     await s1.update({ user: "bob", role: "admin" });
 
     const onRead = vi.fn();
     const second = makeContext({ cookies: liveCookies(first.store) });
-    const s2 = await createJWSSession(second.context, { ...cfg, hooks: { onRead } });
+    const s2 = await defineJWSSession({ ...cfg, hooks: { onRead } }).use(second.context);
 
     expect(s2.id).toBe(s1.id);
     expect(s2.data.user).toBe("bob");
@@ -110,14 +111,14 @@ describe("elysia JWS session core", () => {
 
   it("reads the token from the session header (Bearer stripped) and fires onRead", async () => {
     const cfg: SessionConfigJWS = { key: hsKey, sessionHeader: true };
-    const minted = await createJWSSession(makeContext().context, cfg);
+    const minted = await defineJWSSession(cfg).use(makeContext().context);
     await minted.update({ user: "carol" });
 
     const onRead = vi.fn();
     const { context } = makeContext({
       headers: { "x-elysia-jws-session": `Bearer ${minted.token}` },
     });
-    const session = await createJWSSession(context, { ...cfg, hooks: { onRead } });
+    const session = await defineJWSSession({ ...cfg, hooks: { onRead } }).use(context);
 
     expect(session.id).toBe(minted.id);
     expect(session.data.user).toBe("carol");
@@ -130,17 +131,17 @@ describe("elysia JWS session core", () => {
       maxAge: "1s",
       jws: { signOptions: { currentDate: new Date(1000) } },
     };
-    const minted = await createJWSSession(makeContext().context, issueCfg);
+    const minted = await defineJWSSession(issueCfg).use(makeContext().context);
     await minted.update({ user: "dave" });
 
     const onRead = vi.fn();
     const onExpire = vi.fn();
     const { context } = makeContext({ cookies: { "elysia-jws": minted.token! } });
-    const session = await createJWSSession(context, {
+    const session = await defineJWSSession({
       key: hsKey,
       maxAge: "1s",
       hooks: { onRead, onExpire },
-    });
+    }).use(context);
 
     expect(onExpire).toHaveBeenCalledOnce();
     expect(onRead).not.toHaveBeenCalled();
@@ -152,7 +153,7 @@ describe("elysia JWS session core", () => {
     const onRead = vi.fn();
     const onError = vi.fn();
     const { context } = makeContext({ cookies: { "elysia-jws": "not.a.jwt" } });
-    const session = await createJWSSession(context, { key: hsKey, hooks: { onRead, onError } });
+    const session = await defineJWSSession({ key: hsKey, hooks: { onRead, onError } }).use(context);
 
     expect(onError).toHaveBeenCalledOnce();
     expect(onRead).not.toHaveBeenCalled();
@@ -162,7 +163,7 @@ describe("elysia JWS session core", () => {
   it("rolls back session.data and fires onError when signing fails mid-update", async () => {
     const onError = vi.fn();
     const { context } = makeContext();
-    const session = await createJWSSession(context, { key: hsKey, hooks: { onError } });
+    const session = await defineJWSSession({ key: hsKey, hooks: { onError } }).use(context);
     await session.update({ user: "erin" });
     const idBefore = session.id;
 
@@ -178,12 +179,12 @@ describe("elysia JWS session core", () => {
 
   it("writes no cookie when a request only reads its session", async () => {
     const { context: writer, store: written } = makeContext();
-    const session = await createJWSSession(writer, { key: hsKey });
+    const session = await defineJWSSession({ key: hsKey }).use(writer);
     await session.update({ user: "frank" });
     const token = written.get("elysia-jws")!.value as string;
 
     const { context, store } = makeContext({ cookies: { "elysia-jws": token } });
-    const read = await createJWSSession(context, { key: hsKey });
+    const read = await defineJWSSession({ key: hsKey }).use(context);
     expect(read.data).toMatchObject({ user: "frank" });
     expect(store.get("elysia-jws")?.lastWrite).toBeUndefined();
   });
@@ -191,7 +192,7 @@ describe("elysia JWS session core", () => {
   it("onUpdate.oldSession.data is a deep pre-update snapshot", async () => {
     const snapshots: Array<{ oldRole: unknown; newRole: unknown }> = [];
     const { context } = makeContext();
-    const session = await createJWSSession(context, {
+    const session = await defineJWSSession({
       key: hsKey,
       hooks: {
         onUpdate: ({ session: s, oldSession }) => {
@@ -201,7 +202,7 @@ describe("elysia JWS session core", () => {
           });
         },
       },
-    });
+    }).use(context);
 
     await session.update({ user: { role: "user" } });
     await session.update((data) => {
@@ -216,7 +217,7 @@ describe("elysia JWS session core", () => {
   it("clear() resets state, expires the cookie, and fires onClear with the old session", async () => {
     const onClear = vi.fn();
     const { context, store } = makeContext();
-    const session = await createJWSSession(context, { key: hsKey, hooks: { onClear } });
+    const session = await defineJWSSession({ key: hsKey, hooks: { onClear } }).use(context);
     await session.update({ user: "frank" });
     const idBefore = session.id;
 
@@ -233,11 +234,11 @@ describe("elysia JWS session core", () => {
   it("works with an asymmetric key pair (private signs, public verifies)", async () => {
     const cfg: SessionConfigJWS = { key: { privateKey: rsa.privateKey, publicKey: rsa.publicKey } };
     const first = makeContext();
-    const s1 = await createJWSSession(first.context, cfg);
+    const s1 = await defineJWSSession(cfg).use(first.context);
     await s1.update({ user: "grace" });
 
     const second = makeContext({ cookies: liveCookies(first.store) });
-    const s2 = await createJWSSession(second.context, cfg);
+    const s2 = await defineJWSSession(cfg).use(second.context);
 
     expect(s2.id).toBe(s1.id);
     expect(s2.data.user).toBe("grace");
@@ -245,13 +246,21 @@ describe("elysia JWS session core", () => {
 
   it("omits exp when maxAge is unset and enforces it when set", async () => {
     const noExp = makeContext();
-    const s1 = await createJWSSession(noExp.context, { key: hsKey });
+    const s1 = await defineJWSSession({ key: hsKey }).use(noExp.context);
     await s1.update({ user: "heidi" });
     expect(s1.expiresAt).toBeUndefined();
 
     const withExp = makeContext();
-    const s2 = await createJWSSession(withExp.context, { key: hsKey, maxAge: "1h" });
+    const s2 = await defineJWSSession({ key: hsKey, maxAge: "1h" }).use(withExp.context);
     await s2.update({ user: "ivan" });
     expect(typeof s2.expiresAt).toBe("number");
+  });
+
+  it("types: a config typed SessionConfigJWS defines a session, a literal contextKey must be given", () => {
+    const cfg: SessionConfigJWS = { key: hsKey };
+    expectTypeOf(defineJWSSession(cfg).use).parameter(0).toEqualTypeOf<SessionContext>();
+    defineJWSSession<SessionClaims, undefined, "auth">({ key: hsKey, contextKey: "auth" });
+    // @ts-expect-error a literal context key other than "session" is spelled out in the config
+    defineJWSSession<SessionClaims, undefined, "auth">({ key: hsKey });
   });
 });

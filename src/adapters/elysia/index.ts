@@ -13,7 +13,6 @@ export {
   type SessionConfigJWS,
   type SessionHooksJWS,
   type SessionJWS,
-  createJWSSession,
   defineJWSSession,
   jwsSession,
 } from "./session/jws.ts";
@@ -24,7 +23,6 @@ export {
   type SessionEncryptOptions,
   type SessionHooksJWE,
   type SessionJWE,
-  createJWESession,
   defineJWESession,
   jweSession,
 } from "./session/jwe.ts";

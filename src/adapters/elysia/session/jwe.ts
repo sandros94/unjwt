@@ -8,6 +8,7 @@ import {
 import type { SessionDefinition, SessionRecord, SessionState } from "../../../session/types.ts";
 import { defineSession } from "../../../session/_internal/definition.ts";
 import {
+  type ContextKeyOption,
   type SessionPlugin,
   type SessionPluginDefinition,
   sessionPlugin,
@@ -56,8 +57,7 @@ export function defineJWESession<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   K extends string = "session",
 >(
-  config: SessionConfigJWE<T, MaxAge> &
-    (K extends "session" ? { contextKey?: K } : { contextKey: K }),
+  config: SessionConfigJWE<T, MaxAge> & ContextKeyOption<K>,
 ): SessionPluginDefinition<T, MaxAge, K> {
   const definition = define<T, MaxAge>(config);
   return {
@@ -72,29 +72,13 @@ export function defineJWESession<
   };
 }
 
-/**
- * Create a JWE (encrypted) session manager for the request.
- * @deprecated Use `defineJWESession(config).use(context)`.
- */
-export async function createJWESession<
-  T extends SessionRecord = SessionClaims,
-  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
-  TContext extends SessionContext = SessionContext,
->(
-  context: TContext,
-  config: SessionConfigJWE<T, MaxAge, TContext>,
-): Promise<SessionManager<T, MaxAge>> {
-  return define<T, MaxAge>(config).use(context);
-}
-
 /** The Elysia plugin of a JWE (encrypted) session: `defineJWESession(config).plugin()`. */
 export function jweSession<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   K extends string = "session",
 >(
-  config: SessionConfigJWE<T, MaxAge> &
-    (K extends "session" ? { contextKey?: K } : { contextKey: K }),
+  config: SessionConfigJWE<T, MaxAge> & ContextKeyOption<K>,
 ): SessionPlugin<{ [P in K]: SessionManager<T, MaxAge> }, `require${Capitalize<K>}`> {
   return defineJWESession<T, MaxAge, K>(config).plugin();
 }
