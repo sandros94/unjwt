@@ -62,14 +62,22 @@ export async function deriveSharedSecret(
     keyLength = bitLengthCEK(alg);
   }
 
-  return deriveECDHESKey(
-    pubCryptoKey,
-    privCryptoKey,
-    alg,
-    keyLength,
-    partyUInfo ?? new Uint8Array(0),
-    partyVInfo ?? new Uint8Array(0),
-  );
+  try {
+    return await deriveECDHESKey(
+      pubCryptoKey,
+      privCryptoKey,
+      alg,
+      keyLength,
+      partyUInfo ?? new Uint8Array(0),
+      partyVInfo ?? new Uint8Array(0),
+    );
+  } catch (error_) {
+    throw new JWTError(
+      "Key agreement failed: both keys must be agreement keys on the same curve.",
+      "ERR_JWK_INVALID",
+      error_,
+    );
+  }
 }
 
 function assertDerivedKeyLength(keyLength: number): void {

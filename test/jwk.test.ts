@@ -3195,3 +3195,15 @@ describe("importKey algorithm hint against kty", () => {
     await expect(importKey(bare, { alg: "ES256" })).resolves.toBeDefined();
   });
 });
+
+describe("deriveSharedSecret with mismatched keys", () => {
+  it("is ERR_JWK_INVALID with the platform error as cause", async () => {
+    const [p256, p384] = await Promise.all([
+      crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]),
+      crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-384" }, true, ["deriveBits"]),
+    ]);
+    await expect(
+      deriveSharedSecret(p256.publicKey, p384.privateKey, { enc: "A256GCM" }),
+    ).rejects.toMatchObject({ code: "ERR_JWK_INVALID", cause: expect.any(Error) });
+  });
+});
