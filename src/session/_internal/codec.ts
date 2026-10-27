@@ -1,11 +1,10 @@
 import type { ExpiresIn, JWTClaims, Duration, JWKAlgorithm } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
-import { isCryptoKey, isJWKSet, isPrivateJWK } from "../../utils/guards.ts";
+import { isJWKSet } from "../../utils/guards.ts";
 import {
   RESERVED_CLAIMS,
   assertImportableKey,
   expiredSessionError,
-  invalidKeyError,
   resolveExpiresAt,
   rethrowAsInvalidToken,
   sessionRequiredClaims,
@@ -19,47 +18,88 @@ import type {
   SessionKeys,
   StoredSession,
 } from "./types.ts";
+import type { ResolvedSessionKeys } from "./key-algorithms.ts";
 
 export type SessionPayload = JWTClaims & { jti: string; iat: number };
+
+/** A family's key lookup hook, called with a token's protected header, the session config and one request's hook arguments. */
+export type SessionKeyLookupHook<Header, Found> = (args: {
+  header: Header;
+  config: unknown;
+  [arg: string]: unknown;
+}) => Found | Promise<Found>;
 
 /** What a family supplies to build its session codec. */
 export interface SessionCodecSpec<
   Config extends SessionCoreConfig,
   IssueKey,
-  OpenKey extends object,
+  OpenKey,
+  Header,
+  Found,
+  A extends string,
 > {
   family: "jws" | "jwe";
   prefix: string;
   defaultName: string;
   defaultCookie: Record<string, unknown>;
-  /** Returns the pinned `alg` and the `currentDate` the session takes as the current time. */
-  issueOptions: (config: Config) => { alg?: JWKAlgorithm; currentDate?: Date } | undefined;
-  /** Returns the `clockTolerance` an incoming token is checked with. */
-  openOptions: (config: Config) => { clockTolerance?: number | Duration } | undefined;
-  issueKey: (config: Config) => IssueKey;
-  /** The configured keys that open tokens: a key or a JWK Set, each JWK to import up front under its `alg`. */
-  openKey: (config: Config) => OpenKey & { key: unknown };
-  /** With a key lookup hook set, returns the open key for a request's hook arguments. */
-  lookup: (config: Config) => ((args: Record<string, unknown>) => OpenKey) | undefined;
+  /** Returns the pinned `alg`, the session `typ` and the `currentDate` the session takes as the current time. */
+  issueOptions: (
+    config: Config,
+  ) => { alg?: JWKAlgorithm; currentDate?: Date; protectedHeader?: { typ?: string } } | undefined;
+  /** Returns the `clockTolerance` and `requiredClaims` an incoming token is checked with. */
+  openOptions: (
+    config: Config,
+  ) => { clockTolerance?: number | Duration; requiredClaims?: string[] } | undefined;
+  /** Resolves and checks the configured keys. Each JWK of the opening key or JWK Set is imported up front under its `alg`. */
+  resolveKeys: (config: Config) => ResolvedSessionKeys<IssueKey, OpenKey, A>;
+  /** The key lookup hook, when the config sets one. */
+  lookup: (config: Config) => SessionKeyLookupHook<Header, Found> | undefined;
   issue: (config: Config, payload: Record<string, unknown>, key: IssueKey) => Promise<string>;
-  open: (config: Config, token: string, key: OpenKey) => Promise<SessionPayload>;
+  open: (
+    config: Config,
+    token: string,
+    key: OpenKey | ((header: Header) => Found | Promise<Found>),
+    options: SessionOpenOverrides<A>,
+  ) => Promise<SessionPayload>;
 }
 
-/** Keys are resolved once per config and each configured JWK is imported once. Open failures other than expiry throw `ERR_SESSION_TOKEN_INVALID`. */
+/**
+ * Keys are resolved once per config and each configured JWK is imported once. With a key lookup hook, the hook picks each request's
+ * open key under the algorithms the configured keys serve. Open failures other than expiry throw `ERR_SESSION_TOKEN_INVALID`.
+ */
 export function createSessionCodec<
   Config extends SessionCoreConfig,
   IssueKey,
-  OpenKey extends object,
->(spec: SessionCodecSpec<Config, IssueKey, OpenKey>): SessionCodec<Config> {
+  OpenKey,
+  Header,
+  Found,
+  A extends string,
+>(spec: SessionCodecSpec<Config, IssueKey, OpenKey, Header, Found, A>): SessionCodec<Config> {
   const { prefix } = spec;
 
   const now = (config: Config) => spec.issueOptions(config)?.currentDate?.getTime() ?? Date.now();
 
-  const openWith = async (config: Config, token: string, key: OpenKey): Promise<OpenedSession> => {
+  const openWith = async (
+    config: Config,
+    token: string,
+    key: OpenKey | ((header: Header) => Found | Promise<Found>),
+    algorithms: A[],
+  ): Promise<OpenedSession> => {
+    const options = spec.openOptions(config);
     const payload = await spec
-      .open(config, token, key)
+      .open(
+        config,
+        token,
+        key,
+        sessionOpenOptions({
+          maxAge: config.maxAge,
+          requiredClaims: options?.requiredClaims,
+          typ: spec.issueOptions(config)?.protectedHeader?.typ,
+          algorithms,
+        }),
+      )
       .catch((error: unknown) => rethrowAsInvalidToken(error, { prefix }));
-    const clock = { now: now(config), clockTolerance: spec.openOptions(config)?.clockTolerance };
+    const clock = { now: now(config), clockTolerance: options?.clockTolerance };
     assertNotFromTheFuture(payload, { ...clock, prefix });
     const opened = openedSession(payload, { maxAge: config.maxAge });
     assertNotPastMaxAge(opened, clock);
@@ -74,10 +114,15 @@ export function createSessionCodec<
     now,
 
     keys: (config): SessionKeys => {
-      const issueKey = spec.issueKey(config);
-      const { keyFor, importable } = openingKeys(spec, config);
+      const { issueKey, key, algorithms } = spec.resolveKeys(config);
+      const hook = spec.lookup(config);
+      const keyFor = (args: Record<string, unknown>) =>
+        hook ? (header: Header) => hook({ header, ...args, config }) : key;
+      const importable: readonly unknown[] = hook ? [] : isJWKSet(key) ? key.keys : [key];
       const assertOpenKeys = async (): Promise<void> => {
-        for (const key of importable) await assertImportableKey(key, { alg: undefined, prefix });
+        for (const entry of importable) {
+          await assertImportableKey(entry, { alg: undefined, prefix });
+        }
       };
 
       return {
@@ -89,13 +134,13 @@ export function createSessionCodec<
         issue: (state) => spec.issue(config, sessionPayload(state), issueKey),
 
         opener: (args) => {
-          const key = keyFor(args);
-          return (token) => openWith(config, token, key);
+          const opening = keyFor(args);
+          return (token) => openWith(config, token, opening, algorithms);
         },
 
         open: async (token, args) => {
           await assertOpenKeys();
-          return openWith(config, token, keyFor(args));
+          return openWith(config, token, keyFor(args), algorithms);
         },
       };
     },
@@ -126,20 +171,22 @@ export function sessionIssueOptions<O extends { protectedHeader?: { typ?: string
   });
 }
 
-/** Claim validation, the session `typ` and the `alg` values the keys serve. The session checks `maxAge` itself, not through `maxTokenAge`. */
-export function sessionOpenOptions<A extends string>(options: {
-  maxAge: ExpiresIn | undefined;
-  requiredClaims: string[] | undefined;
-  typ: string | undefined;
-  algorithms: A[];
-}): {
+export interface SessionOpenOverrides<A extends string> {
   requiredClaims: string[];
   typ: string;
   maxTokenAge: undefined;
   algorithms: A[];
   payload: "json";
   validateClaims: true;
-} {
+}
+
+/** Claim validation, the session `typ` and the `alg` values the keys serve. The session checks `maxAge` itself, not through `maxTokenAge`. */
+function sessionOpenOptions<A extends string>(options: {
+  maxAge: ExpiresIn | undefined;
+  requiredClaims: string[] | undefined;
+  typ: string | undefined;
+  algorithms: A[];
+}): SessionOpenOverrides<A> {
   const { maxAge, requiredClaims, typ, algorithms } = options;
   return {
     requiredClaims: sessionRequiredClaims(requiredClaims, { maxAge }),
@@ -149,35 +196,6 @@ export function sessionOpenOptions<A extends string>(options: {
     payload: "json",
     validateClaims: true,
   };
-}
-
-export function isKeyPair(key: object): key is { privateKey?: unknown; publicKey?: unknown } {
-  return "privateKey" in key || "publicKey" in key;
-}
-
-/** Checks both halves of a pair, whichever one the caller is about to use. */
-export function assertKeyPair(
-  pair: { privateKey?: unknown; publicKey?: unknown },
-  options: {
-    prefix: string;
-    family: "JWS" | "JWE";
-    isPublic: (half: unknown) => boolean;
-    publicHalf: string;
-  },
-): void {
-  const { prefix, family } = options;
-  if (!isCryptoKey(pair.privateKey) && !isPrivateJWK(pair.privateKey)) {
-    throw invalidKeyError(
-      `${prefix} Invalid ${family} key: "privateKey" must be a private JWK or a CryptoKey.`,
-      pair,
-    );
-  }
-  if (!options.isPublic(pair.publicKey)) {
-    throw invalidKeyError(
-      `${prefix} Invalid ${family} key: "publicKey" must be ${options.publicHalf}.`,
-      pair,
-    );
-  }
 }
 
 function sessionPayload(state: StoredSession): Record<string, unknown> {
@@ -240,16 +258,4 @@ function openedSession(
     expiresAt: exp === undefined || bound === undefined ? (exp ?? bound) : Math.min(exp, bound),
     data,
   };
-}
-
-/** With a lookup hook, the hook picks each request's open key. Otherwise the configured key opens every token and is imported before the first open. */
-function openingKeys<Config extends SessionCoreConfig, IssueKey, OpenKey extends object>(
-  spec: SessionCodecSpec<Config, IssueKey, OpenKey>,
-  config: Config,
-): { keyFor: (args: Record<string, unknown>) => OpenKey; importable: readonly unknown[] } {
-  const lookup = spec.lookup(config);
-  if (lookup) return { keyFor: lookup, importable: [] };
-  const opening = spec.openKey(config);
-  const { key } = opening;
-  return { keyFor: () => opening, importable: isJWKSet(key) ? key.keys : [key] };
 }

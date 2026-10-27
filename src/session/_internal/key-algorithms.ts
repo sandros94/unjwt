@@ -2,12 +2,18 @@ import type { JWTError } from "../../error.ts";
 import { isJWK } from "../../utils/guards.ts";
 import { invalidConfigError, invalidKeyError } from "./contract.ts";
 
-/** The algorithms a family reads from a key: those it names itself, else those its material can carry. */
-export interface KeyAlgorithms<A extends string = string> {
+/** How a family reads the algorithms of its keys, and the options its messages name. */
+export interface SessionKeyRules<A extends string = string> {
   /** A JWK's `alg`, or what its shape names. `undefined` for a key that names none. */
   own: (key: unknown) => readonly A[] | undefined;
   /** The algorithms the material of a key that names none can carry. */
   carried: (key: unknown) => readonly A[];
+  /** The option that pins the `alg` each token is issued with. */
+  pinPath: string;
+  /** What a key that names no algorithm must have pinned. */
+  hint: string;
+  /** The option that lists the algorithms an incoming token may carry. */
+  listPath: string;
 }
 
 /** A configured key and how messages name it. `pin` is the pinned `alg`, for a key the pin names. */
@@ -17,34 +23,35 @@ export interface SessionKeyEntry<K = unknown> {
   pin?: string;
 }
 
+/** The configured keys of a session: the key that issues, the key or JWK Set that opens, and the `alg` values an incoming token may carry. */
+export interface ResolvedSessionKeys<IssueKey, OpenKey, A extends string> {
+  issueKey: IssueKey;
+  key: OpenKey;
+  algorithms: A[];
+}
+
 /**
- * A key that names its algorithm must serve `pin`. A key that names none needs the pin, and must carry it.
+ * A key that names its algorithm must serve `pin`. A key that names none needs the pin, `pinned` when the family needs more than `alg`,
+ * and must carry it.
  * @throws `ERR_SESSION_CONFIG_INVALID` for a key that names no algorithm and nothing pins one.
  * @throws `ERR_SESSION_KEY_INVALID` for a key that cannot serve the pin.
  */
 export function assertPinnedKey(
-  key: unknown,
-  options: {
-    algorithms: KeyAlgorithms;
-    pin: string | undefined;
-    pinned: boolean;
-    pinPath: string;
-    hint: string;
-    subject: string;
-    prefix: string;
-  },
+  entry: SessionKeyEntry,
+  options: { rules: SessionKeyRules; pinned: boolean; prefix: string },
 ): void {
-  const { algorithms, pin, subject, prefix } = options;
-  const own = algorithms.own(key);
+  const { rules, prefix } = options;
+  const { key, pin, subject } = entry;
+  const own = rules.own(key);
   if (own === undefined && (!pin || !options.pinned)) {
     throw invalidConfigError(
-      `${prefix} ${subject} names no algorithm, set ${options.hint}${isJWK(key) ? ', or its "alg"' : ""}.`,
+      `${prefix} ${subject} names no algorithm, set ${rules.hint}${isJWK(key) ? ', or its "alg"' : ""}.`,
     );
   }
-  const served = own ?? algorithms.carried(key);
+  const served = own ?? rules.carried(key);
   if (!pin || served.includes(pin)) return;
   throw invalidKeyError(
-    `${prefix} ${subject} serves ${served.join(", ") || "no algorithm"}, not the "${pin}" that "${options.pinPath}" pins.`,
+    `${prefix} ${subject} serves ${served.join(", ") || "no algorithm"}, not the "${pin}" that "${rules.pinPath}" pins.`,
     key,
   );
 }
@@ -54,19 +61,19 @@ export function assertPinnedKey(
  * names none those it carries that `listed` or its pin names. With `lookup`, a key lookup hook opens tokens, so `listed` may name
  * algorithms no key serves, and a token may carry them too.
  * @throws `ERR_SESSION_CONFIG_INVALID` if `listed` is empty, a key that names no algorithm carries none it names, or `listed` names one no key serves.
- * @throws `ERR_SESSION_KEY_INVALID` if a key that names no algorithm carries none of its family.
+ * @throws `ERR_SESSION_KEY_INVALID` if a key carries no algorithm of its family.
  */
 export function servedAlgorithms<A extends string>(
   entries: readonly SessionKeyEntry[],
   options: {
-    algorithms: KeyAlgorithms<A>;
+    rules: SessionKeyRules<A>;
     listed: readonly A[] | undefined;
-    listPath: string;
     lookup: boolean;
     prefix: string;
   },
 ): { each: (readonly A[])[]; all: A[] } {
-  const { algorithms, listed, listPath, prefix } = options;
+  const { rules, listed, prefix } = options;
+  const { listPath } = rules;
   if (listed?.length === 0) {
     throw invalidConfigError(
       `${prefix} "${listPath}" is empty, list the algorithms the session keys serve or leave it unset.`,
@@ -74,8 +81,8 @@ export function servedAlgorithms<A extends string>(
   }
   const all = new Set<A>();
   const each = entries.map((entry) => {
-    const own = algorithms.own(entry.key);
-    const carried = own ? [] : algorithms.carried(entry.key);
+    const own = rules.own(entry.key);
+    const carried = own ? [] : rules.carried(entry.key);
     const served = own ?? carried.filter((alg) => alg === entry.pin || listed?.includes(alg));
     if (served.length === 0) throw unservedKeyError(entry, { carried, listPath, prefix });
     for (const alg of served) all.add(alg);
@@ -91,6 +98,10 @@ export function servedAlgorithms<A extends string>(
     all.add(alg);
   }
   return { each, all: [...all] };
+}
+
+export function isKeyPair(key: unknown): key is { privateKey?: unknown; publicKey?: unknown } {
+  return typeof key === "object" && key !== null && ("privateKey" in key || "publicKey" in key);
 }
 
 /** The bit length of an `oct` JWK's `k`, from its unpadded base64url length. */

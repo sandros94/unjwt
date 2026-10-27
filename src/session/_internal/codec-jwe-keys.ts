@@ -11,10 +11,11 @@ import {
 } from "../../utils/algorithms.ts";
 import { isAsymmetricJWK, isCryptoKey, isJWK, isSymmetricJWK } from "../../utils/guards.ts";
 import { assertKeyMaterial, invalidKeyError } from "./contract.ts";
-import { isKeyPair } from "./codec.ts";
 import {
-  type KeyAlgorithms,
+  type ResolvedSessionKeys,
+  type SessionKeyRules,
   assertPinnedKey,
+  isKeyPair,
   octBits,
   servedAlgorithms,
 } from "./key-algorithms.ts";
@@ -23,14 +24,14 @@ import {
 export type JWESessionOctJWK = Extract<JWEDecryptJWK, { kty: "oct" }>;
 
 /**
- * A symmetric key that encrypts and decrypts: an `oct` JWK or a secret `CryptoKey`. To encrypt, a key without `alg` (any `CryptoKey`)
- * requires a pinned `jwe.encryptOptions.alg` and `enc`. An asymmetric key throws `ERR_SESSION_KEY_INVALID`: its public half encrypts,
- * so anyone holding that half could forge a session the server accepts. Use `defineJWSSession` for a key pair.
+ * A symmetric key that encrypts and decrypts, an `oct` JWK or a secret `CryptoKey`. A key without `alg` (a `CryptoKey`, an `oct` JWK
+ * without `alg`) requires a pinned `jwe.encryptOptions.alg` and `enc`. An asymmetric key throws `ERR_SESSION_KEY_INVALID`: its public
+ * half encrypts, so anyone holding that half could forge a session the server accepts. Use `defineJWSSession` for a key pair.
  */
 export type JWESessionKey = JWESessionOctJWK | CryptoKey;
 
 /** RFC 7518 §4: a JWK's `alg` names its role. Without one, an AES-KW `CryptoKey` wraps, an AES-GCM one wraps or is the CEK, a PBKDF2 one derives, and an `oct` JWK serves what its length fits. */
-const JWE_KEY_ALGORITHMS: KeyAlgorithms<KeyManagementAlgorithm> = {
+const JWE_KEY_RULES: SessionKeyRules<KeyManagementAlgorithm> = {
   own: (key) => (isJWK(key) && key.alg ? (inferJWEAllowedAlgorithms(key) ?? []) : undefined),
   carried: (key) => {
     if (isCryptoKey(key)) {
@@ -43,12 +44,12 @@ const JWE_KEY_ALGORITHMS: KeyAlgorithms<KeyManagementAlgorithm> = {
     const algs = aesWraps(octBits(key));
     return directEncryptions(key).length > 0 ? [...algs, "dir"] : algs;
   },
+  pinPath: "jwe.encryptOptions.alg",
+  hint: '"jwe.encryptOptions.alg" and "enc"',
+  listPath: "jwe.decryptOptions.algorithms",
 };
 
-/**
- * Resolves and checks the configured key, which encrypts and decrypts. `algorithms` is what it serves, the `alg` values an
- * incoming token may carry.
- */
+/** Resolves and checks the configured key, which encrypts and decrypts. It must serve the pinned `alg` and `enc`, and needs both pinned when it names no algorithm. */
 export function resolveSessionKeys(
   key: unknown,
   options: {
@@ -58,18 +59,13 @@ export function resolveSessionKeys(
     lookup: boolean;
     prefix: string;
   },
-): { key: JWESessionKey; algorithms: KeyManagementAlgorithm[] } {
+): ResolvedSessionKeys<JWESessionKey, JWESessionKey, KeyManagementAlgorithm> {
   const { alg, enc, prefix } = options;
   assertKeyMaterial(key, { prefix });
-  const secret = sessionSecret(key, prefix);
-  const subject = "The session key";
-  assertIssuingKey(secret, { alg, enc, subject, prefix });
-  const { all } = servedAlgorithms([{ key: secret, subject, pin: alg }], {
-    ...options,
-    algorithms: JWE_KEY_ALGORITHMS,
-    listPath: "jwe.decryptOptions.algorithms",
-  });
-  return { key: secret, algorithms: all };
+  const entry = { key: sessionSecret(key, prefix), subject: "The session key", pin: alg };
+  assertIssuingKey(entry, { enc, prefix });
+  const { all } = servedAlgorithms([entry], { ...options, rules: JWE_KEY_RULES });
+  return { issueKey: entry.key, key: entry.key, algorithms: all };
 }
 
 /**
@@ -78,25 +74,13 @@ export function resolveSessionKeys(
  * @throws `ERR_SESSION_KEY_INVALID` for a key that cannot serve the pinned `alg` or `enc`.
  */
 function assertIssuingKey(
-  key: JWESessionKey,
-  options: {
-    alg: KeyManagementAlgorithm | undefined;
-    enc: ContentEncryptionAlgorithm | undefined;
-    subject: string;
-    prefix: string;
-  },
+  entry: { key: JWESessionKey; subject: string; pin: KeyManagementAlgorithm | undefined },
+  options: { enc: ContentEncryptionAlgorithm | undefined; prefix: string },
 ): void {
-  const { alg, enc, subject, prefix } = options;
-  assertPinnedKey(key, {
-    algorithms: JWE_KEY_ALGORITHMS,
-    pin: alg,
-    pinned: Boolean(alg && enc),
-    pinPath: "jwe.encryptOptions.alg",
-    hint: '"jwe.encryptOptions.alg" and "enc"',
-    subject,
-    prefix,
-  });
-  const issuing = alg ?? JWE_KEY_ALGORITHMS.own(key)?.[0];
+  const { enc, prefix } = options;
+  const { key, subject, pin } = entry;
+  assertPinnedKey(entry, { rules: JWE_KEY_RULES, pinned: Boolean(pin && enc), prefix });
+  const issuing = pin ?? JWE_KEY_RULES.own(key)?.[0];
   if (issuing !== "dir" || !enc) return;
   const encs = directEncryptions(key);
   if (encs.includes(enc)) return;
@@ -128,7 +112,7 @@ function sessionSecret(key: unknown, prefix: string): JWESessionKey {
   if (isCryptoKey(key) && key.type === "secret") return key;
   const asymmetric = isCryptoKey(key)
     ? key.type !== "secret"
-    : isAsymmetricJWK(key) || (typeof key === "object" && key !== null && isKeyPair(key));
+    : isAsymmetricJWK(key) || isKeyPair(key);
   throw invalidKeyError(
     asymmetric
       ? `${prefix} Invalid JWE session key: an asymmetric key seals with its public half, so anyone holding that half could mint sessions. Use an "oct" JWK, or defineJWSSession for a key pair.`
