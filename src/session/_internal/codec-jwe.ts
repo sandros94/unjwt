@@ -65,15 +65,17 @@ export interface JWESessionHooks<
   TConfig,
 > extends SessionHooks<TSession, TManager, TArgs, TConfig> {
   /**
-   * Returns the key or JWK Set that decrypts an incoming token, picked from its protected header, by `kid` when keys rotate. Set, it
-   * replaces `key` for decryption: the token's `alg` is still one `key` serves or `decryptOptions.algorithms` lists. A JWK Set offers the
-   * token its keys of the token's `kid` (all of them when it names none) that serve its `alg`, in order, and a token offered more
-   * than `decryptOptions.limits.keyCandidates` keys is refused. A lookup that throws or returns nothing fails the token with
+   * Returns the key that decrypts an incoming token, picked from its protected header, by `kid` when keys rotate: an `oct` JWK, a
+   * `CryptoKey` or a JWK Set, the shapes `key` takes for decryption. Set, it replaces `key` for decryption: the token's `alg` is still one
+   * `key` serves or `decryptOptions.algorithms` lists. A `CryptoKey` it returns names no algorithm of its own: as for a lone `CryptoKey` key,
+   * `decryptOptions.algorithms` or the pin names what it serves. A JWK Set offers the token its keys of the token's `kid` (all of them when it
+   * names none) that serve its `alg`, in order, and a token offered more than `decryptOptions.limits.keyCandidates` keys is refused. Nothing
+   * it returns is checked when the session is defined. A lookup that throws or returns nothing fails the token with
    * `ERR_SESSION_TOKEN_INVALID`. `open()` passes it no event.
    */
   onKeyLookup?: (
     args: Partial<TArgs> & { header: JWEHeaderParameters; config: TConfig },
-  ) => JWKSet | JWEDecryptJWK | Promise<JWKSet | JWEDecryptJWK>;
+  ) => JWEDecryptJWK | CryptoKey | JWKSet | Promise<JWEDecryptJWK | CryptoKey | JWKSet>;
 }
 
 export interface JWECodecConfig extends SessionCoreConfig {
@@ -87,7 +89,7 @@ export interface JWECodecConfig extends SessionCoreConfig {
         config: unknown;
         [arg: string]: unknown;
       },
-    ): JWKSet | JWEDecryptJWK | Promise<JWKSet | JWEDecryptJWK>;
+    ): JWEDecryptJWK | CryptoKey | JWKSet | Promise<JWEDecryptJWK | CryptoKey | JWKSet>;
   };
 }
 

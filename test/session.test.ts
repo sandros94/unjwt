@@ -23,6 +23,8 @@ import {
   type SessionDefinition,
   type SessionDriver,
   type SessionHandedToken,
+  type SessionHooksJWE,
+  type SessionHooksJWS,
   type SessionManager,
   type SessionJWE,
   type SessionJWS,
@@ -1899,6 +1901,8 @@ interface RingCase {
   silent: () => Promise<{ key: JWK_oct; pin: Record<string, unknown>; alg: string }>;
   /** The algorithms the material of `silent` carries, as a message lists them. */
   carries: string;
+  /** A secret `CryptoKey` of another algorithm than the ring's, and that algorithm. */
+  crypto: () => Promise<{ key: CryptoKey; alg: string }>;
   /** An `oct` JWK of the other family. */
   foreign: () => Promise<JWK_oct>;
   /** The algorithm of `key`, the options that pin an algorithm, and an algorithm no ring key serves. */
@@ -1931,6 +1935,7 @@ const RINGS: RingCase[] = [
       alg: "HS384",
     }),
     carries: "HS256, HS384, HS512",
+    crypto: async () => ({ key: await generateKey("HS512"), alg: "HS512" }),
     foreign: () => generateJWK("A128KW"),
     alg: "HS256",
     pinning: (alg) => ({ jws: { signOptions: { alg } } }),
@@ -1952,6 +1957,7 @@ const RINGS: RingCase[] = [
       alg: "A256GCMKW",
     }),
     carries: "A256KW, A256GCMKW, dir",
+    crypto: async () => ({ key: await generateKey("A128KW"), alg: "A128KW" }),
     foreign: () => generateJWK("HS256"),
     alg: "A256KW",
     pinning: (alg) => ({ jwe: { encryptOptions: { alg, enc: "A256GCM" } } }),
@@ -2052,6 +2058,29 @@ describe("key rotation through onKeyLookup", () => {
       expect((await listed.open(token)).data).toEqual({ user: "ada" });
     },
   );
+
+  it.each(RINGS)(
+    "$family: opens a token of a CryptoKey it returns once algorithms names what the key serves",
+    async (ring) => {
+      const [current, { key: old, alg }] = await Promise.all([ring.key("current"), ring.crypto()]);
+      const token = await ring.define({ key: old, ...ring.pinning(alg) }).issue({ user: "ada" });
+      const hooks = { onKeyLookup: () => old };
+
+      const error = await refusal(ring.define({ key: current, hooks }), token);
+      expect(isJWTError(error.cause, ring.notAllowed)).toBe(true);
+      const listed = ring.define({ key: current, hooks, ...ring.opening({ algorithms: [alg] }) });
+      expect((await listed.open(token)).data).toEqual({ user: "ada" });
+    },
+  );
+
+  it("types its return as the key shapes key takes for opening, a CryptoKey included", () => {
+    type JWSLookup = NonNullable<SessionHooksJWS["onKeyLookup"]>;
+    type JWELookup = NonNullable<SessionHooksJWE["onKeyLookup"]>;
+    expectTypeOf<JWK_oct<JWK_HMAC> | CryptoKey | JWKSet>().toExtend<ReturnType<JWSLookup>>();
+    expectTypeOf<Promise<CryptoKey>>().toExtend<ReturnType<JWSLookup>>();
+    expectTypeOf<JWESessionOctJWK | CryptoKey | JWKSet>().toExtend<ReturnType<JWELookup>>();
+    expectTypeOf<Promise<CryptoKey>>().toExtend<ReturnType<JWELookup>>();
+  });
 
   it.each(RINGS)(
     "$family: tries a ring without kid in order and reports each key's failure",
