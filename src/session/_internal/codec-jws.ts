@@ -41,7 +41,7 @@ export interface JWSSessionConfig<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TCookie extends object = object,
 > extends SessionBaseConfig<MaxAge> {
-  /** The key that signs and verifies the token. See {@link JWSSessionKey}. */
+  /** The key, or JWK Set, that signs and verifies the token. See {@link JWSSessionKey}. */
   key: JWSSessionKey;
   /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). `httpOnly: false` lets page scripts read the signed payload. @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
@@ -115,6 +115,7 @@ export function createJWSCodec(options: {
       resolveSessionKeys(config.key, {
         alg: config.jws?.signOptions?.alg,
         listed: config.jws?.verifyOptions?.algorithms,
+        limits: config.jws?.verifyOptions?.limits,
         lookup: typeof config.hooks?.onKeyLookup === "function",
         prefix,
       }),

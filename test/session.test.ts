@@ -1,7 +1,12 @@
 import { describe, it, expect, expectTypeOf, vi } from "vitest";
 import { type H3Event, H3, HTTPError } from "h3";
 
-import type { JWEAsymmetricPrivateJWK, JWK_oct } from "../src/core/types/index.ts";
+import type {
+  JWEAsymmetricPrivateJWK,
+  JWK_HMAC,
+  JWK_oct,
+  JWKSet,
+} from "../src/core/types/index.ts";
 import { type KnownJWTErrorCode, isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
 import { rsa } from "./keys.ts";
@@ -1366,7 +1371,9 @@ describe("JWE session keys", () => {
   });
 
   it("types: an oct JWK or a secret CryptoKey, never a pair", () => {
-    expectTypeOf<JWESessionKey>().toEqualTypeOf<JWESessionOctJWK | CryptoKey>();
+    expectTypeOf<JWESessionKey>().toEqualTypeOf<
+      JWESessionOctJWK | CryptoKey | JWKSet<JWESessionOctJWK[]>
+    >();
     expectTypeOf<typeof jweKey>().toExtend<JWESessionKey>();
     expectTypeOf<{ privateKey: JWEAsymmetricPrivateJWK }>().not.toExtend<JWESessionKey>();
     expectTypeOf<{ privateKey: CryptoKey; publicKey: CryptoKey }>().not.toExtend<JWESessionKey>();
@@ -1716,7 +1723,7 @@ describe("the key rules both families share", () => {
       asymmetric: () => Promise.all([generateJWK("ES256"), generateKey("ES256")]),
       instead: "pass both as { privateKey, publicKey }",
       notAKey:
-        '[unjwt/session] Invalid JWS session key: expected an HMAC "oct" JWK, a secret CryptoKey or a key pair.',
+        '[unjwt/session] Invalid JWS session key: expected an HMAC "oct" JWK, a JWK Set of them, a secret CryptoKey or a key pair.',
     },
     {
       ...FAMILIES[1],
@@ -1738,7 +1745,7 @@ describe("the key rules both families share", () => {
       asymmetric: () => Promise.all([generateJWK("RSA-OAEP-256"), generateKey("RSA-OAEP-256")]),
       instead: "or defineJWSSession for a key pair",
       notAKey:
-        '[unjwt/session] Invalid JWE session key: expected an "oct" JWK or a secret CryptoKey.',
+        '[unjwt/session] Invalid JWE session key: expected an "oct" JWK, a JWK Set of them or a secret CryptoKey.',
     },
   ];
 
@@ -1881,67 +1888,91 @@ describe("the key rules both families share", () => {
   );
 });
 
+interface RingCase {
+  family: Family;
+  define: (config: Record<string, unknown>) => Definition;
+  /** An `oct` JWK of the family's ring algorithm, with `kid` when given. */
+  key: (kid?: string) => Promise<JWK_oct>;
+  /** An `oct` JWK of another algorithm than the ring's, and that algorithm. */
+  other: () => Promise<{ key: JWK_oct; alg: string }>;
+  /** An `oct` JWK without `alg`, the pin that mints with it, and the algorithm it pins. */
+  silent: () => Promise<{ key: JWK_oct; pin: Record<string, unknown>; alg: string }>;
+  /** The algorithms the material of `silent` carries, as a message lists them. */
+  carries: string;
+  /** An `oct` JWK of the other family. */
+  foreign: () => Promise<JWK_oct>;
+  /** The algorithm of `key`, the options that pin an algorithm, and an algorithm no ring key serves. */
+  alg: string;
+  pinning: (alg: string) => Record<string, unknown>;
+  dead: string;
+  /** The options an incoming token is opened with, and the option paths messages name. */
+  opening: (options: Record<string, unknown>) => Record<string, unknown>;
+  listPath: string;
+  limitPath: string;
+  notAllowed: KnownJWTErrorCode;
+  failed: KnownJWTErrorCode;
+}
+
+const withKid = (key: JWK_oct, kid?: string): JWK_oct => {
+  const { kid: _kid, ...rest } = key;
+  return kid === undefined ? rest : { ...rest, kid };
+};
+const oldWithoutAlg = ({ alg: _alg, ...key }: JWK_oct): JWK_oct => withKid(key, "old");
+
+const RINGS: RingCase[] = [
+  {
+    family: "jws",
+    define: (config) => defineJWSSession({ name: "web", key: jwsKey, ...config }),
+    key: async (kid) => withKid(await generateJWK("HS256"), kid),
+    other: async () => ({ key: withKid(await generateJWK("HS512"), "old"), alg: "HS512" }),
+    silent: async () => ({
+      key: oldWithoutAlg(await generateJWK("HS512")),
+      pin: { jws: { signOptions: { alg: "HS384" } } },
+      alg: "HS384",
+    }),
+    carries: "HS256, HS384, HS512",
+    foreign: () => generateJWK("A128KW"),
+    alg: "HS256",
+    pinning: (alg) => ({ jws: { signOptions: { alg } } }),
+    dead: "ES256",
+    opening: (options) => ({ jws: { verifyOptions: options } }),
+    listPath: "jws.verifyOptions.algorithms",
+    limitPath: "jws.verifyOptions.limits.keyCandidates",
+    notAllowed: "ERR_JWS_ALG_NOT_ALLOWED",
+    failed: "ERR_JWS_SIGNATURE_INVALID",
+  },
+  {
+    family: "jwe",
+    define: (config) => defineJWESession({ name: "web", key: jweKey, ...config }),
+    key: async (kid) => withKid(await generateJWK("A256KW"), kid),
+    other: async () => ({ key: withKid(await generateJWK("A128KW"), "old"), alg: "A128KW" }),
+    silent: async () => ({
+      key: oldWithoutAlg(await generateJWK("A256KW")),
+      pin: { jwe: { encryptOptions: { alg: "A256GCMKW", enc: "A256GCM" } } },
+      alg: "A256GCMKW",
+    }),
+    carries: "A256KW, A256GCMKW, dir",
+    foreign: () => generateJWK("HS256"),
+    alg: "A256KW",
+    pinning: (alg) => ({ jwe: { encryptOptions: { alg, enc: "A256GCM" } } }),
+    dead: "A192KW",
+    opening: (options) => ({ jwe: { decryptOptions: options } }),
+    listPath: "jwe.decryptOptions.algorithms",
+    limitPath: "jwe.decryptOptions.limits.keyCandidates",
+    notAllowed: "ERR_JWE_ALG_NOT_ALLOWED",
+    failed: "ERR_JWE_DECRYPTION_FAILED",
+  },
+];
+
+const mint = (ring: RingCase, key: JWK_oct, config?: Record<string, unknown>) =>
+  ring.define({ key, ...config }).issue({ user: "ada" });
+const refusal = async (session: Definition, token: string) => {
+  const error = await caught(session.open(token));
+  expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+  return error as Error;
+};
+
 describe("key rotation through onKeyLookup", () => {
-  interface RingCase {
-    family: Family;
-    define: (config: Record<string, unknown>) => Definition;
-    /** An `oct` JWK of the family's ring algorithm, with `kid` when given. */
-    key: (kid?: string) => Promise<JWK_oct>;
-    /** An `oct` JWK of another algorithm than the ring's, and that algorithm. */
-    other: () => Promise<{ key: JWK_oct; alg: string }>;
-    /** An `oct` JWK without `alg`, the pin that mints with it, and the algorithm it pins. */
-    silent: () => Promise<{ key: JWK_oct; pin: Record<string, unknown>; alg: string }>;
-    /** The options that list the algorithms a session accepts. */
-    accepting: (algorithms: string[]) => Record<string, unknown>;
-    notAllowed: KnownJWTErrorCode;
-    failed: KnownJWTErrorCode;
-  }
-
-  const withKid = (key: JWK_oct, kid?: string): JWK_oct => {
-    const { kid: _kid, ...rest } = key;
-    return kid === undefined ? rest : { ...rest, kid };
-  };
-  const withoutAlg = ({ alg: _alg, ...key }: JWK_oct): JWK_oct => withKid(key, "old");
-
-  const RINGS: RingCase[] = [
-    {
-      family: "jws",
-      define: (config) => defineJWSSession({ name: "web", key: jwsKey, ...config }),
-      key: async (kid) => withKid(await generateJWK("HS256"), kid),
-      other: async () => ({ key: withKid(await generateJWK("HS512"), "old"), alg: "HS512" }),
-      silent: async () => ({
-        key: withoutAlg(await generateJWK("HS512")),
-        pin: { jws: { signOptions: { alg: "HS384" } } },
-        alg: "HS384",
-      }),
-      accepting: (algorithms) => ({ jws: { verifyOptions: { algorithms } } }),
-      notAllowed: "ERR_JWS_ALG_NOT_ALLOWED",
-      failed: "ERR_JWS_SIGNATURE_INVALID",
-    },
-    {
-      family: "jwe",
-      define: (config) => defineJWESession({ name: "web", key: jweKey, ...config }),
-      key: async (kid) => withKid(await generateJWK("A256KW"), kid),
-      other: async () => ({ key: withKid(await generateJWK("A128KW"), "old"), alg: "A128KW" }),
-      silent: async () => ({
-        key: withoutAlg(await generateJWK("A256KW")),
-        pin: { jwe: { encryptOptions: { alg: "A256GCMKW", enc: "A256GCM" } } },
-        alg: "A256GCMKW",
-      }),
-      accepting: (algorithms) => ({ jwe: { decryptOptions: { algorithms } } }),
-      notAllowed: "ERR_JWE_ALG_NOT_ALLOWED",
-      failed: "ERR_JWE_DECRYPTION_FAILED",
-    },
-  ];
-
-  const mint = (ring: RingCase, key: JWK_oct, config?: Record<string, unknown>) =>
-    ring.define({ key, ...config }).issue({ user: "ada" });
-  const refusal = async (session: Definition, token: string) => {
-    const error = await caught(session.open(token));
-    expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-    return error as Error;
-  };
-
   it.each(RINGS)("$family: opens a token of the old key and issues under current", async (ring) => {
     const [current, old] = await Promise.all([ring.key("current"), ring.key("old")]);
     const onKeyLookup = vi.fn(() => ({ keys: [current, old] }));
@@ -2000,7 +2031,7 @@ describe("key rotation through onKeyLookup", () => {
 
       const error = await refusal(ring.define({ key: current, hooks }), token);
       expect(isJWTError(error.cause, ring.notAllowed)).toBe(true);
-      const listed = ring.define({ key: current, hooks, ...ring.accepting([alg]) });
+      const listed = ring.define({ key: current, hooks, ...ring.opening({ algorithms: [alg] }) });
       expect((await listed.open(token)).data).toEqual({ user: "ada" });
     },
   );
@@ -2017,7 +2048,7 @@ describe("key rotation through onKeyLookup", () => {
 
       const error = await refusal(ring.define({ key: current, hooks }), token);
       expect(isJWTError(error.cause, ring.notAllowed)).toBe(true);
-      const listed = ring.define({ key: current, hooks, ...ring.accepting([alg]) });
+      const listed = ring.define({ key: current, hooks, ...ring.opening({ algorithms: [alg] }) });
       expect((await listed.open(token)).data).toEqual({ user: "ada" });
     },
   );
@@ -2039,6 +2070,133 @@ describe("key rotation through onKeyLookup", () => {
       }
     },
   );
+});
+
+describe("key rotation with a JWK Set", () => {
+  const header = (token: string) => JSON.parse(atob(token.split(".")[0]));
+
+  it.each(RINGS)(
+    "$family: issues with the first key and opens a token of an older key of another alg",
+    async (ring) => {
+      const [current, { key: old }] = await Promise.all([ring.key("current"), ring.other()]);
+      const session = ring.define({ key: { keys: [current, old] } });
+      const issued = await session.issue({ user: "ada" });
+      const former = await mint(ring, old);
+
+      expect(header(issued)).toMatchObject({ kid: "current", alg: ring.alg });
+      expect((await session.open(issued)).data).toEqual({ user: "ada" });
+      expect((await session.open(former)).data).toEqual({ user: "ada" });
+      const read = await session.use({ req: get({ cookie: `web=${former}` }) });
+      expect(read.data).toEqual({ user: "ada" });
+    },
+  );
+
+  it.each(RINGS)(
+    "$family: opens an older key without alg only when algorithms lists what it serves",
+    async (ring) => {
+      const [current, { key: old, pin, alg }] = await Promise.all([
+        ring.key("current"),
+        ring.silent(),
+      ]);
+      const key = { keys: [current, old] };
+      expect(refusedWith(() => ring.define({ key }))).toEqual({
+        code: "ERR_SESSION_CONFIG_INVALID",
+        message: `[unjwt/session] The session key "keys[1]" (kid "old") names no algorithm, list one it serves (${ring.carries}) in "${ring.listPath}", or set its "alg".`,
+      });
+      const session = ring.define({ key, ...ring.opening({ algorithms: [alg] }) });
+      expect((await session.open(await mint(ring, old, pin))).data).toEqual({ user: "ada" });
+    },
+  );
+
+  it.each(RINGS)(
+    "$family: refuses a Set that is empty or holds what is not its family's key",
+    async (ring) => {
+      const [current, foreign] = await Promise.all([ring.key("current"), ring.foreign()]);
+      const crypto = await generateKey("HS256");
+      expect(refusedWith(() => ring.define({ key: { keys: [] } }))).toEqual({
+        code: "ERR_SESSION_KEY_INVALID",
+        message: "[unjwt/session] The session key is an empty JWK Set.",
+      });
+      expect(refusedWith(() => ring.define({ key: { keys: [current, crypto] } }))).toEqual({
+        code: "ERR_SESSION_KEY_INVALID",
+        message: '[unjwt/session] The session key "keys[1]" must be an "oct" JWK.',
+      });
+      expect(
+        refusedWith(() =>
+          ring.define({ key: { keys: [current, { ...foreign, kid: "foreign" }] } }),
+        ),
+      ).toEqual({
+        code: "ERR_SESSION_KEY_INVALID",
+        message: '[unjwt/session] The session key "keys[1]" (kid "foreign") serves no algorithm.',
+      });
+    },
+  );
+
+  it.each(RINGS)(
+    "$family: refuses more keys without kid than limits.keyCandidates",
+    async (ring) => {
+      const keys = await Promise.all(Array.from({ length: 9 }, () => ring.key()));
+      expect(refusedWith(() => ring.define({ key: { keys } }))).toEqual({
+        code: "ERR_SESSION_CONFIG_INVALID",
+        message: `[unjwt/session] 9 session keys without "kid" exceed the limit of 8 ("${ring.limitPath}").`,
+      });
+      const raised = ring.define({
+        key: { keys },
+        ...ring.opening({ limits: { keyCandidates: 9 } }),
+      });
+      expect((await raised.open(await raised.issue({ user: "ada" }))).data).toEqual({
+        user: "ada",
+      });
+    },
+  );
+
+  it.each(RINGS)("$family: refuses an algorithms entry no key of the Set serves", async (ring) => {
+    const [current, { key: old }] = await Promise.all([ring.key("current"), ring.other()]);
+    const key = { keys: [current, old] };
+    expect(
+      refusedWith(() => ring.define({ key, ...ring.opening({ algorithms: [ring.dead] }) })),
+    ).toEqual({
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message: `[unjwt/session] "${ring.listPath}" lists "${ring.dead}", which no session key serves. Remove it, or add a key for it.`,
+    });
+  });
+
+  it.each(RINGS)("$family: refuses a token whose kid names no key of the Set", async (ring) => {
+    const [current, old, stranger] = await Promise.all([
+      ring.key("current"),
+      ring.key("old"),
+      ring.key("stranger"),
+    ]);
+    const session = ring.define({ key: { keys: [current, old] } });
+    const error = await refusal(session, await mint(ring, stranger));
+    expect(error.message).toBe(
+      '[unjwt/session] Invalid session token: No key found in JWK Set with kid "stranger".',
+    );
+    expect(isJWTError(error.cause, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+  });
+
+  it.each(RINGS)("$family: holds the pin to the first key alone", async (ring) => {
+    const [current, { key: old, alg }] = await Promise.all([ring.key("current"), ring.other()]);
+    const key = { keys: [current, old] };
+    expect(refusedWith(() => ring.define({ key, ...ring.pinning(alg) }))).toEqual({
+      code: "ERR_SESSION_KEY_INVALID",
+      message: `[unjwt/session] The session key "keys[0]" (kid "current") serves ${ring.alg}, not the "${alg}" that "${ring.family}.${ring.family === "jws" ? "signOptions" : "encryptOptions"}.alg" pins.`,
+    });
+    const pinned = ring.define({ key, ...ring.pinning(ring.alg) });
+    expect((await pinned.open(await pinned.issue({ user: "ada" }))).data).toEqual({ user: "ada" });
+    expect((await pinned.open(await mint(ring, old))).data).toEqual({ user: "ada" });
+  });
+
+  it("types: a JWK Set of the family's oct JWKs, never the other family's", () => {
+    expectTypeOf<JWKSet<JWK_oct<JWK_HMAC>[]>>().toExtend<JWSSessionKey>();
+    expectTypeOf<{ keys: (typeof jwsKey)[] }>().toExtend<JWSSessionKey>();
+    expectTypeOf<JWKSet<JWESessionOctJWK[]>>().toExtend<JWESessionKey>();
+    expectTypeOf<{ keys: (typeof jweKey)[] }>().toExtend<JWESessionKey>();
+    expectTypeOf<{ keys: (typeof jweKey)[] }>().not.toExtend<JWSSessionKey>();
+    expectTypeOf<{ keys: (typeof jwsKey)[] }>().not.toExtend<JWESessionKey>();
+    expectTypeOf<{ keys: CryptoKey[] }>().not.toExtend<JWSSessionKey>();
+    expectTypeOf<{ keys: CryptoKey[] }>().not.toExtend<JWESessionKey>();
+  });
 });
 
 /** The base64url secrets `crypto.subtle.importKey` was handed as raw bytes, in call order. */

@@ -1,5 +1,6 @@
 import type { JWTError } from "../../error.ts";
 import type {
+  JOSELimits,
   JWK_HMAC,
   JWK_oct,
   JWKSet,
@@ -9,7 +10,6 @@ import type {
   JWSSignJWK,
   JWSVerifyJWK,
 } from "../../core/types/index.ts";
-import { quoteTokenValue } from "../../utils/_internal/text.ts";
 import { inferJWSAllowedAlgorithms } from "../../utils/algorithms.ts";
 import {
   isAsymmetricJWK,
@@ -27,19 +27,23 @@ import {
   type SessionKeyRules,
   assertPinnedKey,
   isKeyPair,
+  kidLabel,
   octBits,
   servedAlgorithms,
+  sessionKeySetEntries,
 } from "./key-algorithms.ts";
 
 /**
- * A symmetric key that signs and verifies, an HMAC `oct` JWK or a secret `CryptoKey`, or a pair: `privateKey` signs and `publicKey`
- * (a JWK, a JWK list, a JWK Set or a `CryptoKey`) verifies. A key without `alg` (a `CryptoKey`, an `oct` JWK without `alg`) requires a
- * pinned `jws.signOptions.alg`. A lone asymmetric key throws `ERR_SESSION_KEY_INVALID`: it signs with one half and verifies with the
- * other, so pass both as a pair.
+ * A symmetric key that signs and verifies, an HMAC `oct` JWK or a secret `CryptoKey`, a JWK Set of HMAC `oct` JWKs, or a pair:
+ * `privateKey` signs and `publicKey` (a JWK, a JWK list, a JWK Set or a `CryptoKey`) verifies. A key without `alg` (a `CryptoKey`, an
+ * `oct` JWK without `alg`) requires a pinned `jws.signOptions.alg`. A JWK Set's first key signs and every key verifies, each checked as
+ * a lone key, the pin naming the first alone; at most `jws.verifyOptions.limits.keyCandidates` of them may lack a `kid`. A lone
+ * asymmetric key throws `ERR_SESSION_KEY_INVALID`: it signs with one half and verifies with the other, so pass both as a pair.
  */
 export type JWSSessionKey =
   | CryptoKey
   | JWK_oct<JWK_HMAC>
+  | JWKSet<JWK_oct<JWK_HMAC>[]>
   | {
       privateKey: JWSAsymmetricPrivateJWK | CryptoKey;
       publicKey: JWSAsymmetricPublicJWK | JWSAsymmetricPublicJWK[] | JWKSet | CryptoKey;
@@ -62,18 +66,20 @@ const JWS_KEY_RULES: SessionKeyRules<JWSAlgorithm> = {
   pinPath: "jws.signOptions.alg",
   hint: '"jws.signOptions.alg"',
   listPath: "jws.verifyOptions.algorithms",
+  limitPath: "jws.verifyOptions.limits.keyCandidates",
 };
 
 /**
- * Resolves and checks the configured keys: the key that signs, a symmetric key or a pair's `privateKey`, and the key or JWK Set that
- * verifies. A pair's JWK Set offers a key without `alg` to a token only under the algorithms it serves. The signing key and a single
- * public half must serve the pinned `alg`, and need one pinned when they name none.
+ * Resolves and checks the configured keys: the key that signs, a symmetric key, a JWK Set's first key or a pair's `privateKey`, and
+ * the key or JWK Set that verifies. A pair's JWK Set offers a key without `alg` to a token only under the algorithms it serves. The
+ * signing key and a single public half must serve the pinned `alg`, and need one pinned when they name none.
  */
 export function resolveSessionKeys(
   key: JWSSessionKey,
   options: {
     alg: JWSAlgorithm | undefined;
     listed: JWSAlgorithm[] | undefined;
+    limits: JOSELimits | undefined;
     lookup: boolean;
     prefix: string;
   },
@@ -86,6 +92,10 @@ export function resolveSessionKeys(
   if ((isCryptoKey(key) && key.type === "secret") || isSymmetricJWK(key)) {
     issuing = { key, subject: "The session key", pin };
     entries = [issuing];
+  } else if (isJWKSet(key)) {
+    const set = sessionKeySetEntries(key.keys, { ...options, pin, rules: JWS_KEY_RULES });
+    [issuing] = set;
+    entries = set;
   } else if (isKeyPair(key)) {
     assertJWSKeyPair(key, prefix);
     issuing = { key: key.privateKey, subject: 'The session key "privateKey"', pin };
@@ -106,9 +116,11 @@ export function resolveSessionKeys(
   assertPinnedKey(issuing, pinning);
   if (!list && issuing !== entries[0]) assertPinnedKey(entries[0], pinning);
   const { each, all } = servedAlgorithms(entries, { ...options, rules: JWS_KEY_RULES });
-  const verifying = list
-    ? { keys: entries.flatMap(({ key: entry }, index) => servedCopies(entry, each[index])) }
-    : entries[0].key;
+  const verifying = isJWKSet(key)
+    ? key
+    : list
+      ? { keys: entries.flatMap(({ key: entry }, index) => servedCopies(entry, each[index])) }
+      : entries[0].key;
   return { issueKey: issuing.key, key: verifying, algorithms: all };
 }
 
@@ -158,13 +170,9 @@ function invalidJWSKeyError(key: unknown, prefix: string): JWTError {
   return invalidKeyError(
     isCryptoKey(key) || isAsymmetricJWK(key)
       ? `${prefix} Invalid JWS session key: an asymmetric key signs with its private half and verifies with its public half, pass both as { privateKey, publicKey }.`
-      : `${prefix} Invalid JWS session key: expected an HMAC "oct" JWK, a secret CryptoKey or a key pair.`,
+      : `${prefix} Invalid JWS session key: expected an HMAC "oct" JWK, a JWK Set of them, a secret CryptoKey or a key pair.`,
     key,
   );
-}
-
-function kidLabel(key: unknown): string {
-  return isJWK(key) && key.kid !== undefined ? ` (kid ${quoteTokenValue(key.kid)})` : "";
 }
 
 const HMAC_SIGNATURES = ["HS256", "HS384", "HS512"] as const;

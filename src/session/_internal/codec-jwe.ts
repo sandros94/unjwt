@@ -1,6 +1,6 @@
 import { encrypt, decrypt } from "../../core/jwe/index.ts";
 import { DEFAULT_PBES2_ITERATIONS } from "../../core/_internal/limits.ts";
-import { isJWK } from "../../utils/guards.ts";
+import { isJWK, isJWKSet } from "../../utils/guards.ts";
 import type {
   ExpiresIn,
   JWEDecryptJWK,
@@ -42,7 +42,7 @@ export interface JWESessionConfig<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TCookie extends object = object,
 > extends SessionBaseConfig<MaxAge> {
-  /** The key that encrypts and decrypts the token. See {@link JWESessionKey}. */
+  /** The key, or JWK Set, that encrypts and decrypts the token. See {@link JWESessionKey}. */
   key: JWESessionKey;
   /** Cookie attributes, or `false` for no cookie. `chunkMaxLength` is the size the token is split at (`4000` when unset). @default { path: "/", secure: true, httpOnly: true, sameSite: "lax" } */
   cookie?: false | (TCookie & { chunkMaxLength?: number });
@@ -118,6 +118,7 @@ export function createJWECodec(options: {
         alg: config.jwe?.encryptOptions?.alg,
         enc: config.jwe?.encryptOptions?.enc,
         listed: config.jwe?.decryptOptions?.algorithms,
+        limits: config.jwe?.decryptOptions?.limits,
         lookup: typeof config.hooks?.onKeyLookup === "function",
         prefix,
       }),
@@ -142,7 +143,8 @@ export function createJWECodec(options: {
 function sessionMaxIterations(config: JWECodecConfig): number | undefined {
   const configured = config.jwe?.decryptOptions?.maxIterations;
   if (configured !== undefined) return configured;
-  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(config.key) ? config.key.alg : undefined);
+  const issuing = isJWKSet(config.key) ? config.key.keys[0] : config.key;
+  const alg = config.jwe?.encryptOptions?.alg ?? (isJWK(issuing) ? issuing.alg : undefined);
   return typeof alg === "string" && alg.startsWith("PBES2")
     ? (config.jwe?.encryptOptions?.p2c ?? DEFAULT_PBES2_ITERATIONS)
     : undefined;

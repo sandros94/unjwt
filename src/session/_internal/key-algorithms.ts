@@ -1,5 +1,8 @@
+import type { JOSELimits } from "../../core/types/index.ts";
+import { resolveLimit } from "../../core/_internal/limits.ts";
 import type { JWTError } from "../../error.ts";
-import { isJWK } from "../../utils/guards.ts";
+import { quoteTokenValue } from "../../utils/_internal/text.ts";
+import { isJWK, isSymmetricJWK } from "../../utils/guards.ts";
 import { invalidConfigError, invalidKeyError } from "./contract.ts";
 
 /** How a family reads the algorithms of its keys, and the options its messages name. */
@@ -14,6 +17,8 @@ export interface SessionKeyRules<A extends string = string> {
   hint: string;
   /** The option that lists the algorithms an incoming token may carry. */
   listPath: string;
+  /** The option that caps the keys a token is offered. */
+  limitPath: string;
 }
 
 /** A configured key and how messages name it. `pin` is the pinned `alg`, for a key the pin names. */
@@ -28,6 +33,42 @@ export interface ResolvedSessionKeys<IssueKey, OpenKey, A extends string> {
   issueKey: IssueKey;
   key: OpenKey;
   algorithms: A[];
+}
+
+/**
+ * The entries of a JWK Set session key, each an `oct` JWK named by its index and `kid`. The first issues, so it alone carries `pin`.
+ * @throws `ERR_SESSION_KEY_INVALID` for an empty Set, or an entry that is not an `oct` JWK.
+ * @throws `ERR_SESSION_CONFIG_INVALID` for more entries without `kid` than `limits.keyCandidates`.
+ */
+export function sessionKeySetEntries<K>(
+  keys: readonly K[],
+  options: {
+    pin: string | undefined;
+    limits: JOSELimits | undefined;
+    rules: SessionKeyRules;
+    prefix: string;
+  },
+): SessionKeyEntry<K>[] {
+  const { prefix } = options;
+  if (keys.length === 0) {
+    throw invalidKeyError(`${prefix} The session key is an empty JWK Set.`);
+  }
+  let kidless = 0;
+  const entries = keys.map((key, index) => {
+    const subject = `The session key "keys[${index}]"${kidLabel(key)}`;
+    if (!isSymmetricJWK(key)) {
+      throw invalidKeyError(`${prefix} ${subject} must be an "oct" JWK.`, key);
+    }
+    if (key.kid === undefined) kidless++;
+    return { key, subject, pin: index ? undefined : options.pin };
+  });
+  const limit = resolveLimit(options.limits, "keyCandidates");
+  if (kidless > limit) {
+    throw invalidConfigError(
+      `${prefix} ${kidless} session keys without "kid" exceed the limit of ${limit} ("${options.rules.limitPath}").`,
+    );
+  }
+  return entries;
 }
 
 /**
@@ -102,6 +143,11 @@ export function servedAlgorithms<A extends string>(
 
 export function isKeyPair(key: unknown): key is { privateKey?: unknown; publicKey?: unknown } {
   return typeof key === "object" && key !== null && ("privateKey" in key || "publicKey" in key);
+}
+
+/** A key's `kid` for a message: ` (kid "x")`, or nothing. */
+export function kidLabel(key: unknown): string {
+  return isJWK(key) && key.kid !== undefined ? ` (kid ${quoteTokenValue(key.kid)})` : "";
 }
 
 /** The bit length of an `oct` JWK's `k`, from its unpadded base64url length. */
