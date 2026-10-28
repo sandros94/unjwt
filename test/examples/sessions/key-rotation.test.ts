@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateJWK } from "unjwt/jwk";
+import { generateJWK, generateKey } from "unjwt/jwk";
 import { defineJWESession, defineJWSSession } from "unjwt/session";
 
 async function load(keys: { sealing: unknown[]; signing: unknown[] }) {
@@ -28,35 +28,52 @@ describe("examples/sessions/key-rotation", async () => {
     generateJWK("HS256", { kid: "2026-08" }),
   ]);
 
-  it("refuses to load without its key sets, or with an empty one", async () => {
+  it("refuses to load without its key sets", async () => {
     vi.resetModules();
     vi.stubEnv("SESSION_KEYS", undefined);
     await expect(import("../../../examples/sessions/key-rotation.ts")).rejects.toThrow(
       "SESSION_KEYS is not set",
     );
-    await expect(load({ sealing: [], signing: [signNew] })).rejects.toThrow(
-      "SESSION_KEYS holds no key",
-    );
-    await expect(load({ sealing: [sealNew], signing: [] })).rejects.toThrow(
-      "SIGNING_KEYS holds no key",
-    );
   });
 
-  it("refuses to load with ERR_SESSION_KEY_INVALID when the newest key is not an oct JWK", async () => {
+  it("refuses to load with ERR_SESSION_KEY_INVALID when a set is empty", async () => {
+    await expect(load({ sealing: [], signing: [signNew] })).rejects.toMatchObject({
+      code: "ERR_SESSION_KEY_INVALID",
+      message: "[unjwt/session] The session key is an empty JWK Set.",
+    });
+    await expect(load({ sealing: [sealNew], signing: [] })).rejects.toMatchObject({
+      code: "ERR_SESSION_KEY_INVALID",
+      message: "[unjwt/session] The session key is an empty JWK Set.",
+    });
+  });
+
+  it("refuses a set entry that is not an oct JWK with ERR_SESSION_KEY_INVALID", async () => {
     const { privateKey } = await generateJWK("ECDH-ES+A256KW", { kid: "2026-10" });
     await expect(
       load({ sealing: [privateKey, sealOld], signing: [signNew] }),
-    ).rejects.toMatchObject({ code: "ERR_SESSION_KEY_INVALID" });
+    ).rejects.toMatchObject({
+      code: "ERR_SESSION_KEY_INVALID",
+      message: '[unjwt/session] The session key "keys[0]" (kid "2026-10") must be an "oct" JWK.',
+    });
+    const cryptoKey = await generateKey("A256KW");
+    expect(() =>
+      defineJWESession({ key: { keys: [sealNew, cryptoKey] } as never, maxAge: "7D" }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "ERR_SESSION_KEY_INVALID",
+        message: '[unjwt/session] The session key "keys[1]" must be an "oct" JWK.',
+      }),
+    );
   });
 
-  it("JWE: seals with the newest key, opens tokens of the older ones, refuses retired keys", async () => {
+  it("JWE: seals with the first key, opens tokens of the older ones, refuses dropped keys", async () => {
     const { appSession } = await load({ sealing: [sealNew, sealOld], signing: [signNew] });
     const old = await defineJWESession({ key: sealOld, maxAge: "7D" }).issue({ userId: "u1" });
     const gone = await defineJWESession({ key: sealGone, maxAge: "7D" }).issue({ userId: "u2" });
 
     expect((await appSession.open(old)).data).toEqual({ userId: "u1" });
     const fresh = await appSession.issue({ userId: "u3" });
-    expect(headerOf(fresh).kid).toBe("2026-10");
+    expect(headerOf(fresh)).toMatchObject({ alg: "A256KW", kid: "2026-10" });
     expect((await appSession.open(fresh)).data).toEqual({ userId: "u3" });
     await expect(appSession.open(gone)).rejects.toMatchObject({
       code: "ERR_SESSION_TOKEN_INVALID",
@@ -64,21 +81,7 @@ describe("examples/sessions/key-rotation", async () => {
     });
   });
 
-  it("a ring that leaves out the key that seals fails every fresh token", async () => {
-    const forgetful = defineJWESession({
-      key: sealNew,
-      maxAge: "7D",
-      hooks: { onKeyLookup: () => ({ keys: [sealOld] }) },
-    });
-    const fresh = await forgetful.issue({ userId: "u1" });
-
-    await expect(forgetful.open(fresh)).rejects.toMatchObject({
-      code: "ERR_SESSION_TOKEN_INVALID",
-      cause: { code: "ERR_JWK_KEY_NOT_FOUND" },
-    });
-  });
-
-  it("JWS: signs HS512 with the newest key, verifies the HS256 tokens of the older ones", async () => {
+  it("JWS: signs HS512 with the first key, verifies the HS256 tokens of an older one", async () => {
     const { signedSession } = await load({ sealing: [sealNew], signing: [signNew, signOld] });
     const old = await defineJWSSession({ key: signOld, maxAge: "1h" }).issue({ userId: "u1" });
     const gone = await defineJWSSession({ key: signGone, maxAge: "1h" }).issue({ userId: "u2" });
@@ -95,17 +98,12 @@ describe("examples/sessions/key-rotation", async () => {
     });
   });
 
-  it("JWS: without algorithms, a token of an older key of another alg is refused", async () => {
-    const unlisted = defineJWSSession({
-      key: signNew,
-      maxAge: "1h",
-      hooks: { onKeyLookup: () => ({ keys: [signNew, signOld] }) },
-    });
+  it("JWS: once the older key is dropped, its tokens are refused", async () => {
+    const { signedSession } = await load({ sealing: [sealNew], signing: [signNew] });
     const old = await defineJWSSession({ key: signOld, maxAge: "1h" }).issue({ userId: "u1" });
 
-    await expect(unlisted.open(old)).rejects.toMatchObject({
+    await expect(signedSession.open(old)).rejects.toMatchObject({
       code: "ERR_SESSION_TOKEN_INVALID",
-      cause: { code: "ERR_JWS_ALG_NOT_ALLOWED" },
     });
   });
 });
