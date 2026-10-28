@@ -36,8 +36,8 @@ export type JWESessionOctJWK = Extract<JWEDecryptJWK, { kty: "oct" }>;
 /**
  * A symmetric key that encrypts and decrypts, an `oct` JWK or a secret `CryptoKey`, or a JWK Set of `oct` JWKs. A key without `alg` (a
  * `CryptoKey`, an `oct` JWK without `alg`) requires a pinned `jwe.encryptOptions.alg` and `enc`. A JWK Set's first key encrypts and
- * every key decrypts, each checked as a lone key, the pin naming the first alone; at most `jwe.decryptOptions.limits.keyCandidates` of
- * them may lack a `kid`. An asymmetric key throws `ERR_SESSION_KEY_INVALID`: its public half encrypts, so anyone holding that half
+ * every key decrypts, each checked as a lone key, the pin naming the first alone; a token of a key without `kid` may meet at most
+ * `jwe.decryptOptions.limits.keyCandidates` keys, those whose `alg` serves it and those without `alg`. An asymmetric key throws `ERR_SESSION_KEY_INVALID`: its public half encrypts, so anyone holding that half
  * could forge a session the server accepts. Use `defineJWSSession` for a key pair.
  */
 export type JWESessionKey = JWESessionOctJWK | CryptoKey | JWKSet<JWESessionOctJWK[]>;

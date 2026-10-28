@@ -53,7 +53,7 @@ export interface SessionConfigJWS<
 
 /**
  * Defines a JWS session once: signed, not encrypted, so clients can read its data. `use`, `token`, `issue` and `open` serve every request.
- * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jws.signOptions.alg`, or `jws.verifyOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or names none of those a `publicKey` entry without `alg` carries, or a JWK Set `key` holds more keys without `kid` than `jws.verifyOptions.limits.keyCandidates`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jws.signOptions.alg`, or `jws.verifyOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or names none of those a `publicKey` entry without `alg` carries, or a token of a JWK Set `key` entry without `kid` meets more than `jws.verifyOptions.limits.keyCandidates` entries.
  * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, a lone asymmetric key, not an HMAC `oct` JWK, a JWK Set of them, a secret `CryptoKey` or a key pair, an empty JWK Set or one holding a key that is not an `oct` JWK, a pair with a half that is not what it is named, serves no JWS algorithm, or cannot serve the pinned `alg`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
  */
@@ -64,7 +64,7 @@ export function defineJWSSession<
 >(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 /**
  * Defines a JWS session over a framework driver of your own, passed as `{ driver }`.
- * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jws.signOptions.alg`, or `jws.verifyOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or names none of those a `publicKey` entry without `alg` carries, or a JWK Set `key` holds more keys without `kid` than `jws.verifyOptions.limits.keyCandidates`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jws.signOptions.alg`, or `jws.verifyOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or names none of those a `publicKey` entry without `alg` carries, or a token of a JWK Set `key` entry without `kid` meets more than `jws.verifyOptions.limits.keyCandidates` entries.
  * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, a lone asymmetric key, not an HMAC `oct` JWK, a JWK Set of them, a secret `CryptoKey` or a key pair, an empty JWK Set or one holding a key that is not an `oct` JWK, a pair with a half that is not what it is named, serves no JWS algorithm, or cannot serve the pinned `alg`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
  */

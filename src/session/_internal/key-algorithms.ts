@@ -38,35 +38,41 @@ export interface ResolvedSessionKeys<IssueKey, OpenKey, A extends string> {
 /**
  * The entries of a JWK Set session key, each an `oct` JWK named by its index and `kid`. The first issues, so it alone carries `pin`.
  * @throws `ERR_SESSION_KEY_INVALID` for an empty Set, or an entry that is not an `oct` JWK.
- * @throws `ERR_SESSION_CONFIG_INVALID` for more entries without `kid` than `limits.keyCandidates`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` for an entry without `kid` whose token of an `alg` it serves meets more than `limits.keyCandidates`
+ * entries: those whose `alg` serves it, and those that name none.
  */
 export function sessionKeySetEntries<K>(
   keys: readonly K[],
   options: {
     pin: string | undefined;
+    listed: readonly string[] | undefined;
     limits: JOSELimits | undefined;
     rules: SessionKeyRules;
     prefix: string;
   },
 ): SessionKeyEntry<K>[] {
-  const { prefix } = options;
+  const { rules, prefix } = options;
   if (keys.length === 0) {
     throw invalidKeyError(`${prefix} The session key is an empty JWK Set.`);
   }
-  let kidless = 0;
   const entries = keys.map((key, index) => {
     const subject = `The session key "keys[${index}]"${kidLabel(key)}`;
     if (!isSymmetricJWK(key)) {
       throw invalidKeyError(`${prefix} ${subject} must be an "oct" JWK.`, key);
     }
-    if (key.kid === undefined) kidless++;
     return { key, subject, pin: index ? undefined : options.pin };
   });
   const limit = resolveLimit(options.limits, "keyCandidates");
-  if (kidless > limit) {
-    throw invalidConfigError(
-      `${prefix} ${kidless} session keys without "kid" exceed the limit of ${limit} ("${options.rules.limitPath}").`,
-    );
+  for (const entry of entries) {
+    if (entry.key.kid !== undefined) continue;
+    for (const alg of servedBy(entry, options)) {
+      const met = entries.filter(({ key }) => rules.own(key)?.includes(alg) ?? true).length;
+      if (met > limit) {
+        throw invalidConfigError(
+          `${prefix} ${entry.subject} carries no "kid", so a token of "${alg}" meets ${met} keys, over the limit of ${limit} ("${rules.limitPath}").`,
+        );
+      }
+    }
   }
   return entries;
 }
@@ -122,10 +128,8 @@ export function servedAlgorithms<A extends string>(
   }
   const all = new Set<A>();
   const each = entries.map((entry) => {
-    const own = rules.own(entry.key);
-    const carried = own ? [] : rules.carried(entry.key);
-    const served = own ?? carried.filter((alg) => alg === entry.pin || listed?.includes(alg));
-    if (served.length === 0) throw unservedKeyError(entry, { carried, listPath, prefix });
+    const served = servedBy(entry, options);
+    if (served.length === 0) throw unservedKeyError(entry, { rules, prefix });
     for (const alg of served) all.add(alg);
     return served;
   });
@@ -155,15 +159,28 @@ export function octBits(key: { k: string }): number {
   return Math.floor((key.k.length * 6) / 8) * 8;
 }
 
+/** A key's own algorithms, else those it carries that `listed` or its pin names. */
+function servedBy<A extends string>(
+  entry: SessionKeyEntry,
+  options: { rules: SessionKeyRules<A>; listed: readonly A[] | undefined },
+): readonly A[] {
+  const { rules, listed } = options;
+  return (
+    rules.own(entry.key) ??
+    rules.carried(entry.key).filter((alg) => alg === entry.pin || listed?.includes(alg))
+  );
+}
+
 function unservedKeyError(
   entry: SessionKeyEntry,
-  options: { carried: readonly string[]; listPath: string; prefix: string },
+  options: { rules: SessionKeyRules; prefix: string },
 ): JWTError {
-  const { carried, prefix } = options;
+  const { rules, prefix } = options;
+  const carried = rules.own(entry.key) ? [] : rules.carried(entry.key);
   if (carried.length === 0) {
     return invalidKeyError(`${prefix} ${entry.subject} serves no algorithm.`, entry.key);
   }
   return invalidConfigError(
-    `${prefix} ${entry.subject} names no algorithm, list one it serves (${carried.join(", ")}) in "${options.listPath}", or set its "alg".`,
+    `${prefix} ${entry.subject} names no algorithm, list one it serves (${carried.join(", ")}) in "${rules.listPath}", or set its "alg".`,
   );
 }

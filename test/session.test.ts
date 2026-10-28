@@ -2138,7 +2138,7 @@ describe("key rotation with a JWK Set", () => {
       const keys = await Promise.all(Array.from({ length: 9 }, () => ring.key()));
       expect(refusedWith(() => ring.define({ key: { keys } }))).toEqual({
         code: "ERR_SESSION_CONFIG_INVALID",
-        message: `[unjwt/session] 9 session keys without "kid" exceed the limit of 8 ("${ring.limitPath}").`,
+        message: `[unjwt/session] The session key "keys[0]" carries no "kid", so a token of "${ring.alg}" meets 9 keys, over the limit of 8 ("${ring.limitPath}").`,
       });
       const raised = ring.define({
         key: { keys },
@@ -2147,6 +2147,45 @@ describe("key rotation with a JWK Set", () => {
       expect((await raised.open(await raised.issue({ user: "ada" }))).data).toEqual({
         user: "ada",
       });
+    },
+  );
+
+  it.each(RINGS)(
+    "$family: counts every key of its alg that a token without kid meets",
+    async (ring) => {
+      const named = (alg: () => Promise<JWK_oct>) =>
+        Promise.all(
+          Array.from({ length: 9 }, async (_, index) => withKid(await alg(), `k${index}`)),
+        );
+      const kidless = await Promise.all([ring.key(), ring.key()]);
+      const same = await named(() => ring.key());
+      expect(refusedWith(() => ring.define({ key: { keys: [...kidless, ...same] } }))).toEqual({
+        code: "ERR_SESSION_CONFIG_INVALID",
+        message: `[unjwt/session] The session key "keys[0]" carries no "kid", so a token of "${ring.alg}" meets 11 keys, over the limit of 8 ("${ring.limitPath}").`,
+      });
+      const other = await named(async () => (await ring.other()).key);
+      const session = ring.define({ key: { keys: [...kidless, ...other] } });
+      expect((await session.open(await session.issue({ user: "ada" }))).data).toEqual({
+        user: "ada",
+      });
+    },
+  );
+
+  it.each(RINGS)(
+    "$family: counts a key without kid or alg under each alg it serves",
+    async (ring) => {
+      const [{ key: old, alg }, ...named] = await Promise.all([
+        ring.silent(),
+        ...Array.from({ length: 8 }, (_, index) => ring.key(`k${index}`)),
+      ]);
+      const key = { keys: [...named, withKid(old)] };
+      for (const algorithms of [[ring.alg], [alg, ring.alg]]) {
+        expect(refusedWith(() => ring.define({ key, ...ring.opening({ algorithms }) }))).toEqual({
+          code: "ERR_SESSION_CONFIG_INVALID",
+          message: `[unjwt/session] The session key "keys[8]" carries no "kid", so a token of "${ring.alg}" meets 9 keys, over the limit of 8 ("${ring.limitPath}").`,
+        });
+      }
+      expect(() => ring.define({ key, ...ring.opening({ algorithms: [alg] }) })).not.toThrow();
     },
   );
 

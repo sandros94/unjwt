@@ -37,7 +37,8 @@ import {
  * A symmetric key that signs and verifies, an HMAC `oct` JWK or a secret `CryptoKey`, a JWK Set of HMAC `oct` JWKs, or a pair:
  * `privateKey` signs and `publicKey` (a JWK, a JWK list, a JWK Set or a `CryptoKey`) verifies. A key without `alg` (a `CryptoKey`, an
  * `oct` JWK without `alg`) requires a pinned `jws.signOptions.alg`. A JWK Set's first key signs and every key verifies, each checked as
- * a lone key, the pin naming the first alone; at most `jws.verifyOptions.limits.keyCandidates` of them may lack a `kid`. A lone
+ * a lone key, the pin naming the first alone; a token of a key without `kid` may meet at most
+ * `jws.verifyOptions.limits.keyCandidates` keys, those whose `alg` serves it and those without `alg`. A lone
  * asymmetric key throws `ERR_SESSION_KEY_INVALID`: it signs with one half and verifies with the other, so pass both as a pair.
  */
 export type JWSSessionKey =

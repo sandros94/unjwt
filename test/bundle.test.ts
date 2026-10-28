@@ -177,13 +177,13 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["defineJWSSession"],
     module: "session/index.ts",
-    measured: { min: 58130, gzip: 18845 },
+    measured: { min: 58324, gzip: 18888 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
   {
     imports: ["defineJWESession"],
     module: "session/index.ts",
-    measured: { min: 79202, gzip: 25174 },
+    measured: { min: 79396, gzip: 25221 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
 ];
