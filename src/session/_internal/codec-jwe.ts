@@ -13,7 +13,7 @@ import type { StrictOmit } from "../../utils/types.ts";
 import { type SessionPayload, createSessionCodec, sessionIssueOptions } from "./codec.ts";
 import { type JWESessionKey, type JWESessionOctJWK, resolveSessionKeys } from "./codec-jwe-keys.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
-import type { SessionBaseConfig, SessionHooks } from "../types.ts";
+import type { SessionBaseConfig } from "../types.ts";
 
 /**
  * JWE decrypt options a session accepts. `algorithms` names the `alg` values a key without its own `alg` (a `CryptoKey`, an `oct` JWK
@@ -55,27 +55,6 @@ export interface JWESessionConfig<
    * the `p2c` it issues with, unless `decryptOptions.maxIterations` is set.
    */
   jwe?: JWESessionOptions;
-}
-
-/** JWE session hooks, with the decrypt key lookup. */
-export interface JWESessionHooks<
-  TSession,
-  TManager,
-  TArgs extends Record<string, unknown>,
-  TConfig,
-> extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /**
-   * Returns the key that decrypts an incoming token, picked from its protected header, by `kid` when keys rotate: an `oct` JWK, a
-   * `CryptoKey` or a JWK Set, the shapes `key` takes for decryption. Set, it replaces `key` for decryption: the token's `alg` is still one
-   * `key` serves or `decryptOptions.algorithms` lists. A `CryptoKey` it returns names no algorithm of its own: as for a lone `CryptoKey` key,
-   * `decryptOptions.algorithms` or the pin names what it serves. A JWK Set offers the token its keys of the token's `kid` (all of them when it
-   * names none) that serve its `alg`, in order, and a token offered more than `decryptOptions.limits.keyCandidates` keys is refused. Nothing
-   * it returns is checked when the session is defined. A lookup that throws or returns nothing fails the token with
-   * `ERR_SESSION_TOKEN_INVALID`. `open()` passes it no event.
-   */
-  onKeyLookup?: (
-    args: Partial<TArgs> & { header: JWEHeaderParameters; config: TConfig },
-  ) => JWEDecryptJWK | CryptoKey | JWKSet | Promise<JWEDecryptJWK | CryptoKey | JWKSet>;
 }
 
 export interface JWECodecConfig extends SessionCoreConfig {

@@ -234,7 +234,7 @@ export interface JWEMultiEncryptOptions extends StrictOmit<
   aad?: Uint8Array<ArrayBuffer> | string;
 }
 
-/** A key lookup for `decrypt` and `decryptMulti`. It receives the decoded JWE header and the token. */
+/** A key lookup for `decrypt` and `decryptMulti`. It receives `{ header, token }`: the decoded JWE header and the token. */
 export type JWEKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> =
   JWKLookupFunction<TReturn, JWEHeaderParameters>;
 

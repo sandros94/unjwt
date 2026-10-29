@@ -19,6 +19,7 @@ import type {
   JWK_Pair,
   JWK_RSA_Private,
   JWKSet,
+  JWSHeaderParameters,
   JWSVerifyJWK,
 } from "../src/core/types/index.ts";
 
@@ -665,7 +666,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "key1" }, // Using "key1" kid for test purposes
       });
 
-      const keyLookup = (header: { kid?: string; alg?: string }) => {
+      const keyLookup = ({ header }: { header: { kid?: string; alg?: string } }) => {
         if (header.kid === "key1" && header.alg === "HS256") {
           return hs256Key;
         }
@@ -679,13 +680,28 @@ describe.concurrent("JWS Utilities", () => {
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
+    it("passes the lookup the decoded header and the token", async () => {
+      const jws = await sign(payloadObj, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { kid: "key1" },
+      });
+      const seen: { header: JWSHeaderParameters; token: string }[] = [];
+
+      await verify(jws, (lookup) => {
+        expectTypeOf(lookup).toEqualTypeOf<{ header: JWSHeaderParameters; token: string }>();
+        seen.push(lookup);
+        return hs256Key;
+      });
+      expect(seen).toEqual([{ header: { alg: "HS256", kid: "key1", typ: "JWT" }, token: jws }]);
+    });
+
     it("should verify with async key lookup function", async () => {
       const jws = await sign(payloadObj, hs256Key, {
         alg: "HS256",
         protectedHeader: { kid: "key2" },
       });
 
-      const keyLookup = async (header: { kid?: string; alg?: string }) => {
+      const keyLookup = async ({ header }: { header: { kid?: string; alg?: string } }) => {
         await Promise.resolve(); // Ensure async resolution
         if (header.kid === "key2" && header.alg === "HS256") {
           return hs256Key;
@@ -2354,7 +2370,7 @@ async function signRawHeader(
   return `${signingInput}.${base64UrlStringify(new Uint8Array(signature))}`;
 }
 
-function failingKeyLookup(_header: { kid?: string; alg?: string }): never {
+function failingKeyLookup(_lookup: { header: { kid?: string; alg?: string } }): never {
   throw new Error("Key lookup failed");
 }
 

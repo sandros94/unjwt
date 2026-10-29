@@ -1,8 +1,7 @@
-import type { ExpiresIn } from "../core/types/index.ts";
+import type { ExpiresIn, JWKSet, JWSHeaderParameters, JWSVerifyJWK } from "../core/types/index.ts";
 import {
   type JWSCodecConfig,
   type JWSSessionConfig,
-  type JWSSessionHooks,
   createJWSCodec,
 } from "./_internal/codec-jws.ts";
 import type { CookieAttributes } from "./_internal/cookie-attributes.ts";
@@ -10,6 +9,7 @@ import type { SessionDriver } from "./_internal/driver.ts";
 import type {
   SessionClaims,
   SessionDefinition,
+  SessionHooks,
   SessionManager,
   SessionRecord,
   SessionState,
@@ -32,12 +32,34 @@ export interface SessionHooksJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent = WebSessionEvent,
-> extends JWSSessionHooks<
+> extends SessionHooks<
   SessionJWS<T, MaxAge>,
   SessionManager<T, MaxAge>,
   { event: TEvent },
   SessionConfigJWS<T, MaxAge, TEvent>
-> {}
+> {
+  /** Returns the key that verifies an incoming token. See {@link JWSSessionKeyLookup}. */
+  onKeyLookup?: JWSSessionKeyLookup<T, MaxAge, TEvent>;
+}
+
+/**
+ * Returns the key that verifies an incoming token, picked from its protected header, by `kid` when keys rotate: an HMAC or public JWK, a
+ * `CryptoKey` or a JWK Set, the shapes `key` takes for verification. Set, it replaces `key` for verification: the token's `alg` is still one
+ * `key` serves or `verifyOptions.algorithms` lists. A `CryptoKey` it returns names no algorithm of its own: as for a lone `CryptoKey` key,
+ * `verifyOptions.algorithms` or the pin names what it serves. A JWK Set offers the token its keys of the token's `kid` (all of them when it
+ * names none) that serve its `alg`, in order, and a token offered more than `verifyOptions.limits.keyCandidates` keys is refused. Nothing
+ * it returns is checked when the session is defined. A lookup that throws or returns nothing fails the token with
+ * `ERR_SESSION_TOKEN_INVALID`. `open()` passes it no event.
+ */
+export type JWSSessionKeyLookup<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent = WebSessionEvent,
+> = (lookup: {
+  header: JWSHeaderParameters;
+  config: SessionConfigJWS<T, MaxAge, TEvent>;
+  event?: TEvent;
+}) => JWSVerifyJWK | CryptoKey | JWKSet | Promise<JWSVerifyJWK | CryptoKey | JWKSet>;
 
 /** Configuration of a JWS session, signed but not encrypted. */
 export interface SessionConfigJWS<

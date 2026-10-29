@@ -29,7 +29,7 @@ import type { StrictOmit } from "../../utils/types.ts";
 /** A JWS signing algorithm (RFC 7518 §3, RFC 8037 §3.1). */
 export type JWSAlgorithm = JWK_HMAC | JWK_RSA_SIGN | JWK_RSA_PSS | JWK_ECDSA | JWK_OKP_SIGN;
 
-/** A key lookup for `verify` and the multi variants. It receives the decoded JWS header and the token. */
+/** A key lookup for `verify` and the multi variants. It receives `{ header, token }`: the decoded JWS header and the token. */
 export type JWSKeyLookup<TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>> =
   JWKLookupFunction<TReturn, JWSHeaderParameters>;
 

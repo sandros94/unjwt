@@ -58,7 +58,7 @@ export interface SessionCodecSpec<
   open: (
     config: Config,
     token: string,
-    key: OpenKey | ((header: Header) => Found | Promise<Found>),
+    key: OpenKey | ((lookup: { header: Header }) => Found | Promise<Found>),
     options: SessionOpenOverrides<A>,
   ) => Promise<SessionPayload>;
 }
@@ -82,7 +82,7 @@ export function createSessionCodec<
   const openWith = async (
     config: Config,
     token: string,
-    key: OpenKey | ((header: Header) => Found | Promise<Found>),
+    key: OpenKey | ((lookup: { header: Header }) => Found | Promise<Found>),
     algorithms: A[],
   ): Promise<OpenedSession> => {
     const options = spec.openOptions(config);
@@ -117,7 +117,7 @@ export function createSessionCodec<
       const { issueKey, key, algorithms } = spec.resolveKeys(config);
       const hook = spec.lookup(config);
       const keyFor = (args: Record<string, unknown>) =>
-        hook ? (header: Header) => hook({ header, ...args, config }) : key;
+        hook ? ({ header }: { header: Header }) => hook({ header, ...args, config }) : key;
       const importable: readonly unknown[] = hook ? [] : isJWKSet(key) ? key.keys : [key];
       const assertOpenKeys = async (): Promise<void> => {
         for (const entry of importable) {

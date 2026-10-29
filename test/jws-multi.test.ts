@@ -266,7 +266,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         { key: keys.rs256.privateKey },
         { key: keys.hs256 },
       ]);
-      const lookup: JWKLookupFunction = (header) => {
+      const lookup: JWKLookupFunction = ({ header }) => {
         if (header.kid === keys.hs256.kid) return keys.hs256;
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         throw new Error("no key");
@@ -534,7 +534,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         pairs.map((pair) => ({ key: pair.privateKey })),
       );
       const looked: (string | undefined)[] = [];
-      const lookup: JWKLookupFunction = (header) => {
+      const lookup: JWKLookupFunction = ({ header }) => {
         looked.push(header.kid);
         return pairs[3].publicKey;
       };
@@ -573,7 +573,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         { key: keys.hs256 },
       ]);
 
-      const outcomes = await verifyMultiAll(jws, (header) => {
+      const outcomes = await verifyMultiAll(jws, ({ header }) => {
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         if (header.kid === keys.es256.publicKey.kid) return keys.es256.publicKey;
         if (header.kid === keys.hs256.kid) return keys.hs256;
@@ -599,7 +599,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
       // Return the *wrong* HMAC key for signature[1] to force a crypto failure.
       const wrongHmac = await generateJWK("HS256");
-      const outcomes = await verifyMultiAll(jws, (header) => {
+      const outcomes = await verifyMultiAll(jws, ({ header }) => {
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         return wrongHmac;
       });
@@ -615,7 +615,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       const jws = await signMulti({ x: 1 }, [{ key: keys.rs256.privateKey }, { key: keys.hs256 }]);
 
       let call = 0;
-      const outcomes = await verifyMultiAll(jws, (header) => {
+      const outcomes = await verifyMultiAll(jws, ({ header }) => {
         call += 1;
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         throw new Error("resolver: hmac key unavailable");
@@ -629,7 +629,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
 
     it("captures disallowed alg per-signer via options.algorithms", async () => {
       const jws = await signMulti({ x: 1 }, [{ key: keys.rs256.privateKey }, { key: keys.hs256 }]);
-      const resolver: JWKLookupFunction = (header) => {
+      const resolver: JWKLookupFunction = ({ header }) => {
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         return keys.hs256;
       };
@@ -661,7 +661,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         { key: keys.hs256 },
       ]);
 
-      const outcomes = await verifyMultiAll(jws, (header) => {
+      const outcomes = await verifyMultiAll(jws, ({ header }) => {
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         return keys.hs256;
       });
@@ -676,7 +676,7 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
         { key: keys.hs256 },
       ]);
 
-      const outcomes = await verifyMultiAll(jws, (header) => {
+      const outcomes = await verifyMultiAll(jws, ({ header }) => {
         if (header.kid === keys.rs256.publicKey.kid) return keys.rs256.publicKey;
         if (header.kid === keys.es256.publicKey.kid) return keys.es256.publicKey;
         // Reject the third signer in this policy

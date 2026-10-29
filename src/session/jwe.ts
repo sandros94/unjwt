@@ -1,8 +1,7 @@
-import type { ExpiresIn } from "../core/types/index.ts";
+import type { ExpiresIn, JWEDecryptJWK, JWEHeaderParameters, JWKSet } from "../core/types/index.ts";
 import {
   type JWECodecConfig,
   type JWESessionConfig,
-  type JWESessionHooks,
   createJWECodec,
 } from "./_internal/codec-jwe.ts";
 import type { CookieAttributes } from "./_internal/cookie-attributes.ts";
@@ -10,6 +9,7 @@ import type { SessionDriver } from "./_internal/driver.ts";
 import type {
   SessionClaims,
   SessionDefinition,
+  SessionHooks,
   SessionManager,
   SessionRecord,
   SessionState,
@@ -32,12 +32,34 @@ export interface SessionHooksJWE<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
   TEvent = WebSessionEvent,
-> extends JWESessionHooks<
+> extends SessionHooks<
   SessionJWE<T, MaxAge>,
   SessionManager<T, MaxAge>,
   { event: TEvent },
   SessionConfigJWE<T, MaxAge, TEvent>
-> {}
+> {
+  /** Returns the key that decrypts an incoming token. See {@link JWESessionKeyLookup}. */
+  onKeyLookup?: JWESessionKeyLookup<T, MaxAge, TEvent>;
+}
+
+/**
+ * Returns the key that decrypts an incoming token, picked from its protected header, by `kid` when keys rotate: an `oct` JWK, a
+ * `CryptoKey` or a JWK Set, the shapes `key` takes for decryption. Set, it replaces `key` for decryption: the token's `alg` is still one
+ * `key` serves or `decryptOptions.algorithms` lists. A `CryptoKey` it returns names no algorithm of its own: as for a lone `CryptoKey` key,
+ * `decryptOptions.algorithms` or the pin names what it serves. A JWK Set offers the token its keys of the token's `kid` (all of them when it
+ * names none) that serve its `alg`, in order, and a token offered more than `decryptOptions.limits.keyCandidates` keys is refused. Nothing
+ * it returns is checked when the session is defined. A lookup that throws or returns nothing fails the token with
+ * `ERR_SESSION_TOKEN_INVALID`. `open()` passes it no event.
+ */
+export type JWESessionKeyLookup<
+  T extends SessionRecord = SessionClaims,
+  MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
+  TEvent = WebSessionEvent,
+> = (lookup: {
+  header: JWEHeaderParameters;
+  config: SessionConfigJWE<T, MaxAge, TEvent>;
+  event?: TEvent;
+}) => JWEDecryptJWK | CryptoKey | JWKSet | Promise<JWEDecryptJWK | CryptoKey | JWKSet>;
 
 /** Configuration of an encrypted JWE session. */
 export interface SessionConfigJWE<

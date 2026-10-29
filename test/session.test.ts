@@ -6,6 +6,7 @@ import type {
   JWK_HMAC,
   JWK_oct,
   JWKSet,
+  JWSHeaderParameters,
 } from "../src/core/types/index.ts";
 import { type KnownJWTErrorCode, isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
@@ -16,8 +17,11 @@ import { encrypt } from "../src/core/jwe/index.ts";
 import {
   type CookieJar,
   type JWESessionKey,
+  type JWESessionKeyLookup,
   type JWESessionOctJWK,
   type JWSSessionKey,
+  type JWSSessionKeyLookup,
+  type SessionConfigJWS,
   type OpenedSessionState,
   type SessionClaims,
   type SessionDefinition,
@@ -2076,6 +2080,13 @@ describe("key rotation through onKeyLookup", () => {
   it("types its return as the key shapes key takes for opening, a CryptoKey included", () => {
     type JWSLookup = NonNullable<SessionHooksJWS["onKeyLookup"]>;
     type JWELookup = NonNullable<SessionHooksJWE["onKeyLookup"]>;
+    expectTypeOf<JWSLookup>().toEqualTypeOf<JWSSessionKeyLookup>();
+    expectTypeOf<JWELookup>().toEqualTypeOf<JWESessionKeyLookup>();
+    expectTypeOf<Parameters<JWSLookup>[0]>().toEqualTypeOf<{
+      header: JWSHeaderParameters;
+      config: SessionConfigJWS;
+      event?: WebSessionEvent;
+    }>();
     expectTypeOf<JWK_oct<JWK_HMAC> | CryptoKey | JWKSet>().toExtend<ReturnType<JWSLookup>>();
     expectTypeOf<Promise<CryptoKey>>().toExtend<ReturnType<JWSLookup>>();
     expectTypeOf<JWESessionOctJWK | CryptoKey | JWKSet>().toExtend<ReturnType<JWELookup>>();

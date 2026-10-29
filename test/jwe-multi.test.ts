@@ -265,7 +265,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         [{ key: keys.rsa256.publicKey }, { key: keys.a256kw }],
         { enc: "A256GCM" },
       );
-      const lookup: JWKLookupFunction = (header) => {
+      const lookup: JWKLookupFunction = ({ header }) => {
         if (header.kid === keys.a256kw.kid) return keys.a256kw;
         if (header.kid === keys.rsa256.publicKey.kid) return keys.rsa256.privateKey;
         throw new Error("no key");
@@ -674,7 +674,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
           { enc: "A256GCM" },
         );
         const looked: (string | undefined)[] = [];
-        const lookup: JWKLookupFunction = (header) => {
+        const lookup: JWKLookupFunction = ({ header }) => {
           looked.push(header.kid);
           return minted[3];
         };

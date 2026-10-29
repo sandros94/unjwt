@@ -12,7 +12,7 @@ import type { StrictOmit } from "../../utils/types.ts";
 import { type SessionPayload, createSessionCodec, sessionIssueOptions } from "./codec.ts";
 import { type JWSSessionKey, resolveSessionKeys } from "./codec-jws-keys.ts";
 import type { SessionCodec, SessionCoreConfig, SessionCoreHooks } from "./types.ts";
-import type { SessionBaseConfig, SessionHooks } from "../types.ts";
+import type { SessionBaseConfig } from "../types.ts";
 
 /**
  * JWS verify options a session accepts. `algorithms` names the `alg` values a key without its own `alg` (a `CryptoKey`, an `oct` or RSA JWK
@@ -53,27 +53,6 @@ export interface JWSSessionConfig<
    * `signOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11).
    */
   jws?: JWSSessionOptions;
-}
-
-/** JWS session hooks, with the verify key lookup. */
-export interface JWSSessionHooks<
-  TSession,
-  TManager,
-  TArgs extends Record<string, unknown>,
-  TConfig,
-> extends SessionHooks<TSession, TManager, TArgs, TConfig> {
-  /**
-   * Returns the key that verifies an incoming token, picked from its protected header, by `kid` when keys rotate: an HMAC or public JWK, a
-   * `CryptoKey` or a JWK Set, the shapes `key` takes for verification. Set, it replaces `key` for verification: the token's `alg` is still one
-   * `key` serves or `verifyOptions.algorithms` lists. A `CryptoKey` it returns names no algorithm of its own: as for a lone `CryptoKey` key,
-   * `verifyOptions.algorithms` or the pin names what it serves. A JWK Set offers the token its keys of the token's `kid` (all of them when it
-   * names none) that serve its `alg`, in order, and a token offered more than `verifyOptions.limits.keyCandidates` keys is refused. Nothing
-   * it returns is checked when the session is defined. A lookup that throws or returns nothing fails the token with
-   * `ERR_SESSION_TOKEN_INVALID`. `open()` passes it no event.
-   */
-  onKeyLookup?: (
-    args: Partial<TArgs> & { header: JWSHeaderParameters; config: TConfig },
-  ) => JWSVerifyJWK | CryptoKey | JWKSet | Promise<JWSVerifyJWK | CryptoKey | JWKSet>;
 }
 
 export interface JWSCodecConfig extends SessionCoreConfig {

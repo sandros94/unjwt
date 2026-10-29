@@ -171,7 +171,7 @@ export async function resolveKeyInput(
   const { header, token, what } = options;
   let resolved: unknown;
   try {
-    resolved = await key(header, token);
+    resolved = await key({ header, token });
   } catch (error) {
     throw asKeyLookupError(error, what);
   }

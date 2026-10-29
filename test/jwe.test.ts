@@ -777,7 +777,7 @@ describe.concurrent("JWE Utilities", () => {
     });
 
     it("should decrypt with a key lookup function", async () => {
-      const keyLookup: JWKLookupFunction = (header) => {
+      const keyLookup: JWKLookupFunction = ({ header }) => {
         if (header.alg === alg) return key;
         throw new Error("Key not found");
       };
