@@ -9,7 +9,7 @@ import type {
   JWSHeaderParameters,
 } from "../src/core/types/index.ts";
 import { type KnownJWTErrorCode, isJWTError } from "../src/error.ts";
-import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
+import { generateJWK, generateKey, importKey, importPEM } from "../src/core/jwk/index.ts";
 import { rsa } from "./keys.ts";
 import { base64UrlParse, base64UrlStringify } from "../src/utils/base64.ts";
 import { sign } from "../src/core/jws/index.ts";
@@ -1647,6 +1647,74 @@ describe("a session key that names no algorithm", () => {
       expect((await session.open(token)).data).toEqual({ user: "ada" });
     },
   );
+});
+
+describe("a pair with one half that names its algorithm", () => {
+  const header = (token: string) => JSON.parse(base64UrlParse(token.split(".")[0]));
+  const roundTrip = async (session: Definition) => {
+    const token = await session.issue({ user: "ada" });
+    return { alg: header(token).alg, data: (await session.open(token)).data };
+  };
+
+  it("takes the algorithm the private JWK names for a public CryptoKey", async () => {
+    const { privateKey, publicKey } = await generateJWK("ES256");
+    const session = defineJWSSession({
+      name: "web",
+      key: { privateKey, publicKey: await importKey(publicKey, { expect: "public" }) },
+    });
+    expect(await roundTrip(session)).toEqual({ alg: "ES256", data: { user: "ada" } });
+  });
+
+  it("takes the algorithm the public JWK names for a private CryptoKey or a private JWK without alg", async () => {
+    const [ecdsa, pss] = await Promise.all([
+      generateJWK("ES384"),
+      generateJWK("PS256", { modulusLength: 2048 }),
+    ]);
+    const { alg: _alg, ...silent } = pss.privateKey;
+    const pairs = [
+      {
+        privateKey: await importKey(ecdsa.privateKey, { expect: "private" }),
+        publicKey: ecdsa.publicKey,
+      },
+      { privateKey: silent, publicKey: pss.publicKey },
+    ];
+    for (const [index, key] of pairs.entries()) {
+      const session = defineJWSSession({ name: "web", key });
+      expect(await roundTrip(session)).toEqual({
+        alg: ["ES384", "PS256"][index],
+        data: { user: "ada" },
+      });
+    }
+  });
+
+  it("is refused when the other half cannot carry that algorithm", async () => {
+    const [{ privateKey }, rsassa] = await Promise.all([
+      generateJWK("ES256"),
+      generateKey("RS256"),
+    ]);
+    expect(
+      refusedWith(() => defineJWSSession({ key: { privateKey, publicKey: rsassa.publicKey } })),
+    ).toEqual({
+      code: "ERR_SESSION_KEY_INVALID",
+      message:
+        '[unjwt/session] The session key "publicKey" serves RS256, not the "ES256" that the session key "privateKey" names.',
+    });
+  });
+
+  it("needs the pin when neither half names one", async () => {
+    const { privateKey, publicKey } = await generateKey("ES256");
+    expect(refusedWith(() => defineJWSSession({ key: { privateKey, publicKey } }))).toEqual({
+      code: "ERR_SESSION_CONFIG_INVALID",
+      message:
+        '[unjwt/session] The session key "privateKey" names no algorithm, set "jws.signOptions.alg".',
+    });
+    const pinned = defineJWSSession({
+      name: "web",
+      key: { privateKey, publicKey },
+      jws: { signOptions: { alg: "ES256" } },
+    });
+    expect(await roundTrip(pinned)).toEqual({ alg: "ES256", data: { user: "ada" } });
+  });
 });
 
 describe("the algorithms a session accepts", () => {

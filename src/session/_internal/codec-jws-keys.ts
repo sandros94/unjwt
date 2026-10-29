@@ -36,10 +36,11 @@ import {
 /**
  * A symmetric key that signs and verifies, an HMAC `oct` JWK or a secret `CryptoKey`, a JWK Set of HMAC `oct` JWKs, or a pair:
  * `privateKey` signs and `publicKey` (a JWK, a JWK list, a JWK Set or a `CryptoKey`) verifies. A key without `alg` (a `CryptoKey`, an
- * `oct` JWK without `alg`) requires a pinned `jws.signOptions.alg`. A JWK Set's first key signs and every key verifies, each checked as
- * a lone key, the pin naming the first alone; a token of a key without `kid` may meet at most
- * `jws.verifyOptions.limits.keyCandidates` keys, those whose `alg` serves it and those without `alg`. A lone
- * asymmetric key throws `ERR_SESSION_KEY_INVALID`: it signs with one half and verifies with the other, so pass both as a pair.
+ * `oct` JWK without `alg`) requires a pinned `jws.signOptions.alg`, unless it is the half of a pair whose other half names one, which it
+ * then must carry. A JWK Set's first key signs and every key verifies, each checked as a lone key, the pin naming the first alone; a
+ * token of a key without `kid` may meet at most `jws.verifyOptions.limits.keyCandidates` keys, those whose `alg` serves it and those
+ * without `alg`. A lone asymmetric key throws `ERR_SESSION_KEY_INVALID`: it signs with one half and verifies with the other, so pass
+ * both as a pair.
  */
 export type JWSSessionKey =
   | CryptoKey
@@ -73,7 +74,8 @@ const JWS_KEY_RULES: SessionKeyRules<JWSAlgorithm> = {
 /**
  * Resolves and checks the configured keys: the key that signs, a symmetric key, a JWK Set's first key or a pair's `privateKey`, and
  * the key or JWK Set that verifies. A pair's JWK Set offers a key without `alg` to a token only under the algorithms it serves. The
- * signing key and a single public half must serve the pinned `alg`, and need one pinned when they name none.
+ * signing key and a single public half must serve the pinned `alg`. A half that names none takes the `alg` its other half names, and
+ * a pair needs one pinned when neither half names one.
  */
 export function resolveSessionKeys(
   key: JWSSessionKey,
@@ -99,21 +101,30 @@ export function resolveSessionKeys(
     entries = set;
   } else if (isKeyPair(key)) {
     assertJWSKeyPair(key, prefix);
-    issuing = { key: key.privateKey, subject: 'The session key "privateKey"', pin };
     const half = key.publicKey;
     list = Array.isArray(half) ? half : isJWKSet(half) ? half.keys : undefined;
+    const signing = namedAlgorithm(key.privateKey);
+    issuing = {
+      key: key.privateKey,
+      subject: 'The session key "privateKey"',
+      ...pairPin(key.privateKey, {
+        pin,
+        named: list ? undefined : namedAlgorithm(half),
+        by: "publicKey",
+      }),
+    };
     entries = (list ?? [half]).map((entry, index) => ({
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a pair's public JWK Set holds public JWKs, checked with the pair
       key: entry as JWSVerifyJWK | CryptoKey,
       subject: list
         ? `The session key "publicKey[${index}]"${kidLabel(entry)}`
         : 'The session key "publicKey"',
-      pin,
+      ...pairPin(entry, { pin, named: signing, by: "privateKey" }),
     }));
   } else {
     throw invalidJWSKeyError(key, prefix);
   }
-  const pinning = { rules: JWS_KEY_RULES, pinned: Boolean(pin), prefix };
+  const pinning = { rules: JWS_KEY_RULES, pinned: true, prefix };
   assertPinnedKey(issuing, pinning);
   if (!list && issuing !== entries[0]) assertPinnedKey(entries[0], pinning);
   const { each, all } = servedAlgorithms(entries, { ...options, rules: JWS_KEY_RULES });
@@ -122,7 +133,24 @@ export function resolveSessionKeys(
     : list
       ? { keys: entries.flatMap(({ key: entry }, index) => servedCopies(entry, each[index])) }
       : entries[0].key;
-  return { issueKey: issuing.key, key: verifying, algorithms: all };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the pin, or what a pair's other half names, a JWS algorithm checked above
+  const issueAlg = issuing.pin as JWSAlgorithm | undefined;
+  return { issueKey: issuing.key, issueAlg, key: verifying, algorithms: all };
+}
+
+/** The `alg` a JWK names, or the one its curve names. A `CryptoKey` names none. */
+function namedAlgorithm(key: unknown): string | undefined {
+  return isJWK(key) ? (key.alg ?? JWS_KEY_RULES.own(key)?.[0]) : undefined;
+}
+
+/** The pin of a pair's half: the pinned `alg`, else for a half that names none, the `alg` its other half names. */
+function pairPin(
+  key: unknown,
+  options: { pin: string | undefined; named: string | undefined; by: string },
+): Pick<SessionKeyEntry, "pin" | "pinnedBy"> {
+  const { pin, named, by } = options;
+  if (pin || !named || JWS_KEY_RULES.own(key)) return { pin };
+  return { pin: named, pinnedBy: `the session key "${by}" names` };
 }
 
 /** A JWK without `alg` as one copy per algorithm it serves, so a JWK Set offers it to a token of those alone. */

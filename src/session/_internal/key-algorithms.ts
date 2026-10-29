@@ -21,16 +21,24 @@ export interface SessionKeyRules<A extends string = string> {
   limitPath: string;
 }
 
-/** A configured key and how messages name it. `pin` is the pinned `alg`, for a key the pin names. */
+/**
+ * A configured key and how messages name it. `pin` is the pinned `alg`, for a key the pin names, or the `alg` the other half of a pair
+ * names, which `pinnedBy` then names.
+ */
 export interface SessionKeyEntry<K = unknown> {
   key: K;
   subject: string;
   pin?: string;
+  pinnedBy?: string;
 }
 
-/** The configured keys of a session: the key that issues, the key or JWK Set that opens, and the `alg` values an incoming token may carry. */
+/**
+ * The configured keys of a session: the key that issues, the `alg` it issues under when it names none, the key or JWK Set that opens,
+ * and the `alg` values an incoming token may carry.
+ */
 export interface ResolvedSessionKeys<IssueKey, OpenKey, A extends string> {
   issueKey: IssueKey;
+  issueAlg?: A;
   key: OpenKey;
   algorithms: A[];
 }
@@ -98,7 +106,7 @@ export function assertPinnedKey(
   const served = own ?? rules.carried(key);
   if (!pin || served.includes(pin)) return;
   throw invalidKeyError(
-    `${prefix} ${subject} serves ${served.join(", ") || "no algorithm"}, not the "${pin}" that "${rules.pinPath}" pins.`,
+    `${prefix} ${subject} serves ${served.join(", ") || "no algorithm"}, not the "${pin}" that ${entry.pinnedBy ?? `"${rules.pinPath}" pins`}.`,
     key,
   );
 }

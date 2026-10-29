@@ -47,9 +47,10 @@ export interface JWSSessionConfig<
   cookie?: false | (TCookie & { chunkMaxLength?: number });
   /**
    * `signOptions.alg` is what each token is signed with, and names the algorithm of a key without its own `alg`, both halves of a pair
-   * included. Verification accepts every `alg` the keys serve: a JWK's own `alg` (or an EC or OKP JWK's curve), and for a key without one,
-   * the pin and each algorithm of `verifyOptions.algorithms` its material carries. An empty `verifyOptions.algorithms`, or one listing an
-   * algorithm no key serves, throws `ERR_SESSION_CONFIG_INVALID`, unless `onKeyLookup` is set for the latter.
+   * included when neither names one: a half without one takes the `alg` its other half names. Verification accepts every `alg` the keys
+   * serve: a JWK's own `alg` (or an EC or OKP JWK's curve), and for a key without one, the pin and each algorithm of
+   * `verifyOptions.algorithms` its material carries. An empty `verifyOptions.algorithms`, or one listing an algorithm no key serves,
+   * throws `ERR_SESSION_CONFIG_INVALID`, unless `onKeyLookup` is set for the latter.
    * `signOptions.protectedHeader.typ` defaults to `"session+jwt"` (RFC 8725 §3.11).
    */
   jws?: JWSSessionOptions;
@@ -102,9 +103,12 @@ export function createJWSCodec(options: {
       }),
     lookup: (config) => config.hooks?.onKeyLookup,
 
-    issue: (config, payload, key) =>
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key that names no `alg`, by its own or its curve, reaches here only with `alg` pinned
-      sign(payload, key as JWSSignJWK, sessionIssueOptions(config.jws?.signOptions)),
+    issue: (config, payload, key, alg) => {
+      const signOptions = config.jws?.signOptions;
+      const issuing = sessionIssueOptions(alg ? { ...signOptions, alg } : signOptions);
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key that names no `alg`, by its own or its curve, reaches here only with `alg` pinned or named by the other half of its pair
+      return sign(payload, key as JWSSignJWK, issuing);
+    },
 
     open: async (config, token, key, overrides) => {
       const { payload } = await verify<SessionPayload>(token, key, {

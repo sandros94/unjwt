@@ -36,7 +36,7 @@ export interface SessionCodecSpec<
   OpenKey,
   Header,
   Found,
-  A extends string,
+  A extends JWKAlgorithm,
 > {
   family: "jws" | "jwe";
   prefix: string;
@@ -54,7 +54,12 @@ export interface SessionCodecSpec<
   resolveKeys: (config: Config) => ResolvedSessionKeys<IssueKey, OpenKey, A>;
   /** The key lookup hook, when the config sets one. */
   lookup: (config: Config) => SessionKeyLookupHook<Header, Found> | undefined;
-  issue: (config: Config, payload: Record<string, unknown>, key: IssueKey) => Promise<string>;
+  issue: (
+    config: Config,
+    payload: Record<string, unknown>,
+    key: IssueKey,
+    alg: A | undefined,
+  ) => Promise<string>;
   open: (
     config: Config,
     token: string,
@@ -73,7 +78,7 @@ export function createSessionCodec<
   OpenKey,
   Header,
   Found,
-  A extends string,
+  A extends JWKAlgorithm,
 >(spec: SessionCodecSpec<Config, IssueKey, OpenKey, Header, Found, A>): SessionCodec<Config> {
   const { prefix } = spec;
 
@@ -114,7 +119,7 @@ export function createSessionCodec<
     now,
 
     keys: (config): SessionKeys => {
-      const { issueKey, key, algorithms } = spec.resolveKeys(config);
+      const { issueKey, issueAlg, key, algorithms } = spec.resolveKeys(config);
       const hook = spec.lookup(config);
       const keyFor = (args: Record<string, unknown>) =>
         hook ? ({ header }: { header: Header }) => hook({ header, ...args, config }) : key;
@@ -127,11 +132,14 @@ export function createSessionCodec<
 
       return {
         assertKeys: async () => {
-          await assertImportableKey(issueKey, { alg: spec.issueOptions(config)?.alg, prefix });
+          await assertImportableKey(issueKey, {
+            alg: issueAlg ?? spec.issueOptions(config)?.alg,
+            prefix,
+          });
           await assertOpenKeys();
         },
 
-        issue: (state) => spec.issue(config, sessionPayload(state), issueKey),
+        issue: (state) => spec.issue(config, sessionPayload(state), issueKey, issueAlg),
 
         opener: (args) => {
           const opening = keyFor(args);
