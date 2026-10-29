@@ -487,6 +487,38 @@ describe.concurrent("JWS Utilities", () => {
       );
     });
 
+    it.each([
+      ["ES256", "ES256"],
+      ["ES384", "ES384"],
+      ["ES512", "ES512"],
+      ["Ed25519", "EdDSA"],
+    ] as const)(
+      "signs a %s JWK without alg under the alg its curve names",
+      async (generated, alg) => {
+        const { privateKey, publicKey } = await generateJWK(generated);
+        const { alg: _private, ...signing } = privateKey;
+        const { alg: _public, ...verifying } = publicKey;
+
+        const jws = await sign(payloadObj, signing);
+        expect(JSON.parse(base64UrlParse(jws.split(".")[0])).alg).toBe(alg);
+        expect((await verify(jws, verifying)).payload).toEqual(payloadObj);
+      },
+    );
+
+    it("signs an EC JWK without alg under an explicit alg only when the curve agrees", async () => {
+      const { alg: _alg, ...signing } = (await generateJWK("ES256")).privateKey;
+      const jws = await sign(payloadObj, signing, { alg: "ES256" });
+      expect(JSON.parse(base64UrlParse(jws.split(".")[0])).alg).toBe("ES256");
+      const error = await sign(payloadObj, signing, { alg: "ES384" }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    });
+
+    it("refuses an RSA JWK without alg, which serves several algorithms", async () => {
+      const { alg: _alg, ...signing } = (await generateJWK("RS256")).privateKey;
+      const error = await sign(payloadObj, signing).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_ALG_MISSING")).toBe(true);
+    });
+
     it("should throw ERR_INVALID_OPTION for invalid payload type", async () => {
       const key = await generateKey("HS256");
       await expect(sign(12_345 as never, key, { alg: "HS256" })).rejects.toThrow(

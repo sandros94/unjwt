@@ -26,7 +26,12 @@ import {
   validateCriticalHeadersJWS,
 } from "../_internal/jwt.ts";
 import { JWS_ALG_CTX, checkAlgAllowed } from "../_internal/algorithms.ts";
-import { asKeyUsageError, assertNotStringKey, resolveSigningKey } from "./_internal/keys.ts";
+import {
+  asKeyUsageError,
+  assertNotStringKey,
+  resolveSigningKey,
+  signingAlgOf,
+} from "./_internal/keys.ts";
 import {
   assertCompactToken,
   assertConsumerOptions,
@@ -63,9 +68,10 @@ export { DEFAULT_JOSE_LIMITS } from "../_internal/limits.ts";
 /**
  * Signs `payload` and returns a JWS Compact Serialization (RFC 7515 §7.1).
  * An object payload is serialized as JSON and gets `typ: "JWT"` unless `protectedHeader` sets one.
- * Pass `alg` unless the JWK has one. With `b64: false`, the payload must not contain "." (RFC 7797 §5.2).
+ * Pass `alg` unless the JWK names one or is an EC or Ed25519 JWK, whose curve names it (`ES256`, `ES384`, `ES512`, `EdDSA`).
+ * With `b64: false`, the payload must not contain "." (RFC 7797 §5.2).
  *
- * @throws `ERR_JWS_ALG_MISSING` if no `alg` is given and the key has none.
+ * @throws `ERR_JWS_ALG_MISSING` if no `alg` is given and the key names none: a `CryptoKey`, raw bytes, or an RSA or `oct` JWK without `alg`.
  * @throws `ERR_JWS_ALG_NOT_ALLOWED` if `alg` is `"none"` or not a supported signing algorithm.
  * @throws `ERR_JWK_INVALID` if the key is a string or cannot sign with `alg`.
  * @throws `ERR_INVALID_OPTION` if an option is malformed, or a time option is set on a string or bytes payload.
@@ -95,12 +101,12 @@ export async function sign(
   assertProducerConfirmation(payload);
   let { alg } = options;
 
+  alg ??= isJWK(key) ? signingAlgOf(key) : undefined;
   if (!alg) {
-    if (isJWK(key) && key.alg) {
-      alg = key.alg;
-    } else {
-      throw new JWTError('JWS "alg" must be provided in options', "ERR_JWS_ALG_MISSING");
-    }
+    throw new JWTError(
+      'JWS "alg" must be provided in options or inferable from the key',
+      "ERR_JWS_ALG_MISSING",
+    );
   }
 
   assertJWSAlgSupported(alg);

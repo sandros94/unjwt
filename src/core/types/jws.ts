@@ -70,7 +70,7 @@ export interface JWSProtectedHeader extends JWSHeaderParameters {
 
 /** Options for `sign`. */
 export interface JWSSignOptions extends JWTTimeClaimOptions {
-  /** The signing algorithm. Defaults to the JWK's `alg`. A key without one throws `ERR_JWS_ALG_MISSING`. */
+  /** The signing algorithm. Defaults to the JWK's `alg`, else to the one an EC or Ed25519 JWK's curve names. A key that names none throws `ERR_JWS_ALG_MISSING`. */
   alg?: JWSAlgorithm;
 
   /**
@@ -132,7 +132,7 @@ export type JWSGeneralSignature = Pick<
 export interface JWSMultiSigner {
   /** The signing key. A JWK's `kid` is written to the protected header. For a `CryptoKey`, set `kid` in `protectedHeader`. */
   key: JWSSignJWK | CryptoKey;
-  /** The signing algorithm. Defaults to the one the key names, else `ERR_JWS_SIGNER_ALG_INFERENCE`. */
+  /** The signing algorithm. Defaults to the one the key names, an EC or Ed25519 JWK's curve included, else `ERR_JWS_SIGNER_ALG_INFERENCE`. */
   alg?: JWSAlgorithm;
   /** This signer's Protected Header Parameters. `b64` must match across signers (RFC 7797 §3). `typ` defaults to `"JWT"` for an object payload. */
   protectedHeader?: StrictOmit<JWSHeaderParameters, "alg"> & { alg?: never };

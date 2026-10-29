@@ -174,7 +174,8 @@ export function jwkAlgServes(jwk: { kty: string; alg: string }, alg: string): bo
   );
 }
 
-function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
+/** The JWS algorithms a JWK serves: its `alg`, else those an EC or Ed25519 JWK's curve names. */
+export function jwsAlgsFromJWK(jwk: JWK): JWSAlgorithm[] | undefined {
   if (jwk.alg && isEd25519Signature(jwk.alg)) return ["EdDSA", "Ed25519"];
   if (jwk.alg) return isJWSAlgorithm(jwk.alg) ? [jwk.alg] : undefined;
   // WebCrypto exports omit `alg` for EC and OKP JWKs. The curve alone names the signature algorithm.

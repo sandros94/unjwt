@@ -139,6 +139,25 @@ describe.concurrent("JWS Multi-signature (General JSON Serialization)", () => {
       );
     });
 
+    it("infers a signer's alg from the curve of an EC or Ed25519 JWK without alg", async () => {
+      const { alg: _ec, ...ec } = keys.es256.privateKey;
+      const { alg: _ed, ...ed } = keys.ed25519.privateKey;
+      const jws = await signMulti({ sub: "u1" }, [{ key: ec }, { key: ed }]);
+      const algs = jws.signatures.map((s) => JSON.parse(base64UrlParse(s.protected!)).alg);
+      expect(algs).toEqual(["ES256", "EdDSA"]);
+      const outcomes = await verifyMultiAll(jws, () => ({
+        keys: [keys.es256.publicKey, keys.ed25519.publicKey],
+      }));
+      expect(outcomes.map((o) => o.verified)).toEqual([true, true]);
+    });
+
+    it("throws ERR_JWS_SIGNER_ALG_INFERENCE for an RSA JWK without alg", async () => {
+      const { alg: _alg, ...rsa } = keys.rs256.privateKey;
+      await expect(signMulti({ x: 1 }, [{ key: rsa }])).rejects.toSatisfy((e) =>
+        isJWTError(e, "ERR_JWS_SIGNER_ALG_INFERENCE"),
+      );
+    });
+
     it("throws ERR_JWS_SIGNER_ALG_INFERENCE when JWK has no alg", async () => {
       const noAlg: JWK = { ...keys.hs256 };
       delete (noAlg as { alg?: string }).alg;

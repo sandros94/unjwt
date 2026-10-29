@@ -103,7 +103,7 @@ export function createJWSCodec(options: {
     lookup: (config) => config.hooks?.onKeyLookup,
 
     issue: (config, payload, key) =>
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key without `alg` reaches here only with `alg` pinned
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- picks the JWK overload; a key that names no `alg`, by its own or its curve, reaches here only with `alg` pinned
       sign(payload, key as JWSSignJWK, sessionIssueOptions(config.jws?.signOptions)),
 
     open: async (config, token, key, overrides) => {

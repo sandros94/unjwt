@@ -29,6 +29,7 @@ import { asJWTError, asKeyLookupError, copyJsonObject } from "../../_internal/er
 import type { KeyAttemptBudget } from "../../_internal/limits.ts";
 import { assertEntryLimit } from "../../_internal/limits.ts";
 import { checkJWSAlgSupported } from "./algorithms.ts";
+import { signingAlgOf } from "./keys.ts";
 import type { ResolvedKeyInput } from "../../_internal/keys.ts";
 import { resolveKeyInput, stringKeyError } from "../../_internal/keys.ts";
 import { validateClaimsIfJson } from "../../_internal/payload.ts";
@@ -153,10 +154,10 @@ export function _resolveSignerAlg(signer: JWSMultiSigner, index: number): JWSAlg
 
 function _inferSignerAlg(key: JWSMultiSigner["key"], index: number): JWSAlgorithm {
   if (isJWK(key)) {
-    const alg = key.alg;
+    const alg = signingAlgOf(key);
     if (!alg) {
       throw new JWTError(
-        `Cannot infer "alg" for signer[${index}]: the JWK has no "alg" property.`,
+        `Cannot infer "alg" for signer[${index}]: the JWK has no "alg" property and its key allows more than one.`,
         "ERR_JWS_SIGNER_ALG_INFERENCE",
       );
     }

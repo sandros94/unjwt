@@ -11,7 +11,7 @@ import type {
 import { type KnownJWTErrorCode, isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importPEM } from "../src/core/jwk/index.ts";
 import { rsa } from "./keys.ts";
-import { base64UrlStringify } from "../src/utils/base64.ts";
+import { base64UrlParse, base64UrlStringify } from "../src/utils/base64.ts";
 import { sign } from "../src/core/jws/index.ts";
 import { encrypt } from "../src/core/jwe/index.ts";
 import {
@@ -1628,6 +1628,25 @@ describe("a session key that names no algorithm", () => {
       expect(await roundTrip(session)).toEqual({ user: "ada" });
     }
   });
+
+  it.each([
+    ["ES256", "ES256"],
+    ["Ed25519", "EdDSA"],
+  ] as const)(
+    "JWS: a %s pair without alg defines without a pin and issues with the alg its curve names",
+    async (generated, alg) => {
+      const { privateKey, publicKey } = await generateJWK(generated);
+      const { alg: _private, ...signing } = privateKey;
+      const { alg: _public, ...verifying } = publicKey;
+      const session = defineJWSSession({
+        name: "web",
+        key: { privateKey: signing, publicKey: verifying },
+      });
+      const token = await session.issue({ user: "ada" });
+      expect(JSON.parse(base64UrlParse(token.split(".")[0])).alg).toBe(alg);
+      expect((await session.open(token)).data).toEqual({ user: "ada" });
+    },
+  );
 });
 
 describe("the algorithms a session accepts", () => {
