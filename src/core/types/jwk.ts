@@ -13,15 +13,13 @@ export type JWKLookupFunctionHeader = {
 /**
  * Returns the key that verifies or decrypts a token, from `{ header, token }`: its decoded header and the token itself.
  * A string is a PBES2 password on a JWE. Any other use of a string throws `ERR_JWK_INVALID`.
- * Returning `undefined` or `null`, or throwing an error that is not a `JWTError`, throws `ERR_JWK_KEY_NOT_FOUND`.
+ * A lookup returns a key or throws. An empty JWK Set is no key. A thrown `JWTError` propagates as is,
+ * and any other throw is reported as `ERR_JWK_KEY_NOT_FOUND` with the thrown error as `cause`.
  */
 export type JWKLookupFunction<
   TReturn = CryptoKey | JWK | JWKSet | string | Uint8Array<ArrayBuffer>,
   THeader = JWKLookupFunctionHeader,
-> = (lookup: {
-  header: THeader;
-  token: string;
-}) => TReturn | undefined | null | Promise<TReturn | undefined | null>;
+> = (lookup: { header: THeader; token: string }) => TReturn | Promise<TReturn>;
 
 /** A JWK import cache for `configureJWKCache`. Both methods can return a promise. Key the entries on the RFC 7638 thumbprint, the private or public half, and `alg`, never on `kid`. */
 export interface JWKCacheAdapter {

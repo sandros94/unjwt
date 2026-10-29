@@ -257,7 +257,7 @@ export async function encrypt(
  * @throws `ERR_JWE_ALG_NOT_ALLOWED` if the header `alg` is unsupported or not allowed, or `enc` is outside `encryptionAlgorithms`.
  * @throws `ERR_JWE_DECRYPTION_FAILED` if the CEK does not unwrap or the content does not decrypt.
  * @throws `ERR_JWK_INVALID` if no key is given, or the key cannot serve the header `alg`.
- * @throws `ERR_JWK_KEY_NOT_FOUND` if the lookup returns no key, or a JWK Set has no candidate.
+ * @throws `ERR_JWK_KEY_NOT_FOUND` if the lookup throws an error that is not a `JWTError` (as `cause`), or a JWK Set has no candidate.
  * @throws `ERR_INVALID_OPTION` if an option is malformed, a claim option is set where claims are not validated, or `returnCek` meets a non-extractable CEK.
  * @throws `ERR_JWT_EXPIRED` if `exp` has passed or the token is older than `maxTokenAge`.
  * @throws `ERR_JWT_NBF` if `nbf` is in the future.
