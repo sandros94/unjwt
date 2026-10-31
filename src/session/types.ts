@@ -58,6 +58,16 @@ export interface SessionManager<
    */
   readonly source: SessionSource;
   /**
+   * The error the read of this request ended with, the same object its hook received. `undefined` when the request carries no token, when the read
+   * succeeded, and after `update()` or `clear()`. Later `use()` calls on the same request return it too.
+   * - `ERR_JWT_EXPIRED`: the token is expired, the error `onExpire` received.
+   * - `ERR_SESSION_TOKEN_INVALID`: the token failed its checks, the error `onError` received.
+   * - `ERR_SESSION_READ_FAILED`: the key lookup threw or returned a key that cannot be used, the error `onError` received.
+   *
+   * A request without a token is the definition's `token(event)` returning `undefined`. A read that succeeded sets `id`.
+   */
+  readonly error: JWTError | undefined;
+  /**
    * Merges `update` into the data and issues a token with a fresh `jti` and `iat`. `options.maxAge` overrides the config's `maxAge` for this token.
    * A `"cookie"` session writes the token to the response's cookie. A `"header"` or `"token"` session writes nothing: the token is on `token` alone, for you to send. Later requests read the data back through JSON.
    * If issuing or the cookie write fails, the session is restored, `onError` runs and the call rejects. A throwing `onUpdate` rejects the call and keeps the new session.
@@ -121,7 +131,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
       config: TConfig;
     },
   ) => void | Promise<void>;
-  /** Runs when `clear()` empties the session. `oldSession` is `undefined` when the session had no `id` and no token. */
+  /** Runs when `clear()` empties the session. `oldSession` is `undefined` when the session had no `id`, no token and no `error`. */
   onClear?: (
     args: TArgs & {
       oldSession: TSession | undefined;
@@ -176,6 +186,8 @@ export interface SessionState<T extends SessionRecord, MaxAge extends ExpiresIn 
   token: string | undefined;
   /** Where the token of this request comes from. */
   source: SessionSource;
+  /** The error the read of this request ended with, `ERR_JWT_EXPIRED`, `ERR_SESSION_TOKEN_INVALID` or `ERR_SESSION_READ_FAILED`, the object its hook received. `undefined` when the request carries no token, when the read succeeded, and after `update()` or `clear()`. */
+  error: JWTError | undefined;
 }
 
 /** Session state that `open()` reads from a token: `id` and `createdAt` are always set, and `source` is `"token"`. */

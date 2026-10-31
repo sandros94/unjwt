@@ -4,7 +4,7 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
-import { isJWTError } from "../../error.ts";
+import { type JWTError, isJWTError } from "../../error.ts";
 import type { ExpiresIn } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
 import { expiredSessionError } from "./contract.ts";
@@ -39,7 +39,13 @@ export async function loadSession<
       session.expiresAt < codec.now(config)
     ) {
       dropSessionCookie(binding);
+      const error = expiredSessionError({
+        id: session.id,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+      });
       const freshSession = emptySession<T, MaxAge, TEvent, Config>(binding);
+      freshSession.error = error;
       store.set(freshSession);
       await fireExpire(binding, {
         session: {
@@ -48,11 +54,7 @@ export async function loadSession<
           expiresAt: session.expiresAt,
           token: session.token,
         },
-        error: expiredSessionError({
-          id: session.id,
-          createdAt: session.createdAt,
-          expiresAt: session.expiresAt,
-        }),
+        error,
       });
       return freshSession;
     }
@@ -64,6 +66,7 @@ export async function loadSession<
   store.set(session);
 
   if (transport.malformed) {
+    session.error = transport.malformed;
     await fireError(binding, transport.malformed);
     return session;
   }
@@ -94,6 +97,7 @@ export async function loadSession<
   const { failure } = await pending;
 
   if (failure) {
+    if (isJWTError(failure.error)) session.error = failure.error;
     if (isJWTError(failure.error, "ERR_JWT_EXPIRED")) {
       const { jti, iat, exp } = failure.error.cause;
       dropSessionCookie(binding);
@@ -174,7 +178,7 @@ async function fireExpire<TEvent, Config extends SessionCoreConfig>(
       expiresAt: number | undefined;
       token: string;
     };
-    error: Error;
+    error: JWTError;
   },
 ): Promise<void> {
   await binding.config.hooks?.onExpire?.({

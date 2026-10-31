@@ -48,6 +48,7 @@ export function defineSession<
         data: sanitizeSessionUpdate(data ?? {}, { prefix: driver.prefix }),
         token: undefined,
         source: "token",
+        error: undefined,
       });
     },
 

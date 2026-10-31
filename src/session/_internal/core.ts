@@ -47,6 +47,7 @@ export function emptySession<
     data: Object.create(null),
     token: undefined,
     source: binding.transport.source,
+    error: undefined,
   });
 }
 

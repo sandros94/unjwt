@@ -1762,6 +1762,155 @@ describe("the definition's token and the manager's token", () => {
   );
 });
 
+describe("the manager remembers how the read ended", () => {
+  const SOURCES = [
+    {
+      source: "cookie",
+      config: {},
+      event: (token?: string) => ({
+        req: get(token ? { cookie: `web=${token}` } : {}),
+        res: { headers: new Headers() },
+      }),
+    },
+    {
+      source: "header",
+      config: { sessionHeader: true },
+      event: (token?: string) => ({
+        req: get(token ? { "x-web-session": token } : {}),
+        res: { headers: new Headers() },
+      }),
+    },
+    { source: "token", config: {}, event: (token?: string) => ({ token }) },
+  ] as const;
+  const cases = FAMILIES.flatMap((family) => SOURCES.map((source) => ({ ...family, ...source })));
+
+  const FAILURES = [
+    {
+      label: "an expired token",
+      code: "ERR_JWT_EXPIRED",
+      hook: "onExpire",
+      hooks: {},
+      token: (family: Family) =>
+        foreignToken(family, { jti: "gone", iat: nowSeconds() - 120, exp: nowSeconds() - 60 }),
+    },
+    {
+      label: "a token that fails its signature or decryption",
+      code: "ERR_SESSION_TOKEN_INVALID",
+      hook: "onError",
+      hooks: {},
+      token: async (family: Family) => {
+        const [token, other] = await Promise.all([
+          foreignToken(family, { jti: "a", iat: nowSeconds() }),
+          foreignToken(family, { jti: "b", iat: nowSeconds() }),
+        ]);
+        return [...token.split(".").slice(0, -1), other.split(".").at(-1)].join(".");
+      },
+    },
+    {
+      label: "a key lookup that throws",
+      code: "ERR_SESSION_READ_FAILED",
+      hook: "onError",
+      hooks: {
+        onKeyLookup: () => {
+          throw new Error("vault unreachable");
+        },
+      },
+      token: (family: Family) => foreignToken(family, { jti: "s", iat: nowSeconds() }),
+    },
+  ] as const;
+  const failing = cases.flatMap((entry) => FAILURES.map((failure) => ({ ...entry, failure })));
+
+  it.each(cases)(
+    "$family, $source: no token leaves error and id undefined",
+    async ({ define, config, event }) => {
+      const manager = await define(config).use(event());
+      expect(manager.error).toBeUndefined();
+      expect(manager.id).toBeUndefined();
+    },
+  );
+
+  it.each(cases)(
+    "$family, $source: a token that opens leaves error undefined",
+    async ({ define, config, event }) => {
+      const session = define(config);
+      const manager = await session.use(event(await session.issue({ user: "ada" })));
+      expect(manager.id).toBeDefined();
+      expect(manager.error).toBeUndefined();
+    },
+  );
+
+  it.each(failing)(
+    "$family, $source, $failure.label: error is $failure.code, the object $failure.hook received, on every use()",
+    async ({ family, define, config, event: eventOf, failure }) => {
+      const onExpire = vi.fn();
+      const onError = vi.fn();
+      const session = define({ ...config, hooks: { ...failure.hooks, onExpire, onError } });
+      const event = eventOf(await failure.token(family));
+
+      const manager = await session.use(event);
+      const hook = failure.hook === "onExpire" ? onExpire : onError;
+      expect(hook).toHaveBeenCalledOnce();
+      expect(manager.id).toBeUndefined();
+      expect(manager.error?.code).toBe(failure.code);
+      expect(manager.error).toBe(hook.mock.calls[0]?.[0].error);
+
+      const again = await session.use(event);
+      expect(again.error).toBe(manager.error);
+      expect(hook).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(failing)(
+    "$family, $source, $failure.label: update() leaves error undefined and onUpdate's oldSession carries it",
+    async ({ family, define, config, event: eventOf, failure }) => {
+      const onUpdate = vi.fn();
+      const session = define({ ...config, hooks: { ...failure.hooks, onUpdate } });
+
+      const manager = await session.use(eventOf(await failure.token(family)));
+      const { error } = manager;
+      expect(error?.code).toBe(failure.code);
+
+      await manager.update({ user: "grace" });
+      expect(manager.error).toBeUndefined();
+      expect(onUpdate.mock.calls[0]?.[0].oldSession.error).toBe(error);
+    },
+  );
+
+  it.each(failing)(
+    "$family, $source, $failure.label: clear() leaves error undefined and onClear's oldSession carries it",
+    async ({ family, define, config, event: eventOf, failure }) => {
+      const onClear = vi.fn();
+      const session = define({ ...config, hooks: { ...failure.hooks, onClear } });
+
+      const manager = await session.use(eventOf(await failure.token(family)));
+      const { error } = manager;
+      expect(error?.code).toBe(failure.code);
+
+      await manager.clear();
+      expect(manager.error).toBeUndefined();
+      expect(onClear.mock.calls[0]?.[0].oldSession.error).toBe(error);
+    },
+  );
+
+  it("types the error on the manager, the state and the snapshots", () => {
+    expectTypeOf<SessionManager["error"]>().toEqualTypeOf<JWTError | undefined>();
+    expectTypeOf<SessionJWS["error"]>().toEqualTypeOf<JWTError | undefined>();
+    expectTypeOf<SessionJWE["error"]>().toEqualTypeOf<JWTError | undefined>();
+    defineJWSSession({
+      key: jwsKey,
+      hooks: {
+        onUpdate: ({ session, oldSession }) => {
+          expectTypeOf(session.error).toEqualTypeOf<JWTError | undefined>();
+          expectTypeOf(oldSession.error).toEqualTypeOf<JWTError | undefined>();
+        },
+        onClear: ({ oldSession }) => {
+          expectTypeOf(oldSession?.error).toEqualTypeOf<JWTError | undefined>();
+        },
+      },
+    });
+  });
+});
+
 describe("a throwing onRead", () => {
   it("leaves the session empty for the rest of the request", async () => {
     let reads = 0;
@@ -1791,6 +1940,7 @@ describe("a throwing onRead", () => {
     await expect(define.use(event)).rejects.toThrow("revoked");
     const again = await define.use(event);
     expect(again.id).toBeUndefined();
+    expect(again.error).toBeUndefined();
     expect(again.data).toEqual({});
     expect(reads).toBe(1);
   });

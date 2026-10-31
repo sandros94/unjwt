@@ -70,7 +70,7 @@ export async function issueSession<
     const token = await keys.issue(session);
     transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
     binding.held.set(token);
-    issued = Object.assign(session, { id, token });
+    issued = Object.assign(session, { id, token, error: undefined });
   } catch (error_) {
     Object.assign(session, {
       id: oldSession.id,
@@ -113,7 +113,8 @@ export async function dropSession<TEvent, Config extends SessionCoreConfig>(
     session = await session[kSessionPending];
   }
   const oldSession =
-    session && (session.id !== undefined || session.token !== undefined)
+    session &&
+    (session.id !== undefined || session.token !== undefined || session.error !== undefined)
       ? snapshotSession(session)
       : undefined;
 
@@ -153,6 +154,9 @@ export function sessionManager<
     },
     get source() {
       return binding.transport.source;
+    },
+    get error() {
+      return state()?.error;
     },
     update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
       await issueSession<T, MaxAge, TEvent, Config>(binding, update, options);
