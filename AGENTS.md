@@ -107,6 +107,7 @@ src/
       codec.ts          # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
       codec-jws.ts      # JWS half of a session: sign/verify, JWS config + cookie defaults
       codec-jws-keys.ts # JWS session keys: JWSSessionKey, what a JWS key serves, the signing and verifying keys of a key, JWK Set or pair
+      codec-jws-pair.ts # JWS session key pairs: what each half is, and a public half that verifies what the pair issues
       codec-jwe.ts      # JWE half of a session: encrypt/decrypt, JWE config + cookie defaults
       codec-jwe-keys.ts # JWE session keys: JWESessionKey, what a JWE key serves, the enc of a dir key, the issuing key of a key or JWK Set
       key-algorithms.ts # definition checks of either family: the pin and the algorithms list against what the keys serve, the entries of a JWK Set key

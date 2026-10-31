@@ -16,11 +16,10 @@ import {
   isCryptoKey,
   isJWK,
   isJWKSet,
-  isPrivateJWK,
-  isPublicJWK,
   isSymmetricJWK,
 } from "../../utils/guards.ts";
 import { assertKeyMaterial, invalidKeyError } from "./contract.ts";
+import { assertJWSKeyPair, assertVerifiesIssued } from "./codec-jws-pair.ts";
 import {
   type ResolvedSessionKeys,
   type SessionKeyEntry,
@@ -37,7 +36,8 @@ import {
  * A symmetric key that signs and verifies, an HMAC `oct` JWK or a secret `CryptoKey`, a JWK Set of HMAC `oct` JWKs, or a pair:
  * `privateKey` signs and `publicKey` (a JWK, a JWK list, a JWK Set or a `CryptoKey`) verifies. A key without `alg` (a `CryptoKey`, an
  * `oct` JWK without `alg`) requires a pinned `jws.signOptions.alg`, unless it is the half of a pair whose other half names one, which it
- * then must carry. A JWK Set's first key signs and every key verifies, each checked as a lone key, the pin naming the first alone; a
+ * then must carry. A pair's single `publicKey` that names an algorithm names the one `privateKey` signs with, and a list or JWK Set
+ * holds at least one key that serves it, beside keys of other algorithms. A JWK Set's first key signs and every key verifies, each checked as a lone key, the pin naming the first alone; a
  * token of a key without `kid` may meet at most `jws.verifyOptions.limits.keyCandidates` keys, those whose `alg` serves it and those
  * without `alg`. A lone asymmetric key throws `ERR_SESSION_KEY_INVALID`: it signs with one half and verifies with the other, so pass
  * both as a pair.
@@ -75,7 +75,7 @@ const JWS_KEY_RULES: SessionKeyRules<JWSAlgorithm> = {
  * Resolves and checks the configured keys: the key that signs, a symmetric key, a JWK Set's first key or a pair's `privateKey`, and
  * the key or JWK Set that verifies. A pair's JWK Set offers a key without `alg` to a token only under the algorithms it serves. The
  * signing key and a single public half must serve the pinned `alg`. A half that names none takes the `alg` its other half names, and
- * a pair needs one pinned when neither half names one.
+ * a pair needs one pinned when neither half names one. A pair's public half must verify what its private half issues.
  */
 export function resolveSessionKeys(
   key: JWSSessionKey,
@@ -92,6 +92,7 @@ export function resolveSessionKeys(
   let issuing: SessionKeyEntry<JWSSignJWK | CryptoKey>;
   let entries: SessionKeyEntry<JWSVerifyJWK | CryptoKey>[];
   let list: readonly unknown[] | undefined;
+  let issued: { alg: string; by: string } | undefined;
   if ((isCryptoKey(key) && key.type === "secret") || isSymmetricJWK(key)) {
     issuing = { key, subject: "The session key", pin };
     entries = [issuing];
@@ -104,6 +105,13 @@ export function resolveSessionKeys(
     const half = key.publicKey;
     list = Array.isArray(half) ? half : isJWKSet(half) ? half.keys : undefined;
     const signing = namedAlgorithm(key.privateKey);
+    const alg = pin ?? signing;
+    if (alg) {
+      issued = {
+        alg,
+        by: pin ? `"${JWS_KEY_RULES.pinPath}" pins` : 'the session key "privateKey" names',
+      };
+    }
     issuing = {
       key: key.privateKey,
       subject: 'The session key "privateKey"',
@@ -127,6 +135,14 @@ export function resolveSessionKeys(
   const pinning = { rules: JWS_KEY_RULES, pinned: true, prefix };
   assertPinnedKey(issuing, pinning);
   if (!list && issuing !== entries[0]) assertPinnedKey(entries[0], pinning);
+  if (issued) {
+    assertVerifiesIssued(entries, {
+      ...issued,
+      list: list !== undefined,
+      rules: JWS_KEY_RULES,
+      prefix,
+    });
+  }
   const { each, all } = servedAlgorithms(entries, { ...options, rules: JWS_KEY_RULES });
   const verifying = isJWKSet(key)
     ? key
@@ -162,36 +178,6 @@ function servedCopies(
   if (JWS_KEY_RULES.own(key)) return [key];
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- each copy names an algorithm its material carries
   return served.map((alg) => ({ ...key, alg }) as JWSVerifyJWK);
-}
-
-/** A pair's halves are what they are named: a private JWK or `CryptoKey` signs, public ones verify. */
-function assertJWSKeyPair(
-  pair: { privateKey?: unknown; publicKey?: unknown },
-  prefix: string,
-): void {
-  const { privateKey, publicKey } = pair;
-  if (!isPrivateJWK(privateKey) && !isCryptoKeyOf(privateKey, "private")) {
-    throw invalidKeyError(
-      `${prefix} Invalid JWS session key: "privateKey" must be a private JWK or a private CryptoKey.`,
-      pair,
-    );
-  }
-  if (!isPublicHalf(publicKey)) {
-    throw invalidKeyError(
-      `${prefix} Invalid JWS session key: "publicKey" must be a public JWK, a non-empty list or JWK Set of them, or a public CryptoKey.`,
-      pair,
-    );
-  }
-}
-
-function isPublicHalf(half: unknown): boolean {
-  if (isCryptoKeyOf(half, "public") || isPublicJWK(half)) return true;
-  const keys = Array.isArray(half) ? half : isJWKSet(half) ? half.keys : undefined;
-  return keys !== undefined && keys.length > 0 && keys.every((candidate) => isPublicJWK(candidate));
-}
-
-function isCryptoKeyOf(key: unknown, type: KeyType): key is CryptoKey {
-  return isCryptoKey(key) && key.type === type;
 }
 
 /** A lone asymmetric key cannot both sign and verify. Anything else is not a JWS session key. */

@@ -1715,6 +1715,74 @@ describe("a pair with one half that names its algorithm", () => {
     });
     expect(await roundTrip(pinned)).toEqual({ alg: "ES256", data: { user: "ada" } });
   });
+
+  it("is refused when a single public JWK names another algorithm", async () => {
+    const [{ privateKey }, ecdsa, rsassa] = await Promise.all([
+      generateJWK("ES256"),
+      generateJWK("ES384"),
+      generateJWK("RS256", { modulusLength: 2048 }),
+    ]);
+    for (const [publicKey, alg] of [
+      [ecdsa.publicKey, "ES384"],
+      [rsassa.publicKey, "RS256"],
+    ] as const) {
+      expect(refusedWith(() => defineJWSSession({ key: { privateKey, publicKey } }))).toEqual({
+        code: "ERR_SESSION_KEY_INVALID",
+        message: `[unjwt/session] The session key "publicKey" names "${alg}", not the "ES256" that the session key "privateKey" names.`,
+      });
+    }
+  });
+
+  it("is refused when no key of a public list or JWK Set serves the issuing algorithm", async () => {
+    const [current, rsassa, pss] = await Promise.all([
+      generateJWK("ES256"),
+      generateJWK("RS256", { modulusLength: 2048 }),
+      generateJWK("PS256", { modulusLength: 2048 }),
+    ]);
+    const others = [rsassa.publicKey, pss.publicKey];
+    for (const publicKey of [others, { keys: others }]) {
+      expect(
+        refusedWith(() => defineJWSSession({ key: { privateKey: current.privateKey, publicKey } })),
+      ).toEqual({
+        code: "ERR_SESSION_KEY_INVALID",
+        message:
+          '[unjwt/session] The session key "publicKey" serves RS256, PS256, not the "ES256" that the session key "privateKey" names.',
+      });
+    }
+    const privateKey = await importKey(current.privateKey, { expect: "private" });
+    expect(
+      refusedWith(() =>
+        defineJWSSession({
+          key: { privateKey, publicKey: others },
+          jws: { signOptions: { alg: "ES256" } },
+        }),
+      ),
+    ).toEqual({
+      code: "ERR_SESSION_KEY_INVALID",
+      message:
+        '[unjwt/session] The session key "publicKey" serves RS256, PS256, not the "ES256" that "jws.signOptions.alg" pins.',
+    });
+  });
+
+  it("keeps keys of other algorithms in a public list that serves the issuing one", async () => {
+    const [current, former] = await Promise.all([
+      generateJWK("ES256"),
+      generateJWK("RS256", { modulusLength: 2048 }),
+    ]);
+    const session = defineJWSSession({
+      name: "web",
+      key: { privateKey: current.privateKey, publicKey: [current.publicKey, former.publicKey] },
+    });
+    expect(await roundTrip(session)).toEqual({ alg: "ES256", data: { user: "ada" } });
+    const formerToken = await sign(
+      { jti: "s", iat: nowSeconds(), user: "ada" },
+      former.privateKey,
+      {
+        protectedHeader: { typ: "session+jwt" },
+      },
+    );
+    expect((await session.open(formerToken)).data).toEqual({ user: "ada" });
+  });
 });
 
 describe("the algorithms a session accepts", () => {
