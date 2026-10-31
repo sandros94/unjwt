@@ -78,19 +78,19 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["verify"],
     module: "core/jws/index.ts",
-    measured: { min: 24753, gzip: 8249 },
+    measured: { min: 24768, gzip: 8250 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   {
     imports: ["sign"],
     module: "core/jws/index.ts",
-    measured: { min: 20759, gzip: 7081 },
+    measured: { min: 21102, gzip: 7192 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   {
     imports: ["decrypt"],
     module: "core/jwe/index.ts",
-    measured: { min: 36724, gzip: 11663 },
+    measured: { min: 36739, gzip: 11663 },
     absent: [MARKERS.thumbprint],
   },
   {
@@ -140,31 +140,31 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["createDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 28236, gzip: 9302 },
+    measured: { min: 28294, gzip: 9328 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "ERR_DPOP_REPLAY"],
   },
   {
     imports: ["verifyDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 32680, gzip: 10739 },
+    measured: { min: 32695, gzip: 10739 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "randomUUID"],
   },
   {
     imports: ["createDPoPProof", "verifyDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 43088, gzip: 13483 },
+    measured: { min: 43161, gzip: 13506 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes],
   },
   {
     imports: ["sign", "verify"],
     module: "core/jws/index.ts",
-    measured: { min: 32734, gzip: 10501 },
+    measured: { min: 32807, gzip: 10518 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   {
     imports: ["encrypt", "decrypt"],
     module: "core/jwe/index.ts",
-    measured: { min: 53604, gzip: 16238 },
+    measured: { min: 53619, gzip: 16239 },
     absent: [MARKERS.thumbprint],
   },
   {
@@ -177,13 +177,13 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["defineJWSSession"],
     module: "session/index.ts",
-    measured: { min: 58324, gzip: 18888 },
+    measured: { min: 60046, gzip: 19427 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
   {
     imports: ["defineJWESession"],
     module: "session/index.ts",
-    measured: { min: 79396, gzip: 25221 },
+    measured: { min: 80205, gzip: 25451 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
 ];
