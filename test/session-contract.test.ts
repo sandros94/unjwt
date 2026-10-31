@@ -336,9 +336,7 @@ describe("session contract", () => {
         );
 
         expect(response.body).toEqual({ id: null });
-        expect(isJWTError(onError.mock.calls[0]?.[0]?.error.cause, "ERR_JWK_KEY_NOT_FOUND")).toBe(
-          true,
-        );
+        expect(isJWTError(onError.mock.calls[0]?.[0]?.error, "ERR_SESSION_READ_FAILED")).toBe(true);
         expect(response.cookies).toEqual([]);
       },
     );

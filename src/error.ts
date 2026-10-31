@@ -60,6 +60,7 @@ export type KnownJWTErrorCode =
   | "ERR_DPOP_REPLAY" // the replay callback rejected the proof or threw
   // Sessions
   | "ERR_SESSION_TOKEN_INVALID" // the incoming session token failed verification or decryption
+  | "ERR_SESSION_READ_FAILED" // `onKeyLookup` threw while the incoming session token was read
   | "ERR_SESSION_READONLY_EVENT" // `update` with no writable cookie, or `update`/`clear` after the response is sent
   | "ERR_SESSION_KEY_INVALID" // session key missing, of the wrong shape, or a password string
   | "ERR_SESSION_CONFIG_INVALID" // the session config is invalid

@@ -51,14 +51,23 @@ export function expiredSessionError(options: {
   return new JWTError(expiredClaimMessage(exp), "ERR_JWT_EXPIRED", { jti: id, iat, exp });
 }
 
-/** Whether a read failure is the token's own. A key lookup that threw says nothing about the token. */
-export function isTokenFailure(error: JWTError<"ERR_SESSION_TOKEN_INVALID">): boolean {
-  return !(isJWTError(error.cause, "ERR_JWK_KEY_NOT_FOUND") && error.cause.cause !== undefined);
+/** A token that could not be read, with what the key lookup hook threw as `cause`. It says nothing about the token. */
+export function readFailedError(
+  cause: unknown,
+  options: { prefix: string },
+): JWTError<"ERR_SESSION_READ_FAILED"> {
+  return new JWTError(
+    `${options.prefix} Session could not be read: ${messageOf(cause)}`,
+    "ERR_SESSION_READ_FAILED",
+    cause,
+  );
 }
 
-/** Passes `ERR_JWT_EXPIRED` through. Any other error becomes `ERR_SESSION_TOKEN_INVALID`. */
+/** Passes `ERR_JWT_EXPIRED` and `ERR_SESSION_READ_FAILED` through. Any other error becomes `ERR_SESSION_TOKEN_INVALID`. */
 export function rethrowAsInvalidToken(error: unknown, options: { prefix: string }): never {
-  if (isJWTError(error, "ERR_JWT_EXPIRED")) throw error;
+  if (isJWTError(error, "ERR_JWT_EXPIRED") || isJWTError(error, "ERR_SESSION_READ_FAILED")) {
+    throw error;
+  }
   throw invalidTokenError(`${options.prefix} Invalid session token: ${messageOf(error)}`, error);
 }
 

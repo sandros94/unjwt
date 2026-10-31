@@ -48,9 +48,9 @@ export interface SessionHooksJWE<
  * `key` serves or `decryptOptions.algorithms` lists. A `CryptoKey` it returns names no algorithm of its own: as for a lone `CryptoKey` key,
  * `decryptOptions.algorithms` or the pin names what it serves. A JWK Set offers the token its keys of the token's `kid` (all of them when it
  * names none) that serve its `alg`, in order, and a token offered more than `decryptOptions.limits.keyCandidates` keys is refused. Nothing
- * it returns is checked when the session is defined. `undefined` means no key for this token, reported as `ERR_JWK_KEY_NOT_FOUND`; a
- * thrown `JWTError` propagates as it is; any other throw is `ERR_JWK_KEY_NOT_FOUND` with the thrown error as `cause`. In each case the
- * token fails with `ERR_SESSION_TOKEN_INVALID`, that error as its `cause`. `open()` passes it no event.
+ * it returns is checked when the session is defined. `undefined` means no key for this token: the token fails with
+ * `ERR_SESSION_TOKEN_INVALID`, an `ERR_JWK_KEY_NOT_FOUND` as its `cause`, and its cookie is expired. Any throw, a `JWTError` or not, means
+ * the token could not be read: `ERR_SESSION_READ_FAILED`, the thrown error as its `cause`, and the cookie is kept. `open()` passes it no event.
  */
 export type JWESessionKeyLookup<
   T extends SessionRecord = SessionClaims,

@@ -7,7 +7,7 @@
 import { isJWTError } from "../../error.ts";
 import type { ExpiresIn } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
-import { expiredSessionError, isTokenFailure } from "./contract.ts";
+import { expiredSessionError } from "./contract.ts";
 import { dropSessionCookie } from "./bind.ts";
 import type { SessionBinding, SessionCoreConfig, StoredSession } from "./types.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
@@ -106,10 +106,8 @@ export async function loadSession<
         error: failure.error,
       });
     } else {
-      // A token that cannot be read is dropped like an expired one. A key lookup that threw keeps it.
-      if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID") && isTokenFailure(failure.error)) {
-        dropSessionCookie(binding);
-      }
+      // A token that fails its checks is dropped like an expired one. A read that failed keeps it.
+      if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID")) dropSessionCookie(binding);
       await fireError(binding, failure.error);
     }
     return session;

@@ -8,7 +8,7 @@ import type {
   JWKSet,
   JWSHeaderParameters,
 } from "../src/core/types/index.ts";
-import { type KnownJWTErrorCode, isJWTError } from "../src/error.ts";
+import { type KnownJWTErrorCode, JWTError, isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importKey, importPEM } from "../src/core/jwk/index.ts";
 import { rsa } from "./keys.ts";
 import { base64UrlParse, base64UrlStringify } from "../src/utils/base64.ts";
@@ -1425,6 +1425,153 @@ function foreignToken(family: Family, claims: Record<string, unknown>): Promise<
   return family === "jws" ? sign(claims, jwsKey, options) : encrypt(claims, jweKey, options);
 }
 
+describe("a session read that fails", () => {
+  const throwing = (error: unknown) => () => {
+    throw error;
+  };
+  const expiredCookie = (headers: Headers) =>
+    linesOf(headers, "web").filter((line) => /max-age=0/i.test(line));
+
+  it.each(FAMILIES)(
+    "$family: a lookup that throws an Error reports ERR_SESSION_READ_FAILED and keeps the cookie",
+    async ({ define }) => {
+      const boom = new Error("vault unreachable");
+      const onError = vi.fn();
+      const session = define({ hooks: { onKeyLookup: throwing(boom), onError } });
+      const token = await define().issue({ user: "ada" });
+      const headers = new Headers();
+      const event = { req: get({ cookie: `web=${token}` }), res: { headers } };
+
+      const manager = await session.use(event);
+      expect(manager.id).toBeUndefined();
+      expect(manager.data).toEqual({});
+      expect(manager.token).toBeUndefined();
+      expect(manager.source).toBe("cookie");
+      expect(session.token(event)).toBeUndefined();
+      expect(onError).toHaveBeenCalledOnce();
+      const [{ error }] = onError.mock.calls[0] as [{ error: Error }];
+      expect(error).toMatchObject({
+        code: "ERR_SESSION_READ_FAILED",
+        message: "[unjwt/session] Session could not be read: vault unreachable",
+      });
+      expect(error.cause).toBe(boom);
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
+  it.each(
+    FAMILIES.flatMap((family) =>
+      (["ERR_JWK_KEY_NOT_FOUND", "ERR_JWT_EXPIRED"] as const).map((code) => ({ ...family, code })),
+    ),
+  )(
+    "$family: a lookup that throws a $code JWTError is a read failure that keeps the cookie",
+    async ({ define, code }) => {
+      const fromHook = new JWTError("thrown by the hook", code);
+      const onError = vi.fn();
+      const onExpire = vi.fn();
+      const session = define({ hooks: { onKeyLookup: throwing(fromHook), onError, onExpire } });
+      const token = await define().issue({ user: "ada" });
+      const headers = new Headers();
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+      expect(manager.id).toBeUndefined();
+      expect(onExpire).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledOnce();
+      const [{ error }] = onError.mock.calls[0] as [{ error: Error }];
+      expect(error).toMatchObject({
+        code: "ERR_SESSION_READ_FAILED",
+        message: "[unjwt/session] Session could not be read: thrown by the hook",
+      });
+      expect(error.cause).toBe(fromHook);
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a lookup that returns undefined fails the token and expires the cookie",
+    async ({ define }) => {
+      const onError = vi.fn();
+      const session = define({ hooks: { onKeyLookup: () => undefined, onError } });
+      const token = await define().issue({ user: "ada" });
+      const headers = new Headers();
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+      expect(manager.id).toBeUndefined();
+      const [{ error }] = onError.mock.calls[0] as [{ error: Error }];
+      expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      expect(isJWTError(error.cause, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+      expect(expiredCookie(headers)).toHaveLength(1);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a token that fails its signature or typ check, or expires, still expires the cookie",
+    async ({ family, define }) => {
+      const onError = vi.fn();
+      const onExpire = vi.fn();
+      const session = define({ hooks: { onError, onExpire } });
+      const token = await session.issue({ user: "ada" });
+      const other = await session.issue({ user: "eve" });
+      const tampered = [...token.split(".").slice(0, -1), other.split(".").at(-1)].join(".");
+      const claims = { jti: "s", iat: nowSeconds() - 60 };
+      const untyped =
+        family === "jws"
+          ? await sign(claims, jwsKey, { protectedHeader: { typ: "JWT" } })
+          : await encrypt(claims, jweKey, { protectedHeader: { typ: "JWT" } });
+      const expired = await foreignToken(family, { ...claims, exp: nowSeconds() - 10 });
+
+      for (const sent of [tampered, untyped, expired]) {
+        const headers = new Headers();
+        const manager = await session.use({
+          req: get({ cookie: `web=${sent}` }),
+          res: { headers },
+        });
+        expect(manager.id).toBeUndefined();
+        expect(expiredCookie(headers)).toHaveLength(1);
+      }
+      expect(onError).toHaveBeenCalledTimes(2);
+      for (const [{ error }] of onError.mock.calls as [{ error: unknown }][]) {
+        expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+      }
+      expect(onExpire).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: clear() in onError on a read failure expires the cookie",
+    async ({ define }) => {
+      const session = define({
+        hooks: {
+          onKeyLookup: throwing(new Error("boom")),
+          onError: async ({ session: manager }: { session: SessionManager }) => {
+            await manager.clear();
+          },
+        },
+      });
+      const token = await define().issue({ user: "ada" });
+      const headers = new Headers();
+
+      await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+      expect(expiredCookie(headers)).toHaveLength(1);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a read failure on a request without a response throws nothing",
+    async ({ define }) => {
+      const onError = vi.fn();
+      const session = define({ hooks: { onKeyLookup: throwing(new Error("boom")), onError } });
+      const token = await define().issue({ user: "ada" });
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }) });
+      expect(manager.id).toBeUndefined();
+      expect(onError).toHaveBeenCalledOnce();
+      const [{ error }] = onError.mock.calls[0] as [{ error: unknown }];
+      expect(isJWTError(error, "ERR_SESSION_READ_FAILED")).toBe(true);
+    },
+  );
+});
+
 describe("a throwing onRead", () => {
   it("leaves the session empty for the rest of the request", async () => {
     let reads = 0;
@@ -2002,7 +2149,7 @@ describe("the key rules both families share", () => {
   );
 
   it.each(RULES)(
-    "$family: fails the token when onKeyLookup throws, returns undefined or null, or returns a key that does not import",
+    "$family: fails the read when onKeyLookup throws, and the token when it returns undefined or null, or a key that does not import",
     async ({ define, key }) => {
       const token = await define().issue({ user: "ada" });
       const boom = new Error("boom");
@@ -2011,36 +2158,34 @@ describe("the key rules both families share", () => {
           onKeyLookup: () => {
             throw boom;
           },
-          cause: "ERR_JWK_KEY_NOT_FOUND",
-          inner: boom,
+          code: "ERR_SESSION_READ_FAILED",
+          cause: boom,
           keeps: true,
         },
         {
           onKeyLookup: () => undefined,
-          cause: "ERR_JWK_KEY_NOT_FOUND",
-          inner: undefined,
+          code: "ERR_SESSION_TOKEN_INVALID",
+          cause: expect.objectContaining({ code: "ERR_JWK_KEY_NOT_FOUND", cause: undefined }),
           keeps: false,
         },
         {
           onKeyLookup: (() => null) as never,
-          cause: "ERR_JWK_KEY_NOT_FOUND",
-          inner: undefined,
+          code: "ERR_SESSION_TOKEN_INVALID",
+          cause: expect.objectContaining({ code: "ERR_JWK_KEY_NOT_FOUND", cause: undefined }),
           keeps: false,
         },
         {
           onKeyLookup: () => ({ ...key, k: "!!!" }),
-          cause: "ERR_JWK_INVALID",
-          inner: expect.anything(),
+          code: "ERR_SESSION_TOKEN_INVALID",
+          cause: expect.objectContaining({ code: "ERR_JWK_INVALID" }),
           keeps: false,
         },
       ] as const;
-      for (const { onKeyLookup, cause, inner, keeps } of lookups) {
+      for (const { onKeyLookup, code, cause, keeps } of lookups) {
         const onError = vi.fn();
         const session = define({ hooks: { onKeyLookup, onError } });
         const error = await caught(session.open(token));
-        expect(isJWTError(error, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-        expect(isJWTError((error as Error).cause, cause)).toBe(true);
-        expect(((error as Error).cause as Error).cause).toEqual(inner);
+        expect(error).toMatchObject({ code, cause });
 
         const headers = new Headers();
         const manager = await session.use({

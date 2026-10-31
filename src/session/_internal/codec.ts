@@ -5,6 +5,7 @@ import {
   RESERVED_CLAIMS,
   assertImportableKey,
   expiredSessionError,
+  readFailedError,
   resolveExpiresAt,
   rethrowAsInvalidToken,
   sessionRequiredClaims,
@@ -70,7 +71,8 @@ export interface SessionCodecSpec<
 
 /**
  * Keys are resolved once per config and each configured JWK is imported once. With a key lookup hook, the hook picks each request's
- * open key under the algorithms the configured keys serve. Open failures other than expiry throw `ERR_SESSION_TOKEN_INVALID`.
+ * open key under the algorithms the configured keys serve. A throwing hook fails the read with `ERR_SESSION_READ_FAILED`. Any other
+ * open failure but expiry throws `ERR_SESSION_TOKEN_INVALID`.
  */
 export function createSessionCodec<
   Config extends SessionCoreConfig,
@@ -122,7 +124,10 @@ export function createSessionCodec<
       const { issueKey, issueAlg, key, algorithms } = spec.resolveKeys(config);
       const hook = spec.lookup(config);
       const keyFor = (args: Record<string, unknown>) =>
-        hook ? ({ header }: { header: Header }) => hook({ header, ...args, config }) : key;
+        hook
+          ? ({ header }: { header: Header }) =>
+              lookUpKey(hook, { header, ...args, config }, { prefix })
+          : key;
       const importable: readonly unknown[] = hook ? [] : isJWKSet(key) ? key.keys : [key];
       const assertOpenKeys = async (): Promise<void> => {
         for (const entry of importable) {
@@ -240,6 +245,19 @@ function assertNotPastMaxAge(
   if (expiresAt === undefined) return;
   if (expiresAt <= options.now - toleranceSeconds(options.clockTolerance) * 1000) {
     throw expiredSessionError({ id: opened.id, createdAt: opened.createdAt, expiresAt });
+  }
+}
+
+/** Runs the key lookup hook. Whatever it throws is a read failure, not the token's. */
+async function lookUpKey<Header, Found>(
+  hook: SessionKeyLookupHook<Header, Found>,
+  args: Parameters<SessionKeyLookupHook<Header, Found>>[0],
+  options: { prefix: string },
+): Promise<Found> {
+  try {
+    return await hook(args);
+  } catch (error) {
+    throw readFailedError(error, options);
   }
 }
 
