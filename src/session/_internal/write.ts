@@ -69,6 +69,7 @@ export async function issueSession<
     await keys.assertKeys();
     const token = await keys.issue(session);
     transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
+    binding.held.set(token);
     issued = Object.assign(session, { id, token });
   } catch (error_) {
     Object.assign(session, {
@@ -117,6 +118,7 @@ export async function dropSession<TEvent, Config extends SessionCoreConfig>(
       : undefined;
 
   store.set(emptySession(binding));
+  binding.held.set(undefined);
 
   transport.drop?.(sessionCookie(binding));
 

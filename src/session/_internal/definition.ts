@@ -1,7 +1,7 @@
 import type { ExpiresIn } from "../../core/types/index.ts";
 import type { SessionDriver } from "./driver.ts";
 import { resolveExpiresAt, sanitizeSessionUpdate } from "./contract.ts";
-import { assertSessionConfig, bindSession, sessionToken } from "./bind.ts";
+import { assertSessionConfig, bindSession, transportToken } from "./bind.ts";
 import type { SessionActions, SessionCodec, SessionCoreConfig } from "./types.ts";
 import { mintSessionId, openSessionToken, sessionInstant } from "./core.ts";
 import { loadSession } from "./read.ts";
@@ -36,7 +36,7 @@ export function defineSession<
       return sessionManager<T, MaxAge, TEvent, Config>(binding);
     },
 
-    token: (event) => sessionToken(bind(event)),
+    token: (event) => transportToken(bind(event)),
 
     issue: async (data, issueOptions) => {
       await keys.assertKeys();

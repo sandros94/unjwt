@@ -70,6 +70,7 @@ export async function loadSession<
   const token = transport.read();
   if (!token) return session;
 
+  binding.held.set(token);
   session.token = token;
 
   // State settles before any hook runs, so a hook reading this session does not await itself.

@@ -7,6 +7,7 @@ import {
   invalidConfigError,
 } from "./contract.ts";
 import type {
+  HeldToken,
   SessionActions,
   SessionBinding,
   SessionCodec,
@@ -23,6 +24,9 @@ import {
 
 /** The session names bound on one request, in a slot of its state record. */
 const kSessionNames: unique symbol = Symbol("unjwt_session_names");
+
+/** The tokens the transports of one request hold, one per session slot. */
+const kHeldTokens: unique symbol = Symbol("unjwt_session_held_tokens");
 
 /** Checks what the config alone decides: its name, session header, cookie prefix and `rolling`. */
 export function assertSessionConfig(
@@ -54,6 +58,7 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
   const { config, name, driver, codec, keys, actions } = options;
   const record = driver.state(event);
   claimSessionName(record, { name, family: codec.family, prefix: driver.prefix });
+  const slot = `${codec.family}:${name}`;
   return {
     event,
     config,
@@ -63,12 +68,13 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
     actions,
     name,
     args: { event },
-    store: recordSlotStore(record, `${codec.family}:${name}`),
+    store: recordSlotStore(record, slot),
+    held: heldTokenSlot(record, slot),
     transport: resolveTransport(driver, event, { config, name }),
   };
 }
 
-/** The token of the session this request read or wrote, else the one its transport reads. */
+/** The token behind the session's current state: `undefined` after a failed read or `clear()`. Before any read, the one its transport reads. */
 export function sessionToken<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): string | undefined {
@@ -76,6 +82,16 @@ export function sessionToken<TEvent, Config extends SessionCoreConfig>(
   assertTokenSource(transport, { prefix: binding.driver.prefix });
   const session = storedSession(binding.store);
   return session ? session.token : transport.read();
+}
+
+/** The token the transport holds, unopened: the one it read whatever the read's outcome, the one `update()` issued, none after `clear()`. Before any read, the one it reads. */
+export function transportToken<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
+): string | undefined {
+  const { transport } = binding;
+  assertTokenSource(transport, { prefix: binding.driver.prefix });
+  const held = binding.held.get();
+  return held ? held.token : transport.read();
 }
 
 /** Session store over a per-request record, one slot per session. */
@@ -128,4 +144,15 @@ function claimSessionName(
   throw invalidConfigError(
     `${prefix} Session name "${name}" is already used by a ${held.toUpperCase()} session on this request.`,
   );
+}
+
+function heldTokenSlot(record: Record<string, unknown>, slot: string): HeldToken {
+  const holder: { [kHeldTokens]?: Map<string, string | undefined> } = record;
+  const held = (holder[kHeldTokens] ||= new Map());
+  return {
+    get: () => (held.has(slot) ? { token: held.get(slot) } : undefined),
+    set: (token) => {
+      held.set(slot, token);
+    },
+  };
 }

@@ -46,6 +46,12 @@ export interface SessionStore {
   set: (state: object) => void;
 }
 
+/** The token one session's transport holds on its request, `undefined` until a read or a write sets it. */
+export interface HeldToken {
+  get: () => { token: string | undefined } | undefined;
+  set: (token: string | undefined) => void;
+}
+
 /** How a session is issued and read: signed (JWS) or encrypted (JWE). */
 export interface SessionCodec<Config extends SessionCoreConfig> {
   /** Keeps a JWS and a JWE session that share a `name` apart. */
@@ -87,5 +93,7 @@ export interface SessionBinding<TEvent, Config extends SessionCoreConfig> {
   /** The request as every hook receives it. */
   args: { event: TEvent };
   store: SessionStore;
+  /** The token the transport read, then the one `update()` issued or none after `clear()`. A failed read leaves it as read. */
+  held: HeldToken;
   transport: SessionTransport;
 }

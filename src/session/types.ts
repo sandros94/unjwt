@@ -46,7 +46,8 @@ export interface SessionManager<
   /** Session data, without `jti`, `iat`, `exp` and `nbf`. */
   readonly data: SessionData<T>;
   /**
-   * The token read or issued on this request, `undefined` when there is none or it failed to open.
+   * The session's token: the one behind its current state, read and opened on this request or issued by `update()`. `undefined` when there is none,
+   * when the read failed, and after `clear()`. The token the request carries, whatever its read made of it, is the definition's `token(event)`.
    * On a `"cookie"` session, a token `update()` issues is also written to the cookie. On a `"header"` or `"token"` session it is here alone, and reaches the client only if you send it.
    */
   readonly token: string | undefined;
@@ -198,7 +199,12 @@ export interface SessionDefinition<
    * @throws `ERR_SESSION_KEY_INVALID` if a configured key fails to import.
    */
   use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
-  /** Returns the token `use()` read or issued on this request, else the one the request carries, unopened: a handed token, the session header when it is present and differs from the cookie, otherwise the cookie. */
+  /**
+   * Returns the transport's token, unopened: the one the request carries (a handed token, the session header when it is present and differs from
+   * the cookie, otherwise the cookie) whatever `use()` made of it, or the one `update()` issued on this request. `undefined` when the request
+   * carries none, and after `clear()`. A failed read leaves it as sent, so a caller can forward or log it and tell no token from one that could
+   * not be checked. The token behind the session's state, `undefined` once a read fails, is the manager's `token`.
+   */
   token: (event: TEvent) => string | undefined;
   /** Returns a token for `data` with a fresh `jti` and `iat`, and `exp` from `maxAge` (`options.maxAge` overrides it). Reads and writes no request. @throws `ERR_INVALID_OPTION` if `data` is not a plain object or holds `__proto__`, `constructor` or `prototype`. */
   issue: (data?: Partial<SessionData<T>>, options?: SessionIssueOptions) => Promise<string>;

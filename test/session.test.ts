@@ -773,7 +773,7 @@ describe("unjwt/session decides the token source once per request", () => {
       const manager = await session.use(event);
       expect(manager.id).toBeUndefined();
       expect(manager.data).toEqual({});
-      expect(session.token(event)).toBeUndefined();
+      expect(session.token(event)).toBe("garbage");
       expect(onRead).not.toHaveBeenCalled();
       expect(onError).toHaveBeenCalledOnce();
       expect(headers.getSetCookie()).toEqual([]);
@@ -1447,7 +1447,7 @@ describe("a session read that fails", () => {
       expect(manager.data).toEqual({});
       expect(manager.token).toBeUndefined();
       expect(manager.source).toBe("cookie");
-      expect(session.token(event)).toBeUndefined();
+      expect(session.token(event)).toBe(token);
       expect(onError).toHaveBeenCalledOnce();
       const [{ error }] = onError.mock.calls[0] as [{ error: Error }];
       expect(error).toMatchObject({
@@ -1568,6 +1568,91 @@ describe("a session read that fails", () => {
       expect(onError).toHaveBeenCalledOnce();
       const [{ error }] = onError.mock.calls[0] as [{ error: unknown }];
       expect(isJWTError(error, "ERR_SESSION_READ_FAILED")).toBe(true);
+    },
+  );
+});
+
+describe("the definition's token and the manager's token", () => {
+  const SOURCES = [
+    {
+      source: "cookie",
+      config: {},
+      event: (token?: string) => ({
+        req: get(token ? { cookie: `web=${token}` } : {}),
+        res: { headers: new Headers() },
+      }),
+    },
+    {
+      source: "header",
+      config: { sessionHeader: true },
+      event: (token?: string) => ({
+        req: get(token ? { "x-web-session": token } : {}),
+        res: { headers: new Headers() },
+      }),
+    },
+    { source: "token", config: {}, event: (token?: string) => ({ token }) },
+  ] as const;
+  const cases = FAMILIES.flatMap((family) => SOURCES.map((source) => ({ ...family, ...source })));
+  const failing = () => {
+    throw new Error("vault unreachable");
+  };
+
+  it.each(cases)(
+    "$family, $source: a token that fails its checks is the definition's, not the manager's",
+    async ({ define, config, event: eventOf }) => {
+      const session = define(config);
+      const event = eventOf("garbage");
+
+      const manager = await session.use(event);
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBe("garbage");
+    },
+  );
+
+  it.each(cases)(
+    "$family, $source: a read that fails leaves the definition's token as sent",
+    async ({ define, config, event: eventOf }) => {
+      const session = define({ ...config, hooks: { onKeyLookup: failing } });
+      const token = await define().issue({ user: "ada" });
+      const event = eventOf(token);
+
+      const manager = await session.use(event);
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBe(token);
+    },
+  );
+
+  it.each(cases)(
+    "$family, $source: no token is undefined on both",
+    async ({ define, config, event: eventOf }) => {
+      const session = define(config);
+      const event = eventOf();
+
+      expect(session.token(event)).toBeUndefined();
+      const manager = await session.use(event);
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBeUndefined();
+    },
+  );
+
+  it.each(cases)(
+    "$family, $source: update() sets both to the new token and clear() empties both",
+    async ({ define, config, event: eventOf }) => {
+      const session = define(config);
+      const sent = await session.issue({ user: "ada" });
+      const event = eventOf(sent);
+
+      const manager = await session.use(event);
+      expect(manager.token).toBe(sent);
+      expect(session.token(event)).toBe(sent);
+
+      await manager.update({ user: "grace" });
+      expect(manager.token).not.toBe(sent);
+      expect(session.token(event)).toBe(manager.token);
+
+      await manager.clear();
+      expect(manager.token).toBeUndefined();
+      expect(session.token(event)).toBeUndefined();
     },
   );
 });
