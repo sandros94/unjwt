@@ -43,7 +43,7 @@ import {
 } from "../_internal/headers.ts";
 import { asJWTError, asKeyLookupError, copyJsonObject } from "../_internal/errors.ts";
 import { asKeyUsageError, assertNotStringKey, resolveSigningKey } from "./_internal/keys.ts";
-import { resolveLimit } from "../_internal/limits.ts";
+import { createKeyAttemptBudget, resolveLimit } from "../_internal/limits.ts";
 import type { ResolvedKeyInput } from "../_internal/keys.ts";
 import { resolveKeyInput, stringKeyError } from "../_internal/keys.ts";
 import { resolvePayloadMode, validateClaimsIfJson } from "../_internal/payload.ts";
@@ -61,9 +61,18 @@ import {
 } from "./_internal/multi.ts";
 
 /**
- * Signs a payload with multiple signers as a JWS General JSON Serialization (RFC 7515 §7.2.1).
- * Each signer's `alg` is inferred from its key when omitted (`ERR_JWS_SIGNER_ALG_INFERENCE`);
- * `b64` must match across signers (RFC 7797 §3, `ERR_JWS_B64_INCONSISTENT`).
+ * Signs `payload` once per signer and returns a JWS General JSON Serialization (RFC 7515 §7.2.1).
+ * A signer without `alg` takes it from its JWK or `CryptoKey`.
+ * Signers that set `b64` must agree, and the value applies to every signer (RFC 7797 §3).
+ *
+ * @throws `ERR_JWS_INVALID` if `signers` is empty or not an array.
+ * @throws `ERR_JWS_SIGNER_ALG_INFERENCE` if a signer has no `alg` and its key does not name one.
+ * @throws `ERR_JWS_B64_INCONSISTENT` if two signers set different `b64` values.
+ * @throws `ERR_JWS_HEADER_PARAMS_NOT_DISJOINT` if a signer sets one parameter in both of its headers.
+ * @throws `ERR_JWS_ALG_NOT_ALLOWED` if an `alg` is `"none"` or not a supported signing algorithm.
+ * @throws `ERR_JWK_INVALID` if a key is a string or cannot sign with its `alg`.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, or a time option is set on a string or bytes payload.
+ * @throws `ERR_JWT_CLAIM_INVALID` if both members of a time option pair are set, or `cnf.jwk` is not a public JWK.
  */
 export async function signMulti(
   payload: JOSEPayload,
@@ -146,20 +155,27 @@ export async function signMulti(
 
 /**
  * Verifies a JWS General or Flattened JSON Serialization (RFC 7515 §7.2) and returns the first signature that verifies.
- * Per-signature failures are collected and the last one is thrown when none verifies.
+ * Signatures are tried in order, and a failure scoped to one signature moves on to the next.
+ * Once a signature verifies, a `crit`, payload or claim failure throws at once.
  * The payload type follows `options.payload`, as in `verify`.
+ *
+ * @throws its own error if the only signature fails, as `verify` would.
+ * @throws `ERR_JWS_SIGNATURE_INVALID` if none of several signatures verifies, with one `JWTError` per signature as `cause`, in order.
+ * @throws `ERR_JWS_NO_MATCHING_SIGNER` if `strictSignerMatch` is set and no signature fits the key.
+ * @throws `ERR_JWS_INVALID_SERIALIZATION` if the object is not a General or Flattened JWS.
+ * @throws `ERR_JWS_INVALID` if the signatures exceed `limits.signatures`, or the verified signature fails `crit` or payload decoding.
+ * @throws `ERR_JWK_KEY_NOT_FOUND` if the key trials exceed `limits.keyAttempts`.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, or a claim option is set where claims are not validated.
+ * @throws `ERR_JWT_EXPIRED` if `exp` has passed or the token is older than `maxTokenAge`.
+ * @throws `ERR_JWT_NBF` if `nbf` is in the future.
+ * @throws `ERR_JWT_CLAIM_INVALID` if a claim does not match its option or has the wrong type.
+ * @throws `ERR_JWT_CLAIM_MISSING` if a claim in `requiredClaims` or one an option checks is absent.
  */
 export async function verifyMulti<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
-  options?: JWSMultiVerifyOptions<"json"> & { forceUint8Array?: false },
+  options?: JWSMultiVerifyOptions<"json">,
 ): Promise<JWSMultiVerifyResult<T>>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function verifyMulti(
-  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
-  options: JWSMultiVerifyOptions & { forceUint8Array: true },
-): Promise<JWSMultiVerifyResult<Uint8Array<ArrayBuffer>>>;
 export async function verifyMulti<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyOrLookup: CryptoKey | JWKSet | JWSVerifyJWK | Uint8Array<ArrayBuffer> | JWSKeyLookup,
@@ -174,15 +190,16 @@ export async function verifyMulti(
   const payloadMode = resolvePayloadMode(options);
   const signatureLimit = resolveLimit(options.limits, "signatures");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
+  const keyAttempts = createKeyAttemptBudget(resolveLimit(options.limits, "keyAttempts"));
 
   const general = _readGeneralSerialization(jws, signatureLimit);
 
-  let lastError: JWTError | undefined;
+  const failures: JWTError[] = [];
   let cryptoAttempted = false;
   for (let i = 0; i < general.signatures.length; i++) {
     const read = _readSignatureHeaders(general.signatures[i], i);
     if (read.error) {
-      lastError = read.error;
+      failures.push(read.error);
       continue;
     }
     const { wireSig, protectedHeader, unprotectedHeader, effective, alg } = read;
@@ -192,7 +209,7 @@ export async function verifyMulti(
       label: `signature[${i}]`,
     });
     if (typError) {
-      lastError = typError;
+      failures.push(typError);
       continue;
     }
 
@@ -204,22 +221,21 @@ export async function verifyMulti(
         what: `signature[${i}]`,
       });
     } catch (err) {
-      lastError = asKeyLookupError(err, `signature[${i}]`);
+      failures.push(asKeyLookupError(err, `signature[${i}]`));
       continue;
     }
 
     if (typeof rawKeyMaterial === "string") {
-      lastError = stringKeyError();
+      failures.push(stringKeyError());
       continue;
     }
 
     const algError = checkAlgAllowed(alg, rawKeyMaterial, {
       ctx: JWS_ALG_CTX,
       algorithms: options.algorithms,
-      allowSymmetric: options.allowSymmetricJWKSet,
     });
     if (algError) {
-      lastError = algError;
+      failures.push(algError);
       continue;
     }
 
@@ -227,9 +243,14 @@ export async function verifyMulti(
       options.strictSignerMatch &&
       !keyMatchesHeader(effective, rawKeyMaterial, {
         ctx: JWS_ALG_CTX,
-        allowSymmetric: options.allowSymmetricJWKSet,
       })
     ) {
+      failures.push(
+        new JWTError(
+          `JWS signature[${i}] does not match the key under strictSignerMatch.`,
+          "ERR_JWS_NO_MATCHING_SIGNER",
+        ),
+      );
       continue;
     }
 
@@ -237,7 +258,7 @@ export async function verifyMulti(
     try {
       signatureBytes = decodeSegment(wireSig.signature, { family: "JWS", what: "Signature" });
     } catch (err) {
-      lastError = asJWTError(err, INVALID_JWS);
+      failures.push(asJWTError(err, INVALID_JWS));
       continue;
     }
     const signingInputBytes = textEncoder.encode(`${wireSig.protected ?? ""}.${general.payload}`);
@@ -248,11 +269,13 @@ export async function verifyMulti(
         signature: signatureBytes,
         signingInput: signingInputBytes,
         kid: effective.kid,
-        allowSymmetric: options.allowSymmetricJWKSet,
         keyCandidates,
+        keyAttempts,
       });
       if (!verified) {
-        lastError = new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID");
+        failures.push(
+          new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID"),
+        );
         continue;
       }
 
@@ -271,9 +294,10 @@ export async function verifyMulti(
       if (unprotectedHeader) result.signerHeader = unprotectedHeader;
       return result;
     } catch (err) {
+      if (keyAttempts.exhausted) throw keyAttempts.exhausted;
       const error = asJWTError(err, INVALID_SIGNATURE);
       if (!PER_SIGNATURE_ERROR_CODES.has(error.code)) throw error;
-      lastError = error;
+      failures.push(error);
     }
   }
 
@@ -283,14 +307,19 @@ export async function verifyMulti(
       "ERR_JWS_NO_MATCHING_SIGNER",
     );
   }
-  throw (
-    lastError ?? new JWTError("JWS signature verification failed.", "ERR_JWS_SIGNATURE_INVALID")
-  );
+  if (failures.length === 1) throw failures[0];
+  throw new JWTError(INVALID_SIGNATURE.message, INVALID_SIGNATURE.code, failures);
 }
 
 /**
- * Verifies every signature independently and returns one outcome per signature; only
- * a malformed envelope throws (`ERR_JWS_INVALID_SERIALIZATION`). The payload type follows `options.payload`.
+ * Verifies every signature on its own and returns one outcome per signature, in signature order.
+ * A failed signature is an outcome with `verified: false` and its `error`.
+ * The payload type follows `options.payload`.
+ *
+ * @throws `ERR_JWS_INVALID_SERIALIZATION` if the object is not a General or Flattened JWS.
+ * @throws `ERR_JWS_INVALID` if the signatures exceed `limits.signatures`.
+ * @throws `ERR_JWK_KEY_NOT_FOUND` if the key trials exceed `limits.keyAttempts`.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, or a claim option is set where claims are not validated.
  *
  * @example
  * const outcomes = await verifyMultiAll(jws, (header) => jwkSet);
@@ -299,14 +328,8 @@ export async function verifyMulti(
 export async function verifyMultiAll<T extends object = JWTClaims>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyResolver: JWSKeyLookup,
-  options?: JWSMultiVerifyAllOptions<"json"> & { forceUint8Array?: false },
+  options?: JWSMultiVerifyAllOptions<"json">,
 ): Promise<JWSMultiVerifyOutcome<T>[]>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function verifyMultiAll(
-  jws: JWSGeneralSerialization | JWSFlattenedSerialization,
-  keyResolver: JWSKeyLookup,
-  options: JWSMultiVerifyAllOptions & { forceUint8Array: true },
-): Promise<JWSMultiVerifyOutcome<Uint8Array<ArrayBuffer>>[]>;
 export async function verifyMultiAll<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jws: JWSGeneralSerialization | JWSFlattenedSerialization,
   keyResolver: JWSKeyLookup,
@@ -321,6 +344,7 @@ export async function verifyMultiAll(
   const payloadMode = resolvePayloadMode(options);
   const signatureLimit = resolveLimit(options.limits, "signatures");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
+  const keyAttempts = createKeyAttemptBudget(resolveLimit(options.limits, "keyAttempts"));
 
   const general = _readGeneralSerialization(jws, signatureLimit);
 
@@ -331,13 +355,18 @@ export async function verifyMultiAll(
         options,
         payloadMode,
         keyCandidates,
+        keyAttempts,
       }),
     );
   }
   return outcomes;
 }
 
-/** Converts a single-signature General JWS to Flattened form (RFC 7515 §7.2.2); otherwise `ERR_JWS_INVALID_SERIALIZATION`. */
+/**
+ * Converts a General JWS with exactly one signature to the Flattened form (RFC 7515 §7.2.2).
+ *
+ * @throws `ERR_JWS_INVALID_SERIALIZATION` if the input has no `signatures` array, or not exactly one signature.
+ */
 export function generalToFlattenedJWS(jws: JWSGeneralSerialization): JWSFlattenedSerialization {
   assertSerializationObject(jws, "JWS");
   if (!Array.isArray(jws.signatures)) {

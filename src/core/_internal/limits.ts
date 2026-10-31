@@ -3,23 +3,24 @@ import { JWTError } from "../../error.ts";
 import { quoteTokenValue } from "../../utils/_internal/text.ts";
 import { DEFAULT_PBES2_ITERATIONS } from "../_crypto/index.ts";
 
-/** RFC 7518 §4.6.1.2 / §4.6.1.3 — size bound on `apu` / `apv`. */
+/** RFC 7518 §4.6.1.2 and §4.6.1.3: the maximum size of `apu` and `apv`, in bytes. */
 export const MAX_PARTY_INFO_BYTES = 1024;
 
 export { DEFAULT_PBES2_ITERATIONS };
 
 /**
- * Default per-call work limits: 16 signatures, 16 recipients, 8 JWK Set candidates,
- * and PBKDF2 iterations for four default-cost PBES2 attempts in total.
+ * Default per-call work limits: 16 signatures, 16 recipients, 8 JWK Set candidates and
+ * 16 key attempts per multi call. The PBKDF2 iteration budget equals four default-cost PBES2 attempts.
  */
 export const DEFAULT_JOSE_LIMITS: Readonly<Required<JOSELimits>> = /* @__PURE__ */ Object.freeze({
   signatures: 16,
   recipients: 16,
   keyCandidates: 8,
+  keyAttempts: 16,
   pbes2Iterations: 4 * DEFAULT_PBES2_ITERATIONS,
 });
 
-/** Read one limit or its default; a malformed value is `ERR_INVALID_OPTION`. */
+/** Returns one limit or its default. A value that is not a positive integer is `ERR_INVALID_OPTION`. */
 export function resolveLimit(limits: JOSELimits | undefined, name: keyof JOSELimits): number {
   const value = limits?.[name];
   if (value === undefined) return DEFAULT_JOSE_LIMITS[name];
@@ -29,7 +30,7 @@ export function resolveLimit(limits: JOSELimits | undefined, name: keyof JOSELim
   return value;
 }
 
-/** RFC 7515 §7.2.1 / RFC 7516 §7.2.1 — bound the signatures / recipients count. */
+/** RFC 7515 §7.2.1 and RFC 7516 §7.2.1: a signature or recipient count above `limit` is `ERR_JWS_INVALID` or `ERR_JWE_INVALID`. */
 export function assertEntryLimit(
   count: number,
   limit: number,
@@ -42,6 +43,7 @@ export function assertEntryLimit(
   );
 }
 
+/** A candidate key count above `limit` is `ERR_JWK_KEY_NOT_FOUND`. */
 export function assertCandidateLimit(count: number, limit: number): void {
   if (count <= limit) return;
   throw new JWTError(
@@ -50,7 +52,36 @@ export function assertCandidateLimit(count: number, limit: number): void {
   );
 }
 
-/** Refuse an empty or over-limit JWK Set candidate list with `ERR_JWK_KEY_NOT_FOUND`. */
+/** The key trials one multi-signature or multi-recipient call has left. */
+export interface KeyAttemptBudget {
+  /** Counts one key trial. Past the limit it throws `ERR_JWK_KEY_NOT_FOUND` and stores the error on `exhausted`. */
+  spend(): void;
+  /** The error once the budget is spent. The call rethrows it instead of trying the next entry. */
+  readonly exhausted: JWTError | undefined;
+}
+
+export function createKeyAttemptBudget(limit: number): KeyAttemptBudget {
+  let remaining = limit;
+  let exhausted: JWTError | undefined;
+  return {
+    get exhausted() {
+      return exhausted;
+    },
+    spend() {
+      if (remaining > 0) {
+        remaining--;
+        return;
+      }
+      exhausted ??= new JWTError(
+        `Key attempt budget of ${limit} ("limits.keyAttempts") exhausted, narrow the keys with a "kid".`,
+        "ERR_JWK_KEY_NOT_FOUND",
+      );
+      throw exhausted;
+    },
+  };
+}
+
+/** Refuses an empty or over-limit JWK Set candidate list with `ERR_JWK_KEY_NOT_FOUND`. */
 export function assertJWKSetCandidates(
   candidates: readonly unknown[],
   options: { limit: number; kid: unknown },

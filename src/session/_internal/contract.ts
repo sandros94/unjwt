@@ -5,7 +5,7 @@ import { isJWK, isPlainObject } from "../../utils/guards.ts";
 import { quoteTokenValue } from "../../utils/_internal/text.ts";
 import type { ExpiresIn, JWKAlgorithm } from "../../core/types/index.ts";
 
-/** Adapter-owned claims: minted on every issue, stripped from `update()` payloads and `session.data`. */
+/** Claims the session sets on every issue, stripped from `update()` data and from `session.data`. */
 export const RESERVED_CLAIMS: readonly string[] = ["jti", "iat", "exp", "nbf"];
 
 const SESSION_TYP = "session+jwt";
@@ -39,7 +39,7 @@ export function readOnlyEventError(message: string): JWTError<"ERR_SESSION_READO
   return new JWTError(message, "ERR_SESSION_READONLY_EVENT");
 }
 
-/** Shaped like the core claim failure so `onExpire` gets the same error on both expiry paths. */
+/** The `ERR_JWT_EXPIRED` the core claim check throws, with `{ jti, iat, exp }` as `cause`, for both expiry checks. */
 export function expiredSessionError(options: {
   id: string | undefined;
   createdAt?: number;
@@ -51,14 +51,23 @@ export function expiredSessionError(options: {
   return new JWTError(expiredClaimMessage(exp), "ERR_JWT_EXPIRED", { jti: id, iat, exp });
 }
 
-/** Whether a read failure is the token's own: everything but a key lookup that threw, which says nothing about the token. */
-export function isTokenFailure(error: JWTError<"ERR_SESSION_TOKEN_INVALID">): boolean {
-  return !(isJWTError(error.cause, "ERR_JWK_KEY_NOT_FOUND") && error.cause.cause !== undefined);
+/** A token that could not be read, with what the key lookup hook threw, or why a key it returned cannot be used, as `cause`. It says nothing about the token. */
+export function readFailedError(
+  cause: unknown,
+  options: { prefix: string },
+): JWTError<"ERR_SESSION_READ_FAILED"> {
+  return new JWTError(
+    `${options.prefix} Session could not be read: ${messageOf(cause)}`,
+    "ERR_SESSION_READ_FAILED",
+    cause,
+  );
 }
 
-/** Passes `ERR_JWT_EXPIRED` through; anything else becomes `ERR_SESSION_TOKEN_INVALID`. */
+/** Passes `ERR_JWT_EXPIRED` and `ERR_SESSION_READ_FAILED` through. Any other error becomes `ERR_SESSION_TOKEN_INVALID`. */
 export function rethrowAsInvalidToken(error: unknown, options: { prefix: string }): never {
-  if (isJWTError(error, "ERR_JWT_EXPIRED")) throw error;
+  if (isJWTError(error, "ERR_JWT_EXPIRED") || isJWTError(error, "ERR_SESSION_READ_FAILED")) {
+    throw error;
+  }
   throw invalidTokenError(`${options.prefix} Invalid session token: ${messageOf(error)}`, error);
 }
 
@@ -86,7 +95,7 @@ export function isToken(value: unknown): value is string {
   return typeof value === "string" && TOKEN.test(value);
 }
 
-/** A `__Host-` cookie must be Secure, carry `Path=/` and no `Domain`; a `__Secure-` cookie must be Secure (RFC 6265bis §4.1.3). */
+/** A `__Host-` cookie must be Secure, with `Path=/` and no `Domain`. A `__Secure-` cookie must be Secure (RFC 6265bis §4.1.3). */
 export function assertCookiePrefix(
   name: string,
   attrs: { secure?: unknown; domain?: unknown; path?: unknown },
@@ -106,7 +115,7 @@ export function assertCookiePrefix(
   }
 }
 
-/** `rolling` extends a session's `exp` on read, so it needs a `maxAge`: `true`, or the age a token must reach first, shorter than `maxAge`. */
+/** `rolling` requires a `maxAge`, and is `true` or a duration shorter than `maxAge`. */
 export function assertRolling(
   config: { rolling?: unknown; maxAge?: ExpiresIn },
   options: { prefix: string },
@@ -140,8 +149,8 @@ export function assertKeyMaterial(key: unknown, options: { prefix: string }): vo
 }
 
 /**
- * Imports a configured JWK up front, so unusable key material throws `ERR_SESSION_KEY_INVALID`.
- * A successful import is remembered per JWK object and `alg`; a failed one is retried.
+ * Imports a configured JWK before first use, so unusable key material throws `ERR_SESSION_KEY_INVALID`.
+ * A successful import is remembered per JWK object and `alg`. A failed one is retried.
  */
 export async function assertImportableKey(
   key: unknown,
@@ -194,7 +203,7 @@ export function sessionRequiredClaims(
   return [...required];
 }
 
-/** Strips adapter-owned claims and rejects prototype-polluting keys. */
+/** Strips the claims the session sets, and refuses a `__proto__`, `constructor` or `prototype` key with `ERR_INVALID_OPTION`. */
 export function sanitizeSessionUpdate(
   update: object,
   options: { prefix: string },

@@ -64,7 +64,7 @@ const app = new Elysia()
   .get("/me", ({ session }) => session.data);
 ```
 
-`ctx.session` is typed (the plugin's scoped `resolve` populates it per request). Cookie defaults match the rest of the library: JWE `httpOnly: true`, JWS `httpOnly: false`, both `secure: true`, `path: "/"`, `sameSite: "lax"`.
+`ctx.session` is typed (the plugin's scoped `resolve` populates it per request). Cookie defaults match the rest of the library: `httpOnly: true` (JWS opts out with `cookie: { httpOnly: false }` when page scripts must read the payload), `secure: true`, `path: "/"`, `sameSite: "lax"`.
 
 ## Guard macro
 
@@ -89,7 +89,7 @@ const app = new Elysia()
 ```
 
 - `contextKey` (default `"session"`) — the context property the session is exposed under.
-- `name` (default `"elysia-jws"` / `"elysia-jwe"`) — the cookie name and the default `x-<name>-session` header.
+- `name` (default `"__Host-elysia-jws"` / `"__Host-elysia-jwe"`) — the cookie name and the default `x-<name>-session` header.
 - Guard names follow `contextKey`: `requireAccess`, `requireRefresh`, etc.
 
 With defaults, two plugins would both expose `ctx.session` (later wins) — always set distinct `contextKey` + `name` when combining. Each plugin's Elysia identity is seeded from `name` and `contextKey`, so two differently-named sessions register side by side instead of deduplicating.
@@ -100,7 +100,7 @@ Elysia serializes cookies when it builds the response, and its lifecycle context
 
 ## SessionManager Interface
 
-Same shape as the H3 adapters:
+Same shape as `unjwt/session`:
 
 ```ts
 interface SessionManager<
@@ -144,16 +144,16 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
       };
   maxAge?: MaxAge;
   rolling?: true | ExpiresIn;
-  name?: string; // default "elysia-jws"
+  name?: string; // default "__Host-elysia-jws"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
-  sessionHeader?: boolean | string; // true = x-<name>-session (name without __Host-/__Secure-); "Bearer " stripped (case-insensitive)
+  sessionHeader?: boolean | string; // true = x-<name>-session (name without __Host-/__Secure-), read before the cookie; unset or false = no header
   generateId?: () => string;
   jws?: {
     // JWSSignOptions minus expiresIn / expiresAt / notBeforeIn / notBeforeAt;
     // `protectedHeader.typ` sets the session `typ` (default "session+jwt") incoming tokens must carry
     signOptions?: SessionSignOptions;
-    /** JWSVerifyOptions the adapter does not own (`limits`, `allowSymmetricJWKSet`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
+    /** JWSVerifyOptions the adapter does not own (`limits`, claim checks) — not algorithms, typ, maxTokenAge, validateClaims, payload. */
     verifyOptions?: SessionVerifyOptions;
   };
   hooks?: SessionHooksJWS<T, MaxAge, TContext>;
@@ -165,14 +165,14 @@ interface SessionConfigJWS<T, MaxAge, TContext> {
 ```ts
 interface SessionConfigJWE<T, MaxAge, TContext> {
   key:
-    | CryptoKey // requires jwe.encryptOptions.alg + enc
-    | JWEEncryptJWK // an `oct` JWK: the one key seals and opens
-    // a pair seals with its public half: any holder of the public key mints sessions
-    | { privateKey: JWEAsymmetricPrivateJWK; publicKey?: JWEAsymmetricPublicJWK | CryptoKey } // public half derived when absent
-    | { privateKey: CryptoKey; publicKey: JWEAsymmetricPublicJWK | CryptoKey };
+    | CryptoKey // a secret key; requires jwe.encryptOptions.alg + enc
+    | JWK_oct // an `oct` JWK: the one key seals and opens
+    // rotation: `current` seals (its `kid` in the header) and opens, `keys` open too, by `kid`
+    | { current: JWK_oct | CryptoKey; keys: JWK_oct[] | JWKSet };
+  // asymmetric keys throw ERR_SESSION_KEY_INVALID: a pair seals with its public half, so any holder of it mints sessions
   maxAge?: MaxAge;
   rolling?: true | ExpiresIn;
-  name?: string; // default "elysia-jwe"
+  name?: string; // default "__Host-elysia-jwe"
   contextKey?: string; // default "session"
   cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
   sessionHeader?: boolean | string;
@@ -198,22 +198,22 @@ interface SessionConfigJWE<T, MaxAge, TContext> {
 
 ## Keys, token source and errors
 
-- **Key material only.** `key` is a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`. A JWE session takes a symmetric `oct` JWK (or symmetric `CryptoKey`): one key seals and opens. It also takes a pair, or a private JWK alone as `{ privateKey }` sealing with its own public half (a private `CryptoKey` needs its `publicKey`); warning: a pair seals with its public half, so anyone who holds the public key can mint a session the server accepts — use an `oct` JWK, or `defineJWSSession` for a key pair. A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with `deriveJWKFromPassword()`. A `CryptoKey` needs `jws.signOptions.alg` (or `jwe.encryptOptions.alg` + `enc`), else `ERR_SESSION_CONFIG_INVALID`. A configured JWK is imported when the session is created: one it cannot use (undecodable `k`, wrong AES key length) throws `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`. A pair half that is not the half it is named after — for a JWS `publicKey` list or set, any entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
-- **Token source.** The session header is read first: a request that carries it is read from it alone, and the cookie only when the header is absent. The header carries the bare token or `Bearer <token>`; any other value — blank, another scheme such as `Basic …`, a `Bearer` with no token — is a token failure: `ERR_SESSION_TOKEN_INVALID` to `onError`, empty session, the cookie neither read nor dropped. A session read from the header never writes a cookie: `update()` and `rolling` re-mint onto `session.token`, `clear()` empties the session, no `Set-Cookie` (the session cookie included); it updates without a response too. Left unset, a cookie session still reads `x-<name>-session`, and so does a `cookie: false` one. A `sessionHeader` that is not a header name throws `ERR_SESSION_CONFIG_INVALID` on first use. `cookie: false` + `sessionHeader: false` is a token-only session: `use`/`token` throw `ERR_SESSION_CONFIG_INVALID`, `issue`/`open` work.
+- **Key material only.** `key` is a JWK, a `{ privateKey, publicKey }` pair, or a `CryptoKey`. A JWE session takes a symmetric `oct` JWK (or secret `CryptoKey`): one key seals and opens. To rotate, pass `{ current, keys }`: `current` (an `oct` JWK or secret `CryptoKey`) seals, its `kid` in the header, and opens; `keys` (a list or JWK Set of `oct` JWKs, `current` need not be repeated) open too, picked by the token's `kid` (with a `CryptoKey` `current`, a token whose `kid` names none of them opens with `current`); a token under any other key is a token failure. An asymmetric key — a `{ privateKey, publicKey? }` pair, a private or public JWK, a non-secret `CryptoKey` — throws `ERR_SESSION_KEY_INVALID` when the session is defined: a pair seals with its public half, so anyone who holds it could mint a session the server accepts — use an `oct` JWK, or `defineJWSSession` for a key pair. A password string throws `ERR_SESSION_KEY_INVALID` — derive a JWK once with `deriveJWKFromPassword()`. A `CryptoKey` needs `jws.signOptions.alg` (or `jwe.encryptOptions.alg` + `enc`), else `ERR_SESSION_CONFIG_INVALID`. A configured JWK is imported by the first `use()`, `issue()` or `open()`: one it cannot use (undecodable `k`, wrong AES key length) throws `ERR_SESSION_KEY_INVALID` (import failure as `cause`) instead of reaching `onError`. A pair half that is not the half it is named after — for a JWS `publicKey` list or set, any entry that is not a public JWK — throws `ERR_SESSION_KEY_INVALID` naming `"privateKey"` or `"publicKey"`. A `protectedHeader.kid` in the issue options wins over the key's own `kid`.
+- **Token source.** The session header is read first: a request that carries it is read from it alone, and the cookie only when the header is absent. The header carries the bare token or `Bearer <token>`; any other value — blank, another scheme such as `Basic …`, a `Bearer` with no token — is a token failure: `ERR_SESSION_TOKEN_INVALID` to `onError`, empty session, the cookie neither read nor dropped. A session read from the header never writes a cookie: `update()` and `rolling` re-mint onto `session.token`, `clear()` empties the session, no `Set-Cookie` (the session cookie included); it updates without a response too. Left unset, a session reads its cookie alone; `cookie: false` without a `sessionHeader` throws `ERR_SESSION_CONFIG_INVALID` from `use()` and `token()`. A `sessionHeader` that is not a header name throws `ERR_SESSION_CONFIG_INVALID` when the session is defined. `cookie: false` + `sessionHeader: false` is a token-only session: `use`/`token` throw `ERR_SESSION_CONFIG_INVALID`, `issue`/`open` work.
 - **Cookie lifetime.** A session with a lifetime sets the cookie's `expires` to the token's `exp` and drops a configured `cookie.maxAge` (`Max-Age` beats `Expires`, RFC 6265 §5.3); without one, `cookie.expires` / `cookie.maxAge` are written as configured. `clear()` and an expired read write `Max-Age=0` plus an epoch `Expires` on the cookie and every chunk. `session.token` and `definition.token(context)` read the session state once `use()` read or wrote it, empty after `clear()`; before that `definition.token(context)` reads the request without opening the token.
-- **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a cookie that shadows the session (the adapter reads the first cookie of a name); the defaults satisfy the prefix, and a `__Host-` name with `domain`, a `path` other than `/` or `secure: false` (or a `__Secure-` name with `secure: false`) throws `ERR_SESSION_CONFIG_INVALID` when the session is opened. The default session header drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another session and throws `ERR_SESSION_CONFIG_INVALID`.
+- **Names.** Prefer a `__Host-` name (`"__Host-session"`) so no sibling subdomain can plant a cookie that shadows the session (the adapter reads the first cookie of a name); the defaults satisfy the prefix, and a `__Host-` name with `domain`, a `path` other than `/` or `secure: false` (or a `__Secure-` name with `secure: false`) throws `ERR_SESSION_CONFIG_INVALID` when the session is defined. The default session header drops a `__Host-` / `__Secure-` prefix: `"__Host-session"` reads `x-session-session`. A name ending in a dot and digits (`app.1`) spells a chunk cookie of another session and throws `ERR_SESSION_CONFIG_INVALID`.
 - **Foreign tokens.** A token is only a session when it carries the session `typ` (default `"session+jwt"`, set through `protectedHeader.typ`, compared as a media type; RFC 8725 §3.11). No `cty` is written or required. With `maxAge` set it must also carry `exp`, and it expires at `exp` or `iat + maxAge`, whichever is sooner (`expiresAt` holds that instant), so a token issued with a longer `update(data, { maxAge })`, or minted elsewhere with a far `exp`, still ends at the reading config's `maxAge`. A foreign token is `ERR_SESSION_TOKEN_INVALID` → `onError` even when expired; only a session token's expiry reaches `onExpire`.
 - **Update data** must be a plain object; a string, an array or a `__proto__`-like key throws `ERR_INVALID_OPTION`.
-- **Chunking.** The base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks; the same layout as both H3 adapters, so cookies are interchangeable. Cleanup of a previous set is bounded by the same limit.
-- **Errors.** Every adapter error is a `JWTError`: `ERR_SESSION_TOKEN_INVALID` (with the original failure as `cause`), `ERR_SESSION_KEY_INVALID`, `ERR_SESSION_CONFIG_INVALID`, `ERR_INVALID_OPTION`. `ERR_SESSION_READONLY_EVENT` never comes from Elysia: its cookie jar always takes a write and it exposes no response-sent signal.
+- **Chunking.** The base cookie holds `__chunked__<count>` and the parts follow as `<name>.1` … `<name>.<count>`, up to 16 chunks; the same layout as `unjwt/session`, so cookies are interchangeable. Cleanup of a previous set is bounded by the same limit.
+- **Errors.** Every adapter error is a `JWTError`: `ERR_SESSION_TOKEN_INVALID` (with the original failure as `cause`), `ERR_SESSION_KEY_INVALID`, `ERR_SESSION_CONFIG_INVALID`, `ERR_INVALID_OPTION`. `ERR_SESSION_READONLY_EVENT` never comes from Elysia: its cookie jar always takes a write and it exposes no response-sent signal. `defineJWSSession`/`defineJWESession` and the plugin factories throw for what the config alone decides (`name`, `sessionHeader`, cookie prefix, `rolling`, the `key`'s shape, an unpinned `CryptoKey`); key import, the token source and the cookie jar are checked by the call that needs them.
 
 ## Lifecycle Hooks
 
-`config.hooks` — same set as H3: `onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`, plus `onVerifyKeyLookup` (JWS) / `onUnsealKeyLookup` (JWE) for key rotation. The two lookups receive `context` only when the token came through `use()` (typed `context?: SessionContext`); `open()` passes none. A throw from a lookup fails the token: `onError` (`ERR_SESSION_TOKEN_INVALID`) on `use()`, a throw from `open()`.
+`config.hooks` — same set as `unjwt/session`: `onRead`, `onUpdate`, `onClear`, `onExpire`, `onError`, plus `onVerifyKeyLookup` (JWS) / `onUnsealKeyLookup` (JWE) for key rotation. The two lookups receive `context` only when the token came through `use()` (typed `context?: SessionContext`); `open()` passes none. A throw from a lookup fails the token: `onError` (`ERR_SESSION_TOKEN_INVALID`) on `use()`, a throw from `open()`.
 
 > These are unjwt **session hooks** (`config.hooks.*`), unrelated to Elysia's request **lifecycle hooks** (`onRequest`, `beforeHandle`, …).
 
-Each hook receives `{ session, context, config }` — `context` is the Elysia context (not an H3 `event`). Guarantees (the same as on H3):
+Each hook receives `{ session, context, config }` — `context` is the Elysia context (not an `event`). Guarantees (the same as on `unjwt/session`):
 
 - `onRead` / `onExpire` / `onError` are mutually exclusive per incoming token. `onRead` fires once per request, when the session is read from its token; later reads in the request are silent.
 - `session` in `onRead`, `onUpdate` and `onError` is the manager (`update()`, `clear()`); `oldSession` is a snapshot. `onUpdate` carries `trigger: "update" | "rolling"`.
@@ -267,6 +267,6 @@ const { id, data, expiresAt } = await magicLink.open(token);
 ## Notes / gotchas
 
 - `jwsSession`/`jweSession` (and `plugin()`) return an explicitly-typed Elysia plugin (`SessionPlugin<Resolved, GuardName>` in `src/adapters/elysia/_internal/plugin.ts`) so the package satisfies `isolatedDeclarations`; the factory body is cast `as unknown as SessionPlugin<…>` because Elysia's `.macro()` expects literal keys while the guard key is computed.
-- The session lifecycle is the shared core in `src/session/_internal/core.ts`, over the JWS/JWE codec and the Elysia driver in `src/adapters/elysia/_internal/shared.ts` (reactive-jar cookie writes, token reading), so hooks, error codes and claim handling match the h3 adapters exactly.
+- The session lifecycle is the shared core in `src/session/_internal/core.ts`, over the JWS/JWE codec and the Elysia driver in `src/adapters/elysia/_internal/shared.ts` (reactive-jar cookie writes, token reading), so hooks, error codes and claim handling match `unjwt/session` exactly.
 - Build: the adapter is an input of the single multi-input bundle (shared core in `dist/_chunks/`, `elysia` external, `unsecure` inlined) — no core duplication.
 - Testable in vitest+Node via `app.handle(new Request(...))`; no Bun required.

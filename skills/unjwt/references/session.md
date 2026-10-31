@@ -48,7 +48,7 @@ function defineJWSSession<
 // defineJWESession: same two signatures over SessionConfigJWE
 ```
 
-`TEvent` is inferred from the driver; without `{ driver }` it is `WebSessionEvent`, or the third generic when given (`defineJWESession<Data, MaxAge, H3Event>(config)`: `use()` then takes that event only). Hooks receive `{ event: TEvent }` whatever the driver: the entry names the hook argument, not the driver. `onVerifyKeyLookup` / `onUnsealKeyLookup` get `event` only from `use()` (typed `event?: TEvent`); `open()` passes none and resolves to `{ id, createdAt, expiresAt, data }`. Default `name`: `"unjwt-jws"` / `"unjwt-jwe"`. `cookie` takes `CookieAttributes & { chunkMaxLength? }`. Error messages start with `[unjwt/session]` (a custom driver's `prefix` otherwise).
+`TEvent` is inferred from the driver; without `{ driver }` it is `WebSessionEvent`, or the third generic when given (`defineJWESession<Data, MaxAge, H3Event>(config)`: `use()` then takes that event only). Hooks receive `{ event: TEvent }` whatever the driver: the entry names the hook argument, not the driver. `onVerifyKeyLookup` / `onUnsealKeyLookup` get `event` only from `use()` (typed `event?: TEvent`); `open()` passes none and resolves to `{ id, createdAt, expiresAt, data }`. Default `name`: `"__Host-unjwt-jws"` / `"__Host-unjwt-jwe"` (session header `x-unjwt-jws-session` / `x-unjwt-jwe-session`). `cookie` takes `CookieAttributes & { chunkMaxLength? }`. Error messages start with `[unjwt/session]` (a custom driver's `prefix` otherwise).
 
 ## A request event: `{ req, res, context? }`
 
@@ -67,7 +67,7 @@ export default {
 };
 ```
 
-- Reads the session header when `req.headers` carries it, else the `Cookie` (parsed once per `use()`). A header-read session never writes `Set-Cookie`: `update()`/`rolling` re-mint onto `session.token`, `clear()` empties state.
+- Reads the session header when `sessionHeader` enables it (`true` or a name; left unset or `false`, no header is read, so `cookie: false` then has no token source) and `req.headers` carries it, else the `Cookie` (parsed once per `use()`). A header-read session never writes `Set-Cookie`: `update()`/`rolling` re-mint onto `session.token`, `clear()` empties state.
 - Writes `Set-Cookie` onto `res.headers`, replacing an earlier line of the same name, domain and path (and partition); unrelated lines stay. A second `update()` in one request leaves one line per cookie; `clear()` leaves the `Max-Age=0` line.
 - `res.errHeaders` present (h3 v2): every write and drop also replaces that cookie's lines there, other lines kept, so a handler that throws after `update()`/`clear()` still sends the cookie.
 - Hono: pass `c.req.raw` as `req` and return `new Response(body, { headers })`.
@@ -155,7 +155,7 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 - `state(event)` must return an object unique to the request (`event.locals`, `event.context`, a `WeakMap` keyed by the request). A module-level or shared object leaks sessions across requests.
 - `write` must replace, not append: a re-issue in the same request writes the same names again.
 - Writes arrive one cookie at a time: base cookie, chunks `name.1…N`, `Max-Age=0` for surplus.
-- Shipped drivers: h3 (state on `event.context.sessions`, `writable` from Node `headersSent`, v2 stages cookies in `res.errHeaders`), Elysia (state keyed by `Request`, reactive jar, no `written`), `unjwt/session` (state on `event.context.sessions`, else keyed by `req`, the object passed or the `{ token }` object; mirrors writes into `res.errHeaders` when present; `handed`).
+- Shipped drivers: Elysia (state keyed by `Request`, reactive jar, no `written`), `unjwt/session` (state on `event.context.sessions`, else keyed by `req`, the object passed or the `{ token }` object; mirrors writes into `res.errHeaders` when present; `handed`).
 
 ## Frameworks
 
@@ -167,9 +167,11 @@ export const appSession = defineJWESession({ key, maxAge: "7D" }, { driver: svel
 
 | Code | When |
 | --- | --- |
-| `ERR_SESSION_KEY_INVALID` | `key` missing, a password string, wrong shape, or not importable. |
+| `ERR_SESSION_KEY_INVALID` | `key` missing, a password string, wrong shape, its `alg` contradicting a pinned `signOptions.alg` / `encryptOptions.alg`, or not importable. |
 | `ERR_SESSION_CONFIG_INVALID` | Bad `name`/`sessionHeader`, `__Host-`/`__Secure-` violation, an event whose `req` is not a web `Request` (Nuxt handler not from `nuxt/server`), `use(event)` with no token source, unpinned `CryptoKey`, over 16 chunks, JWS + JWE under one `name`. |
 | `ERR_SESSION_READONLY_EVENT` | `update()` on a cookie session opened without a `res`; `update()`/`clear()` once a driver's `writable()` is `false`. |
 | `ERR_INVALID_OPTION` | `update()` data not a plain object, or a `__proto__`-like key. |
+
+`defineJWSSession()`/`defineJWESession()` throw for what the config alone decides: `name`, `sessionHeader`, `__Host-`/`__Secure-` cookie options, `rolling` (`ERR_INVALID_OPTION` when neither `true` nor a duration), a `key` missing, a string or of the wrong shape (a JWE key asymmetric), an unpinned `CryptoKey`. Key import, the token source and the event throw from the call that needs them: `use()`, `token()`, `issue()`, `open()`.
 
 An unreadable incoming token goes to `onError` as `ERR_SESSION_TOKEN_INVALID` and its cookie is dropped (kept only when a key lookup hook threw); an expired one, cookie dropped too, to `onExpire`. Neither throws from `use()`.

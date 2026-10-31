@@ -6,13 +6,14 @@ import { fromPKCS8, fromSPKI, fromX509, toPKCS8, toSPKI } from "../_crypto/index
 import { exportJWK } from "./export.ts";
 
 /**
- * Imports a PEM key as a JWK carrying `alg`. The type follows the label — `PRIVATE KEY`
- * (PKCS#8), `PUBLIC KEY` (SPKI), `CERTIFICATE` (X.509, only its SPKI kept) — unless
- * `options.pemType` overrides it. The JWK holds the key material in plain JavaScript.
+ * Imports a PEM key as a JWK with `alg` set. The type follows the label: `PRIVATE KEY` is
+ * PKCS#8, `PUBLIC KEY` is SPKI, `CERTIFICATE` is X.509 with only its public key kept.
+ * Pass `pemType` to require a type. The returned JWK holds the key material as plain values.
  *
- * @throws `ERR_JWK_INVALID` if the type cannot be inferred or does not match the label;
- *   `ERR_JWK_UNSUPPORTED` for an unknown `pemType`; `ERR_INVALID_OPTION` if `jwkParams` sets
- *   `alg`, `kty`, `key_ops`, `ext` or a key-material member.
+ * @throws `ERR_INVALID_OPTION` if `pem` is not a string, `options` is not an object,
+ *   or `jwkParams` sets `alg`, `kty`, `key_ops`, `ext` or a key material member.
+ * @throws `ERR_JWK_INVALID` if the type cannot be inferred, the label does not match `pemType`, or the body is not a key for `alg`.
+ * @throws `ERR_JWK_UNSUPPORTED` if `pemType` is unknown.
  */
 export async function importPEM<
   A extends JWKPEMAlgorithm,
@@ -21,9 +22,9 @@ export async function importPEM<
   pem: string,
   alg: A,
   options?: {
-    /** PEM type. Inferred from the PEM label when omitted, which leaves the result public or private. */
+    /** The PEM type. Inferred from the label when omitted, so the result type is either half. */
     pemType?: Type;
-    /** Additional JWK properties merged into the exported key (e.g. `kid`). */
+    /** JWK metadata copied onto the result, such as `kid`. */
     jwkParams?: JWKMetadata;
   },
 ): Promise<ImportedPEMJWK<A, Type>> {
@@ -62,17 +63,18 @@ export async function importPEM<
 }
 
 /**
- * Exports an asymmetric JWK as PEM: PKCS#8 when it carries `d`, SPKI otherwise.
+ * Exports an asymmetric JWK as PEM: PKCS#8 when it has a `d` member, SPKI otherwise.
  *
- * @throws `ERR_JWK_UNSUPPORTED` for `oct` JWKs or an unknown format or algorithm;
- *   `ERR_JWK_INVALID` for a missing `alg` or a `pemFormat` that contradicts the JWK's half.
+ * @throws `ERR_JWK_UNSUPPORTED` if `jwk` is an `oct` JWK, or the format or algorithm is unsupported.
+ * @throws `ERR_JWK_INVALID` if neither `jwk.alg` nor `options.alg` is set, the algorithm does not fit `kty`,
+ *   or `pemFormat` names the other half of the pair.
  */
 export async function exportPEM(
   jwk: JWK,
   options?: {
-    /** PEM format. Inferred from the JWK shape when omitted. */
+    /** The PEM format. Inferred from the JWK when omitted. */
     pemFormat?: "pkcs8" | "spki";
-    /** Algorithm hint used when `jwk.alg` is absent. */
+    /** The algorithm used when `jwk.alg` is absent. */
     alg?: JWKPEMAlgorithm;
   },
 ): Promise<string> {
@@ -147,7 +149,7 @@ function inferPEMType(pem: string): "pkcs8" | "spki" | "x509" | undefined {
   return undefined;
 }
 
-/** Algorithms the PEM helpers round-trip; `satisfies` keeps them in lockstep with the union. */
+/** The algorithms the PEM helpers accept. `satisfies` keeps the set equal to `JWKPEMAlgorithm`. */
 const PEM_ALGORITHMS: ReadonlySet<string> = /* @__PURE__ */ new Set(
   Object.keys({
     "PS256": true,

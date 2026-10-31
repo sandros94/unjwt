@@ -6,8 +6,8 @@ import type { CookieJar } from "./driver.ts";
 export type { CookieAttributes };
 
 /**
- * The cookies a request's `Headers` carry, and those of the response's `Headers` when there are any.
- * A response that also has `errHeaders` (h3 v2 sends only those for a thrown handler) gets each write there too.
+ * A cookie jar over the request's `Headers` and, when given, the response's.
+ * Each write is copied to `errHeaders` too: h3 and Nitro send only these for a thrown handler.
  */
 export function webCookieJar(
   request: Headers,

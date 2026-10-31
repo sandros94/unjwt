@@ -50,6 +50,7 @@ Produces a JWE Compact Serialization token.
   - `expiresIn?: ExpiresIn` — sets `exp` claim
   - `issuedAt?: boolean | Date` — writes `iat` alone, as on `sign()`
   - `currentDate?: Date`
+  - `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt` and `issuedAt` need an object payload: with a string or `Uint8Array` payload `encrypt` and `encryptMulti` throw `ERR_INVALID_OPTION`
   - `cek?: Uint8Array` — custom Content Encryption Key; must be exactly the size `enc` names, or `ERR_INVALID_OPTION`
   - `contentEncryptionIV?: Uint8Array` — custom IV; must be exactly the length `enc` names, or `ERR_INVALID_OPTION`
   - `p2s?: Uint8Array`, `p2c?: number` — PBES2 salt and iteration count (default `p2c` is `600_000`). `p2s` must be 8 or more octets and `p2c` a positive integer between `1000` and `600_000` — the bounds `decrypt` enforces by default — or the call throws `ERR_INVALID_OPTION`. `p2c: 0` is rejected, never replaced by the default
@@ -100,7 +101,7 @@ Decrypts a JWE token.
   - `string` is a PBES2 password only — under any other `alg` it throws `ERR_JWK_INVALID`.
   - `JWKSet` stays fully permissive (`JWK[]`) — wire JWKS can carry any key shape; runtime filters per header.
   - For `alg: "dir"`, pass the raw CEK (`CryptoKey`, `JWK_oct`, or `Uint8Array`)
-  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` and has no `k` member (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"enc"`, and its `key_ops` is absent or contains one of `unwrapKey` / `decrypt` / `deriveBits` / `deriveKey`
+  - `JWKSet`: accepted directly or returned from a `JWKLookupFunction`; multi-key retry applies in both cases. An entry is a candidate only when it is a JWK (a non-`oct` entry carrying `k` is malformed and skipped; `oct` entries count like any other), its `kid` matches the header (or the header carries none), its `alg` matches (or it declares none), its `use` is absent or `"enc"`, and its `key_ops` is absent or contains one of `unwrapKey` / `decrypt` / `deriveBits` / `deriveKey`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, no retry)
     - Token has no `kid` — every candidate is tried in order; first to succeed wins
     - A candidate that cannot open the token — unusable key material as much as a failed unwrap — only means "try the next one"; when none succeeds, `ERR_JWE_DECRYPTION_FAILED` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
@@ -108,7 +109,6 @@ Decrypts a JWE token.
   - `JWEKeyLookup`: `(header: JWEHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg`/`enc` are already validated
 - `options?: JWEDecryptOptions`
   - `algorithms?: KeyManagementAlgorithm[]` — allowlist of key management algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWEAllowedAlgorithms`; pass explicitly when the key carries no usable metadata. A raw `Uint8Array` is such a key: it declares nothing, so `decrypt(jwe, rawBytes, { algorithms: ["A256KW"] })` names the `alg` the matching `encrypt` call was given. A password `string` still infers the PBES2 family alone
-  - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls, never for one fetched from a `jwks_uri`
 
 A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the thrown value as its `cause`; one that returns `undefined` or `null` is `ERR_JWK_KEY_NOT_FOUND` too. The `kid` named in a key-not-found message is JSON-quoted and cut at 64 characters. A token that is not a string throws `ERR_JWE_INVALID` (`"Invalid JWE: token must be a string."`).
 
@@ -120,10 +120,11 @@ A `JWKLookupFunction` that throws surfaces as `ERR_JWK_KEY_NOT_FOUND` with the t
 - `minIterations?: number` — minimum accepted PBES2 `p2c` on unwrap. Defaults to `1000` (RFC 7518 §4.8.1.2)
 - `maxIterations?: number` — maximum accepted PBES2 `p2c` on unwrap. Defaults to `600_000` — the `p2c` a producer mints by default — to cap PBKDF2 DoS potential; raise it to open a token minted at a higher cost. It bounds a single unwrap; `limits.pbes2Iterations` bounds the whole call
 - `limits?: { keyCandidates?: number; pbes2Iterations?: number }` — bounded work per call. `keyCandidates` defaults to `8`: a set still leaving more candidates after `kid`/`alg`/`use` filtering throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8, narrow them with a "kid".'`) before the first import. `pbes2Iterations` defaults to `2_400_000` — four attempts at the `600_000` `p2c` a producer mints by default, so an envelope written entirely at the defaults is still openable by its fourth PBES2 recipient — and is a budget for the **whole call**, summed across every PBES2 attempt (compact unwrap, per recipient, per JWK Set candidate); an attempt whose `p2c` falls outside `minIterations`/`maxIterations` throws that bound, and one that no longer fits throws `ERR_JWE_INVALID` (`"PBES2 iteration budget of 2400000 exhausted."`); either spends nothing, so a recipient the caller does hold a key for is still tried on the remainder. Both must be positive integers, else `ERR_INVALID_OPTION`
-- `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
+- `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWSVerifyOptions` shares
 - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
 - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a decryptor that configures none; configure `audience` to enforce RFC 7519 §4.1.3
 - Options are checked before the token is read, as on `verify`: an empty `audience` / `issuer` / `subject` / `typ`, a non-string `typ`, `maxTokenAge: 0`, non-object `options` or `limits`, and an `algorithms` / `encryptionAlgorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings throw `ERR_INVALID_OPTION`
+- `audience`, `issuer`, `subject`, `maxTokenAge` and `requiredClaims` need claims to check: with `payload: "string"` / `"bytes"` or `validateClaims: false`, `decrypt` and `decryptMulti` throw `ERR_INVALID_OPTION`; `typ`, `recognizedHeaders`, `clockTolerance` and `currentDate` are accepted in every mode
 
 **Returns:** `Promise<JWEDecryptResult<T>>`
 
@@ -207,12 +208,12 @@ Accepts a General or Flattened serialization object and returns the first recipi
 - `jwe` — `JWEGeneralSerialization | JWEFlattenedSerialization`. Flattened input is auto-normalized to General in memory. An object without `recipients` is Flattened — its `header` and `encrypted_key` are both optional (RFC 7516 §7.2.2), so a Flattened `dir` / `ECDH-ES` token carrying neither is accepted. `recipients` together with a top-level `header` or `encrypted_key` throws `ERR_JWE_INVALID_SERIALIZATION`.
 - `keyOrLookup` — same shape as `decrypt()` (`JWK | JWKSet | CryptoKey | Uint8Array | string | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per recipient until one succeeds.
 - `options?: JWEMultiDecryptOptions` — extends `JWEDecryptOptions`. Adds:
-  - `limits?: { recipients?: number; keyCandidates?: number; pbes2Iterations?: number }` — `recipients` defaults to `16`; a serialization carrying more throws `ERR_JWE_INVALID` (`"Invalid JWE: 17 recipients exceed the limit of 16."`) before any recipient is read. The `pbes2Iterations` budget is summed across every recipient, so injected PBES2 recipients cost one budget between them
-  - `strictRecipientMatch?: boolean` — when `true`, a recipient is attempted only when the key material could plausibly open it; nothing matching means `ERR_JWE_NO_MATCHING_RECIPIENT` with no trial-decryption fallback. A recipient is skipped only on a _definite_ mismatch: a different `kid` on both sides, key material whose `kty` / curve / length cannot serve the recipient's `alg`, or an `epk` on a different curve than the key. Key material that carries no identity of its own (a `CryptoKey`, raw bytes, a password) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out. For a single JWK or `CryptoKey`, `kid` never rules the key out; for a JWK Set the header `kid` selects the candidates (an entry with another `kid`, or none, is not one): no candidate is `ERR_JWK_KEY_NOT_FOUND`, candidates that all fail the compatibility check skip the recipient.
+  - `limits?: { recipients?: number; keyCandidates?: number; keyAttempts?: number; pbes2Iterations?: number }` — `recipients` defaults to `16`; a serialization carrying more throws `ERR_JWE_INVALID` (`"Invalid JWE: 17 recipients exceed the limit of 16."`) before any recipient is read. `keyAttempts` defaults to `16` (the entry limit, so one key tried on every entry fits): the unwraps one call may run against candidate keys, summed across every recipient (a single key spends one per recipient it is tried on, a `kid`-matched set one per recipient); the trial past it throws `ERR_JWK_KEY_NOT_FOUND` (`'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".'`) and no later recipient is tried. The `pbes2Iterations` budget is summed across every recipient, so injected PBES2 recipients cost one budget between them
+  - `strictRecipientMatch?: boolean` — when `true`, a recipient is attempted only when the key material could plausibly open it; nothing matching means `ERR_JWE_NO_MATCHING_RECIPIENT` with no trial-decryption fallback. A recipient is skipped only on a _definite_ mismatch: a different `kid` on both sides, key material whose `kty` / curve / length cannot serve the recipient's `alg`, or an `epk` on a different curve than the key. Key material that carries no identity of its own (a `CryptoKey`, raw bytes, a password) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out. For a single JWK or `CryptoKey`, `kid` never rules the key out; for a JWK Set the header `kid` selects the candidates (an entry with another `kid`, or none, is not one): no candidate fails the recipient with `ERR_JWK_KEY_NOT_FOUND`, candidates that all fail the compatibility check skip the recipient.
 
 **Header tiers (RFC 7516 §7.2.1).** `enc` is read from the protected header or, when absent there, from the shared unprotected header — never from a per-recipient header; absent from both is `ERR_JWE_INVALID`, and `encryptionAlgorithms` applies to it wherever it sits. `alg` may sit in any tier (usually the per-recipient header). `crit` must be protected, and every name it lists must be present in the protected header. `options.typ` is matched against the protected header only — a `typ` in an unprotected tier never satisfies it, since a type gate an attacker could move would gate nothing. `kid` is read from the merged header, so the key lookup may be steered by an unprotected tier; that is why the recipient must still unwrap, and the content still authenticate, under the key the lookup returns. A name may sit in only one tier (`ERR_JWE_HEADER_PARAMS_NOT_DISJOINT`; an overlap between the protected and the shared unprotected header is a token verdict).
 
-**Recipient isolation.** `recipients[]` is not covered by the AAD, so anyone can append or rewrite an entry. Every failure scoped to a single recipient — an entry that is not a JSON object (or whose `header` is not one, or whose `encrypted_key` is not a string), a header tier overlap, a `crit` or `zip` in its header, missing PBES2 `p2s`/`p2c`, a missing `epk`, missing AES-GCMKW `iv`/`tag`, an unsupported `alg`, a failed unwrap — only means "try the next recipient" and is kept as the error to report if no recipient works. A verdict on the token as a whole — the protected header (`crit` included, validated before any key management), the shared unprotected header (including one that is not a JSON object), the content segments, and (after a successful decryption) JWT claim validation — is thrown immediately.
+**Recipient isolation.** `recipients[]` is not covered by the AAD, so anyone can append or rewrite an entry. Every failure scoped to a single recipient — an entry that is not a JSON object (or whose `header` is not one, or whose `encrypted_key` is not a string), a header tier overlap, a `crit` or `zip` in its header, missing PBES2 `p2s`/`p2c`, a missing `epk`, missing AES-GCMKW `iv`/`tag`, an unsupported `alg`, a failed unwrap — only means "try the next recipient". When no recipient opens, the call throws `ERR_JWE_DECRYPTION_FAILED` with one `JWTError` per recipient, in recipient order, as its `cause` (a recipient `strictRecipientMatch` skips is recorded as `ERR_JWE_NO_MATCHING_RECIPIENT`). A verdict on the token as a whole — the protected header (`crit` included, validated before any key management), the shared unprotected header (including one that is not a JSON object), the content segments, and (after a successful decryption) JWT claim validation — is thrown immediately.
 
 **Returns:** `JWEMultiDecryptResult<T>` — the payload type follows `options.payload` exactly as for `decrypt` (`PayloadOf<Mode>`; `decryptMulti<MyClaims>(jwe, key)` for the claims). Like `JWEDecryptResult`, except:
 
@@ -304,6 +305,7 @@ interface JOSELimits {
   signatures?: number; // JWS `signatures[]` entries — default 16
   recipients?: number; // JWE `recipients[]` entries — default 16
   keyCandidates?: number; // JWK Set candidates per token — default 8
+  keyAttempts?: number; // key trials per multi call, across recipients — default 16
   pbes2Iterations?: number; // PBKDF2 iterations per call — default 2_400_000 (4 × the default p2c)
 }
 
@@ -431,7 +433,6 @@ interface JWEDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   recognizedHeaders?: string[];
   // JWE-specific decrypt options
   algorithms?: KeyManagementAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
@@ -571,7 +572,6 @@ interface JWEMultiDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode>
   recognizedHeaders?: string[];
   // JWE decrypt options (inlined from JWEDecryptOptions)
   algorithms?: KeyManagementAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   encryptionAlgorithms?: ContentEncryptionAlgorithm[];
   unwrappedKeyAlgorithm?: Parameters<typeof crypto.subtle.importKey>[2];
   keyUsage?: KeyUsage[];
@@ -582,7 +582,7 @@ interface JWEMultiDecryptOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode>
   minIterations?: number;
   maxIterations?: number;
   // Multi-recipient additions
-  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "pbes2Iterations">;
+  limits?: Pick<JOSELimits, "recipients" | "keyCandidates" | "keyAttempts" | "pbes2Iterations">;
   strictRecipientMatch?: boolean;
 }
 

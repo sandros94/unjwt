@@ -7,10 +7,12 @@ import {
   invalidConfigError,
 } from "./contract.ts";
 import type {
+  HeldToken,
   SessionActions,
   SessionBinding,
   SessionCodec,
   SessionCoreConfig,
+  SessionKeys,
   SessionStore,
 } from "./types.ts";
 import {
@@ -23,44 +25,56 @@ import {
 /** The session names bound on one request, in a slot of its state record. */
 const kSessionNames: unique symbol = Symbol("unjwt_session_names");
 
-/** Validates the config, claims its name on the request and resolves where its token travels. */
-export function bindSession<TEvent, Config extends SessionCoreConfig>(
-  event: TEvent,
-  config: Config,
-  options: {
-    driver: SessionDriver<TEvent>;
-    codec: SessionCodec<Config>;
-    actions: SessionActions<TEvent, Config>;
-    /** The hook argument naming the request, as the public entry names it: `{ event }` or `{ context }`. */
-    hookArgs: (event: TEvent) => Record<string, unknown>;
-  },
-): SessionBinding<TEvent, Config> {
-  const { driver, codec, actions, hookArgs } = options;
-  const { prefix } = driver;
-  const name = config.name || codec.defaultName;
+/** The tokens the transports of one request hold, one per session slot. */
+const kHeldTokens: unique symbol = Symbol("unjwt_session_held_tokens");
+
+/** Checks what the config alone decides: its name, session header, cookie prefix and `rolling`. */
+export function assertSessionConfig(
+  config: SessionCoreConfig,
+  options: { name: string; prefix: string; defaultCookie: Record<string, unknown> },
+): void {
+  const { name, prefix } = options;
   assertSessionName(name, { prefix });
   assertSessionHeader(config.sessionHeader, { prefix });
   if (config.cookie !== false) {
-    const attrs: Record<string, unknown> = { ...codec.defaultCookie, ...config.cookie };
+    const attrs: Record<string, unknown> = { ...options.defaultCookie, ...config.cookie };
     assertCookiePrefix(name, attrs, { prefix });
   }
   assertRolling(config, { prefix });
+}
+
+/** Registers the session's name on the request and resolves its token transport. The config is checked when the session is defined. */
+export function bindSession<TEvent, Config extends SessionCoreConfig>(
+  event: TEvent,
+  options: {
+    config: Config;
+    name: string;
+    driver: SessionDriver<TEvent>;
+    codec: SessionCodec<Config>;
+    keys: SessionKeys;
+    actions: SessionActions<TEvent, Config>;
+  },
+): SessionBinding<TEvent, Config> {
+  const { config, name, driver, codec, keys, actions } = options;
   const record = driver.state(event);
-  claimSessionName(record, { name, family: codec.family, prefix });
+  claimSessionName(record, { name, family: codec.family, prefix: driver.prefix });
+  const slot = `${codec.family}:${name}`;
   return {
     event,
     config,
     driver,
     codec,
+    keys,
     actions,
     name,
-    args: hookArgs(event),
-    store: recordSlotStore(record, `${codec.family}:${name}`),
+    args: { event },
+    store: recordSlotStore(record, slot),
+    held: heldTokenSlot(record, slot),
     transport: resolveTransport(driver, event, { config, name }),
   };
 }
 
-/** The token of the session this request read or wrote, else the one its transport carries. */
+/** The token behind the session's current state: `undefined` after a failed read or `clear()`. Before any read, the one its transport reads. */
 export function sessionToken<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): string | undefined {
@@ -68,6 +82,16 @@ export function sessionToken<TEvent, Config extends SessionCoreConfig>(
   assertTokenSource(transport, { prefix: binding.driver.prefix });
   const session = storedSession(binding.store);
   return session ? session.token : transport.read();
+}
+
+/** The token the transport holds, unopened: the one it read whatever the read's outcome, the one `update()` issued, none after `clear()`. Before any read, the one it reads. */
+export function transportToken<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
+): string | undefined {
+  const { transport } = binding;
+  assertTokenSource(transport, { prefix: binding.driver.prefix });
+  const held = binding.held.get();
+  return held ? held.token : transport.read();
 }
 
 /** Session store over a per-request record, one slot per session. */
@@ -94,7 +118,7 @@ export function sessionCookie<TEvent, Config extends SessionCoreConfig>(
   return { attrs, chunkMaxLength };
 }
 
-/** Drops an expired session's cookie; a sealed response leaves it to the next request, which carries the same token. */
+/** Expires the session cookie. A response already sent leaves it to the next request, which sends the same token. */
 export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): void {
@@ -103,7 +127,7 @@ export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
   transport.drop(sessionCookie(binding));
 }
 
-/** One name is one cookie: the first family to bind a name on a request holds it. */
+/** One name is one cookie: the first family to bind a name on a request keeps it. */
 function claimSessionName(
   record: Record<string, unknown>,
   options: { name: string; family: "jws" | "jwe"; prefix: string },
@@ -120,4 +144,15 @@ function claimSessionName(
   throw invalidConfigError(
     `${prefix} Session name "${name}" is already used by a ${held.toUpperCase()} session on this request.`,
   );
+}
+
+function heldTokenSlot(record: Record<string, unknown>, slot: string): HeldToken {
+  const holder: { [kHeldTokens]?: Map<string, string | undefined> } = record;
+  const held = (holder[kHeldTokens] ||= new Map());
+  return {
+    get: () => (held.has(slot) ? { token: held.get(slot) } : undefined),
+    set: (token) => {
+      held.set(slot, token);
+    },
+  };
 }

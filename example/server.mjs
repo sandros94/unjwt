@@ -5,7 +5,7 @@ import {
   defineJWSSession,
   generateJWK,
   deriveJWKFromPassword,
-} from "unjwt/adapters/h3";
+} from "unjwt/session";
 
 const [atJwk, rtJwk] = await Promise.all([
   generateJWK("RS256"),

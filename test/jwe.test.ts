@@ -518,8 +518,19 @@ describe.concurrent("JWE Utilities", () => {
       const parts = jwe.split(".");
       expect(parts[1]).toBe(""); // encrypted key field is empty
 
-      const { payload } = await decrypt(jwe, key, { payload: "string" });
+      const { payload } = await decrypt(jwe, key, { payload: "string", algorithms: ["dir"] });
       expect(payload).toBe(plaintext);
+    });
+
+    it("reads a CryptoKey as a wrapping key unless dir is named", async () => {
+      const key = await generateKey("A256GCMKW");
+      const jwe = await encrypt({ sub: "u1" }, key, { alg: "dir", enc: "A256GCM" });
+
+      await expect(decrypt(jwe, key)).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED"),
+      );
+      const { payload } = await decrypt(jwe, key, { algorithms: ["dir"] });
+      expect(payload.sub).toBe("u1");
     });
 
     it("encrypt/decrypt roundtrip with AES-CBC content encryption", async () => {
@@ -690,18 +701,16 @@ describe.concurrent("JWE Utilities", () => {
       expect(causes.map((c) => c.code)).toEqual(["ERR_JWK_INVALID", "ERR_JWE_DECRYPTION_FAILED"]);
     });
 
-    it("ignores oct entries unless the caller admits symmetric material", async () => {
+    it("counts an oct entry as a candidate and toward inference", async () => {
       const kw = await generateJWK("A256KW");
       const jwe = await encrypt(plaintextObj, kw, { alg: "A256KW", enc: "A256GCM" });
       const set = { keys: [kw] } as unknown as { keys: JWK[] };
 
-      const error = await decrypt(jwe, set).catch((e) => e);
-      expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
-
-      await expect(decrypt(jwe, set, { allowSymmetricJWKSet: true })).resolves.toBeDefined();
+      const { payload } = await decrypt(jwe, set);
+      expect(payload).toEqual(plaintextObj);
     });
 
-    it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+    it('skips a non-oct entry carrying "k" as malformed', async () => {
       const kw = await generateJWK("A256KW");
       const jwe = await encrypt(plaintextObj, kw, { alg: "A256KW", enc: "A256GCM" });
       const disguised = { kty: "EC", alg: "A256KW", kid: kw.kid, k: kw.k } as unknown as JWK;
@@ -710,9 +719,8 @@ describe.concurrent("JWE Utilities", () => {
       const error = await decrypt(jwe, set).catch((e) => e);
       expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
 
-      const admitted = await decrypt(jwe, set, { allowSymmetricJWKSet: true }).catch((e) => e);
-      expect(isJWTError(admitted, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
-      expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+      const named = await decrypt(jwe, set, { algorithms: ["A256KW"] }).catch((e) => e);
+      expect(isJWTError(named, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     });
 
     it('matches an "oct" content key tagged with its "enc" to a "dir" token', async () => {
@@ -721,11 +729,12 @@ describe.concurrent("JWE Utilities", () => {
       const jwe = await encrypt(plaintextObj, current, { alg: "dir", enc: "A256GCM" });
       const set = { keys: [previous, current] };
 
-      const { payload } = await decrypt(jwe, set, { allowSymmetricJWKSet: true });
+      const { payload } = await decrypt(jwe, set);
       expect(payload).toEqual(plaintextObj);
-      await expect(
-        decrypt(jwe, { keys: [previous] }, { allowSymmetricJWKSet: true }),
-      ).rejects.toHaveProperty("code", "ERR_JWK_KEY_NOT_FOUND");
+      await expect(decrypt(jwe, { keys: [previous] })).rejects.toHaveProperty(
+        "code",
+        "ERR_JWK_KEY_NOT_FOUND",
+      );
     });
   });
 
@@ -748,7 +757,7 @@ describe.concurrent("JWE Utilities", () => {
       const token = await encrypt(plaintextObj, rawKey2, { alg: "A256KW", enc: "A256GCM" });
       const [jwk1, jwk2] = await Promise.all([exportJWK(rawKey1), exportJWK(rawKey2)]);
       const set = { keys: [jwk1, jwk2] };
-      const { payload } = await decrypt(token, set, { allowSymmetricJWKSet: true });
+      const { payload } = await decrypt(token, set);
       expect(payload).toEqual(plaintextObj);
     });
 
@@ -763,12 +772,12 @@ describe.concurrent("JWE Utilities", () => {
       const token = await encrypt(plaintextObj, rawValid, { alg: "A256KW", enc: "A256GCM" });
 
       const set = { keys: [malformedJwk, validJwk] };
-      const { payload } = await decrypt(token, set, { allowSymmetricJWKSet: true });
+      const { payload } = await decrypt(token, set);
       expect(payload).toEqual(plaintextObj);
     });
 
     it("should decrypt with a key lookup function", async () => {
-      const keyLookup: JWKLookupFunction = (header) => {
+      const keyLookup: JWKLookupFunction = ({ header }) => {
         if (header.alg === alg) return key;
         throw new Error("Key not found");
       };
@@ -1678,23 +1687,6 @@ describe.concurrent("JWE payload typing", () => {
     expect(payload).toBe('{"sub":"admin"}');
   });
 
-  it('forceUint8Array matches payload: "bytes"', async () => {
-    const jwe = await encrypt(textEncoder.encode("raw bytes"), key, opts);
-    const aliased = await decrypt(jwe, key, { forceUint8Array: true });
-    const explicit = await decrypt(jwe, key, { payload: "bytes" });
-    expect(aliased.payload).toBeInstanceOf(Uint8Array);
-    expect(aliased.payload).toEqual(explicit.payload);
-  });
-
-  it("rejects forceUint8Array contradicting payload", async () => {
-    const jwe = await encrypt({ sub: "u" }, key, opts);
-    const error = await decrypt(jwe, key, {
-      forceUint8Array: false,
-      payload: "bytes",
-    }).catch((e) => e);
-    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
-  });
-
   it('rejects validateClaims: true outside payload: "json"', async () => {
     const jwe = await encrypt("plain", key, opts);
     const error = await decrypt(jwe, key, {
@@ -1933,7 +1925,7 @@ describe.concurrent("JWE decryption option gates", () => {
     const kid = `evil\nInjected: yes ${"x".repeat(200)}`;
     const encrypted = await encrypt({ sub: "u" }, { ...key, kid }, { enc: "A256GCM" });
     const set = { keys: [{ ...key, kid: "other" }] };
-    const error = await decrypt(encrypted, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+    const error = await decrypt(encrypted, set).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     expect(error.message).not.toContain("\n");
     expect(error.message).toContain(String.raw`with kid "evil\nInjected: yes x`);
@@ -1956,11 +1948,87 @@ describe.concurrent("JWE decryption option gates", () => {
       "decrypt",
     ]);
     const encrypted = await encrypt({ sub: "u" }, cekKey, { alg: "dir", enc: "A256GCM" });
-    await expect(decrypt(encrypted, cekKey)).resolves.toHaveProperty("payload", { sub: "u" });
-    const error = await decrypt(encrypted, cekKey, { returnCek: true }).catch((e) => e);
+    await expect(decrypt(encrypted, cekKey, { algorithms: ["dir"] })).resolves.toHaveProperty(
+      "payload",
+      { sub: "u" },
+    );
+    const error = await decrypt(encrypted, cekKey, { algorithms: ["dir"], returnCek: true }).catch(
+      (e) => e,
+    );
     expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
     expect(error.message).toContain('"returnCek"');
   });
+});
+
+const CLAIM_OPTIONS = [
+  ["audience", { audience: "a" }],
+  ["issuer", { issuer: "i" }],
+  ["subject", { subject: "u" }],
+  ["maxTokenAge", { maxTokenAge: 60 }],
+  ["requiredClaims", { requiredClaims: ["sub"] }],
+] as const;
+const UNCHECKED_MODES = [
+  [{ payload: "string" }, "needs a JSON payload"],
+  [{ payload: "bytes" }, "needs a JSON payload"],
+  [{ validateClaims: false }, "needs claim validation"],
+] as const;
+const CLAIM_CASES = CLAIM_OPTIONS.flatMap(([name, option]) =>
+  UNCHECKED_MODES.map(([mode, reason]) => [name, mode, { ...option, ...mode }, reason] as const),
+);
+const TIME_CASES = (
+  [
+    ["expiresIn", { expiresIn: 60 }],
+    ["expiresAt", { expiresAt: new Date(4_000_000_000_000) }],
+    ["notBeforeIn", { notBeforeIn: 0 }],
+    ["notBeforeAt", { notBeforeAt: new Date(0) }],
+    ["issuedAt", { issuedAt: true }],
+  ] as const
+).flatMap(([name, option]) =>
+  [["a string", "text"] as const, ["bytes", new Uint8Array([1, 2])] as const].map(
+    ([label, payload]) => [name, label, payload, option] as const,
+  ),
+);
+
+describe.concurrent("JWE compact claim and time options need a JSON payload", () => {
+  let key: JWK_oct<"A256KW">;
+  let token: string;
+
+  beforeAll(async () => {
+    key = await generateJWK("A256KW");
+    token = await encrypt({ sub: "u", iss: "i", aud: "a" }, key, {
+      enc: "A256GCM",
+      protectedHeader: { typ: "at+jwt" },
+    });
+  });
+
+  it.each(CLAIM_CASES)("decrypt refuses %s with %j", async (name, _mode, options, reason) => {
+    const error = await decrypt(token, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain(`"${name}" ${reason}`);
+  });
+
+  it("decrypt keeps header checks, the clock and validateClaims: false for any payload mode", async () => {
+    const { payload } = await decrypt(token, key, {
+      payload: "string",
+      typ: "at+jwt",
+      recognizedHeaders: ["app"],
+      currentDate: new Date(),
+      clockTolerance: 5,
+    });
+    expect(JSON.parse(payload)).toMatchObject({ sub: "u" });
+    await expect(
+      decrypt(token, key, { validateClaims: false, typ: "at+jwt" }),
+    ).resolves.toHaveProperty("payload.sub", "u");
+  });
+
+  it.each(TIME_CASES)(
+    "encrypt refuses %s with %s payload",
+    async (name, _label, payload, option) => {
+      const error = await encrypt(payload, key, option).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain(`"${name}" needs a JSON payload`);
+    },
+  );
 });
 
 describe("types", () => {
@@ -2014,10 +2082,8 @@ describe("types", () => {
     >();
   });
 
-  it("keeps the deprecated forceUint8Array overload returning bytes", () => {
-    expectTypeOf(() => decrypt("", key, { forceUint8Array: true })).returns.resolves.toEqualTypeOf<
-      JWEDecryptResult<Uint8Array<ArrayBuffer>>
-    >();
+  it('takes the bytes mode from "payload" alone', () => {
+    expectTypeOf<JWEDecryptOptions>().not.toHaveProperty("forceUint8Array");
   });
 
   it("rejects an unknown payload mode and a claims type outside the json mode", () => {

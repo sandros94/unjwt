@@ -10,7 +10,7 @@ import { assertPBES2Iterations } from "../../_crypto/index.ts";
 
 /** PBKDF2 iterations one call may still spend, summed over every PBES2 attempt. */
 export interface PBES2Budget {
-  /** Charge one PBES2 attempt's `p2c`; throws without charging when out of bounds or over budget. */
+  /** Charges one PBES2 attempt's `p2c`. Throws `ERR_JWE_INVALID`, without charging, when `p2c` is out of bounds or over budget. */
   spend(attempt: Pick<UnwrapKeyOptions, "alg" | "p2c" | "minIterations" | "maxIterations">): void;
 }
 
@@ -40,7 +40,7 @@ const JWE_ENC_CEK_FORMAT = /* @__PURE__ */ Object.freeze({
   "A256CBC-HS512": "raw",
 } satisfies Record<ContentEncryptionAlgorithm, "cryptokey" | "raw">);
 
-/** The CEK as bytes for `returnCek`; a non-extractable key is `ERR_INVALID_OPTION`. */
+/** Returns the CEK as bytes for `returnCek`. A non-extractable key is `ERR_INVALID_OPTION`. */
 export async function exportReturnedCek(
   cek: CryptoKey | Uint8Array<ArrayBuffer>,
 ): Promise<Uint8Array<ArrayBuffer>> {
@@ -58,7 +58,7 @@ export function cekFormatForEnc(enc: ContentEncryptionAlgorithm): "cryptokey" | 
   return JWE_ENC_CEK_FORMAT[enc];
 }
 
-/** One recipient's unwrap options; header parameters it lacks are left off, not `undefined`. */
+/** Builds one recipient's unwrap options. Header parameters it lacks are left off, not set to `undefined`. */
 export function buildUnwrapKeyOptions(
   header: JWEHeaderParameters,
   algorithms: { alg: KeyManagementAlgorithm; enc: ContentEncryptionAlgorithm },

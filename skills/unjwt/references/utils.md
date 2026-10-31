@@ -127,6 +127,7 @@ Returns the set of JWE key-management algorithms a given key can unambiguously h
 - A raw `Uint8Array` infers nothing — bytes carry no role, so the caller names the algorithm.
 - An `oct` JWK infers its own `alg` alone, except that an `alg` naming a content encryption algorithm (`A*GCM`, `A*CBC-HS*`) is a CEK and infers `"dir"`; an `alg` that is not a key management algorithm (an `HS*` key) infers nothing.
 - An EC or OKP JWK without an `alg` infers the four ECDH-ES variants from its `crv`.
+- An `AES-KW` or `AES-GCM` `CryptoKey` infers its key wrapping algorithm alone (`A*KW`, `A*GCMKW`); using one as a `dir` content key takes an explicit `algorithms: ["dir"]`.
 
 ## Helper Functions
 

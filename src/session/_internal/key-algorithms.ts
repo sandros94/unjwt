@@ -1,0 +1,194 @@
+import type { JOSELimits } from "../../core/types/index.ts";
+import { resolveLimit } from "../../core/_internal/limits.ts";
+import type { JWTError } from "../../error.ts";
+import { quoteTokenValue } from "../../utils/_internal/text.ts";
+import { isJWK, isSymmetricJWK } from "../../utils/guards.ts";
+import { invalidConfigError, invalidKeyError } from "./contract.ts";
+
+/** How a family reads the algorithms of its keys, and the options its messages name. */
+export interface SessionKeyRules<A extends string = string> {
+  /** A JWK's `alg`, or what its shape names. `undefined` for a key that names none. */
+  own: (key: unknown) => readonly A[] | undefined;
+  /** The algorithms the material of a key that names none can carry. */
+  carried: (key: unknown) => readonly A[];
+  /** The option that pins the `alg` each token is issued with. */
+  pinPath: string;
+  /** What a key that names no algorithm must have pinned. */
+  hint: string;
+  /** The option that lists the algorithms an incoming token may carry. */
+  listPath: string;
+  /** The option that caps the keys a token is offered. */
+  limitPath: string;
+}
+
+/**
+ * A configured key and how messages name it. `pin` is the pinned `alg`, for a key the pin names, or the `alg` the other half of a pair
+ * names, which `pinnedBy` then names.
+ */
+export interface SessionKeyEntry<K = unknown> {
+  key: K;
+  subject: string;
+  pin?: string;
+  pinnedBy?: string;
+}
+
+/**
+ * The configured keys of a session: the key that issues, the `alg` it issues under when it names none, the key or JWK Set that opens,
+ * and the `alg` values an incoming token may carry.
+ */
+export interface ResolvedSessionKeys<IssueKey, OpenKey, A extends string> {
+  issueKey: IssueKey;
+  issueAlg?: A;
+  key: OpenKey;
+  algorithms: A[];
+}
+
+/**
+ * The entries of a JWK Set session key, each an `oct` JWK named by its index and `kid`. The first issues, so it alone carries `pin`.
+ * @throws `ERR_SESSION_KEY_INVALID` for an empty Set, or an entry that is not an `oct` JWK.
+ * @throws `ERR_SESSION_CONFIG_INVALID` for an entry without `kid` whose token of an `alg` it serves meets more than `limits.keyCandidates`
+ * entries: those whose `alg` serves it, and those that name none.
+ */
+export function sessionKeySetEntries<K>(
+  keys: readonly K[],
+  options: {
+    pin: string | undefined;
+    listed: readonly string[] | undefined;
+    limits: JOSELimits | undefined;
+    rules: SessionKeyRules;
+    prefix: string;
+  },
+): SessionKeyEntry<K>[] {
+  const { rules, prefix } = options;
+  if (keys.length === 0) {
+    throw invalidKeyError(`${prefix} The session key is an empty JWK Set.`);
+  }
+  const entries = keys.map((key, index) => {
+    const subject = `The session key "keys[${index}]"${kidLabel(key)}`;
+    if (!isSymmetricJWK(key)) {
+      throw invalidKeyError(`${prefix} ${subject} must be an "oct" JWK.`, key);
+    }
+    return { key, subject, pin: index ? undefined : options.pin };
+  });
+  const limit = resolveLimit(options.limits, "keyCandidates");
+  for (const entry of entries) {
+    if (entry.key.kid !== undefined) continue;
+    for (const alg of servedBy(entry, options)) {
+      const met = entries.filter(({ key }) => rules.own(key)?.includes(alg) ?? true).length;
+      if (met > limit) {
+        throw invalidConfigError(
+          `${prefix} ${entry.subject} carries no "kid", so a token of "${alg}" meets ${met} keys, over the limit of ${limit} ("${rules.limitPath}").`,
+        );
+      }
+    }
+  }
+  return entries;
+}
+
+/**
+ * A key that names its algorithm must serve `pin`. A key that names none needs the pin, `pinned` when the family needs more than `alg`,
+ * and must carry it.
+ * @throws `ERR_SESSION_CONFIG_INVALID` for a key that names no algorithm and nothing pins one.
+ * @throws `ERR_SESSION_KEY_INVALID` for a key that cannot serve the pin.
+ */
+export function assertPinnedKey(
+  entry: SessionKeyEntry,
+  options: { rules: SessionKeyRules; pinned: boolean; prefix: string },
+): void {
+  const { rules, prefix } = options;
+  const { key, pin, subject } = entry;
+  const own = rules.own(key);
+  if (own === undefined && (!pin || !options.pinned)) {
+    throw invalidConfigError(
+      `${prefix} ${subject} names no algorithm, set ${rules.hint}${isJWK(key) ? ', or its "alg"' : ""}.`,
+    );
+  }
+  const served = own ?? rules.carried(key);
+  if (!pin || served.includes(pin)) return;
+  throw invalidKeyError(
+    `${prefix} ${subject} serves ${served.join(", ") || "no algorithm"}, not the "${pin}" that ${entry.pinnedBy ?? `"${rules.pinPath}" pins`}.`,
+    key,
+  );
+}
+
+/**
+ * Returns the algorithms each key serves, and those a token may carry: what the keys serve together, a key's own and for a key that
+ * names none those it carries that `listed` or its pin names. With `lookup`, a key lookup hook opens tokens, so `listed` may name
+ * algorithms no key serves, and a token may carry them too.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `listed` is empty, a key that names no algorithm carries none it names, or `listed` names one no key serves.
+ * @throws `ERR_SESSION_KEY_INVALID` if a key carries no algorithm of its family.
+ */
+export function servedAlgorithms<A extends string>(
+  entries: readonly SessionKeyEntry[],
+  options: {
+    rules: SessionKeyRules<A>;
+    listed: readonly A[] | undefined;
+    lookup: boolean;
+    prefix: string;
+  },
+): { each: (readonly A[])[]; all: A[] } {
+  const { rules, listed, prefix } = options;
+  const { listPath } = rules;
+  if (listed?.length === 0) {
+    throw invalidConfigError(
+      `${prefix} "${listPath}" is empty, list the algorithms the session keys serve or leave it unset.`,
+    );
+  }
+  const all = new Set<A>();
+  const each = entries.map((entry) => {
+    const served = servedBy(entry, options);
+    if (served.length === 0) throw unservedKeyError(entry, { rules, prefix });
+    for (const alg of served) all.add(alg);
+    return served;
+  });
+  for (const alg of listed ?? []) {
+    if (all.has(alg)) continue;
+    if (!options.lookup) {
+      throw invalidConfigError(
+        `${prefix} "${listPath}" lists "${alg}", which no session key serves. Remove it, or add a key for it.`,
+      );
+    }
+    all.add(alg);
+  }
+  return { each, all: [...all] };
+}
+
+export function isKeyPair(key: unknown): key is { privateKey?: unknown; publicKey?: unknown } {
+  return typeof key === "object" && key !== null && ("privateKey" in key || "publicKey" in key);
+}
+
+/** A key's `kid` for a message: ` (kid "x")`, or nothing. */
+export function kidLabel(key: unknown): string {
+  return isJWK(key) && key.kid !== undefined ? ` (kid ${quoteTokenValue(key.kid)})` : "";
+}
+
+/** The bit length of an `oct` JWK's `k`, from its unpadded base64url length. */
+export function octBits(key: { k: string }): number {
+  return Math.floor((key.k.length * 6) / 8) * 8;
+}
+
+/** A key's own algorithms, else those it carries that `listed` or its pin names. */
+function servedBy<A extends string>(
+  entry: SessionKeyEntry,
+  options: { rules: SessionKeyRules<A>; listed: readonly A[] | undefined },
+): readonly A[] {
+  const { rules, listed } = options;
+  return (
+    rules.own(entry.key) ??
+    rules.carried(entry.key).filter((alg) => alg === entry.pin || listed?.includes(alg))
+  );
+}
+
+function unservedKeyError(
+  entry: SessionKeyEntry,
+  options: { rules: SessionKeyRules; prefix: string },
+): JWTError {
+  const { rules, prefix } = options;
+  const carried = rules.own(entry.key) ? [] : rules.carried(entry.key);
+  if (carried.length === 0) {
+    return invalidKeyError(`${prefix} ${entry.subject} serves no algorithm.`, entry.key);
+  }
+  return invalidConfigError(
+    `${prefix} ${entry.subject} names no algorithm, list one it serves (${carried.join(", ")}) in "${rules.listPath}", or set its "alg".`,
+  );
+}

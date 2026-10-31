@@ -47,6 +47,7 @@ Creates a JWS Compact Serialization token.
 - A key that cannot serve the declared `alg` throws `ERR_JWK_INVALID` with the WebCrypto failure as its `cause`
 - If payload is an object and `typ` is not set, defaults to `"JWT"`. No `cty` is added (RFC 7519 §5.2 keeps it for nested JWTs, as `"JWT"`); a `cty` set in `protectedHeader` is kept as given
 - If `expiresIn`/`notBefore*` or `issuedAt` is set and `iat` is missing, `iat` is set to `currentDate` (`issuedAt: Date`: that instant); `exp`/`nbf` from a duration are `currentDate` plus the duration, never `iat` plus
+- `expiresIn`, `expiresAt`, `notBeforeIn`, `notBeforeAt` and `issuedAt` need an object payload: with a string or `Uint8Array` payload `sign` and `signMulti` throw `ERR_INVALID_OPTION` (`'"expiresIn" needs a JSON payload: pass an object payload or drop the option.'`)
 - `b64: false` in header enables unencoded payload ([RFC 7797](https://www.rfc-editor.org/rfc/rfc7797.txt)). `"b64"` is added to `crit` automatically (created when absent, never duplicated) — RFC 7797 §6 requires the flag to be integrity protected, and jose/other verifiers reject the token otherwise
 - With `b64: false`, a compact payload containing `"."` throws `ERR_JWS_INVALID` (RFC 7797 §5.2 — it would split the compact serialization). Use the JSON serialization (`signMulti`) for such payloads
 - With `b64: false`, payload bytes that are not valid UTF-8 throw `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not valid UTF-8."`) in `sign` and `signMulti` — the unencoded payload travels as text
@@ -81,7 +82,7 @@ Verifies a JWS token and returns its payload.
   - `JWSVerifyJWK` is the public counterpart of `JWSSignJWK` — `JWK_oct<JWK_HMAC>` or a public asymmetric JWK with a signing `alg`. The key is imported with `expect: "public"`, so an asymmetric JWK still carrying `d` throws `ERR_JWK_INVALID` instead of being imported; `sign` mirrors this with `expect: "private"`.
   - `JWKSet` stays fully permissive (`JWK[]`) because JWKS from the wire are heterogeneous; runtime filters candidates per header.
   - `JWSKeyLookup`: `(header: JWSHeaderParameters, token) => key | JWKSet | Promise<key | JWKSet>` for dynamic key resolution; the header's `alg` is already validated
-  - `JWKSet`: multi-key selection with automatic retry. A set is public-key material, so an entry is a candidate only when it is a JWK, is not `oct` and has no `k` member (unless `allowSymmetricJWKSet`), its `kid` matches the header (or the header carries none), its `alg` matches (`EdDSA` and `Ed25519` match each other; or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
+  - `JWKSet`: multi-key selection with automatic retry. An entry is a candidate only when it is a JWK (a non-`oct` entry carrying `k` is malformed and skipped; `oct` entries count like any other), its `kid` matches the header (or the header carries none), its `alg` matches (`EdDSA` and `Ed25519` match each other; or it declares none), its `use` is absent or `"sig"`, and its `key_ops` is absent or contains `verify`
     - Token has `kid` — only keys with that exact `kid` are tried (fast path, typically one key, no retry)
     - Token has no `kid` — every candidate is tried in order; the first to verify successfully wins
     - A candidate that cannot verify — unusable key material as much as a signature mismatch — only means "try the next one"; when none verifies, `ERR_JWS_SIGNATURE_INVALID` carries the per-candidate `JWTError`s (one per tried key, in order) as its `cause`
@@ -93,14 +94,14 @@ Verifies a JWS token and returns its payload.
 
 - `options?: JWSVerifyOptions`
   - `algorithms?: JWSAlgorithm[]` — allowlist of accepted algorithms. When omitted, the allowlist is inferred from the key shape via `inferJWSAllowedAlgorithms`; pass explicitly when the key carries no usable metadata (raw `Uint8Array`, alg-less JWKs, lookup functions returning ambiguous shapes). For a JWK Set the allowlist is the union over its entries, skipping the ones it cannot infer
-  - `allowSymmetricJWKSet?: boolean` — default `false`. A JWK Set is treated as public-key material: its `oct` entries are ignored, both as candidates and for inference. `true` admits them, and is only appropriate for a set the application itself controls (an HMAC key-rotation set), never for one fetched from a `jwks_uri`
   - `payload?: "json" | "string" | "bytes"` — what the payload is, declared by the caller. Defaults to `"json"`: the payload must be UTF-8 JSON naming a non-null, non-array object, or `ERR_JWS_INVALID` (`"Invalid JWS: Payload is not a JSON object."`). `"string"` returns UTF-8 text (invalid UTF-8 → `ERR_JWS_INVALID`), `"bytes"` returns `Uint8Array<ArrayBuffer>`. The signed content never decides its own shape, and `typ`/`cty` never pick it — both are signer-controlled. Under RFC 7797 `b64: false` the unencoded segment is the content and the same modes apply
   - `validateClaims?: boolean` — `false` skips JWT claim validation. `undefined` (default) and `true` both validate under `payload: "json"`; `true` together with `payload: "string"` / `"bytes"` throws `ERR_INVALID_OPTION` (`'"validateClaims" requires payload: "json".'`) rather than silently not running
   - `limits?: { keyCandidates?: number }` — how many JWK Set candidates one token may be tried against after `kid`/`alg`/`use` filtering. Default `8` (`DEFAULT_JOSE_LIMITS.keyCandidates`); a wider set throws `ERR_JWK_KEY_NOT_FOUND` (`'12 candidate keys exceed the limit of 8, narrow them with a "kid".'`) before the first import. Must be a positive integer, else `ERR_INVALID_OPTION`
-  - `allowSymmetricJWKSet`, `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
+  - `payload` and `validateClaims` come from `JOSEConsumerOptions`, the base `JWEDecryptOptions` shares
   - Inherits `JWTClaimValidationOptions`: `audience`, `issuer`, `subject`, `maxTokenAge`, `clockTolerance`, `typ`, `currentDate`, `requiredClaims`, `recognizedHeaders`
   - `audience` — the `aud` claim is checked **only when this option is set**. A token carrying `aud` is accepted by a verifier that configures none; configure `audience` to enforce RFC 7519 §4.1.3
   - Every option is checked before the token is read, and a configured check is never skipped for being empty: `audience: ""` (or a list with an empty entry), `issuer: ""`, `subject: ""`, `typ: ""` or a non-string `typ`, `maxTokenAge: 0`, an `options` that is not an object, `limits` that is not an object, and an `algorithms` / `requiredClaims` / `recognizedHeaders` that is not an array of strings each throw `ERR_INVALID_OPTION` (`'"algorithms" must be an array of strings.'`). An empty list (`audience: []`, `algorithms: []`) is a check no token passes
+  - `audience`, `issuer`, `subject`, `maxTokenAge` and `requiredClaims` need claims to check: with `payload: "string"` / `"bytes"` or `validateClaims: false`, `verify`, `verifyMulti` and `verifyMultiAll` throw `ERR_INVALID_OPTION` (`'"audience" needs a JSON payload: pass payload: "json" or drop the option.'`); `typ`, `recognizedHeaders`, `clockTolerance` and `currentDate` are accepted in every mode
   - `clockTolerance?: number | Duration` — seconds, or a `Duration` shorthand (`"5m"`, `"1h"`). Negative, non-finite or unparseable values throw `ERR_INVALID_OPTION` instead of silently disabling the `exp`/`nbf`/`iat` checks
   - `exp`/`nbf`/`iat` must be non-negative NumericDates (fractions allowed, RFC 7519 §2); a negative value throws `ERR_JWT_CLAIM_INVALID`
 
@@ -180,8 +181,8 @@ Accepts an already-parsed General or Flattened JWS and returns the first signatu
 - `jws` — `JWSGeneralSerialization | JWSFlattenedSerialization`. Flattened input is auto-normalized to General in memory.
 - `keyOrLookup` — same shape as `verify()` (`JWK | JWKSet | CryptoKey | Uint8Array | JWKLookupFunction`). `JWKSet` / lookup functions are consulted per signature until one verifies.
 - `options?: JWSMultiVerifyOptions` — extends `JWSVerifyOptions`. Adds:
-  - `limits?: { signatures?: number; keyCandidates?: number }` — `signatures` defaults to `16`; a serialization carrying more throws `ERR_JWS_INVALID` (`"Invalid JWS: 17 signatures exceed the limit of 16."`) before any signature is read
-  - `strictSignerMatch?: boolean` — when `true`, a signature is attempted only when the key material could have produced it; nothing matching means `ERR_JWS_NO_MATCHING_SIGNER` with no trial verification fallback. A signature is skipped only on a _definite_ mismatch: a different `kid` on both sides, or key material whose `kty` / curve / length cannot serve the signature's `alg`. Key material that carries no identity of its own (a `CryptoKey`, raw bytes) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out. For a single JWK or `CryptoKey`, `kid` never rules the key out; for a JWK Set the header `kid` selects the candidates (an entry with another `kid`, or none, is not one): no candidate is `ERR_JWK_KEY_NOT_FOUND`, candidates that all fail the compatibility check skip the signature.
+  - `limits?: { signatures?: number; keyCandidates?: number; keyAttempts?: number }` — `signatures` defaults to `16`; a serialization carrying more throws `ERR_JWS_INVALID` (`"Invalid JWS: 17 signatures exceed the limit of 16."`) before any signature is read. `keyAttempts` defaults to `16` (the entry limit, so one key tried on every entry fits): the signature checks one call may run against candidate keys, summed across every signature (a single key spends one per signature it is tried on, a `kid`-matched set one per signature). The trial past it throws `ERR_JWK_KEY_NOT_FOUND` (`'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".'`) and ends the call, `verifyMultiAll` included
+  - `strictSignerMatch?: boolean` — when `true`, a signature is attempted only when the key material could have produced it; nothing matching means `ERR_JWS_NO_MATCHING_SIGNER` with no trial verification fallback. A signature is skipped only on a _definite_ mismatch: a different `kid` on both sides, or key material whose `kty` / curve / length cannot serve the signature's `alg`. Key material that carries no identity of its own (a `CryptoKey`, raw bytes) is treated as unknown rather than mismatched — it falls through to the compatibility check instead of being filtered out. For a single JWK or `CryptoKey`, `kid` never rules the key out; for a JWK Set the header `kid` selects the candidates (an entry with another `kid`, or none, is not one): no candidate fails the signature with `ERR_JWK_KEY_NOT_FOUND`, candidates that all fail the compatibility check skip the signature.
 
 **Returns:** `JWSMultiVerifyResult<T>` — `{ payload, protectedHeader, signerIndex, signerHeader? }`. The payload type follows `options.payload` exactly as for `verify` (`PayloadOf<Mode>`; `verifyMulti<MyClaims>(jws, key)` for the claims):
 
@@ -191,7 +192,7 @@ Accepts an already-parsed General or Flattened JWS and returns the first signatu
 
 **Header tiers (RFC 7515 §7.2.1):** `alg` may sit in the protected header or in the signature's unprotected `header` — and a Flattened JWS may omit `protected` entirely. The `algorithms` allowlist, key-based inference and every key/`alg` check apply to an unprotected `alg` exactly as to a protected one. `crit` and `b64` must be protected (either one in a signature's unprotected `header` fails that signature with `ERR_JWS_INVALID`), and a name may sit in only one tier (`ERR_JWS_HEADER_PARAMS_NOT_DISJOINT`). `options.typ` is matched against the protected header only — a `typ` carried unprotected never satisfies it, since a type gate an attacker could move would gate nothing. `kid` is read from the merged header, so the key lookup may be steered by the unprotected tier; that is why the signature must still verify under the key the lookup returns.
 
-**Per-signature isolation:** every signature-scoped failure — a `signatures[]` entry that is not a JSON object (or whose `header` is not one, or whose `protected` is not a string), malformed protected header, `alg: "none"` / unsupported `alg`, `b64` without `crit`, protected/unprotected overlap, a signature segment that is not canonical base64url, an unusable key — is recorded and the next signature is still tried; the collected error is thrown only when no signature verifies. A malformed signer prepended to a token therefore cannot suppress a valid one. `crit` or `b64` in an **unprotected** header fails that signature with `ERR_JWS_INVALID` (RFC 7515 §4.1.11, RFC 7797 §3 — both must be integrity protected). A document carrying `signatures[]` together with a top-level `signature`/`protected` is ambiguous and throws `ERR_JWS_INVALID_SERIALIZATION`.
+**Per-signature isolation:** every signature-scoped failure — a `signatures[]` entry that is not a JSON object (or whose `header` is not one, or whose `protected` is not a string), malformed protected header, `alg: "none"` / unsupported `alg`, `b64` without `crit`, protected/unprotected overlap, a signature segment that is not canonical base64url, an unusable key — is recorded and the next signature is still tried. When no signature verifies, the call throws `ERR_JWS_SIGNATURE_INVALID` with one `JWTError` per signature, in signature order, as its `cause` (a signature `strictSignerMatch` skips is recorded as `ERR_JWS_NO_MATCHING_SIGNER`). A malformed signer prepended to a token therefore cannot suppress a valid one. `crit` or `b64` in an **unprotected** header fails that signature with `ERR_JWS_INVALID` (RFC 7515 §4.1.11, RFC 7797 §3 — both must be integrity protected). A document carrying `signatures[]` together with a top-level `signature`/`protected` is ambiguous and throws `ERR_JWS_INVALID_SERIALIZATION`.
 
 ```ts
 import { verifyMulti } from "unjwt/jws";
@@ -317,6 +318,7 @@ interface JOSELimits {
   signatures?: number; // JWS `signatures[]` entries — default 16
   recipients?: number; // JWE `recipients[]` entries — default 16
   keyCandidates?: number; // JWK Set candidates per token — default 8
+  keyAttempts?: number; // key trials per multi call, across entries — default 16
   pbes2Iterations?: number; // PBKDF2 iterations per call — default 2_400_000
 }
 
@@ -394,7 +396,6 @@ type PayloadOf<Mode extends JOSEPayloadMode, T = JWTClaims> = JOSEPayloadTypeMap
 // `Mode` is the `payload` literal verify reads its return type from.
 interface JWSVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
   limits?: Pick<JOSELimits, "keyCandidates">;
   payload?: Mode;
   validateClaims?: boolean;
@@ -465,8 +466,7 @@ interface JWSMultiSignOptions {
 
 interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
-  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates" | "keyAttempts">;
   payload?: Mode;
   validateClaims?: boolean;
   audience?: string | string[];
@@ -483,8 +483,7 @@ interface JWSMultiVerifyOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> 
 
 interface JWSMultiVerifyAllOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
   algorithms?: JWSAlgorithm[];
-  allowSymmetricJWKSet?: boolean;
-  limits?: Pick<JOSELimits, "signatures" | "keyCandidates">;
+  limits?: Pick<JOSELimits, "signatures" | "keyCandidates" | "keyAttempts">;
   payload?: Mode;
   validateClaims?: boolean;
   audience?: string | string[];

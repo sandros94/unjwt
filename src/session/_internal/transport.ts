@@ -8,11 +8,12 @@ import {
 } from "./chunked-cookie.ts";
 import type { CookieJar, SessionDriver } from "./driver.ts";
 import type { JWTError } from "../../error.ts";
+import type { SessionSource } from "../types.ts";
 import { invalidConfigError, invalidTokenError, isToken, readOnlyEventError } from "./contract.ts";
 
-/** Where a session's token can travel. */
+/** The token sources a session config enables. */
 export interface SessionTokenSource {
-  /** Request header to read the token from: a name, `true` for `x-<name>-session`, or `false` for none. */
+  /** Request header to read the token from, before the cookie: a name, or `true` for `x-<name>-session`. Unset or `false` reads no header. */
   sessionHeader?: boolean | string;
   /** Cookie options, or `false` for no cookie. */
   cookie?: false | object;
@@ -24,27 +25,28 @@ export interface SessionCookie {
   chunkMaxLength: number | undefined;
 }
 
-/** How one session's token reaches the request and leaves with the response. */
+/** How one session reads its token from the request and writes it to the response. */
 export interface SessionTransport {
-  /** Where the token comes from: the driver's handed token, the session header, or the cookie, the only one written back. */
-  source: "handed" | "header" | "cookie";
-  /** The handed token, else the session header's, else the cookie this response wrote, else the request's; absent without a token source. */
+  /** Where the token is read from: the driver's token in hand, the session header, or the cookie. Only a cookie is written back. */
+  source: SessionSource;
+  /** The token in hand, else the session header's, else the cookie this response wrote, else the request's. Absent without a token source. */
   read?: () => string | undefined;
   /** The session header is present but holds neither a bare token nor `Bearer <token>`. */
   malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID">;
-  /** Present while the session reads its token from a cookie the event can write. */
+  /** Present when the session reads its token from a cookie the event can write. */
   write?: (token: string, cookie: SessionCookie) => void;
-  /** Present while the session reads its token from a cookie the event can write. */
+  /** Present when the session reads its token from a cookie the event can write. */
   drop?: (cookie: SessionCookie) => void;
-  /** The session reads its token from a cookie, but the event cannot take one (a request without a response). */
+  /** The session reads its token from a cookie, but the event cannot write one (a request without a response). */
   readonly: boolean;
-  /** Platform signal that the response can still change; `false` once it was sent. */
+  /** Whether the response can still change. `false` once it was sent. */
   writable: () => boolean;
 }
 
 /**
- * A token the driver hands in, else the session header the request presents, else the cookie, over the driver of one request.
- * A handed or header token is reissued onto the session alone; only a cookie session writes back.
+ * Resolves the transport of one request, before any token is opened: a token the driver hands in, else the session header the request sends, else the cookie.
+ * A header that holds the very token of the request's cookie is the cookie. Any other header is read alone, the cookie left as it is.
+ * A token in hand or a header token is reissued onto the session only. Only a cookie session writes back.
  */
 export function resolveTransport<TEvent>(
   driver: SessionDriver<TEvent>,
@@ -53,22 +55,17 @@ export function resolveTransport<TEvent>(
 ): SessionTransport {
   const handed = driver.handed?.(event);
   if (handed) {
-    return { source: "handed", read: () => handed.token, readonly: false, writable: () => true };
+    return { source: "token", read: () => handed.token, readonly: false, writable: () => true };
   }
 
   const { config, name } = options;
   const header = presentedHeader(driver, event, options);
-  if (header || config.cookie === false) {
-    return {
-      source: "header",
-      read: config.sessionHeader === false ? undefined : () => header?.token,
-      malformed: header?.malformed,
-      readonly: false,
-      writable: () => true,
-    };
+  if (config.cookie === false) return headerTransport(config, header);
+  const jar = driver.cookies(event);
+  if (header && (header.token === undefined || header.token !== readChunked(jar, name))) {
+    return headerTransport(config, header);
   }
 
-  const jar = driver.cookies(event);
   const store = responseStore(jar);
   const transport: SessionTransport = {
     source: "cookie",
@@ -99,7 +96,7 @@ export function assertTokenSource(
   }
 }
 
-/** No update where the event takes no cookie the session keeps its token in; no update or clear once the response was sent. */
+/** Throws `ERR_SESSION_READONLY_EVENT` on an update when a cookie session cannot write its cookie, and on an update or clear once the response was sent. */
 export function assertWritable(
   transport: SessionTransport,
   options: { operation: "update" | "clear"; prefix: string },
@@ -115,7 +112,7 @@ export function assertWritable(
   }
 }
 
-/** Reject a `sessionHeader` that is neither a boolean nor a header name (RFC 7230 §3.2). */
+/** Refuses a `sessionHeader` that is neither a boolean nor a header name (RFC 7230 §3.2). */
 export function assertSessionHeader(header: unknown, options: { prefix: string }): void {
   if (header === undefined || typeof header === "boolean") return;
   if (isToken(header)) return;
@@ -130,12 +127,12 @@ export function sessionHeaderName(
   configured: boolean | string | undefined,
 ): string {
   if (typeof configured === "string") return configured.toLowerCase();
-  // RFC 6265bis §4.1.3 — cookie prefixes are matched case-insensitively.
+  // RFC 6265bis §4.1.3: cookie prefixes are matched case-insensitively.
   const bare = sessionName.replace(/^__(?:host|secure)-/i, "");
   return `x-${bare.toLowerCase()}-session`;
 }
 
-/** A bare token or `Bearer <token>` (RFC 7235 §2.1, case-insensitive); anything else is `undefined`. */
+/** A bare token or `Bearer <token>` (RFC 7235 §2.1, case-insensitive). Any other value is `undefined`. */
 export function headerToken(value: string | null | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
   const words = value.trim().split(/\s+/);
@@ -144,14 +141,14 @@ export function headerToken(value: string | null | undefined): string | undefine
   return words.length === 1 && first ? first : undefined;
 }
 
-/** The session header `sessionHeader` names, else `x-<name>-session`, when the request carries it; a value without a token is malformed. */
+/** The session header that `sessionHeader` enables, when the request sends it. A value without a token is malformed. */
 function presentedHeader<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
   options: { config: SessionTokenSource; name: string },
 ): { token: string | undefined; malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID"> } | undefined {
   const { config, name } = options;
-  if (config.sessionHeader === false) return undefined;
+  if (!readsHeader(config)) return undefined;
   const header = sessionHeaderName(name, config.sessionHeader);
   const value = driver.header(event, header);
   if (typeof value !== "string") return undefined;
@@ -165,6 +162,25 @@ function presentedHeader<TEvent>(
   };
 }
 
+/** Reads the session header when `sessionHeader` enables it, and writes nothing back. */
+function headerTransport(
+  config: SessionTokenSource,
+  header: ReturnType<typeof presentedHeader>,
+): SessionTransport {
+  return {
+    source: "header",
+    read: readsHeader(config) ? () => header?.token : undefined,
+    malformed: header?.malformed,
+    readonly: false,
+    writable: () => true,
+  };
+}
+
+/** `sessionHeader: true` or a name enables the header, read before the cookie. Unset or `false`, no header is read. */
+function readsHeader(config: SessionTokenSource): boolean {
+  return config.sessionHeader !== undefined && config.sessionHeader !== false;
+}
+
 /** The cookie this response wrote (none once deleted), else the request's, chunks joined. */
 function cookieToken(jar: CookieJar, name: string): string | undefined {
   const written = jar.written
@@ -174,7 +190,7 @@ function cookieToken(jar: CookieJar, name: string): string | undefined {
   return (written ?? readChunked(jar, name)) || undefined;
 }
 
-/** The jar as the chunked layer writes it, this response's value first; absent when it takes no cookie. */
+/** The jar as the chunked layer uses it, this response's value read first. Absent when the jar cannot write. */
 function responseStore(jar: CookieJar): ChunkedCookieStore<ExpirableCookieAttributes> | undefined {
   const write = jar.write?.bind(jar);
   if (!write) return undefined;

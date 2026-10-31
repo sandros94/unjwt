@@ -7,11 +7,14 @@ export type {
   SessionIssueOptions,
   SessionManager,
   SessionRequestEvent,
+  SessionSource,
   SessionUpdate,
   SessionUpdateTrigger,
   WebSessionEvent,
 } from "./types.ts";
 export {
+  type JWSSessionKey,
+  type JWSSessionKeyLookup,
   type SessionConfigJWS,
   type SessionHooksJWS,
   type SessionJWS,
@@ -20,6 +23,9 @@ export {
   defineJWSSession,
 } from "./jws.ts";
 export {
+  type JWESessionKey,
+  type JWESessionKeyLookup,
+  type JWESessionOctJWK,
   type SessionConfigJWE,
   type SessionDecryptOptions,
   type SessionEncryptOptions,

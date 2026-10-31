@@ -35,7 +35,15 @@ import type { DPoPPayload } from "./types.ts";
 export type * from "./types.ts";
 export { JWTError, isJWTError, type JWTErrorCode, type KnownJWTErrorCode } from "../error.ts";
 
-/** Create a proof with matching private/public signing keys and optional identifier/time overrides. */
+/**
+ * Creates a DPoP proof (RFC 9449 §4.2) for `target`, signed with `options.keyPair`.
+ * The proof has `typ: "dpop+jwt"` and the public key in its `jwk` header.
+ * `htu` is `target.url` without query and fragment.
+ *
+ * @returns The proof as a compact JWS.
+ * @throws `ERR_INVALID_OPTION` if the target, the key pair or another option is invalid.
+ * @throws `ERR_DPOP_INVALID` if signing fails with an error that is not a `JWTError`.
+ */
 export async function createDPoPProof(
   target: DPoPTarget,
   options: DPoPCreateOptions,
@@ -85,9 +93,18 @@ export async function createDPoPProof(
 }
 
 /**
- * Authenticate and bind a proof; replay storage and access-token validation belong to the caller.
- * A proof failure is `ERR_DPOP_INVALID` or `ERR_DPOP_CLAIM_INVALID` (a core error kept as `cause`);
- * a missing or different expected nonce, checked last, is `ERR_DPOP_NONCE_INVALID`.
+ * Verifies a DPoP proof against `target` and `options`.
+ * Returns its claims and the thumbprint of its key.
+ * Validate the access token yourself. Pass `consumeProof` to reject a replayed proof.
+ * A core error behind a proof failure is kept as `cause`.
+ *
+ * @throws `ERR_INVALID_OPTION` if the target or an option is invalid.
+ * @throws `ERR_DPOP_INVALID` if the proof's structure, header, key, algorithm or signature is invalid.
+ * @throws `ERR_DPOP_CLAIM_INVALID` if a claim is invalid, `iat` is outside the age window,
+ * or the proof does not match the request or the access token.
+ * @throws `ERR_DPOP_NONCE_INVALID` if the proof's `nonce` differs from `options.nonce`.
+ * This check runs after every other proof check.
+ * @throws `ERR_DPOP_REPLAY` if `consumeProof` does not return `true` or throws.
  */
 export async function verifyDPoPProof(
   proof: string,

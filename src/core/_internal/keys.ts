@@ -13,11 +13,11 @@ import type {
 } from "../types/index.ts";
 import { JWTError } from "../../error.ts";
 import { isPBES2Algorithm, jwkAlgServes } from "../../utils/algorithms.ts";
-import { hasSymmetricSecret, isCryptoKey, isCryptoKeyPair, isJWK } from "../../utils/guards.ts";
+import { hasMisplacedSecret, isCryptoKey, isCryptoKeyPair, isJWK } from "../../utils/guards.ts";
 import { MAX_PARTY_INFO_BYTES } from "./limits.ts";
 import { asKeyLookupError } from "./errors.ts";
 
-/** RFC 7518 §4.6.1.2 / §4.6.1.3 — `apu` / `apv` are bytes within `MAX_PARTY_INFO_BYTES`. */
+/** RFC 7518 §4.6.1.2 and §4.6.1.3: `apu` and `apv` are a `Uint8Array` of at most `MAX_PARTY_INFO_BYTES`, else `ERR_INVALID_OPTION`. */
 export function assertProducerPartyInfo(name: "apu" | "apv", value: unknown): void {
   if (!(value instanceof Uint8Array)) {
     throw new JWTError(
@@ -35,26 +35,25 @@ export function assertProducerPartyInfo(name: "apu" | "apv", value: unknown): vo
 
 export type JWKSetOperation = "sig" | "enc";
 
-/** RFC 7517 §4.3 — `key_ops` values that serve each operation. */
+/** RFC 7517 §4.3: the `key_ops` values that serve each operation. */
 const JWK_SET_KEY_OPS: Readonly<Record<JWKSetOperation, readonly string[]>> =
   /* @__PURE__ */ Object.freeze({
     sig: ["verify"],
     enc: ["unwrapKey", "decrypt", "deriveBits", "deriveKey"],
   });
 
-/** JWK Set candidate filter by `kid`/`alg`/`use`/`key_ops`; entries carrying `k` only with `allowSymmetric`. */
+/** Filters JWK Set candidates by `kid`, `alg`, `use` and `key_ops`. A non-`oct` entry with a `k` member is never a candidate. */
 export function buildJWKSetFilter(
   header: { kid?: string; alg?: JWKAlgorithm } | undefined,
-  options: { op: JWKSetOperation; allowSymmetric?: boolean },
+  options: { op: JWKSetOperation },
 ): (k: JWK) => boolean {
   const kid = header?.kid;
   const alg = header?.alg;
-  const { op, allowSymmetric } = options;
+  const { op } = options;
   const use = op;
   const keyOps = JWK_SET_KEY_OPS[op];
   return (k) => {
-    if (!isJWK(k)) return false;
-    if (!allowSymmetric && hasSymmetricSecret(k)) return false;
+    if (!isJWK(k) || hasMisplacedSecret(k)) return false;
     if (kid && k.kid !== kid) return false;
     if (k.alg && !(alg && jwkAlgServes({ kty: k.kty, alg: k.alg }, alg))) return false;
     if (k.use !== undefined && k.use !== use) return false;
@@ -66,7 +65,7 @@ export function buildJWKSetFilter(
   };
 }
 
-/** Normalize a caller's ECDH-ES ephemeral key into `{ epk, epkPrivateKey }`. */
+/** Splits a caller's ECDH-ES ephemeral key into `{ epk, epkPrivateKey }`. Key material without a private half is `ERR_JWK_INVALID`. */
 export function parseEphemeralKey(
   ephemeralKey: NonNullable<JWEEncryptOptions["ecdh"]>["ephemeralKey"],
 ): {
@@ -114,7 +113,7 @@ export function parseEphemeralKey(
   throw new JWTError("Unsupported ECDH-ES ephemeral key material provided.", "ERR_JWK_INVALID");
 }
 
-/** RFC 7518 §4.6.1.2 / §4.6.1.3 — ECDH-ES agreement params; an empty `apu` / `apv` is omitted. */
+/** RFC 7518 §4.6.1.2 and §4.6.1.3: the ECDH-ES agreement parameters. An empty `apu` or `apv` is omitted. */
 export function buildECDHAgreementParams(
   ecdh: JWEEncryptOptions["ecdh"],
 ): Pick<JWEKeyManagementHeaderParameters, "apu" | "apv" | "epk" | "epkPrivateKey"> {
@@ -145,7 +144,7 @@ export function stringKeyError(): JWTError {
   );
 }
 
-/** RFC 7518 §4.8.1 — a string key is a UTF-8 PBES2 password, refused under any other `alg`. */
+/** RFC 7518 §4.8.1: a string key is a UTF-8 PBES2 password. Any other `alg` refuses it with `ERR_JWK_INVALID`. */
 export function resolvePasswordKey<K>(
   alg: KeyManagementAlgorithm,
   key: K | string,
@@ -156,10 +155,10 @@ export function resolvePasswordKey<K>(
 }
 
 export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R
-  ? NonNullable<Awaited<R>>
+  ? Exclude<Awaited<R>, undefined>
   : K;
 
-/** Run a key-lookup function; a throw or no key is `ERR_JWK_KEY_NOT_FOUND`. */
+/** Runs a key lookup function. An `undefined` result is `ERR_JWK_KEY_NOT_FOUND`, and so is a throw that is not a `JWTError`. */
 export async function resolveKeyInput<K>(
   key: K,
   options: { header: unknown; token: string; what: string },
@@ -172,7 +171,7 @@ export async function resolveKeyInput(
   const { header, token, what } = options;
   let resolved: unknown;
   try {
-    resolved = await key(header, token);
+    resolved = await key({ header, token });
   } catch (error) {
     throw asKeyLookupError(error, what);
   }
@@ -182,7 +181,7 @@ export async function resolveKeyInput(
   return resolved;
 }
 
-/** RFC 7518 §4.5 — a `dir` JWK's `alg` is `dir` or the token's `enc`. */
+/** RFC 7518 §4.5: a `dir` JWK's `alg` is `dir` or the token's `enc`, else `ERR_JWK_INVALID`. */
 export function assertDirectKeyRole(
   key: unknown,
   enc: ContentEncryptionAlgorithm | undefined,

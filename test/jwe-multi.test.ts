@@ -4,14 +4,16 @@ import { textEncoder, textDecoder } from "unsecure/utils";
 
 import {
   encrypt,
+  decrypt,
   encryptMulti,
   decryptMulti,
   generalToFlattened,
   JWTError,
   isJWTError,
   isUnsecureError,
+  type KnownJWTErrorCode,
 } from "../src/core/jwe/index.ts";
-import { generateJWK, wrapKey } from "../src/core/jwk/index.ts";
+import { generateJWK, generateKey, wrapKey } from "../src/core/jwk/index.ts";
 import { base64UrlStringify, base64UrlParse } from "../src/utils/base64.ts";
 import { secureRandomBytes } from "unsecure/random";
 import type {
@@ -25,6 +27,7 @@ import type {
   JWEFlattenedSerialization,
   JWKLookupFunction,
   KeyManagementAlgorithm,
+  JWEDecryptOptions,
   JWEMultiDecryptOptions,
   JWEMultiDecryptResult,
   JWTClaims,
@@ -251,9 +254,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         { enc: "A256GCM" },
       );
       const set: JWKSet = { keys: [keys.a128kw, keys.a256kw] };
-      const { payload, recipientIndex } = await decryptMulti(jwe, set, {
-        allowSymmetricJWKSet: true,
-      });
+      const { payload, recipientIndex } = await decryptMulti(jwe, set);
       expect(payload.sub).toBe("u1");
       expect(recipientIndex).toBe(1);
     });
@@ -264,7 +265,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         [{ key: keys.rsa256.publicKey }, { key: keys.a256kw }],
         { enc: "A256GCM" },
       );
-      const lookup: JWKLookupFunction = (header) => {
+      const lookup: JWKLookupFunction = ({ header }) => {
         if (header.kid === keys.a256kw.kid) return keys.a256kw;
         if (header.kid === keys.rsa256.publicKey.kid) return keys.rsa256.privateKey;
         throw new Error("no key");
@@ -480,16 +481,6 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         await expect(decryptMulti(jwe, keys.a256kw)).rejects.toBeInstanceOf(JWTError);
       });
 
-      it('forceUint8Array matches payload: "bytes"', async () => {
-        const jwe = await encryptMulti({ x: 1 }, [{ key: keys.a256kw }], {
-          enc: "A256GCM",
-        });
-        const { payload } = await decryptMulti(jwe, keys.a256kw, { forceUint8Array: true });
-        expect(payload).toBeInstanceOf(Uint8Array);
-        const explicit = await decryptMulti(jwe, keys.a256kw, { payload: "bytes" });
-        expect(explicit.payload).toEqual(payload);
-      });
-
       it("rejects a non-JSON-object payload under the default mode", async () => {
         const jwe = await encryptMulti("plain text", [{ key: keys.a256kw }], {
           enc: "A256GCM",
@@ -578,7 +569,7 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
           ],
         };
         const set: JWKSet = { keys: [anotherA256, keys.a256kw] };
-        const { payload } = await decryptMulti(jweNoKid, set, { allowSymmetricJWKSet: true });
+        const { payload } = await decryptMulti(jweNoKid, set);
         expect(payload.sub).toBe("u1");
       });
 
@@ -621,6 +612,77 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
         expect(error.message).toBe("JWE decryption failed.");
         const causes = error.cause as JWTError[];
         expect(causes.map((c) => c.code)).toEqual(["ERR_JWK_INVALID", "ERR_JWE_DECRYPTION_FAILED"]);
+      });
+    });
+
+    describe("keyAttempts", () => {
+      const exhausted =
+        'Key attempt budget of 16 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".';
+
+      it("ends the call once candidate fan-out passes the budget", async () => {
+        const pairs = await Promise.all(
+          Array.from({ length: 10 }, () =>
+            generateJWK("ECDH-ES+A256KW", { namedCurve: "P-256", kid: false }),
+          ),
+        );
+        const [holder, decoy, ...others] = pairs;
+        const jwe = await encryptMulti(
+          { sub: "u1" },
+          [...others, holder].map((pair) => ({ key: pair.publicKey })),
+          { enc: "A256GCM" },
+        );
+        const set: JWKSet = { keys: [decoy.privateKey, holder.privateKey] };
+
+        await expect(decryptMulti(jwe, set)).rejects.toSatisfy((error) =>
+          isJWTError(error, "ERR_JWK_KEY_NOT_FOUND"),
+        );
+        await expect(decryptMulti(jwe, set)).rejects.toThrow(exhausted);
+
+        const { payload, recipientIndex } = await decryptMulti(jwe, set, {
+          limits: { keyAttempts: 18 },
+        });
+        expect(payload.sub).toBe("u1");
+        expect(recipientIndex).toBe(8);
+      });
+
+      it("opens the last of sixteen recipients with one key under the default budget", async () => {
+        const minted = await Promise.all(
+          Array.from({ length: 16 }, () => generateJWK("A256KW", { kid: false })),
+        );
+        const jwe = await encryptMulti(
+          { sub: "u1" },
+          minted.map((key) => ({ key })),
+          { enc: "A256GCM" },
+        );
+
+        const { recipientIndex } = await decryptMulti(jwe, minted[15]);
+        expect(recipientIndex).toBe(15);
+        await expect(
+          decryptMulti(jwe, minted[15], { limits: { keyAttempts: 15 } }),
+        ).rejects.toThrow(
+          'Key attempt budget of 15 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".',
+        );
+      });
+
+      it("looks up no recipient after the budget runs out", async () => {
+        const minted = await Promise.all(
+          Array.from({ length: 4 }, (_, i) => generateJWK("A256KW", { kid: `k${i}` })),
+        );
+        const jwe = await encryptMulti(
+          { sub: "u1" },
+          minted.map((key) => ({ key })),
+          { enc: "A256GCM" },
+        );
+        const looked: (string | undefined)[] = [];
+        const lookup: JWKLookupFunction = ({ header }) => {
+          looked.push(header.kid);
+          return minted[3];
+        };
+
+        await expect(decryptMulti(jwe, lookup, { limits: { keyAttempts: 2 } })).rejects.toThrow(
+          'Key attempt budget of 2 ("limits.keyAttempts") exhausted, narrow the keys with a "kid".',
+        );
+        expect(looked).toEqual(["k0", "k1", "k2"]);
       });
     });
 
@@ -978,6 +1040,23 @@ describe.concurrent("JWE Multi-recipient (General JSON Serialization)", () => {
   });
 
   describe("RFC 7516 strictness — recipients, headers and segments", () => {
+    it("does not open a GCMKW-wrapped CEK as dir content under the same CryptoKey", async () => {
+      const key = await generateKey("A256GCMKW");
+      const compact = await encrypt({ sub: "u1" }, key, { alg: "A256GCMKW", enc: "A256GCM" });
+      const [protectedEncoded, encryptedKey] = compact.split(".");
+      const header = JSON.parse(base64UrlParse(protectedEncoded)) as { iv: string; tag: string };
+      const recast: JWEFlattenedSerialization = {
+        unprotected: { alg: "dir", enc: "A256GCM" },
+        iv: header.iv,
+        ciphertext: encryptedKey,
+        tag: header.tag,
+      };
+
+      await expect(decryptMulti(recast, key)).rejects.toSatisfy((error) =>
+        isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED"),
+      );
+    });
+
     it("an injected recipient with an overlapping header does not block the holder", async () => {
       const jwe = await encryptMulti({ sub: "u1" }, [{ key: keys.a256kw }], { enc: "A256GCM" });
       const tampered = prependRecipient(jwe, { alg: "A256KW", enc: "A256GCM" });
@@ -1546,6 +1625,256 @@ describe.concurrent("JWE JSON additional authenticated data and option gates", (
   });
 });
 
+const CLAIM_OPTIONS = [
+  ["audience", { audience: "a" }],
+  ["issuer", { issuer: "i" }],
+  ["subject", { subject: "u" }],
+  ["maxTokenAge", { maxTokenAge: 60 }],
+  ["requiredClaims", { requiredClaims: ["sub"] }],
+] as const;
+const UNCHECKED_MODES = [
+  [{ payload: "string" }, "needs a JSON payload"],
+  [{ payload: "bytes" }, "needs a JSON payload"],
+  [{ validateClaims: false }, "needs claim validation"],
+] as const;
+const CLAIM_CASES = CLAIM_OPTIONS.flatMap(([name, option]) =>
+  UNCHECKED_MODES.map(([mode, reason]) => [name, mode, { ...option, ...mode }, reason] as const),
+);
+const TIME_CASES = (
+  [
+    ["expiresIn", { expiresIn: 60 }],
+    ["expiresAt", { expiresAt: new Date(4_000_000_000_000) }],
+    ["notBeforeIn", { notBeforeIn: 0 }],
+    ["notBeforeAt", { notBeforeAt: new Date(0) }],
+    ["issuedAt", { issuedAt: true }],
+  ] as const
+).flatMap(([name, option]) =>
+  [["a string", "text"] as const, ["bytes", new Uint8Array([1, 2])] as const].map(
+    ([label, payload]) => [name, label, payload, option] as const,
+  ),
+);
+
+describe.concurrent("JWE JSON claim and time options need a JSON payload", () => {
+  let key: JWK_oct<"A256KW">;
+  let jwe: JWEGeneralSerialization;
+
+  beforeAll(async () => {
+    key = await generateJWK("A256KW");
+    jwe = await encryptMulti({ sub: "u", iss: "i", aud: "a" }, [{ key }], {
+      enc: "A256GCM",
+      protectedHeader: { typ: "at+jwt" },
+    });
+  });
+
+  it.each(CLAIM_CASES)("decryptMulti refuses %s with %j", async (name, _mode, options, reason) => {
+    const error = await decryptMulti(jwe, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain(`"${name}" ${reason}`);
+  });
+
+  it("keeps header checks and the clock for any payload mode", async () => {
+    const { payload } = await decryptMulti(jwe, key, {
+      payload: "string",
+      typ: "at+jwt",
+      recognizedHeaders: ["app"],
+      currentDate: new Date(),
+      clockTolerance: 5,
+    });
+    expect(JSON.parse(payload)).toMatchObject({ sub: "u" });
+  });
+
+  it.each(TIME_CASES)(
+    "encryptMulti refuses %s with %s payload",
+    async (name, _label, payload, option) => {
+      const error = await encryptMulti(payload, [{ key }], option).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect(error.message).toContain(`"${name}" needs a JSON payload`);
+    },
+  );
+});
+
+describe.concurrent("decryptMulti when no recipient opens", () => {
+  let a: JWK_oct<"A256KW">;
+  let b: JWK_oct<"A256KW">;
+  let rsa: JWK_Pair<"RSA-OAEP-256">;
+
+  beforeAll(async () => {
+    [a, b, rsa] = await Promise.all([
+      generateJWK("A256KW"),
+      generateJWK("A256KW"),
+      generateJWK("RSA-OAEP-256", { modulusLength: 2048 }),
+    ]);
+    a = { ...a, kid: "a" };
+    b = { ...b, kid: "b" };
+  });
+
+  it("throws ERR_JWE_DECRYPTION_FAILED with each recipient's error in order", async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key: a }, { key: b }], { enc: "A256GCM" });
+    const unrelated = await generateJWK("A256KW");
+    const error = await decryptMulti(jwe, { ...unrelated, kid: undefined }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    expect(error.cause).toHaveLength(2);
+    expect(error.cause.map((cause: JWTError) => cause.code)).toEqual([
+      "ERR_JWE_DECRYPTION_FAILED",
+      "ERR_JWE_DECRYPTION_FAILED",
+    ]);
+  });
+
+  it("does not let the last recipient's error stand for the call", async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key: a }, { key: rsa.publicKey }], {
+      enc: "A256GCM",
+    });
+    const unrelated = await generateJWK("A256KW");
+    const error = await decryptMulti(jwe, { ...unrelated, kid: undefined }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    expect(error.cause.map((cause: JWTError) => cause.code)).toEqual([
+      "ERR_JWE_DECRYPTION_FAILED",
+      "ERR_JWE_ALG_NOT_ALLOWED",
+    ]);
+  });
+
+  it("records a recipient strictRecipientMatch skips once another one was tried", async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key: rsa.publicKey }, { key: a }], {
+      enc: "A256GCM",
+    });
+    const unrelated = await generateKey("A256KW");
+    const error = await decryptMulti(jwe, unrelated, {
+      strictRecipientMatch: true,
+      algorithms: ["RSA-OAEP-256", "A256KW"],
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    expect(error.cause.map((cause: JWTError) => cause.code)).toEqual([
+      "ERR_JWE_NO_MATCHING_RECIPIENT",
+      "ERR_JWE_DECRYPTION_FAILED",
+    ]);
+  });
+
+  it("keeps ERR_JWE_NO_MATCHING_RECIPIENT when strictRecipientMatch tries no recipient", async () => {
+    const jwe = await encryptMulti(
+      { sub: "u1" },
+      [{ key: rsa.publicKey }, { key: rsa.publicKey }],
+      {
+        enc: "A256GCM",
+      },
+    );
+    const unrelated = await generateKey("A256KW");
+    const error = await decryptMulti(jwe, unrelated, {
+      strictRecipientMatch: true,
+      algorithms: ["RSA-OAEP-256"],
+    }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_NO_MATCHING_RECIPIENT")).toBe(true);
+  });
+
+  it("keeps ERR_JWK_KEY_NOT_FOUND when the key attempt budget runs out", async () => {
+    const jwe = await encryptMulti(
+      { sub: "u1" },
+      [{ key: { ...a, kid: undefined } }, { key: { ...b, kid: undefined } }],
+      { enc: "A256GCM" },
+    );
+    const decoys = await Promise.all([generateJWK("A256KW"), generateJWK("A256KW")]);
+    const set: JWKSet = { keys: decoys.map((decoy) => ({ ...decoy, kid: undefined })) };
+    const error = await decryptMulti(jwe, set, { limits: { keyAttempts: 3 } }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
+    expect(error.message).toContain('"limits.keyAttempts"');
+  });
+
+  it("throws a failure of the shared header at once", async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key: a }, { key: b }], { enc: "A256GCM" });
+    const error = await decryptMulti(jwe, b, { encryptionAlgorithms: ["A128GCM"] }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+  });
+
+  it("throws the own error of a Flattened JWE sealed for another key", async () => {
+    const flattened = generalToFlattened(
+      await encryptMulti({ sub: "u1" }, [{ key: a }], { enc: "A256GCM" }),
+    );
+    const unrelated = await generateJWK("A256KW");
+    const error = await decryptMulti(flattened, { ...unrelated, kid: undefined }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_DECRYPTION_FAILED")).toBe(true);
+    expect(Array.isArray(error.cause)).toBe(false);
+  });
+
+  it("throws the own error of a one-recipient General JWE outside the allowlist", async () => {
+    const jwe = await encryptMulti({ sub: "u1" }, [{ key: a }], { enc: "A256GCM" });
+    const error = await decryptMulti(jwe, a, { algorithms: ["A128KW"] }).catch((e) => e);
+    expect(isJWTError(error, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
+  });
+
+  describe("a Flattened JWE fails as its compact form", () => {
+    const asIs = (compact: string): string => compact;
+    const cases: Array<{
+      label: string;
+      code: KnownJWTErrorCode;
+      tamper: (compact: string) => string;
+      key: () => Parameters<typeof decrypt>[1];
+      options?: JWEDecryptOptions;
+    }> = [
+      {
+        label: "a key it was not sealed for",
+        code: "ERR_JWE_DECRYPTION_FAILED",
+        tamper: asIs,
+        key: () => ({ ...b, kid: undefined }),
+      },
+      {
+        label: "an alg outside the allowlist",
+        code: "ERR_JWE_ALG_NOT_ALLOWED",
+        tamper: asIs,
+        key: () => a,
+        options: { algorithms: ["A128KW"] },
+      },
+      {
+        label: "an enc outside the allowlist",
+        code: "ERR_JWE_ALG_NOT_ALLOWED",
+        tamper: asIs,
+        key: () => a,
+        options: { encryptionAlgorithms: ["A128GCM"] },
+      },
+      {
+        label: 'a "typ" mismatch',
+        code: "ERR_JWE_INVALID",
+        tamper: asIs,
+        key: () => a,
+        options: { typ: "at+jwt" },
+      },
+      {
+        label: "a malformed encrypted key",
+        code: "ERR_JWE_INVALID",
+        tamper: (compact) => {
+          const parts = compact.split(".");
+          parts[1] = `${parts[1]}=`;
+          return parts.join(".");
+        },
+        key: () => a,
+      },
+      {
+        label: "a throwing key lookup",
+        code: "ERR_JWK_KEY_NOT_FOUND",
+        tamper: asIs,
+        key: () => () => {
+          throw new RangeError("lookup failed");
+        },
+      },
+    ];
+
+    it.each(cases)("for $label", async ({ code, tamper, key, options }) => {
+      const compact = tamper(await encrypt({ sub: "u1" }, a, { enc: "A256GCM" }));
+      const [protectedHeader, encryptedKey, iv, ciphertext, tag] = compact.split(".");
+      const flattened: JWEFlattenedSerialization = {
+        protected: protectedHeader,
+        encrypted_key: encryptedKey,
+        iv,
+        ciphertext,
+        tag,
+      };
+      const compactError = await decrypt(compact, key(), options).catch((e) => e);
+      const flattenedError = await decryptMulti(flattened, key(), options).catch((e) => e);
+      expect(isJWTError(compactError, code)).toBe(true);
+      expect(isJWTError(flattenedError, code)).toBe(true);
+      expect(Array.isArray(flattenedError.cause)).toBe(false);
+    });
+  });
+});
+
 describe("types", () => {
   type MyClaims = { sub: string; role: "admin" | "user" };
   type Bytes = Uint8Array<ArrayBuffer>;
@@ -1570,9 +1899,6 @@ describe("types", () => {
     expectTypeOf((jwe: JWEGeneralSerialization, options: JWEMultiDecryptOptions) =>
       decryptMulti(jwe, key, options),
     ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<JWTClaims | string | Bytes>>();
-    expectTypeOf((jwe: JWEGeneralSerialization) =>
-      decryptMulti(jwe, key, { forceUint8Array: true }),
-    ).returns.resolves.toEqualTypeOf<JWEMultiDecryptResult<Bytes>>();
   });
 
   it("rejects an unknown payload mode and a claims type outside the json mode", () => {

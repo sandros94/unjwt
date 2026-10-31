@@ -26,8 +26,10 @@ import {
   decodeSegment,
 } from "../../_internal/headers.ts";
 import { asJWTError, asKeyLookupError, copyJsonObject } from "../../_internal/errors.ts";
+import type { KeyAttemptBudget } from "../../_internal/limits.ts";
 import { assertEntryLimit } from "../../_internal/limits.ts";
 import { checkJWSAlgSupported } from "./algorithms.ts";
+import { signingAlgOf } from "./keys.ts";
 import type { ResolvedKeyInput } from "../../_internal/keys.ts";
 import { resolveKeyInput, stringKeyError } from "../../_internal/keys.ts";
 import { validateClaimsIfJson } from "../../_internal/payload.ts";
@@ -44,7 +46,7 @@ const INVALID_CLAIMS = {
   message: "JWT claim validation failed.",
 } as const;
 
-/** Error codes that condemn one signature rather than the whole token. */
+/** Error codes that fail one signature rather than the whole token. */
 export const PER_SIGNATURE_ERROR_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "ERR_JWS_SIGNATURE_INVALID",
   "ERR_JWK_KEY_NOT_FOUND",
@@ -78,7 +80,7 @@ type SignatureHeaders =
       unprotectedHeader?: JWSHeaderParameters;
     };
 
-/** Reads and checks one `signatures[]` entry's headers; `alg` may sit in either tier (RFC 7515 §7.2.1). */
+/** Reads and checks one `signatures[]` entry's headers. `alg` may be in either header (RFC 7515 §7.2.1). */
 export function _readSignatureHeaders(entry: JWSGeneralSignature, index: number): SignatureHeaders {
   const shapeError = checkSerializationEntry(entry, {
     family: "JWS",
@@ -152,10 +154,10 @@ export function _resolveSignerAlg(signer: JWSMultiSigner, index: number): JWSAlg
 
 function _inferSignerAlg(key: JWSMultiSigner["key"], index: number): JWSAlgorithm {
   if (isJWK(key)) {
-    const alg = key.alg;
+    const alg = signingAlgOf(key);
     if (!alg) {
       throw new JWTError(
-        `Cannot infer "alg" for signer[${index}]: the JWK has no "alg" property.`,
+        `Cannot infer "alg" for signer[${index}]: the JWK has no "alg" property and its key allows more than one.`,
         "ERR_JWS_SIGNER_ALG_INFERENCE",
       );
     }
@@ -171,7 +173,7 @@ function _inferSignerAlg(key: JWSMultiSigner["key"], index: number): JWSAlgorith
   return inferred[0];
 }
 
-/** RFC 7797 §3 — every signer uses the same `b64` value. */
+/** RFC 7797 §3: every signer uses the same `b64` value. */
 export function _resolveB64(signers: JWSMultiSigner[]): boolean {
   let decided: boolean | undefined;
   for (let i = 0; i < signers.length; i++) {
@@ -185,7 +187,7 @@ export function _resolveB64(signers: JWSMultiSigner[]): boolean {
   return decided ?? true;
 }
 
-/** RFC 7515 §7.2.1 — a signature's protected and unprotected headers are disjoint. */
+/** RFC 7515 §7.2.1: a signature's protected and unprotected headers are disjoint. */
 export function _assertDisjointHeaders(
   protectedHeader: Record<string, unknown> | undefined,
   unprotectedHeader: Record<string, unknown> | undefined,
@@ -271,9 +273,10 @@ export async function _verifyOneSignature(
     options: JWSMultiVerifyAllOptions;
     payloadMode: JOSEPayloadMode;
     keyCandidates: number;
+    keyAttempts: KeyAttemptBudget;
   },
 ): Promise<JWSMultiVerifyOutcome> {
-  const { options, payloadMode, keyCandidates } = context;
+  const { options, payloadMode, keyCandidates, keyAttempts } = context;
   const fail = (
     error: JWTError,
     protectedHeader?: JWSHeaderParameters,
@@ -321,7 +324,6 @@ export async function _verifyOneSignature(
   const algError = checkAlgAllowed(alg, rawKeyMaterial, {
     ctx: JWS_ALG_CTX,
     algorithms: options.algorithms,
-    allowSymmetric: options.allowSymmetricJWKSet,
   });
   if (algError) return fail(algError, protectedHeader, unprotectedHeader);
 
@@ -339,10 +341,11 @@ export async function _verifyOneSignature(
       signature: signatureBytes,
       signingInput: signingInputBytes,
       kid: effective.kid,
-      allowSymmetric: options.allowSymmetricJWKSet,
       keyCandidates,
+      keyAttempts,
     });
   } catch (err) {
+    if (keyAttempts.exhausted) throw keyAttempts.exhausted;
     return fail(asJWTError(err, INVALID_SIGNATURE), protectedHeader, unprotectedHeader);
   }
   if (!verified) {

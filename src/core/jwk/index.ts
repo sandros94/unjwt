@@ -18,7 +18,7 @@ export {
 export type { JWTErrorCode, KnownJWTErrorCode, JWTErrorCauseMap } from "../../error.ts";
 export { generateKey, generateJWK } from "./generate.ts";
 export { deriveKeyFromPassword, deriveJWKFromPassword } from "./password.ts";
-export { exportJWK, exportKey, toPublicJWK } from "./export.ts";
+export { exportJWK, toPublicJWK } from "./export.ts";
 export { wrapKey, unwrapKey } from "./wrap.ts";
 export { importPEM, exportPEM } from "./pem.ts";
 export { deriveSharedSecret } from "./ecdh.ts";

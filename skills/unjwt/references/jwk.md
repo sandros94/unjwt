@@ -228,7 +228,7 @@ Unwraps a CEK.
 - `options: UnwrapKeyOptions`
   - `alg: KeyManagementAlgorithm` — **required**
   - `format?: "cryptokey" | "raw"` — `"cryptokey"` (default) returns `CryptoKey`; `"raw"` returns `Uint8Array`
-  - `unwrappedKeyAlgorithm?`, `keyUsage?`, `extractable?` — for CryptoKey import
+  - `unwrappedKeyAlgorithm?`, `keyUsage?`, `extractable?` — for CryptoKey import. Without `unwrappedKeyAlgorithm` the AES-GCM algorithm is inferred from `enc` and the key length; a key that is not an AES-GCM key (an `A*CBC-HS*` content key) needs `unwrappedKeyAlgorithm` or `format: "raw"`, else `ERR_JWE_INVALID`
   - `iv?`, `tag?` — AES-GCMKW
   - `p2s?`, `p2c?` — PBES2
   - `minIterations?`, `maxIterations?` — PBES2 `p2c` bounds. Default floor `1000` (RFC 7518 §4.8.1.2), default ceiling `600_000` (the `p2c` `encrypt` mints by default)
@@ -254,7 +254,7 @@ Low-level ECDH-ES key derivation (Concat KDF, NIST SP 800-56A). Useful for multi
 - `privateKey: CryptoKey | JWK_EC_Private` — sender's ephemeral private key (sender side), or recipient's static private key (recipient side)
 - `options`
   - `enc: JWK_ECDH_ES | ContentEncryptionAlgorithm` — **required**; used as the `AlgorithmID` in the KDF info structure, and as the algorithm a JWK input is imported under, so a key from `generateJWK("ECDH-ES+A256KW")` — whose `alg` is authoritative — works as written
-  - `keyLength?: number` — derived key length in bits; required when `enc` is `"ECDH-ES"`, inferred otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
+  - `keyLength?: number` — derived key length in bits; required when `enc` is `"ECDH-ES"` (missing is `ERR_INVALID_OPTION`), inferred otherwise. Must be a positive multiple of 8 no greater than 8192, else `ERR_INVALID_OPTION`
   - `partyUInfo?`, `partyVInfo?` — agreement party info
 
 Returns `Promise<Uint8Array>` — the derived key material.
@@ -322,7 +322,7 @@ Prefer `deriveJWKFromPassword()` for most cases. Use `deriveKeyFromPassword()` w
 PBKDF2 derivation for PBES2 algorithms.
 
 - `password: string | Uint8Array`
-- `options: DeriveKeyOptions` — `{ alg: JWK_PBES2, salt: string | Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`
+- `options: DeriveKeyOptions` — `{ alg: JWK_PBES2, salt: string | Uint8Array, iterations: number, toJWK?: boolean, extractable?, keyUsage? }`; `keyUsage` may hold only `wrapKey` and `unwrapKey`, else `ERR_INVALID_OPTION`
   - `alg` is **required**: `"PBES2-HS256+A128KW"` | `"PBES2-HS384+A192KW"` | `"PBES2-HS512+A256KW"`. Any other algorithm throws `ERR_JWK_UNSUPPORTED` before a single PBKDF2 round — a password derives a key under PBES2 alone
   - `salt` accepts text or raw bytes; a `string` is UTF-8 encoded, and the 8-octet minimum (RFC 7518 §4.8.1.1) is measured on the encoded bytes — a 3-character salt throws `ERR_INVALID_OPTION`
   - `iterations` is an integer of at least `1000` (RFC 7518 §4.8.1.2), the floor `encrypt` / `wrapKey` hold PBES2 to; `1`, `999`, `1.5` or a non-number throws `ERR_INVALID_OPTION`. There is no ceiling here — the `600_000` cap applies to the `p2c` a token is minted with, not to key derivation

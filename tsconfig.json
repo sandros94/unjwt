@@ -19,10 +19,7 @@
     "composite": true,
     "isolatedDeclarations": true,
     "allowImportingTsExtensions": true,
-    "lib": ["ESNext", "DOM"],
-    "paths": {
-      "#h3v1": ["./node_modules/h3v1/dist/index"]
-    }
+    "lib": ["ESNext", "DOM"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist", "docs", "skills"]

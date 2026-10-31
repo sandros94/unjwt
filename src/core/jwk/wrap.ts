@@ -49,10 +49,16 @@ import {
 } from "./_internal/wrap.ts";
 
 /**
- * Wraps a CEK under a JWA key management algorithm; the result shape follows `alg`.
+ * Wraps a CEK under a JWA key management algorithm. The result members follow `alg`:
+ * `iv` and `tag` for AES-GCMKW, `p2s` and `p2c` for PBES2, `epk`, `apu` and `apv` for ECDH-ES.
  *
- * @param wrappingKey A `CryptoKey`, a JWK, or for PBES2 a password string or bytes.
- * @param options `alg` plus its parameters (`p2s`/`p2c` for PBES2, `ecdh` for ECDH-ES, …).
+ * @param wrappingKey A `CryptoKey` or a JWK. For PBES2, also a password string or bytes.
+ * @param options `alg` plus its parameters (`p2s` and `p2c` for PBES2, `ecdh` for ECDH-ES, …).
+ * @throws `ERR_INVALID_OPTION` if `keyToWrap` is not bytes or a `CryptoKey`, an AES-KW CEK is not
+ *   16 bytes or more in whole 8-byte blocks, or `p2s` or `p2c` is out of range.
+ * @throws `ERR_JWE_INVALID` if PBES2 lacks `p2s` or `p2c`, or `ecdh.enc` is unsupported.
+ * @throws `ERR_JWK_INVALID` if the key does not fit `alg`, a string key is given outside PBES2, or `"ECDH-ES"` lacks `ecdh.enc`.
+ * @throws `ERR_JWK_UNSUPPORTED` if `alg` is not a key management algorithm.
  */
 export async function wrapKey<TAlg extends KeyManagementAlgorithm>(
   keyToWrap: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -82,7 +88,7 @@ export async function wrapKey(
 
   switch (alg) {
     case "dir": {
-      // RFC 7516 §5.2 step 6: direct encryption has an empty JWE Encrypted Key.
+      // RFC 7516 §5.1 step 6: direct encryption has an empty JWE Encrypted Key.
       return { encryptedKey: new Uint8Array(0) };
     }
 
@@ -163,14 +169,17 @@ export async function wrapKey(
 }
 
 /**
- * Unwraps a CEK under a JWA key management algorithm.
+ * Unwraps a CEK under a JWA key management algorithm. Returns an AES-GCM `CryptoKey` unless
+ * `format` is `"raw"` or `unwrappedKeyAlgorithm` says otherwise. Pass `format: "raw"` for an `A*CBC-HS*` CEK.
  *
- * @param unwrappingKey A `CryptoKey`, a JWK, or for PBES2 a password string or bytes.
+ * @param unwrappingKey A `CryptoKey` or a JWK. For PBES2, also a password string or bytes.
  * @param options `alg`, `format?` (`"cryptokey"` by default, or `"raw"`), plus the algorithm's
- *   parameters (`iv`/`tag`, `p2s`/`p2c`, `epk`, …).
- * @throws `ERR_JWE_DECRYPTION_FAILED` for any failed unwrap, its cause undisclosed (RFC 7516
- *   §11.5); `ERR_INVALID_OPTION` for a malformed `wrappedKey` or `options`; `ERR_JWE_INVALID` for
- *   missing or malformed algorithm parameters.
+ *   parameters (`iv` and `tag`, `p2s` and `p2c`, `epk`, …).
+ * @throws `ERR_JWE_DECRYPTION_FAILED` if the unwrap fails. The cause is not disclosed (RFC 7516 §11.5).
+ * @throws `ERR_INVALID_OPTION` if `wrappedKey` is not a `Uint8Array` or `options` is not an object.
+ * @throws `ERR_JWE_INVALID` if an algorithm parameter is missing or malformed.
+ * @throws `ERR_JWK_INVALID` if the key does not fit `alg`.
+ * @throws `ERR_JWK_UNSUPPORTED` if `alg` is not a key management algorithm.
  */
 export async function unwrapKey<TOptions extends UnwrapKeyOptions>(
   wrappedKey: Uint8Array<ArrayBuffer>,
@@ -363,13 +372,20 @@ export async function unwrapKey(
     return unwrappedCekBytes;
   }
 
-  const finalKey = await crypto.subtle.importKey(
+  const importAlgorithm =
+    options.unwrappedKeyAlgorithm || inferAesImportAlgorithm(options.enc, unwrappedCekBytes.length);
+  if (!importAlgorithm) {
+    throw new JWTError(
+      'Cannot infer the unwrapped key algorithm, pass "unwrappedKeyAlgorithm" or unwrap to raw bytes.',
+      "ERR_JWE_INVALID",
+    );
+  }
+
+  return crypto.subtle.importKey(
     "raw",
     unwrappedCekBytes,
-    options.unwrappedKeyAlgorithm || { name: "AES-GCM" },
+    importAlgorithm,
     defaultExtractable,
     options.keyUsage || ["encrypt", "decrypt"],
   );
-
-  return finalKey;
 }

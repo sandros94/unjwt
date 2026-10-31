@@ -3,7 +3,7 @@ import { deriveSecret, createError } from "nuxt/server";
 import { type SessionDefinition, type WebSessionEvent, defineJWESession } from "unjwt/session";
 import { base64UrlStringify } from "unjwt/utils";
 
-type Definition = SessionDefinition<SessionData, "1h", WebSessionEvent>;
+type Definition = SessionDefinition<SessionData, "1h">;
 let definition: Promise<Definition> | undefined;
 
 /**
