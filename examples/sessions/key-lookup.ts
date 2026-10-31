@@ -19,8 +19,7 @@ export const appSession = defineJWESession<{ userId: string }, "7D">({
   maxAge: "7D",
   hooks: {
     async onKeyLookup({ header }) {
-      const key = header.kid ? await sessionKey(header.kid) : undefined;
-      return { keys: key ? [key] : [] };
+      return header.kid ? sessionKey(header.kid) : undefined;
     },
   },
 });
