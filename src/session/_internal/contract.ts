@@ -51,7 +51,7 @@ export function expiredSessionError(options: {
   return new JWTError(expiredClaimMessage(exp), "ERR_JWT_EXPIRED", { jti: id, iat, exp });
 }
 
-/** A token that could not be read, with what the key lookup hook threw as `cause`. It says nothing about the token. */
+/** A token that could not be read, with what the key lookup hook threw, or why a key it returned cannot be used, as `cause`. It says nothing about the token. */
 export function readFailedError(
   cause: unknown,
   options: { prefix: string },

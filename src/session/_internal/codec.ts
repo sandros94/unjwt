@@ -1,4 +1,5 @@
 import type { ExpiresIn, JWTClaims, Duration, JWKAlgorithm } from "../../core/types/index.ts";
+import { isJWTError } from "../../error.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
 import { isJWKSet } from "../../utils/guards.ts";
 import {
@@ -71,8 +72,8 @@ export interface SessionCodecSpec<
 
 /**
  * Keys are resolved once per config and each configured JWK is imported once. With a key lookup hook, the hook picks each request's
- * open key under the algorithms the configured keys serve. A throwing hook fails the read with `ERR_SESSION_READ_FAILED`. Any other
- * open failure but expiry throws `ERR_SESSION_TOKEN_INVALID`.
+ * open key under the algorithms the configured keys serve. A throwing hook, or a key it returns that cannot be used (`ERR_JWK_INVALID`),
+ * fails the read with `ERR_SESSION_READ_FAILED`. Any other open failure but expiry throws `ERR_SESSION_TOKEN_INVALID`.
  */
 export function createSessionCodec<
   Config extends SessionCoreConfig,
@@ -90,7 +91,7 @@ export function createSessionCodec<
     config: Config,
     token: string,
     key: OpenKey | ((lookup: { header: Header }) => Found | Promise<Found>),
-    algorithms: A[],
+    opening: { algorithms: A[]; lookup: boolean },
   ): Promise<OpenedSession> => {
     const options = spec.openOptions(config);
     const payload = await spec
@@ -102,10 +103,10 @@ export function createSessionCodec<
           maxAge: config.maxAge,
           requiredClaims: options?.requiredClaims,
           typ: spec.issueOptions(config)?.protectedHeader?.typ,
-          algorithms,
+          algorithms: opening.algorithms,
         }),
       )
-      .catch((error: unknown) => rethrowAsInvalidToken(error, { prefix }));
+      .catch((error: unknown) => rethrowOpenFailure(error, { lookup: opening.lookup, prefix }));
     const clock = { now: now(config), clockTolerance: options?.clockTolerance };
     assertNotFromTheFuture(payload, { ...clock, prefix });
     const opened = openedSession(payload, { maxAge: config.maxAge });
@@ -129,6 +130,7 @@ export function createSessionCodec<
               lookUpKey(hook, { header, ...args, config }, { prefix })
           : key;
       const importable: readonly unknown[] = hook ? [] : isJWKSet(key) ? key.keys : [key];
+      const opening = { algorithms, lookup: hook !== undefined };
       const assertOpenKeys = async (): Promise<void> => {
         for (const entry of importable) {
           await assertImportableKey(entry, { alg: undefined, prefix });
@@ -147,13 +149,13 @@ export function createSessionCodec<
         issue: (state) => spec.issue(config, sessionPayload(state), issueKey, issueAlg),
 
         opener: (args) => {
-          const opening = keyFor(args);
-          return (token) => openWith(config, token, opening, algorithms);
+          const keyed = keyFor(args);
+          return (token) => openWith(config, token, keyed, opening);
         },
 
         open: async (token, args) => {
           await assertOpenKeys();
-          return openWith(config, token, keyFor(args), algorithms);
+          return openWith(config, token, keyFor(args), opening);
         },
       };
     },
@@ -259,6 +261,12 @@ async function lookUpKey<Header, Found>(
   } catch (error) {
     throw readFailedError(error, options);
   }
+}
+
+/** A key the lookup hook returned that cannot be used is a read failure, not the token's. Any other failure goes to `rethrowAsInvalidToken`. */
+function rethrowOpenFailure(error: unknown, options: { lookup: boolean; prefix: string }): never {
+  if (options.lookup && isJWTError(error, "ERR_JWK_INVALID")) throw readFailedError(error, options);
+  return rethrowAsInvalidToken(error, options);
 }
 
 function toleranceSeconds(clockTolerance: number | Duration | undefined): number {

@@ -50,7 +50,8 @@ export interface SessionHooksJWS<
  * names none) that serve its `alg`, in order, and a token offered more than `verifyOptions.limits.keyCandidates` keys is refused. Nothing
  * it returns is checked when the session is defined. `undefined` means no key for this token: the token fails with
  * `ERR_SESSION_TOKEN_INVALID`, an `ERR_JWK_KEY_NOT_FOUND` as its `cause`, and its cookie is expired. Any throw, a `JWTError` or not, means
- * the token could not be read: `ERR_SESSION_READ_FAILED`, the thrown error as its `cause`, and the cookie is kept. `open()` passes it no event.
+ * the token could not be read: `ERR_SESSION_READ_FAILED`, the thrown error as its `cause`, and the cookie is kept. A key it returns that cannot
+ * be used for the token's `alg` is the same read failure, an `ERR_JWK_INVALID` as its `cause`. `open()` passes it no event.
  */
 export type JWSSessionKeyLookup<
   T extends SessionRecord = SessionClaims,

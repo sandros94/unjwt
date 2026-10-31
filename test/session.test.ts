@@ -1537,6 +1537,111 @@ describe("a session read that fails", () => {
     },
   );
 
+  const unusableLookups = (family: Family) =>
+    family === "jws"
+      ? [
+          {
+            label: "an oct key for an ES256 token",
+            setup: async () => ({ key: await generateJWK("ES256"), onKeyLookup: () => jwsKey }),
+          },
+          {
+            label: "a key with an undecodable k",
+            setup: async () => ({ onKeyLookup: () => ({ ...jwsKey, k: "!!!" }) }),
+          },
+        ]
+      : [
+          {
+            label: "an EC key for an A128KW token",
+            setup: async () => {
+              const { publicKey } = await generateJWK("ES256");
+              return { onKeyLookup: () => publicKey };
+            },
+          },
+          {
+            label: "a key with an undecodable k",
+            setup: async () => ({ onKeyLookup: () => ({ ...jweKey, k: "!!!" }) }),
+          },
+        ];
+
+  it.each(
+    FAMILIES.flatMap((family) =>
+      unusableLookups(family.family).map((lookup) => ({ ...family, ...lookup })),
+    ),
+  )(
+    "$family: a lookup that returns $label is a read failure that keeps the cookie",
+    async ({ define, setup }) => {
+      const onError = vi.fn();
+      const { onKeyLookup, ...config } = await setup();
+      const session = define({ ...config, hooks: { onKeyLookup, onError } });
+      const token = await session.issue({ user: "ada" });
+      const headers = new Headers();
+
+      const manager = await session.use({ req: get({ cookie: `web=${token}` }), res: { headers } });
+      expect(manager.id).toBeUndefined();
+      expect(onError).toHaveBeenCalledOnce();
+      const [{ error }] = onError.mock.calls[0] as [{ error: Error }];
+      expect(error).toMatchObject({
+        code: "ERR_SESSION_READ_FAILED",
+        cause: { code: "ERR_JWK_INVALID" },
+      });
+      expect(headers.getSetCookie()).toEqual([]);
+      await expect(session.open(token)).rejects.toMatchObject({
+        code: "ERR_SESSION_READ_FAILED",
+        cause: { code: "ERR_JWK_INVALID" },
+      });
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: a token whose alg is outside the allowlist fails with a lookup set and expires the cookie",
+    async ({ family, define }) => {
+      const onError = vi.fn();
+      const claims = { jti: "forged", iat: nowSeconds() - 60 };
+      const options = { protectedHeader: { typ: "session+jwt" } };
+      const [ecdsa, wrap] = await Promise.all([generateJWK("ES256"), generateJWK("A256KW")]);
+      const forged =
+        family === "jws"
+          ? await sign(claims, ecdsa.privateKey, options)
+          : await encrypt(claims, wrap, options);
+      const returned = family === "jws" ? ecdsa.publicKey : wrap;
+      const session = define({ hooks: { onKeyLookup: () => returned, onError } });
+      const headers = new Headers();
+
+      const manager = await session.use({
+        req: get({ cookie: `web=${forged}` }),
+        res: { headers },
+      });
+      expect(manager.id).toBeUndefined();
+      const [{ error }] = onError.mock.calls[0] as [{ error: Error }];
+      expect(error).toMatchObject({
+        code: "ERR_SESSION_TOKEN_INVALID",
+        cause: { code: family === "jws" ? "ERR_JWS_ALG_NOT_ALLOWED" : "ERR_JWE_ALG_NOT_ALLOWED" },
+      });
+      expect(expiredCookie(headers)).toHaveLength(1);
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: without a lookup a configured key that cannot be used throws from use()",
+    async ({ family, define }) => {
+      const onError = vi.fn();
+      const key =
+        family === "jws"
+          ? { kty: "oct", k: "!!!not-base64url!!!", alg: "HS256" }
+          : { kty: "oct", k: "A".repeat(27), alg: "A128KW" };
+      const session = define({ key, hooks: { onError } });
+      const token = await define().issue({ user: "ada" });
+      const headers = new Headers();
+
+      const error = await caught(
+        session.use({ req: get({ cookie: `web=${token}` }), res: { headers } }),
+      );
+      expect(isJWTError(error, "ERR_SESSION_KEY_INVALID")).toBe(true);
+      expect(onError).not.toHaveBeenCalled();
+      expect(headers.getSetCookie()).toEqual([]);
+    },
+  );
+
   it.each(FAMILIES)(
     "$family: clear() in onError on a read failure expires the cookie",
     async ({ define }) => {
@@ -2234,7 +2339,7 @@ describe("the key rules both families share", () => {
   );
 
   it.each(RULES)(
-    "$family: fails the read when onKeyLookup throws, and the token when it returns undefined or null, or a key that does not import",
+    "$family: fails the read when onKeyLookup throws or returns a key that does not import, and the token when it returns undefined or null",
     async ({ define, key }) => {
       const token = await define().issue({ user: "ada" });
       const boom = new Error("boom");
@@ -2261,9 +2366,9 @@ describe("the key rules both families share", () => {
         },
         {
           onKeyLookup: () => ({ ...key, k: "!!!" }),
-          code: "ERR_SESSION_TOKEN_INVALID",
+          code: "ERR_SESSION_READ_FAILED",
           cause: expect.objectContaining({ code: "ERR_JWK_INVALID" }),
-          keeps: false,
+          keeps: true,
         },
       ] as const;
       for (const { onKeyLookup, code, cause, keeps } of lookups) {

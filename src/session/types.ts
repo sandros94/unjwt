@@ -146,7 +146,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
   /**
    * Runs when a token fails to open for a reason other than expiry, and when an issue or cookie write fails. The session is empty after a read.
    * - `ERR_SESSION_TOKEN_INVALID`: the token failed its checks, or `onKeyLookup` found no key for it. Its cookie is expired.
-   * - `ERR_SESSION_READ_FAILED`: `onKeyLookup` threw, its error as `cause`. The cookie is kept, and `clear()` expires it.
+   * - `ERR_SESSION_READ_FAILED`: `onKeyLookup` threw, its error as `cause`, or returned a key that cannot be used, an `ERR_JWK_INVALID` as `cause`. The cookie is kept, and `clear()` expires it.
    */
   onError?: (
     args: TArgs & {
@@ -212,7 +212,7 @@ export interface SessionDefinition<
    * Opens a token into session state. Checks `typ`, the algorithms the keys serve, `jti`, `iat`, and `exp` when `maxAge` is set. The key lookup hook receives no event.
    * @throws `ERR_JWT_EXPIRED` if the token is expired.
    * @throws `ERR_SESSION_TOKEN_INVALID` if the token fails any other check.
-   * @throws `ERR_SESSION_READ_FAILED` if the key lookup hook throws.
+   * @throws `ERR_SESSION_READ_FAILED` if the key lookup hook throws or returns a key that cannot be used.
    */
   open: (token: string) => Promise<OpenedSessionState<T, MaxAge>>;
 }
