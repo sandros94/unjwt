@@ -154,9 +154,11 @@ export function resolvePasswordKey<K>(
   return textEncoder.encode(key);
 }
 
-export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R ? Awaited<R> : K;
+export type ResolvedKeyInput<K> = K extends (...args: never[]) => infer R
+  ? Exclude<Awaited<R>, undefined>
+  : K;
 
-/** Runs a key lookup function. A non-`JWTError` throw is `ERR_JWK_KEY_NOT_FOUND`, and so is a result that is no key at all. */
+/** Runs a key lookup function. An `undefined` result is `ERR_JWK_KEY_NOT_FOUND`, and so is a throw that is not a `JWTError`. */
 export async function resolveKeyInput<K>(
   key: K,
   options: { header: unknown; token: string; what: string },

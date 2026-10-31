@@ -2002,7 +2002,7 @@ describe("the key rules both families share", () => {
   );
 
   it.each(RULES)(
-    "$family: fails the token when onKeyLookup throws, returns an empty JWK Set or returns a key that does not import",
+    "$family: fails the token when onKeyLookup throws, returns undefined or null, or returns a key that does not import",
     async ({ define, key }) => {
       const token = await define().issue({ user: "ada" });
       const boom = new Error("boom");
@@ -2016,7 +2016,13 @@ describe("the key rules both families share", () => {
           keeps: true,
         },
         {
-          onKeyLookup: () => ({ keys: [] }),
+          onKeyLookup: () => undefined,
+          cause: "ERR_JWK_KEY_NOT_FOUND",
+          inner: undefined,
+          keeps: false,
+        },
+        {
+          onKeyLookup: (() => null) as never,
           cause: "ERR_JWK_KEY_NOT_FOUND",
           inner: undefined,
           keeps: false,
@@ -2248,10 +2254,10 @@ describe("key rotation through onKeyLookup", () => {
     expectTypeOf<Promise<CryptoKey>>().toExtend<ReturnType<JWELookup>>();
   });
 
-  it("types a lookup that returns nothing as no lookup", () => {
-    expectTypeOf<() => undefined>().not.toExtend<JWSSessionKeyLookup>();
-    expectTypeOf<() => Promise<null>>().not.toExtend<JWSSessionKeyLookup>();
-    expectTypeOf<() => undefined>().not.toExtend<JWESessionKeyLookup>();
+  it("types a lookup that may return undefined, never null", () => {
+    expectTypeOf<() => undefined>().toExtend<JWSSessionKeyLookup>();
+    expectTypeOf<() => Promise<undefined>>().toExtend<JWESessionKeyLookup>();
+    expectTypeOf<() => null>().not.toExtend<JWSSessionKeyLookup>();
     expectTypeOf<() => Promise<null>>().not.toExtend<JWESessionKeyLookup>();
   });
 

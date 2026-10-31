@@ -67,7 +67,12 @@ export interface JWSCodecConfig extends SessionCoreConfig {
         config: unknown;
         [arg: string]: unknown;
       },
-    ): JWSVerifyJWK | CryptoKey | JWKSet | Promise<JWSVerifyJWK | CryptoKey | JWKSet>;
+    ):
+      | JWSVerifyJWK
+      | CryptoKey
+      | JWKSet
+      | undefined
+      | Promise<JWSVerifyJWK | CryptoKey | JWKSet | undefined>;
   };
 }
 

@@ -68,7 +68,12 @@ export interface JWECodecConfig extends SessionCoreConfig {
         config: unknown;
         [arg: string]: unknown;
       },
-    ): JWEDecryptJWK | CryptoKey | JWKSet | Promise<JWEDecryptJWK | CryptoKey | JWKSet>;
+    ):
+      | JWEDecryptJWK
+      | CryptoKey
+      | JWKSet
+      | undefined
+      | Promise<JWEDecryptJWK | CryptoKey | JWKSet | undefined>;
   };
 }
 

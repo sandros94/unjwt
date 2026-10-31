@@ -312,7 +312,7 @@ describe("digestUrl", () => {
 
     const { payload, protectedHeader } = await verify<{ ath: string }>(
       proof,
-      ({ header }) => header.jwk ?? { keys: [] },
+      ({ header }) => header.jwk,
       { algorithms: ["ES256"], typ: "dpop+jwt", maxTokenAge: "60s" },
     );
     const access = await verify(accessToken, serverKey.publicKey, { typ: "at+jwt" });

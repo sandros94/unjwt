@@ -420,62 +420,56 @@ describe("key lookup failures", () => {
 });
 
 describe("key lookup returning no key", () => {
-  const empty = () => ({ keys: [] });
+  const none = () => undefined;
 
-  it("verify reports a lookup returning an empty JWK Set as key-not-found", async () => {
+  it("verify reports a lookup returning undefined as key-not-found", async () => {
     const token = await sign(payload, hs256);
-    await expectCode(
-      () => verify(token, empty, { algorithms: ["HS256"] }),
-      "ERR_JWK_KEY_NOT_FOUND",
-    );
+    await expectCode(() => verify(token, none), "ERR_JWK_KEY_NOT_FOUND");
+    await expectCode(() => verify(token, none, { algorithms: ["HS256"] }), "ERR_JWK_KEY_NOT_FOUND");
   });
 
-  it("decrypt reports a lookup returning an empty JWK Set as key-not-found", async () => {
+  it("decrypt reports a lookup returning undefined as key-not-found", async () => {
     const token = await encrypt(payload, a128kw);
+    await expectCode(() => decrypt(token, none), "ERR_JWK_KEY_NOT_FOUND");
     await expectCode(
-      () => decrypt(token, empty, { algorithms: ["A128KW"] }),
+      () => decrypt(token, none, { algorithms: ["A128KW"] }),
       "ERR_JWK_KEY_NOT_FOUND",
     );
   });
 
-  it("verifyMulti reports a lookup returning an empty JWK Set as key-not-found", async () => {
+  it("verifyMulti reports a lookup returning undefined as key-not-found", async () => {
     const general = await signMulti(payload, [{ key: hs256 }]);
-    await expectCode(
-      () => verifyMulti(general, empty, { algorithms: ["HS256"] }),
-      "ERR_JWK_KEY_NOT_FOUND",
-    );
+    await expectCode(() => verifyMulti(general, none), "ERR_JWK_KEY_NOT_FOUND");
   });
 
-  it("verifyMultiAll records a lookup returning an empty JWK Set as key-not-found", async () => {
+  it("verifyMultiAll records a lookup returning undefined as key-not-found", async () => {
     const general = await signMulti(payload, [{ key: hs256 }]);
-    const [outcome] = await verifyMultiAll(general, empty, { algorithms: ["HS256"] });
+    const [outcome] = await verifyMultiAll(general, none);
     expect(outcome).toMatchObject({
       verified: false,
       error: expect.objectContaining({ code: "ERR_JWK_KEY_NOT_FOUND" }),
     });
   });
 
-  it("decryptMulti reports a lookup returning an empty JWK Set as key-not-found", async () => {
+  it("decryptMulti reports a lookup returning undefined as key-not-found", async () => {
     const general = await encryptMulti(payload, [{ key: a128kw }]);
-    await expectCode(
-      () => decryptMulti(general, empty, { algorithms: ["A128KW"] }),
-      "ERR_JWK_KEY_NOT_FOUND",
-    );
+    await expectCode(() => decryptMulti(general, none), "ERR_JWK_KEY_NOT_FOUND");
   });
 
-  it("verify and decrypt fail closed on a lookup that returns nothing", async () => {
-    const nothing = (() => undefined) as never;
+  it("verify and decrypt refuse a lookup returning null as key-not-found", async () => {
+    const nil = (() => null) as never;
     const [signed, encrypted] = await Promise.all([sign(payload, hs256), encrypt(payload, a128kw)]);
-    await expectCode(() => verify(signed, nothing), "ERR_JWK_KEY_NOT_FOUND");
-    await expectCode(() => decrypt(encrypted, nothing), "ERR_JWK_KEY_NOT_FOUND");
+    await expectCode(() => verify(signed, nil), "ERR_JWK_KEY_NOT_FOUND");
+    await expectCode(() => decrypt(encrypted, nil), "ERR_JWK_KEY_NOT_FOUND");
   });
 
-  it("types a lookup that returns nothing as no lookup", () => {
-    expectTypeOf<() => undefined>().not.toExtend<JWKLookupFunction>();
+  it("types a lookup that may return undefined, never null", () => {
+    expectTypeOf<() => undefined>().toExtend<JWKLookupFunction>();
+    expectTypeOf<() => Promise<undefined>>().toExtend<JWSKeyLookup>();
+    expectTypeOf<() => undefined>().toExtend<JWEKeyLookup>();
     expectTypeOf<() => null>().not.toExtend<JWKLookupFunction>();
-    expectTypeOf<() => Promise<undefined>>().not.toExtend<JWSKeyLookup>();
-    expectTypeOf<() => undefined>().not.toExtend<JWEKeyLookup>();
-    expectTypeOf<() => { keys: [] }>().toExtend<JWKLookupFunction>();
+    expectTypeOf<() => Promise<null>>().not.toExtend<JWSKeyLookup>();
+    expectTypeOf<() => null>().not.toExtend<JWEKeyLookup>();
   });
 });
 

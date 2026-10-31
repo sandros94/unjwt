@@ -171,7 +171,7 @@ export async function sign(
  * @throws `ERR_JWS_ALG_NOT_ALLOWED` if the header `alg` is unsupported or not allowed for the key.
  * @throws `ERR_JWS_SIGNATURE_INVALID` if the signature does not verify.
  * @throws `ERR_JWK_INVALID` if no key is given, or the key cannot verify with the header `alg`.
- * @throws `ERR_JWK_KEY_NOT_FOUND` if the lookup throws an error that is not a `JWTError` (as `cause`), or a JWK Set has no candidate.
+ * @throws `ERR_JWK_KEY_NOT_FOUND` if the lookup returns `undefined` or throws an error that is not a `JWTError` (as `cause`), or a JWK Set has no candidate.
  * @throws `ERR_INVALID_OPTION` if an option is malformed, or a claim option is set where claims are not validated.
  * @throws `ERR_JWT_EXPIRED` if `exp` has passed or the token is older than `maxTokenAge`.
  * @throws `ERR_JWT_NBF` if `nbf` is in the future.
