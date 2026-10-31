@@ -7,7 +7,7 @@ export type { CookieAttributes };
 
 /**
  * A cookie jar over the request's `Headers` and, when given, the response's.
- * Each write is copied to `errHeaders` too: h3 sends only these for a thrown handler.
+ * Each write is copied to `errHeaders` too: h3 and Nitro send only these for a thrown handler.
  */
 export function webCookieJar(
   request: Headers,
