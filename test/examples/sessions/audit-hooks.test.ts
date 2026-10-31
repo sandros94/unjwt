@@ -173,15 +173,19 @@ describe("Hooks: what a throw does", async () => {
       },
     });
     const token = await session.issue({ userId: "user_1a2b" });
-    const headers = new Headers();
-    await session.use({ req: request(`__Host-unjwt-jws=${token}`), res: { headers } });
-    expect(headers.getSetCookie()).toEqual([]);
-    const [error] = errors as Array<{ code: string; cause: { code: string; cause: unknown } }>;
-    expect(error?.code).toBe("ERR_SESSION_TOKEN_INVALID");
-    expect(error?.cause.code).toBe("ERR_JWK_KEY_NOT_FOUND");
-    expect(error?.cause.cause).toBe(boom);
+    const kept = new Headers();
+    await session.use({ req: request(`__Host-unjwt-jws=${token}`), res: { headers: kept } });
+    expect(kept.getSetCookie()).toEqual([]);
+    const dropped = new Headers();
+    await session.use({ req: request("__Host-unjwt-jws=not-a-token"), res: { headers: dropped } });
+    expect(dropped.getSetCookie()[0]).toContain("Max-Age=0");
+
+    const [readFailed, invalid] = errors as Array<{ code: string; cause: unknown }>;
+    expect(readFailed?.code).toBe("ERR_SESSION_READ_FAILED");
+    expect(readFailed?.cause).toBe(boom);
+    expect(invalid?.code).toBe("ERR_SESSION_TOKEN_INVALID");
     expect(((await errorOf(session.open(token))) as { code: string }).code).toBe(
-      "ERR_SESSION_TOKEN_INVALID",
+      "ERR_SESSION_READ_FAILED",
     );
   });
 });

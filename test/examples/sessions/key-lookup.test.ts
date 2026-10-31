@@ -94,5 +94,9 @@ describe("examples/sessions/key-lookup", async () => {
 
     expect(session.id).toBeUndefined();
     expect(headers.get("set-cookie")).toBeNull();
+    await expect(appSession.open(fresh)).rejects.toMatchObject({
+      code: "ERR_SESSION_READ_FAILED",
+      cause: { message: "secret manager unavailable" },
+    });
   });
 });

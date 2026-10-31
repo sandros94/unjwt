@@ -44,7 +44,7 @@ Nitro v3 has no auto-imports: `defineHandler`, `defineWebSocketHandler` and `HTT
 
 `POST /login` reads `{ user }` and calls `update()`, which mints the token and writes the cookie. `GET /me` goes through `requireAppSession`, which turns `session.id === undefined` into a `401`, and returns `session.data`: a session has no `id` until its first `update()`. `POST /logout` calls `clear()`, which expires the cookie.
 
-`GET /throw-after-clear` clears and then throws a `401`, and on Nitro v3 the client stays signed in: the `Set-Cookie` written before the throw is lost, because Nitro's error handler answers with a `Response` of its own and h3 sends that without the prepared headers. That is the reproduction this route exists for; the fix belongs upstream.
+`GET /throw-after-clear` clears and then throws a `401`, and the client is signed out: the error response carries the `Set-Cookie` that `clear()` wrote, with `Max-Age=0`, because h3 and Nitro both send the headers a route prepared with a thrown error.
 
 ## WebSockets
 
