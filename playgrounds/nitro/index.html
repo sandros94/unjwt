@@ -45,7 +45,7 @@
 
       for (const button of document.querySelectorAll("[data-call]")) {
         const [method, path] = button.dataset.call.split(" ");
-        const body = path === "/login" ? { user: "alice" } : undefined;
+        const body = path === "/login" ? { user: "user_1a2b" } : undefined;
         button.addEventListener("click", () => call(method, path, body));
       }
       document.querySelector("[data-socket]").addEventListener("click", openSocket);

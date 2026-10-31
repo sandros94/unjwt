@@ -30,7 +30,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
 - **Benchmarks:** `pnpm bench`
 - **Example:** `pnpm dev` runs the h3 playground
-- **Playgrounds:** `playgrounds/{h3,nuxt-4,nitro}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must exist: the `pnpm dev:prepare` stub runs from `src`, or `pnpm build`). All three run on `unjwt/session`. `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1 under `nuxt/server`, `appSecret`-derived key, WebSockets), `pnpm dev:nitro` the Nitro 3 one (same routes on `unjwt/session`, a static `index.html`). They are usage examples, not tests: `test/` covers behaviour.
+- **Playgrounds:** `playgrounds/{h3,nuxt-4,nitro}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must exist: the `pnpm dev:prepare` stub runs from `src`, or `pnpm build`). All three run on `unjwt/session`. `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1 under `nuxt/server`, the session key from `runtimeConfig.sessionKey`, WebSockets), `pnpm dev:nitro` the Nitro 3 one (same routes and key source, a static `index.html`). They are usage examples, not tests: `test/` covers behaviour.
 
 ## Architecture
 
@@ -151,4 +151,4 @@ src/
 - For multi-arg functions, use an options object as the second parameter.
 - Avoid barrel files (`index.ts` re-exports); import directly from specific modules.
 - Relative imports name the file with its `.ts` extension (`/index.ts` for a directory): the stub `dist` re-exports `src`, and Node resolves nothing else.
-- **`skills/unjwt/`** contains reference docs for the public API — keep these files updated when making architectural changes or modifying public-facing signatures/types
+- **`skills/unjwt/SKILL.md`** is the agent skill: it points at the documentation site (`llms.txt`, `/raw/<path>.md`) and maps tasks to pages — update its table when a page moves or a public entry changes; it holds no API reference of its own

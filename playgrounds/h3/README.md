@@ -1,6 +1,6 @@
 # h3 playground
 
-A session over h3 v2 with `unjwt/session`: one `defineJWESession` at module scope, a `useAppSession(event)` wrapper that takes the h3 event as it is, and three routes in [`main.ts`](./main.ts). No adapter, no `h3` peer dependency.
+A session over h3 with `unjwt/session`: one `defineJWESession` at module scope, a `useAppSession(event)` wrapper that takes the h3 event as it is, and three routes in [`main.ts`](./main.ts). No adapter, no `h3` peer dependency.
 
 ```sh
 pnpm dev:prepare   # at the repository root, once: the stub dist runs from src; `pnpm build` works too

@@ -58,7 +58,7 @@
 
   "overrides": [
     {
-      "files": ["test/**", "example/**", "playgrounds/**", "*.config.ts"],
+      "files": ["test/**", "examples/**", "playgrounds/**", "*.config.ts"],
       "rules": {
         "import/no-nodejs-modules": "off",
         "no-restricted-globals": "off",

@@ -1,0 +1,32 @@
+<!-- #region docs -->
+<!doctype html>
+<meta charset="utf-8" />
+<title>Token inspector</title>
+
+<p>A check in this page protects nothing on a server: verify the token there too.</p>
+<form>
+  <label>Token <textarea name="token" rows="4" required></textarea></label>
+  <label>Issuer's public JWK <textarea name="jwk" rows="4" required></textarea></label>
+  <button>Verify</button>
+</form>
+<output></output>
+
+<script type="module">
+  import { verify } from "https://esm.sh/unjwt@__UNJWT_VERSION__/jws";
+
+  const form = document.querySelector("form");
+  const output = document.querySelector("output");
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const key = JSON.parse(form.elements.jwk.value);
+      const { payload } = await verify(form.elements.token.value.trim(), key);
+      const expires = payload.exp ? new Date(payload.exp * 1000).toLocaleString() : "never";
+      output.textContent = `Valid, expires ${expires}\n${JSON.stringify(payload, null, 2)}`;
+    } catch (error) {
+      output.textContent = `Not valid: ${error.code ?? error.message}`;
+    }
+  });
+</script>
+<!-- #endregion -->

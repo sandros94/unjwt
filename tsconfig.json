@@ -19,8 +19,22 @@
     "composite": true,
     "isolatedDeclarations": true,
     "allowImportingTsExtensions": true,
-    "lib": ["ESNext", "DOM"]
+    "lib": ["ESNext", "DOM"],
+    // `examples/` import the package by name, as a consumer would; the paths
+    // point that name at `src` so the examples typecheck against the source.
+    "paths": {
+      "unjwt": ["./src/index.ts"],
+      "unjwt/jws": ["./src/core/jws/index.ts"],
+      "unjwt/jwe": ["./src/core/jwe/index.ts"],
+      "unjwt/jwk": ["./src/core/jwk/index.ts"],
+      "unjwt/internal": ["./src/core/internal.ts"],
+      "unjwt/error": ["./src/error.ts"],
+      "unjwt/utils": ["./src/utils/index.ts"],
+      "unjwt/session": ["./src/session/index.ts"],
+      "unjwt/dpop": ["./src/dpop/index.ts"],
+      "unjwt/adapters/elysia": ["./src/adapters/elysia/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "exclude": ["node_modules", "dist", "docs", "skills"]
+  "exclude": ["node_modules", "dist", "docs", "skills", "test/examples"]
 }

@@ -1,15 +1,23 @@
 packages:
+  - docs
   - playgrounds/*
 
 allowBuilds:
-  '@parcel/watcher': false
+  "@parcel/watcher": false
+  "@tailwindcss/oxide": false
+  better-sqlite3: true
   esbuild: false
   simple-git-hooks: true
+  vue-demi: false
 
 ignoredBuiltDependencies:
   - "@parcel/watcher"
+  - "@tailwindcss/oxide"
   - esbuild
+  - vue-demi
 minimumReleaseAgeExclude:
   - unsecure
+  - undocs-nightly@0.10.1-20261021-144810-60ffbf3
 onlyBuiltDependencies:
+  - better-sqlite3
   - simple-git-hooks

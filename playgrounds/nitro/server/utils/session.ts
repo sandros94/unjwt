@@ -1,31 +1,34 @@
+// #region docs
 import { HTTPError } from "nitro";
-import { type WebSessionEvent, defineJWESession, deriveJWKFromPassword } from "unjwt/session";
+import { useRuntimeConfig } from "nitro/runtime-config";
+import { type SessionDefinition, type WebSessionEvent, defineJWSSession } from "unjwt/session";
 
 export interface SessionData {
   user: string;
 }
 
-const password = process.env.SESSION_PASSWORD ?? "playground-password-with-at-least-32-characters";
+let definition: SessionDefinition<SessionData, "1h"> | undefined;
 
-const key = await deriveJWKFromPassword(password, {
-  alg: "PBES2-HS256+A128KW",
-  salt: "unjwt-playground-nitro",
-  iterations: 600_000,
-});
-
-const definition = defineJWESession<SessionData, "1h">({
-  key,
-  name: "unjwt-session",
-  maxAge: "1h",
-  rolling: "15m",
-});
+/** Reads the key from the runtime config once, on first use. */
+export function appSession(): SessionDefinition<SessionData, "1h"> {
+  if (definition) return definition;
+  const { sessionKey } = useRuntimeConfig();
+  if (!sessionKey) throw new Error("NITRO_SESSION_KEY is not set");
+  definition = defineJWSSession<SessionData, "1h">({
+    key: JSON.parse(sessionKey),
+    maxAge: "1h",
+    rolling: "15m",
+  });
+  return definition;
+}
 
 export function useAppSession(event: WebSessionEvent) {
-  return definition.use(event);
+  return appSession().use(event);
 }
 
 export async function requireAppSession(event: WebSessionEvent) {
-  const current = await useAppSession(event);
-  if (!current.id) throw new HTTPError({ status: 401, message: "Sign in first" });
-  return current;
+  const session = await useAppSession(event);
+  if (!session.id) throw new HTTPError({ status: 401, message: "Sign in first" });
+  return session;
 }
+// #endregion

@@ -5,4 +5,5 @@ publish = "dist"
 
 [build.environment]
 NODE_VERSION = "24"
+NETLIFY_USE_PNPM = "true"
 NITRO_PRESET = "netlify"

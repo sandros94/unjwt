@@ -8,6 +8,7 @@
   "quoteProps": "consistent",
   "proseWrap": "never",
 
+  "overrides": [{ "files": ["docs/**/*.md"], "options": { "proseWrap": "preserve" } }],
   "ignorePatterns": [
     "**/CHANGELOG.md",
     "**/pnpm*.yaml",

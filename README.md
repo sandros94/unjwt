@@ -8,12 +8,13 @@ A collection of JWT utilities based on the Web Crypto API, in a single zero-depe
 
 ## Features
 
-- **JWS** ([RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515)) — HMAC, RSA, RSA-PSS, ECDSA, EdDSA. Compact + General/Flattened JSON Serialization (multi-signature).
-- **JWE** ([RFC 7516](https://datatracker.ietf.org/doc/html/rfc7516)) — `dir`, AES-KW, AES-GCM-KW, RSA-OAEP, PBES2, ECDH-ES. AES-GCM and AES-CBC-HMAC-SHA2 content encryption. Compact + General/Flattened JSON Serialization (multi-recipient).
-- **JWK** ([RFC 7517](https://datatracker.ietf.org/doc/html/rfc7517)) — generate, import, export, wrap, unwrap. `CryptoKey` ↔ JWK ↔ PEM conversion. ECDH-ES shared-secret derivation. JWK Set lookup and rotation over a set your application fetches.
-- **DPoP** ([RFC 9449](https://www.rfc-editor.org/rfc/rfc9449)) — create and verify proofs through the optional [`unjwt/dpop`](https://unjwt.s94.dev/dpop) module. Your application owns HTTP and replay storage.
-- **Sessions** — cookie-based JWT sessions through [`unjwt/session`](https://unjwt.s94.dev/frameworks/session) on [h3 v2](https://unjwt.s94.dev/frameworks/h3), [Nitro 3](https://unjwt.s94.dev/frameworks/nitro), [Nuxt 4.6+](https://unjwt.s94.dev/frameworks/nuxt), Workers, Bun, Deno and Hono, or on a token in hand; a [driver](https://unjwt.s94.dev/frameworks/drivers) for any other framework.
-- **Runtime-agnostic** — Node 22+, Deno, Bun, Cloudflare Workers, browsers. Anywhere Web Crypto runs.
+- **JWS** ([RFC 7515](https://www.rfc-editor.org/rfc/rfc7515)): HMAC, RSA, RSA-PSS, ECDSA, EdDSA. Compact and General/Flattened JSON serialization (several signatures over one payload).
+- **JWE** ([RFC 7516](https://www.rfc-editor.org/rfc/rfc7516)): `dir`, AES-KW, AES-GCM-KW, RSA-OAEP, PBES2, ECDH-ES, with AES-GCM and AES-CBC-HMAC-SHA2 content encryption. Compact and General/Flattened JSON serialization (several recipients for one ciphertext).
+- **JWK** ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517)): generate, import, export, wrap and unwrap keys; `CryptoKey`, JWK and PEM conversion; thumbprints as key IDs; JWK Set lookup and rotation.
+- **DPoP** ([RFC 9449](https://www.rfc-editor.org/rfc/rfc9449)): create and verify proofs with [`unjwt/dpop`](https://unjwt.s94.dev/dpop). Your application owns HTTP and replay storage.
+- **Sessions**: signed or encrypted cookie sessions with [`unjwt/session`](https://unjwt.s94.dev/sessions) over a Web `Request`, on [h3](https://unjwt.s94.dev/examples/h3), [Nitro](https://unjwt.s94.dev/examples/nitro), [Nuxt](https://unjwt.s94.dev/examples/nuxt), [Hono and Workers](https://unjwt.s94.dev/examples/hono), Bun and Deno, or on a token in hand; a [driver](https://unjwt.s94.dev/sessions/drivers) for any other framework.
+- **One typed error**: every failure is a `JWTError` with a `code` to branch on.
+- **Runtime-agnostic**: Node.js 22+, Bun, Deno, Cloudflare Workers and browsers, anywhere Web Crypto runs.
 - **Zero runtime dependencies**, no peer dependencies.
 
 ## Install
@@ -32,30 +33,42 @@ npx skills add sandros94/unjwt
 ## Quickstart
 
 ```ts
-// Sign and verify a JWT (JWS)
+// Sign with the private half, verify with the public one (JWS)
 import { sign, verify } from "unjwt/jws";
 import { generateJWK } from "unjwt/jwk";
 
-const key = await generateJWK("HS256");
-const token = await sign({ sub: "user_1" }, key, { expiresIn: "1h" });
-const { payload } = await verify(token, key);
-// { sub: "user_1", iat: ..., exp: ... }
+const { privateKey, publicKey } = await generateJWK("ES256");
+const token = await sign({ sub: "user_1a2b" }, privateKey, { expiresIn: "15m" });
+const { payload } = await verify(token, publicKey);
+// { sub: "user_1a2b", iat: …, exp: … }
 
-// Encrypt and decrypt (JWE)
+// Encrypt for a recipient's public key, decrypt with its private key (JWE)
 import { encrypt, decrypt } from "unjwt/jwe";
 
-const jwe = await encrypt({ secret: "data" }, "my-password");
-const { payload: p } = await decrypt(jwe, "my-password");
+const recipient = await generateJWK("ECDH-ES+A256KW");
+const jwe = await encrypt({ invoice: "inv_2026_0042" }, recipient.publicKey);
+const opened = await decrypt(jwe, recipient.privateKey);
+
+// Keep a session in a cookie on any Web Request
+import { defineJWESession } from "unjwt/session";
+
+const appSession = defineJWESession({ key: await generateJWK("A256GCM"), maxAge: "7D" });
+const headers = new Headers();
+const session = await appSession.use({ req: request, res: { headers } });
+await session.update({ user: "user_1a2b" }); // Set-Cookie lands on `headers`
 ```
 
-Full walkthroughs, recipes, and the complete API reference live at **[unjwt.s94.dev](https://unjwt.s94.dev)**:
+Walkthroughs, recipes and the full API live at **[unjwt.s94.dev](https://unjwt.s94.dev)**:
 
 - [Getting started →](https://unjwt.s94.dev/getting-started)
-- [JWS — signing and verifying →](https://unjwt.s94.dev/jwt/jws)
-- [JWE — encrypting and decrypting →](https://unjwt.s94.dev/jwt/jwe)
-- [JWK — key management →](https://unjwt.s94.dev/jwk)
-- [Sessions on your framework →](https://unjwt.s94.dev/frameworks)
-- [Examples →](https://unjwt.s94.dev/examples) — authentication, JWKS endpoints, refresh tokens, end-to-end encryption, signed receipts.
+- [Sign and verify (JWS) →](https://unjwt.s94.dev/jws)
+- [Encrypt and decrypt (JWE) →](https://unjwt.s94.dev/jwe)
+- [Keys (JWK) →](https://unjwt.s94.dev/jwk)
+- [Sessions →](https://unjwt.s94.dev/sessions)
+- [Safety: errors, claims and limits →](https://unjwt.s94.dev/safety)
+- [DPoP proofs →](https://unjwt.s94.dev/dpop)
+- [Recipes →](https://unjwt.s94.dev/examples): sessions on h3, Nitro, Nuxt, Hono and Workers, CDN imports, custom drivers.
+- [Migration guides →](https://unjwt.s94.dev/getting-started/migration)
 
 ## Development
 
