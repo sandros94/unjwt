@@ -232,7 +232,7 @@ export interface SessionDefinition<
 interface SessionRequestBase {
   /** The response being prepared. Without it the session is read-only. Each cookie write is copied to `errHeaders` too: h3 and Nitro send only these for a thrown handler. */
   readonly res?: { readonly headers: Headers; readonly errHeaders?: Headers };
-  /** Per-request state shared with the framework. Sessions are stored in its `sessions` member. Without it, state is keyed on `req`, else on the event. */
+  /** Per-request state shared with the framework. Sessions are stored in its `unjwt` member. Without it, state is keyed on `req`, else on the event. */
   readonly context?: Record<string, unknown>;
 }
 

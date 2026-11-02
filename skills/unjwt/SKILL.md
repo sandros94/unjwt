@@ -39,7 +39,8 @@ The documentation site is the single source of truth, and every page is also ser
 | Read, update, clear, issue and open sessions | `/raw/sessions/use.md` |
 | Session hooks, revocation, key rotation | `/raw/sessions/hooks.md` |
 | Sessions without cookies: the session header, CLI and service-account clients, tokens in links | `/raw/sessions/api-clients.md` |
-| A session driver for another framework | `/raw/sessions/drivers.md`, recipe `/raw/examples/custom-driver.md` |
+| A session driver for another framework, the Web driver, cookie helpers (`webCookieJar`, `parseCookie`, `serializeCookie`) | `/raw/sessions/drivers.md`, recipe `/raw/examples/custom-driver.md` |
+| A session of your own (store-backed, random token) over the session transport and config checks | `/raw/sessions/custom-session.md` |
 | Sessions on h3, Nitro, Nuxt, Hono or Workers | `/raw/examples/h3.md`, `/raw/examples/nitro.md`, `/raw/examples/nuxt.md`, `/raw/examples/hono.md` |
 | Use the library from a CDN in a browser | `/raw/examples/cdn-import.md` |
 | DPoP proofs (create, verify, nonce, replay) | `/raw/dpop.md` |

@@ -15,12 +15,15 @@ import { base64UrlParse, base64UrlStringify } from "../src/utils/base64.ts";
 import { sign } from "../src/core/jws/index.ts";
 import { encrypt } from "../src/core/jwe/index.ts";
 import {
+  type CookieAttributes,
   type CookieJar,
   type JWESessionKey,
   type JWESessionKeyLookup,
   type JWESessionOctJWK,
   type JWSSessionKey,
   type JWSSessionKeyLookup,
+  type SessionConfigChecks,
+  type SessionConfigJWE,
   type SessionConfigJWS,
   type OpenedSessionState,
   type SessionClaims,
@@ -34,13 +37,22 @@ import {
   type SessionJWS,
   type SessionRequestEvent,
   type SessionSource,
+  type SessionTransport,
+  type SessionTransportOptions,
   type WebSessionEvent,
+  assertSessionConfig,
+  assertSessionTokenSource,
+  assertSessionWritable,
   defineJWESession,
   defineJWSSession,
   defineSessionDriver,
+  parseCookie,
+  resolveSessionTransport,
+  serializeCookie,
+  webCookieJar,
+  webSessionDriver,
 } from "../src/session/index.ts";
-import { resolveTransport } from "../src/session/_internal/transport.ts";
-import { webSessionDriver } from "../src/session/_internal/web-driver.ts";
+import { defaultWebSessionDriver } from "../src/session/_internal/web-driver.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -560,7 +572,7 @@ describe("unjwt/session token sources", () => {
   it.each(["jws", "jwe"] as const)(
     "%s: a header session updates and clears after the response was sent, and the client keeps its token",
     async (family) => {
-      const driver = { ...webSessionDriver, writable: () => false };
+      const driver = { ...defaultWebSessionDriver, writable: () => false };
       const config = { name: "web", sessionHeader: true };
       const session =
         family === "jws"
@@ -680,7 +692,11 @@ describe("unjwt/session decides the token source once per request", () => {
   ] as const;
 
   it.each(SOURCES)("$label: $source", ({ event, config, source }) => {
-    const transport = resolveTransport(webSessionDriver, event, { config, name: "web" });
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      event,
+      transportOptions(config),
+    );
     expect(transport.source).toBe(source);
   });
 
@@ -1398,6 +1414,15 @@ function replay(headers: Headers): string {
     .filter((line) => !/max-age=0/i.test(line))
     .map((line) => line.split(";", 1)[0])
     .join("; ");
+}
+
+/** The transport options of a session called `web`, its cookie without attributes unless `cookie` is `false`. */
+function transportOptions(config: {
+  sessionHeader?: boolean | string;
+  cookie?: false;
+}): SessionTransportOptions {
+  const { sessionHeader, cookie } = config;
+  return { name: "web", sessionHeader, cookie: cookie === false ? false : { attrs: {} } };
 }
 
 function linesOf(headers: Headers, name: string): string[] {
@@ -2928,6 +2953,483 @@ describe("key rotation with a JWK Set", () => {
     expectTypeOf<{ keys: (typeof jwsKey)[] }>().not.toExtend<JWESessionKey>();
     expectTypeOf<{ keys: CryptoKey[] }>().not.toExtend<JWSSessionKey>();
     expectTypeOf<{ keys: CryptoKey[] }>().not.toExtend<JWESessionKey>();
+  });
+});
+
+describe("webSessionDriver", () => {
+  it('starts its errors with "[unjwt/session]" unless given a prefix', () => {
+    const driver = webSessionDriver();
+    expectTypeOf(driver).toEqualTypeOf<SessionDriver<WebSessionEvent>>();
+    expect(driver.prefix).toBe("[unjwt/session]");
+    expect(webSessionDriver({ prefix: "[app]" }).prefix).toBe("[app]");
+  });
+
+  it("starts its own refusals with its prefix", () => {
+    const driver = webSessionDriver({ prefix: "[app]" });
+    const nodeLike = { req: { headers: { cookie: "web=x" } } } as never;
+    const refusals = [
+      () => driver.state({} as never),
+      () => driver.header({} as never, "cookie"),
+      () => driver.cookies({} as never),
+      () => driver.state(nodeLike),
+      () => driver.header(nodeLike, "cookie"),
+      () => driver.cookies(nodeLike),
+    ];
+    for (const run of refusals) {
+      const { code, message } = refusedWith(run);
+      expect(code).toBe("ERR_SESSION_CONFIG_INVALID");
+      expect(message?.startsWith("[app] use() got ")).toBe(true);
+    }
+  });
+
+  it("shares the state of one request across drivers", () => {
+    const one = webSessionDriver();
+    const other = webSessionDriver({ prefix: "[app]" });
+
+    const req = get();
+    expect(one.state({ req })).toBe(other.state({ req }));
+
+    const context: Record<string, unknown> = {};
+    const state = one.state({ req: get(), context });
+    expect(other.state({ req: get(), context })).toBe(state);
+    expect(context.unjwt).toBe(state);
+  });
+
+  it("starts a session's errors with its prefix", async () => {
+    const driver = webSessionDriver({ prefix: "[app]" });
+    const config = refusedWith(() => defineJWSSession({ key: jwsKey, rolling: true }, { driver }));
+    expect(config.message?.startsWith("[app] ")).toBe(true);
+
+    const session = defineJWSSession({ name: "web", key: jwsKey }, { driver });
+    const refused = await caught(session.use({} as never));
+    expect((refused as Error).message).toBe("[app] use() got neither a request event nor a token.");
+
+    const readonly = await session.use({ req: get() });
+    const error = await caught(readonly.update({ user: "ada" }));
+    expect((error as Error).message).toBe("[app] Cannot update session on read-only event.");
+  });
+});
+
+describe("parseCookie", () => {
+  it("returns the cookies of a Cookie header, values decoded", () => {
+    const cookies = parseCookie("a=1; b=x%20y; a=2");
+    expectTypeOf(cookies).toEqualTypeOf<Record<string, string | undefined>>();
+    expect({ ...cookies }).toEqual({ a: "1", b: "x y" });
+    expect(cookies.c).toBeUndefined();
+  });
+
+  it("returns an empty record without a prototype's keys", () => {
+    const cookies = parseCookie("");
+    expect(Object.keys(cookies)).toEqual([]);
+    expect("toString" in cookies).toBe(false);
+    expect("constructor" in cookies).toBe(false);
+    expect(parseCookie("constructor=1").constructor).toBe("1");
+  });
+});
+
+describe("serializeCookie", () => {
+  it("sets Path=/ unless a path is given, and encodes the value", () => {
+    expect(serializeCookie("a", "x y")).toBe("a=x%20y; Path=/");
+    expect(serializeCookie("a", "1", { path: "/app" })).toBe("a=1; Path=/app");
+  });
+
+  it("renders every attribute", () => {
+    const line = serializeCookie("a", "1", {
+      domain: "example.com",
+      expires: new Date(0),
+      httpOnly: true,
+      maxAge: 60,
+      partitioned: true,
+      priority: "high",
+      sameSite: "none",
+      secure: true,
+    });
+    for (const attribute of [
+      "Domain=example.com",
+      "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+      "HttpOnly",
+      "Max-Age=60",
+      "Partitioned",
+      "Priority=High",
+      "SameSite=None",
+      "Secure",
+      "Path=/",
+    ]) {
+      expect(line).toContain(`; ${attribute}`);
+    }
+  });
+
+  it.each([
+    [true, "Strict"],
+    ["strict", "Strict"],
+    ["lax", "Lax"],
+  ] as const)("renders sameSite %s as SameSite=%s", (sameSite, rendered) => {
+    expect(serializeCookie("a", "1", { sameSite })).toContain(`; SameSite=${rendered}`);
+  });
+});
+
+describe("webCookieJar", () => {
+  it("reads the request's Cookie header, and has no write without a response", () => {
+    const jar = webCookieJar(new Headers({ cookie: "a=1; b=x%20y" }));
+    expect(jar.read("a")).toBe("1");
+    expect(jar.read("b")).toBe("x y");
+    expect(jar.read("c")).toBeUndefined();
+    expect("write" in jar).toBe(false);
+    expect("written" in jar).toBe(false);
+  });
+
+  it("replaces the Set-Cookie line of the same cookie, and reads back what it wrote", () => {
+    const headers = new Headers();
+    const jar = webCookieJar(new Headers({ cookie: "a=0" }), { headers });
+    jar.write?.("a", "1", {});
+    expect(jar.written?.("a")).toBe("1");
+    jar.write?.("a", "2", { path: "/" });
+    expect(headers.getSetCookie()).toEqual(["a=2; Path=/"]);
+    expect(jar.written?.("a")).toBe("2");
+    expect(jar.read("a")).toBe("0");
+  });
+
+  it("keeps a line per path", () => {
+    const headers = new Headers();
+    const jar = webCookieJar(new Headers(), { headers });
+    jar.write?.("a", "1", {});
+    jar.write?.("a", "2", { path: "/app" });
+    expect(headers.getSetCookie()).toEqual(["a=1; Path=/", "a=2; Path=/app"]);
+  });
+
+  it("copies each write to errHeaders", () => {
+    const headers = new Headers();
+    const errHeaders = new Headers({ "set-cookie": "other=1; Path=/" });
+    const jar = webCookieJar(new Headers(), { headers, errHeaders });
+    jar.write?.("a", "1", {});
+    jar.write?.("a", "2", { httpOnly: true });
+    expect(errHeaders.getSetCookie()).toEqual(["other=1; Path=/", "a=2; Path=/; HttpOnly"]);
+  });
+});
+
+describe("the session token transport", () => {
+  const cookie = { attrs: { path: "/", httpOnly: true, maxAge: 3600 } };
+  const sendsHeader = { name: "web", sessionHeader: true, cookie } as const;
+
+  it("reads a token in hand and writes nothing back", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { token: "abc" },
+      { name: "web", cookie },
+    );
+    expect(transport.source).toBe("token");
+    expect(transport.read?.()).toBe("abc");
+    expect(transport.write).toBeUndefined();
+    expect(transport.drop).toBeUndefined();
+    expect(transport.readonly).toBe(false);
+    expect(transport.writable()).toBe(true);
+  });
+
+  it.each(["abc", "Bearer abc", "bearer   abc"])(
+    "reads the session header %j of a request without a cookie",
+    (value) => {
+      const transport = resolveSessionTransport(
+        defaultWebSessionDriver,
+        { req: get({ "x-web-session": value }), res: { headers: new Headers() } },
+        sendsHeader,
+      );
+      expect(transport.source).toBe("header");
+      expect(transport.read?.()).toBe("abc");
+      expect(transport.malformed).toBeUndefined();
+      expect(transport.write).toBeUndefined();
+      expect(transport.drop).toBeUndefined();
+    },
+  );
+
+  it("reads the header that sessionHeader names", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get({ "x-token": "abc" }) },
+      { name: "web", sessionHeader: "X-Token", cookie },
+    );
+    expect(transport.source).toBe("header");
+    expect(transport.read?.()).toBe("abc");
+  });
+
+  it("reports a session header that holds no token as malformed", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get({ "x-web-session": "Basic abc" }) },
+      sendsHeader,
+    );
+    expect(transport.source).toBe("header");
+    expect(transport.read?.()).toBeUndefined();
+    expect(isJWTError(transport.malformed, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
+    expect(transport.malformed?.message.startsWith("[unjwt/session] ")).toBe(true);
+  });
+
+  it("is the cookie when the session header holds the cookie's token", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      {
+        req: get({ "cookie": "web=abc", "x-web-session": "abc" }),
+        res: { headers: new Headers() },
+      },
+      sendsHeader,
+    );
+    expect(transport.source).toBe("cookie");
+    expect(transport.read?.()).toBe("abc");
+    expect(transport.write).toBeTypeOf("function");
+  });
+
+  it("reads the cookie of a request without a response and cannot write it", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { headers: new Headers({ cookie: "web=abc" }) },
+      { name: "web", cookie },
+    );
+    expect(transport.source).toBe("cookie");
+    expect(transport.read?.()).toBe("abc");
+    expect(transport.readonly).toBe(true);
+    expect(transport.write).toBeUndefined();
+    expect(transport.drop).toBeUndefined();
+  });
+
+  it("writes an expiring token with Expires in place of Max-Age", () => {
+    const headers = new Headers();
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get(), res: { headers } },
+      { name: "web", cookie },
+    );
+    transport.write?.("abc", { expiresAt: Date.UTC(2030, 0, 1) });
+    const [line = ""] = linesOf(headers, "web");
+    expect(line.startsWith("web=abc;")).toBe(true);
+    expect(line).toContain("Expires=Tue, 01 Jan 2030 00:00:00 GMT");
+    expect(line).not.toMatch(/max-age/i);
+    expect(transport.read?.()).toBe("abc");
+  });
+
+  it("writes a token without expiresAt under the attributes as given", () => {
+    const headers = new Headers();
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get(), res: { headers } },
+      { name: "web", cookie },
+    );
+    transport.write?.("abc");
+    const [line = ""] = linesOf(headers, "web");
+    expect(line).toContain("Max-Age=3600");
+    expect(line).not.toMatch(/expires/i);
+    expect(cookie.attrs).toEqual({ path: "/", httpOnly: true, maxAge: 3600 });
+  });
+
+  it("splits a long token into chunks of chunkMaxLength", () => {
+    const headers = new Headers();
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get(), res: { headers } },
+      { name: "web", cookie: { ...cookie, chunkMaxLength: 4 } },
+    );
+    transport.write?.("abcdefghij");
+    expect(headers.getSetCookie().map((line) => line.split(";", 1)[0])).toEqual([
+      "web=__chunked__3",
+      "web.1=abcd",
+      "web.2=efgh",
+      "web.3=ij",
+    ]);
+    expect(transport.read?.()).toBe("abcdefghij");
+  });
+
+  it("drops the base cookie and every chunk", () => {
+    const headers = new Headers();
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      {
+        req: get({ cookie: "web=__chunked__3; web.1=abcd; web.2=efgh; web.3=ij" }),
+        res: { headers },
+      },
+      { name: "web", cookie },
+    );
+    expect(transport.read?.()).toBe("abcdefghij");
+    transport.drop?.();
+    const lines = headers.getSetCookie();
+    expect(lines.map((line) => line.split(";", 1)[0])).toEqual([
+      "web=",
+      "web.1=",
+      "web.2=",
+      "web.3=",
+    ]);
+    for (const line of lines) expect(line).toContain("Max-Age=0");
+    expect(transport.read?.()).toBeUndefined();
+  });
+
+  it("has no token source without a cookie or a session header", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get({ "cookie": "web=abc", "x-web-session": "abc" }) },
+      { name: "web", cookie: false },
+    );
+    expect(transport.read).toBeUndefined();
+    const error = thrown(() => assertSessionTokenSource(transport, { prefix: "[mine]" }));
+    expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+    expect((error as Error).message.startsWith("[mine] ")).toBe(true);
+  });
+
+  it("narrows a transport with a token source to one that reads", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { token: "abc" },
+      { name: "web", cookie: false },
+    );
+    assertSessionTokenSource(transport, { prefix: "[mine]" });
+    expectTypeOf(transport.read).toEqualTypeOf<() => string | undefined>();
+    expect(transport.read()).toBe("abc");
+  });
+
+  it("types: write takes the token and an optional expiresAt, drop takes nothing", () => {
+    expectTypeOf<NonNullable<SessionTransport["write"]>>().toEqualTypeOf<
+      (token: string, options?: { expiresAt?: number }) => void
+    >();
+    expectTypeOf<NonNullable<SessionTransport["drop"]>>().toEqualTypeOf<() => void>();
+    expectTypeOf<SessionTransportOptions["cookie"]>().toEqualTypeOf<
+      false | { attrs: CookieAttributes; chunkMaxLength?: number }
+    >();
+  });
+});
+
+describe("assertSessionWritable", () => {
+  const options = { name: "web", cookie: { attrs: {} } };
+
+  it("refuses an update on a cookie the event cannot write, and lets a clear through", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { headers: new Headers({ cookie: "web=abc" }) },
+      options,
+    );
+    expect(
+      refusedWith(() =>
+        assertSessionWritable(transport, { operation: "update", prefix: "[mine]" }),
+      ),
+    ).toEqual({
+      code: "ERR_SESSION_READONLY_EVENT",
+      message: "[mine] Cannot update session on read-only event.",
+    });
+    expect(() =>
+      assertSessionWritable(transport, { operation: "clear", prefix: "[mine]" }),
+    ).not.toThrow();
+  });
+
+  it.each(["update", "clear"] as const)("refuses %s once the response was sent", (operation) => {
+    const transport = resolveSessionTransport(
+      { ...defaultWebSessionDriver, writable: () => false },
+      { req: get({ cookie: "web=abc" }), res: { headers: new Headers() } },
+      options,
+    );
+    expect(
+      refusedWith(() => assertSessionWritable(transport, { operation, prefix: "[mine]" })),
+    ).toEqual({
+      code: "ERR_SESSION_READONLY_EVENT",
+      message: "[mine] Cannot update/clear session: the response was already sent.",
+    });
+  });
+
+  it("lets an update through on a cookie the event can write", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get(), res: { headers: new Headers() } },
+      options,
+    );
+    expect(() =>
+      assertSessionWritable(transport, { operation: "update", prefix: "[mine]" }),
+    ).not.toThrow();
+  });
+});
+
+describe("assertSessionConfig", () => {
+  const defaults = { defaultCookie: { path: "/", secure: true }, prefix: "[mine]" };
+
+  it("passes a sound config", () => {
+    expect(() =>
+      assertSessionConfig(
+        { sessionHeader: "x-token", cookie: { httpOnly: true }, maxAge: "1h", rolling: "15m" },
+        { ...defaults, name: "__Host-web" },
+      ),
+    ).not.toThrow();
+  });
+
+  it("checks a cookie prefix over the defaults the config overrides", () => {
+    const insecure = {
+      ...defaults,
+      name: "__Host-web",
+      defaultCookie: { path: "/", secure: false },
+    };
+    expect(() => assertSessionConfig({ cookie: { secure: true } }, insecure)).not.toThrow();
+    expect(() => assertSessionConfig({ cookie: false }, insecure)).not.toThrow();
+  });
+
+  const refusals: {
+    label: string;
+    config: SessionConfigChecks;
+    name?: string;
+    defaultCookie?: CookieAttributes;
+    message: string;
+  }[] = [
+    {
+      label: "a name that is not a cookie name",
+      config: {},
+      name: "bad name",
+      message: 'Session "name" must be a valid cookie name',
+    },
+    {
+      label: "a __Host- name the merged cookie leaves insecure",
+      config: { cookie: { httpOnly: true } },
+      name: "__Host-web",
+      defaultCookie: { path: "/", secure: false },
+      message: '"__Host-" cookie must be Secure',
+    },
+    {
+      label: "a __Host- name the merged cookie leaves without Secure",
+      config: { cookie: { httpOnly: true } },
+      name: "__Host-web",
+      defaultCookie: { path: "/" },
+      message: '"__Host-" cookie must be Secure',
+    },
+    {
+      label: "a __Secure- name the merged cookie leaves without Secure",
+      config: {},
+      name: "__Secure-web",
+      defaultCookie: { path: "/" },
+      message: '"__Secure-" cookie must be Secure',
+    },
+    {
+      label: "a sessionHeader that is not a header name",
+      config: { sessionHeader: "x session" },
+      message: 'Session "sessionHeader" must be true, false or a header name',
+    },
+    {
+      label: "rolling without a maxAge",
+      config: { rolling: true },
+      message: '"rolling" needs a "maxAge" to extend.',
+    },
+    {
+      label: "rolling not shorter than maxAge",
+      config: { maxAge: 60, rolling: "1m" },
+      message: '"rolling" must be shorter than "maxAge".',
+    },
+  ];
+
+  it.each(refusals)("refuses $label", ({ config, name = "web", defaultCookie, message }) => {
+    const { code, message: thrownMessage = "" } = refusedWith(() =>
+      assertSessionConfig(config, {
+        ...defaults,
+        name,
+        defaultCookie: defaultCookie ?? defaults.defaultCookie,
+      }),
+    );
+    expect(code).toBe("ERR_SESSION_CONFIG_INVALID");
+    expect(thrownMessage.startsWith("[mine] ")).toBe(true);
+    expect(thrownMessage).toContain(message);
+  });
+
+  it("types: a family config is a config it checks", () => {
+    expectTypeOf<SessionConfigJWS>().toExtend<SessionConfigChecks>();
+    expectTypeOf<SessionConfigJWE>().toExtend<SessionConfigChecks>();
   });
 });
 

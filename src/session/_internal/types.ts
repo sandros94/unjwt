@@ -1,7 +1,8 @@
 import type { ExpiresIn } from "../../core/types/index.ts";
 import type { kSessionPending } from "./core.ts";
+import type { CookieAttributes } from "./cookie-attributes.ts";
 import type { SessionDriver } from "./driver.ts";
-import type { SessionTokenSource, SessionTransport } from "./transport.ts";
+import type { SessionTransport } from "./transport.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
 
 /** Session state with the pending read that a second reader on the same request awaits. */
@@ -31,10 +32,11 @@ export interface SessionCoreHooks {
   onError?(args: Record<string, unknown>): void | Promise<void>;
 }
 
-export interface SessionCoreConfig extends SessionTokenSource {
+export interface SessionCoreConfig {
   maxAge?: ExpiresIn;
   rolling?: true | ExpiresIn;
   name?: string;
+  sessionHeader?: boolean | string;
   cookie?: false | { chunkMaxLength?: number };
   generateId?: () => string;
   hooks?: SessionCoreHooks;
@@ -57,7 +59,7 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   /** Keeps a JWS and a JWE session that share a `name` apart. */
   family: "jws" | "jwe";
   defaultName: string;
-  defaultCookie: Record<string, unknown>;
+  defaultCookie: CookieAttributes;
   now: (config: Config) => number;
   /** Resolves the configured keys once. Throws `ERR_SESSION_KEY_INVALID` or `ERR_SESSION_CONFIG_INVALID` for a key the session cannot use. */
   keys: (config: Config) => SessionKeys;

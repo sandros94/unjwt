@@ -6,23 +6,20 @@ import {
   removeChunked,
   writeChunked,
 } from "./chunked-cookie.ts";
+import type { CookieAttributes } from "./cookie-attributes.ts";
 import type { CookieJar, SessionDriver } from "./driver.ts";
 import type { JWTError } from "../../error.ts";
 import type { SessionSource } from "../types.ts";
 import { invalidConfigError, invalidTokenError, isToken, readOnlyEventError } from "./contract.ts";
 
-/** The token sources a session config enables. */
-export interface SessionTokenSource {
+/** The token sources of one session, and the attributes its cookie is written with. */
+export interface SessionTransportOptions {
+  /** Session name: the cookie name, and the base of the default session header. */
+  name: string;
   /** Request header to read the token from, before the cookie: a name, or `true` for `x-<name>-session`. Unset or `false` reads no header. */
   sessionHeader?: boolean | string;
-  /** Cookie options, or `false` for no cookie. */
-  cookie?: false | object;
-}
-
-/** RFC 6265 cookie attributes plus the chunk size the token is split at. */
-export interface SessionCookie {
-  attrs: Record<string, unknown>;
-  chunkMaxLength: number | undefined;
+  /** The cookie's attributes and the chunk size its token is split at (`4000` when unset), or `false` for no cookie. */
+  cookie: false | { attrs: CookieAttributes; chunkMaxLength?: number };
 }
 
 /** How one session reads its token from the request and writes it to the response. */
@@ -33,10 +30,14 @@ export interface SessionTransport {
   read?: () => string | undefined;
   /** The session header is present but holds neither a bare token nor `Bearer <token>`. */
   malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID">;
-  /** Present when the session reads its token from a cookie the event can write. */
-  write?: (token: string, cookie: SessionCookie) => void;
-  /** Present when the session reads its token from a cookie the event can write. */
-  drop?: (cookie: SessionCookie) => void;
+  /**
+   * Writes the token to the cookie, split into chunks past `chunkMaxLength`. With `expiresAt` (ms), the cookie gets that `expires` and no
+   * `maxAge`, which would take precedence (RFC 6265 §5.3). Present when the session reads its token from a cookie the event can write.
+   * @throws `ERR_SESSION_CONFIG_INVALID` if the token needs more than 16 cookie chunks.
+   */
+  write?: (token: string, options?: { expiresAt?: number }) => void;
+  /** Expires the cookie and every chunk. Present when the session reads its token from a cookie the event can write. */
+  drop?: () => void;
   /** The session reads its token from a cookie, but the event cannot write one (a request without a response). */
   readonly: boolean;
   /** Whether the response can still change. `false` once it was sent. */
@@ -48,22 +49,22 @@ export interface SessionTransport {
  * A header that holds the very token of the request's cookie is the cookie. Any other header is read alone, the cookie left as it is.
  * A token in hand or a header token is reissued onto the session only. Only a cookie session writes back.
  */
-export function resolveTransport<TEvent>(
+export function resolveSessionTransport<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
-  options: { config: SessionTokenSource; name: string },
+  options: SessionTransportOptions,
 ): SessionTransport {
   const handed = driver.handed?.(event);
   if (handed) {
     return { source: "token", read: () => handed.token, readonly: false, writable: () => true };
   }
 
-  const { config, name } = options;
+  const { name, cookie } = options;
   const header = presentedHeader(driver, event, options);
-  if (config.cookie === false) return headerTransport(config, header);
+  if (cookie === false) return headerTransport(options, header);
   const jar = driver.cookies(event);
   if (header && (header.token === undefined || header.token !== readChunked(jar, name))) {
-    return headerTransport(config, header);
+    return headerTransport(options, header);
   }
 
   const store = responseStore(jar);
@@ -75,17 +76,22 @@ export function resolveTransport<TEvent>(
   };
   if (!store) return transport;
 
-  transport.write = (token, { attrs, chunkMaxLength }) => {
-    writeChunked(store, name, token, { attrs, chunkMaxLength, prefix: driver.prefix });
+  const { attrs, chunkMaxLength } = cookie;
+  transport.write = (token, { expiresAt } = {}) => {
+    const written =
+      expiresAt === undefined
+        ? { ...attrs }
+        : { ...attrs, expires: new Date(expiresAt), maxAge: undefined };
+    writeChunked(store, name, token, { attrs: written, chunkMaxLength, prefix: driver.prefix });
   };
-  transport.drop = ({ attrs }) => {
+  transport.drop = () => {
     removeChunked(store, name, { attrs });
   };
   return transport;
 }
 
-/** A transport without a reader has no token source: reading or clearing it is a config failure. */
-export function assertTokenSource(
+/** Throws `ERR_SESSION_CONFIG_INVALID` for a transport without a reader: the session has no token source to read or clear. */
+export function assertSessionTokenSource(
   transport: SessionTransport,
   options: { prefix: string },
 ): asserts transport is SessionTransport & { read: () => string | undefined } {
@@ -97,7 +103,7 @@ export function assertTokenSource(
 }
 
 /** Throws `ERR_SESSION_READONLY_EVENT` on an update when a cookie session cannot write its cookie, and on an update or clear once the response was sent. */
-export function assertWritable(
+export function assertSessionWritable(
   transport: SessionTransport,
   options: { operation: "update" | "clear"; prefix: string },
 ): void {
@@ -145,11 +151,11 @@ export function headerToken(value: string | null | undefined): string | undefine
 function presentedHeader<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
-  options: { config: SessionTokenSource; name: string },
+  options: SessionTransportOptions,
 ): { token: string | undefined; malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID"> } | undefined {
-  const { config, name } = options;
-  if (!readsHeader(config)) return undefined;
-  const header = sessionHeaderName(name, config.sessionHeader);
+  const { name, sessionHeader } = options;
+  if (!readsHeader(options)) return undefined;
+  const header = sessionHeaderName(name, sessionHeader);
   const value = driver.header(event, header);
   if (typeof value !== "string") return undefined;
   const token = headerToken(value);
@@ -164,12 +170,12 @@ function presentedHeader<TEvent>(
 
 /** Reads the session header when `sessionHeader` enables it, and writes nothing back. */
 function headerTransport(
-  config: SessionTokenSource,
+  options: SessionTransportOptions,
   header: ReturnType<typeof presentedHeader>,
 ): SessionTransport {
   return {
     source: "header",
-    read: readsHeader(config) ? () => header?.token : undefined,
+    read: readsHeader(options) ? () => header?.token : undefined,
     malformed: header?.malformed,
     readonly: false,
     writable: () => true,
@@ -177,8 +183,8 @@ function headerTransport(
 }
 
 /** `sessionHeader: true` or a name enables the header, read before the cookie. Unset or `false`, no header is read. */
-function readsHeader(config: SessionTokenSource): boolean {
-  return config.sessionHeader !== undefined && config.sessionHeader !== false;
+function readsHeader(options: SessionTransportOptions): boolean {
+  return options.sessionHeader !== undefined && options.sessionHeader !== false;
 }
 
 /** The cookie this response wrote (none once deleted), else the request's, chunks joined. */

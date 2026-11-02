@@ -12,7 +12,7 @@ import { dropSessionCookie } from "./bind.ts";
 import type { SessionBinding, SessionCoreConfig, StoredSession } from "./types.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
 import { emptySession, kSessionPending, storedSession } from "./core.ts";
-import { assertTokenSource } from "./transport.ts";
+import { assertSessionTokenSource } from "./transport.ts";
 
 /** Returns the session of the current request, reading its token on the first call. */
 export async function loadSession<
@@ -26,7 +26,7 @@ export async function loadSession<
   // Key errors are misconfiguration: thrown, never reported through `onError`.
   await keys.assertKeys();
   const open = keys.opener(args);
-  assertTokenSource(transport, { prefix: binding.driver.prefix });
+  assertSessionTokenSource(transport, { prefix: binding.driver.prefix });
 
   const existing = storedSession<T, MaxAge>(store);
   if (existing) {

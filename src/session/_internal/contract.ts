@@ -108,7 +108,7 @@ export function assertCookiePrefix(
     ? '"__Host-" cookie must be Secure, with Path=/ and no Domain'
     : '"__Secure-" cookie must be Secure';
   const broken =
-    attrs.secure === false ||
+    !attrs.secure ||
     (host && (attrs.domain !== undefined || (attrs.path !== undefined && attrs.path !== "/")));
   if (broken) {
     throw invalidConfigError(`${options.prefix} Session ${quoteTokenValue(name)}: a ${rule}.`);

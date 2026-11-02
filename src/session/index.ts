@@ -34,6 +34,17 @@ export {
   defineJWESession,
 } from "./jwe.ts";
 export { defineSessionDriver } from "./_internal/define-driver.ts";
+export { webSessionDriver } from "./_internal/web-driver.ts";
+export { parseCookie, serializeCookie, webCookieJar } from "./_internal/cookie.ts";
+export {
+  type SessionTransport,
+  type SessionTransportOptions,
+  assertSessionHeader,
+  assertSessionTokenSource,
+  assertSessionWritable,
+  resolveSessionTransport,
+} from "./_internal/transport.ts";
+export { type SessionConfigChecks, assertSessionConfig } from "./_internal/bind.ts";
 export type { CookieJar, SessionDriver } from "./_internal/driver.ts";
 export type { CookieAttributes } from "./_internal/cookie-attributes.ts";
 

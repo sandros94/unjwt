@@ -186,6 +186,31 @@ const ENTRIES: ReadonlyArray<Entry> = [
     measured: { min: 80205, gzip: 25451 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
+  // the Web driver and the cookie helpers carry no codec, key import or CSPRNG
+  {
+    imports: ["webSessionDriver"],
+    module: "session/index.ts",
+    measured: { min: 7368, gzip: 2844 },
+    absent: [
+      MARKERS.cookieEs,
+      MARKERS.h3Import,
+      MARKERS.subtleImport,
+      MARKERS.randomBytes,
+      MARKERS.base64,
+    ],
+  },
+  {
+    imports: ["parseCookie", "serializeCookie"],
+    module: "session/index.ts",
+    measured: { min: 3553, gzip: 1391 },
+    absent: [
+      MARKERS.cookieEs,
+      MARKERS.h3Import,
+      MARKERS.subtleImport,
+      MARKERS.randomBytes,
+      MARKERS.base64,
+    ],
+  },
 ];
 
 /** The id of the generated entry, `\0`-prefixed so nothing tries to read it. */

@@ -16,7 +16,7 @@ import type {
   WebSessionEvent,
 } from "./types.ts";
 import { defineSession } from "./_internal/definition.ts";
-import { webSessionDriver } from "./_internal/web-driver.ts";
+import { defaultWebSessionDriver } from "./_internal/web-driver.ts";
 
 export type { JWESessionKey, JWESessionOctJWK } from "./_internal/codec-jwe-keys.ts";
 export type { SessionDecryptOptions, SessionEncryptOptions } from "./_internal/codec-jwe.ts";
@@ -109,7 +109,7 @@ export function defineJWESession<T extends SessionRecord, MaxAge extends Expires
   config: JWECodecConfig,
   options?: { driver?: SessionDriver<unknown> },
 ): SessionDefinition<T, MaxAge> {
-  const driver = options?.driver ?? webSessionDriver;
+  const driver = options?.driver ?? defaultWebSessionDriver;
   return defineSession<T, MaxAge, unknown, JWECodecConfig>(config, {
     driver,
     codec: createJWECodec({ prefix: driver.prefix, defaultName: "__Host-unjwt-jwe" }),

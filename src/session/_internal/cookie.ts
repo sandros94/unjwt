@@ -6,8 +6,11 @@ import type { CookieJar } from "./driver.ts";
 export type { CookieAttributes };
 
 /**
- * A cookie jar over the request's `Headers` and, when given, the response's.
+ * A cookie jar over a request's `Headers` and, when given, its response's: `read` parses the request's `Cookie` header,
+ * `write` sets a `Set-Cookie` line on `response.headers` through `serializeCookie`, replacing the line of the same cookie
+ * (name, domain, path, partition) instead of adding a second one, and `written` reads back what the response sets.
  * Each write is copied to `errHeaders` too: h3 and Nitro send only these for a thrown handler.
+ * Without `response`, the jar only reads.
  */
 export function webCookieJar(
   request: Headers,
@@ -15,22 +18,27 @@ export function webCookieJar(
 ): CookieJar<CookieAttributes> {
   let cookies: Record<string, string | undefined> | undefined;
   const jar: CookieJar<CookieAttributes> = {
-    read: (name) => (cookies ||= requestCookies(request))[name],
+    read: (name) => (cookies ||= parseCookie(request.get("cookie") ?? ""))[name],
   };
   if (response) {
     const { headers, errHeaders } = response;
     jar.written = (name) => setCookieValues(headers.getSetCookie())[name];
     jar.write = (name, value, attrs) => {
-      setCookie(headers, { name, value, ...attrs });
+      setCookie(headers, { ...attrs, name, value });
       if (errHeaders) mirrorSetCookie(name, { from: headers, to: errHeaders });
     };
   }
   return jar;
 }
 
-export function requestCookies(request: Headers): Record<string, string | undefined> {
-  const header = request.get("cookie");
-  return header ? parse(header) : Object.create(null);
+/** The cookies of a `Cookie` header value, by name, values percent-decoded. The first of two cookies with one name wins. The record has no prototype. */
+export function parseCookie(header: string): Record<string, string | undefined> {
+  return parse(header);
+}
+
+/** One `Set-Cookie` line, the value percent-encoded and `path` `"/"` unless `attrs` sets one. Throws a `TypeError` for a name or attribute RFC 6265bis refuses. */
+export function serializeCookie(name: string, value: string, attrs?: CookieAttributes): string {
+  return serialize({ path: "/", ...attrs, name, value });
 }
 
 /** Replaces the `Set-Cookie` line of the same cookie (name, domain, path, partition) instead of adding a second one. */
@@ -38,11 +46,12 @@ function setCookie(
   headers: Headers,
   cookie: CookieAttributes & { name: string; value: string },
 ): void {
-  const line = serialize({ path: "/", ...cookie });
+  const { name, value, ...attrs } = cookie;
+  const line = serializeCookie(name, value, attrs);
   const key = cookieKey(cookie);
   const kept = headers.getSetCookie().filter((existing) => {
     const parsed = parseSetCookie(existing);
-    return parsed ? cookieKey(parsed) !== key : setCookieName(existing) !== cookie.name;
+    return parsed ? cookieKey(parsed) !== key : setCookieName(existing) !== name;
   });
   headers.delete("set-cookie");
   for (const existing of kept) headers.append("set-cookie", existing);

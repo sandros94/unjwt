@@ -15,7 +15,7 @@ import type {
   SessionUpdateTrigger,
 } from "../types.ts";
 import { RESERVED_CLAIMS, resolveExpiresAt, sanitizeSessionUpdate } from "./contract.ts";
-import { sessionCookie, sessionToken } from "./bind.ts";
+import { sessionToken } from "./bind.ts";
 import type { SessionActions, SessionBinding, SessionCoreConfig } from "./types.ts";
 import {
   blankSession,
@@ -26,7 +26,7 @@ import {
   storedSession,
 } from "./core.ts";
 import { loadSession } from "./read.ts";
-import { assertTokenSource, assertWritable } from "./transport.ts";
+import { assertSessionTokenSource, assertSessionWritable } from "./transport.ts";
 
 /** Merges `update` into the data and issues a token. `options.maxAge` overrides its lifetime. A failed issue or cookie write restores the session. */
 export async function issueSession<
@@ -42,7 +42,7 @@ export async function issueSession<
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
   const { config, keys, driver, store, args, transport } = binding;
 
-  assertWritable(transport, { operation: "update", prefix: driver.prefix });
+  assertSessionWritable(transport, { operation: "update", prefix: driver.prefix });
 
   const session =
     storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TEvent, Config>(binding));
@@ -68,7 +68,7 @@ export async function issueSession<
   try {
     await keys.assertKeys();
     const token = await keys.issue(session);
-    transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
+    transport.write?.(token, { expiresAt: session.expiresAt });
     binding.held.set(token);
     issued = Object.assign(session, { id, token, error: undefined });
   } catch (error_) {
@@ -105,8 +105,8 @@ export async function dropSession<TEvent, Config extends SessionCoreConfig>(
 ): Promise<void> {
   const { config, driver, store, args, transport } = binding;
 
-  assertTokenSource(transport, { prefix: driver.prefix });
-  assertWritable(transport, { operation: "clear", prefix: driver.prefix });
+  assertSessionTokenSource(transport, { prefix: driver.prefix });
+  assertSessionWritable(transport, { operation: "clear", prefix: driver.prefix });
 
   let session = storedSession(store);
   if (session && session[kSessionPending]) {
@@ -121,7 +121,7 @@ export async function dropSession<TEvent, Config extends SessionCoreConfig>(
   store.set(emptySession(binding));
   binding.held.set(undefined);
 
-  transport.drop?.(sessionCookie(binding));
+  transport.drop?.();
 
   await config.hooks?.onClear?.({ oldSession, ...args, config });
 }

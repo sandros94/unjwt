@@ -1,3 +1,5 @@
+import type { ExpiresIn } from "../../core/types/index.ts";
+import type { CookieAttributes } from "./cookie-attributes.ts";
 import type { SessionDriver } from "./driver.ts";
 import { storedSession } from "./core.ts";
 import {
@@ -16,10 +18,10 @@ import type {
   SessionStore,
 } from "./types.ts";
 import {
-  type SessionCookie,
+  type SessionTransportOptions,
   assertSessionHeader,
-  assertTokenSource,
-  resolveTransport,
+  assertSessionTokenSource,
+  resolveSessionTransport,
 } from "./transport.ts";
 
 /** The session names bound on one request, in a slot of its state record. */
@@ -28,17 +30,33 @@ const kSessionNames: unique symbol = Symbol("unjwt_session_names");
 /** The tokens the transports of one request hold, one per session slot. */
 const kHeldTokens: unique symbol = Symbol("unjwt_session_held_tokens");
 
-/** Checks what the config alone decides: its name, session header, cookie prefix and `rolling`. */
+/** The members of a session config that {@link assertSessionConfig} checks. */
+export interface SessionConfigChecks {
+  /** Request header to read the token from: a name, or `true` for `x-<name>-session`. */
+  sessionHeader?: boolean | string;
+  /** Cookie attributes over the defaults, or `false` for no cookie. */
+  cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
+  /** Session lifetime. */
+  maxAge?: ExpiresIn;
+  /** Reissues a session read from its cookie: on every read with `true`, else once the token is that old. Requires `maxAge`, and is shorter than it. */
+  rolling?: true | ExpiresIn;
+}
+
+/**
+ * Checks what the config alone decides: its name, session header, cookie prefix over `defaultCookie`, and `rolling`.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if `name` is not a cookie name or ends in a dot and digits, `sessionHeader` is not a header name,
+ * a `__Host-` or `__Secure-` cookie's attributes break its prefix rules, or `rolling` has no `maxAge` or is not shorter than it. The message starts with `prefix`.
+ * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
+ */
 export function assertSessionConfig(
-  config: SessionCoreConfig,
-  options: { name: string; prefix: string; defaultCookie: Record<string, unknown> },
+  config: SessionConfigChecks,
+  options: { name: string; prefix: string; defaultCookie: CookieAttributes },
 ): void {
   const { name, prefix } = options;
   assertSessionName(name, { prefix });
   assertSessionHeader(config.sessionHeader, { prefix });
   if (config.cookie !== false) {
-    const attrs: Record<string, unknown> = { ...options.defaultCookie, ...config.cookie };
-    assertCookiePrefix(name, attrs, { prefix });
+    assertCookiePrefix(name, { ...options.defaultCookie, ...config.cookie }, { prefix });
   }
   assertRolling(config, { prefix });
 }
@@ -70,7 +88,7 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
     args: { event },
     store: recordSlotStore(record, slot),
     held: heldTokenSlot(record, slot),
-    transport: resolveTransport(driver, event, { config, name }),
+    transport: resolveSessionTransport(driver, event, transportOptions(config, { name, codec })),
   };
 }
 
@@ -79,7 +97,7 @@ export function sessionToken<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): string | undefined {
   const { transport } = binding;
-  assertTokenSource(transport, { prefix: binding.driver.prefix });
+  assertSessionTokenSource(transport, { prefix: binding.driver.prefix });
   const session = storedSession(binding.store);
   return session ? session.token : transport.read();
 }
@@ -89,7 +107,7 @@ export function transportToken<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): string | undefined {
   const { transport } = binding;
-  assertTokenSource(transport, { prefix: binding.driver.prefix });
+  assertSessionTokenSource(transport, { prefix: binding.driver.prefix });
   const held = binding.held.get();
   return held ? held.token : transport.read();
 }
@@ -104,27 +122,13 @@ export function recordSlotStore(record: Record<string, unknown>, slot: string): 
   };
 }
 
-/** An expiring token sets `expires` and drops `maxAge`, which would take precedence (RFC 6265 §5.3). */
-export function sessionCookie<TEvent, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TEvent, Config>,
-  options: { expiresAt?: number | undefined } = {},
-): SessionCookie {
-  const { chunkMaxLength, ...configured } = binding.config.cookie || {};
-  const attrs: Record<string, unknown> = { ...binding.codec.defaultCookie, ...configured };
-  if (options.expiresAt !== undefined) {
-    attrs.expires = new Date(options.expiresAt);
-    attrs.maxAge = undefined;
-  }
-  return { attrs, chunkMaxLength };
-}
-
 /** Expires the session cookie. A response already sent leaves it to the next request, which sends the same token. */
 export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): void {
   const { transport } = binding;
   if (!transport.drop || !transport.writable()) return;
-  transport.drop(sessionCookie(binding));
+  transport.drop();
 }
 
 /** One name is one cookie: the first family to bind a name on a request keeps it. */
@@ -144,6 +148,22 @@ function claimSessionName(
   throw invalidConfigError(
     `${prefix} Session name "${name}" is already used by a ${held.toUpperCase()} session on this request.`,
   );
+}
+
+/** The config's token sources, and its cookie attributes over the codec's defaults. */
+function transportOptions<Config extends SessionCoreConfig>(
+  config: Config,
+  options: { name: string; codec: SessionCodec<Config> },
+): SessionTransportOptions {
+  const { name, codec } = options;
+  const { sessionHeader } = config;
+  if (config.cookie === false) return { name, sessionHeader, cookie: false };
+  const { chunkMaxLength, ...configured } = config.cookie || {};
+  return {
+    name,
+    sessionHeader,
+    cookie: { attrs: { ...codec.defaultCookie, ...configured }, chunkMaxLength },
+  };
 }
 
 function heldTokenSlot(record: Record<string, unknown>, slot: string): HeldToken {
