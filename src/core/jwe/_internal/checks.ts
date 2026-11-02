@@ -3,7 +3,7 @@ import { JWTError } from "../../../error.ts";
 import { bitLengthCEK, bitLengthIV, bitLengthTag } from "../../_crypto/index.ts";
 import { JWE_DIRECT_ALGS } from "./algorithms.ts";
 
-/** RFC 7518 §5 — the CEK size is fixed by `enc`. */
+/** RFC 7518 §5: the CEK size is fixed by `enc`. */
 export function assertProducerCEK(
   cek: Uint8Array<ArrayBuffer> | undefined,
   enc: ContentEncryptionAlgorithm,
@@ -15,7 +15,7 @@ export function assertProducerCEK(
   }
 }
 
-/** RFC 7518 §5.2 / §5.3 — the content IV length is fixed by `enc`. */
+/** RFC 7518 §5.2 / §5.3: the content IV length is fixed by `enc`. */
 export function assertProducerIV(
   iv: Uint8Array<ArrayBuffer> | undefined,
   enc: ContentEncryptionAlgorithm,
@@ -30,7 +30,7 @@ export function assertProducerIV(
   }
 }
 
-/** RFC 7516 §5.2 step 6 — direct key agreement carries an empty encrypted key. */
+/** RFC 7516 §5.2 step 6: direct key agreement has an empty encrypted key. */
 export function checkJWEDirectEncryptedKey(
   alg: KeyManagementAlgorithm,
   encryptedKey: string | undefined,
@@ -39,7 +39,7 @@ export function checkJWEDirectEncryptedKey(
   return new JWTError(`Invalid JWE: Encrypted key must be empty for ${alg}.`, "ERR_JWE_INVALID");
 }
 
-/** RFC 7518 §5.2 / §5.3 — the IV and authentication tag sizes are fixed by `enc`. */
+/** RFC 7518 §5.2 / §5.3: the IV and authentication tag sizes are fixed by `enc`. */
 export function checkJWEContentSegments(
   enc: ContentEncryptionAlgorithm,
   iv: Uint8Array<ArrayBuffer>,
@@ -62,7 +62,7 @@ export function checkJWEContentSegments(
   return undefined;
 }
 
-/** RFC 7516 §4.1.3 — the library does not implement compression. */
+/** RFC 7516 §4.1.3: compression is not supported. */
 export function checkJWEZip(header: object | undefined): JWTError | undefined {
   if (!header || !Object.hasOwn(header, "zip")) return undefined;
   return new JWTError("Invalid JWE: compression is not supported.", "ERR_JWE_INVALID");
@@ -76,7 +76,7 @@ export function assertNoZipOption(header: object | undefined, tier: string): voi
   );
 }
 
-/** RFC 7516 §4.1.13 — `crit` is only meaningful when it is integrity protected. */
+/** RFC 7516 §4.1.13: `crit` must be integrity protected. */
 export function checkJWEUnprotectedCrit(header: object | undefined): JWTError | undefined {
   if (!header || !Object.hasOwn(header, "crit")) return undefined;
   return new JWTError('Invalid JWE: "crit" must be integrity protected.', "ERR_JWE_INVALID");

@@ -1,14 +1,14 @@
 import type { ExpiresIn } from "../../core/types/index.ts";
 import type { SessionDriver } from "./driver.ts";
 import { resolveExpiresAt, sanitizeSessionUpdate } from "./contract.ts";
-import { bindSession, sessionToken } from "./bind.ts";
+import { assertSessionConfig, bindSession, transportToken } from "./bind.ts";
 import type { SessionActions, SessionCodec, SessionCoreConfig } from "./types.ts";
 import { mintSessionId, openSessionToken, sessionInstant } from "./core.ts";
 import { loadSession } from "./read.ts";
 import { sessionActions, sessionManager } from "./write.ts";
 import type { SessionDefinition, SessionRecord } from "../types.ts";
 
-/** Binds a config to a framework driver and a codec; nothing is validated or read until a method runs. */
+/** Binds a config to a driver and a codec. Checks the config and resolves its keys at once. Key imports wait for the first `use()`, `issue()` or `open()`. */
 export function defineSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -19,13 +19,15 @@ export function defineSession<
   options: {
     driver: SessionDriver<TEvent>;
     codec: SessionCodec<Config>;
-    /** The hook argument naming the request, as the public entry names it. */
-    hookArgs: (event: TEvent) => Record<string, unknown>;
   },
 ): SessionDefinition<T, MaxAge, TEvent> {
-  const { driver, codec, hookArgs } = options;
+  const { driver, codec } = options;
+  const name = config.name || codec.defaultName;
+  assertSessionConfig(config, { name, prefix: driver.prefix, defaultCookie: codec.defaultCookie });
+  const keys = codec.keys(config);
   const actions: SessionActions<TEvent, Config> = sessionActions();
-  const bind = (event: TEvent) => bindSession(event, config, { driver, codec, actions, hookArgs });
+  const bind = (event: TEvent) =>
+    bindSession(event, { config, name, driver, codec, keys, actions });
 
   return {
     use: async (event) => {
@@ -34,21 +36,22 @@ export function defineSession<
       return sessionManager<T, MaxAge, TEvent, Config>(binding);
     },
 
-    token: (event) => sessionToken(bind(event)),
+    token: (event) => transportToken(bind(event)),
 
     issue: async (data, issueOptions) => {
-      await codec.assertKeys(config);
-      const issue = codec.issuer(config);
+      await keys.assertKeys();
       const createdAt = sessionInstant({ codec, config });
-      return issue({
+      return keys.issue({
         id: mintSessionId(config),
         createdAt,
         expiresAt: resolveExpiresAt(createdAt, { maxAge: issueOptions?.maxAge ?? config.maxAge }),
         data: sanitizeSessionUpdate(data ?? {}, { prefix: driver.prefix }),
         token: undefined,
+        source: "token",
+        error: undefined,
       });
     },
 
-    open: (token) => openSessionToken<T, MaxAge, Config>(codec, config, { token, args: {} }),
+    open: (token) => openSessionToken<T, MaxAge>(keys, { token, args: {} }),
   };
 }

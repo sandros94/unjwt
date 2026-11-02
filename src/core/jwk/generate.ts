@@ -31,20 +31,20 @@ import {
 } from "./_internal/members.ts";
 
 /**
- * Generates a key for a JWA algorithm: a `CryptoKey` for symmetric algorithms, raw bytes for
- * the `A*CBC-HS*` composites, a `CryptoKeyPair` for asymmetric ones; with `toJWK: true`, a JWK
- * (or JWK pair) named by the `kid` option or its RFC 7638 thumbprint. PBES2, `"dir"` and `"none"` are refused.
+ * Generates a key for a JWA algorithm. Returns a `CryptoKey` for a symmetric algorithm,
+ * raw bytes for the `A*CBC-HS*` composites and a `CryptoKeyPair` for an asymmetric one.
+ * With `toJWK: true` it returns a JWK, or a `{ privateKey, publicKey }` JWK pair sharing one `kid`.
  *
  * @param options
- *   - `extractable?` — defaults to `true`; ignored when `toJWK` is set.
- *   - `kid?` — with `toJWK`, a string set verbatim or `false` for no `kid`, either skipping the
- *     thumbprint digest; anything else throws `ERR_INVALID_OPTION`.
- *   - `keyUsage?` — narrows the usages derived from `alg`; leaving either half of a pair with
- *     no usage throws `ERR_INVALID_OPTION`.
- *   - `modulusLength?` — RSA only; defaults to `2048`.
- *   - `publicExponent?` — RSA only; big-endian bytes, defaults to `0x010001`.
- *   - `namedCurve?` — EC/OKP only; defaults to `"P-256"` / `"Ed25519"`. One that contradicts
- *     the curve `ES*` or `Ed25519` names throws `ERR_INVALID_OPTION`.
+ *   - `extractable?`: ignored with `toJWK`. Defaults to `true`.
+ *   - `kid?`: with `toJWK`, a string used as is or `false` for no `kid`. Defaults to the RFC 7638 thumbprint.
+ *   - `keyUsage?`: narrows the usages `alg` admits and is written as `key_ops`. Without it the JWK has no `key_ops`.
+ *   - `modulusLength?`: RSA only, at least 2048 bits. Defaults to `2048`.
+ *   - `publicExponent?`: RSA only, big-endian bytes. Defaults to `0x010001`.
+ *   - `namedCurve?`: `ECDH-ES*` and `EdDSA` only. Defaults to `"P-256"` and `"Ed25519"`.
+ *     `ES*` and `Ed25519` fix their curve and accept only that one.
+ * @throws `ERR_JWK_UNSUPPORTED` if `alg` cannot be generated (PBES2, `"dir"`, `"none"`) or `namedCurve` is unsupported.
+ * @throws `ERR_INVALID_OPTION` if an option is invalid for `alg`, or `keyUsage` leaves either half of a pair with no usage.
  */
 export async function generateKey<
   TAlg extends GenerateKeyAlgorithm,
@@ -64,7 +64,7 @@ export async function generateKey(
   const defaultExtractable = exportToJWK || options.extractable !== false;
   const kid = exportToJWK ? assertKidOption(options.kid) : undefined;
 
-  // Composite AES-CBC+HMAC keys are not importable via WebCrypto, so they stay raw bytes.
+  // Web Crypto cannot import a composite AES-CBC + HMAC key: it stays raw bytes.
   if (alg === "A128CBC-HS256" || alg === "A192CBC-HS384" || alg === "A256CBC-HS512") {
     const keyLength = bitLengthCEK(alg);
     const keyBytes = secureRandomBytes(keyLength >> 3);
@@ -89,7 +89,7 @@ export async function generateKey(
   const key = await crypto.subtle.generateKey(algorithm, defaultExtractable, keyUsages);
 
   if (exportToJWK) {
-    // Force `alg`: Web Crypto's JWK export drops the `KW` suffix on AES-GCM key wrap algs.
+    // Web Crypto's JWK export drops the `KW` suffix of an AES-GCM key wrap `alg`.
     if (isCryptoKeyPair(key)) {
       const pairAlg = generatedPairAlgorithm(alg);
       const [pub, priv] = await Promise.all([
@@ -122,17 +122,15 @@ export async function generateKey(
 }
 
 /**
- * Generates a JWK (or JWK pair) for a JWA algorithm, its `kid` the caller's, none with
- * `kid: false`, or else its RFC 7638 thumbprint. PBES2, `"dir"` and `"none"` are refused.
+ * Generates a JWK for a JWA algorithm, or a `{ privateKey, publicKey }` JWK pair sharing one `kid`.
  *
  * @param options
- *   - `keyUsage?`, `modulusLength?` (default `2048`), `publicExponent?` (default `0x010001`),
- *     `namedCurve?` (default `"P-256"` / `"Ed25519"`); a narrowing that empties a pair half or
- *     a curve that contradicts `alg` throws `ERR_INVALID_OPTION`.
- *   - `kid?` — a string set verbatim or `false` for no `kid`, either skipping the thumbprint
- *     digest; anything else throws `ERR_INVALID_OPTION`.
- *   - JWK metadata (`use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is merged onto the result;
- *     `alg`, `kty`, `key_ops`, `ext` and key-material members are reserved (`ERR_INVALID_OPTION`).
+ *   - `keyUsage?`, `modulusLength?`, `publicExponent?`, `namedCurve?`: as on `generateKey`.
+ *   - `kid?`: a string used as is or `false` for no `kid`. Defaults to the RFC 7638 thumbprint.
+ *   - JWK metadata (`use`, `x5c`, `x5t`, `x5t#S256`, `x5u`) is copied onto each JWK.
+ * @throws `ERR_JWK_UNSUPPORTED` if `alg` cannot be generated (PBES2, `"dir"`, `"none"`) or `namedCurve` is unsupported.
+ * @throws `ERR_INVALID_OPTION` if an option is invalid for `alg`, `keyUsage` leaves a pair half with no usage,
+ *   or the metadata sets `alg`, `kty`, `key_ops`, `ext` or a key material member.
  */
 export async function generateJWK<
   TAlg extends GenerateKeyAlgorithm,

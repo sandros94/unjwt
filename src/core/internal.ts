@@ -1,4 +1,4 @@
-/** JOSE plumbing for tests and tooling only; no semver guarantee, not for production use. @module */
+/** JOSE helpers for tests and tooling. These exports have no semver guarantee and are not for production use. @module */
 export {
   type ParsePayloadOptions,
   type ComputeJwtTimeClaimsOptions,

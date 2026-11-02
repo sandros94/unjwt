@@ -5,10 +5,6 @@ import {
   base64UrlParse,
   base64Stringify,
   base64Parse,
-  base64UrlEncode,
-  base64UrlDecode,
-  base64Encode,
-  base64Decode,
   concatUint8Arrays,
   digestUrl,
   maybeArray,
@@ -154,7 +150,7 @@ describe.concurrent("Utility Functions", () => {
         iat: at,
         exp: at + 60,
       });
-      expect(computeJwtTimeClaims("text", { issuedAt: true })).toBeUndefined();
+      expect(computeJwtTimeClaims("text", { issuedAt: false })).toBeUndefined();
     });
 
     it("refuses an issuedAt that is neither a boolean nor a valid Date", () => {
@@ -217,12 +213,28 @@ describe.concurrent("Utility Functions", () => {
       expect(
         computeJwtTimeClaims({ exp: 2000 }, { expiresIn: "1m", currentDate: date }),
       ).toBeUndefined();
-      expect(
-        computeJwtTimeClaims(textEncoder.encode("bytes"), {
-          expiresIn: "1m",
-          currentDate: date,
-        }),
-      ).toBeUndefined();
+      expect(computeJwtTimeClaims("text", { currentDate: date })).toBeUndefined();
+    });
+
+    it.each([
+      ["expiresIn", { expiresIn: "1m" }],
+      ["expiresAt", { expiresAt: new Date(0) }],
+      ["notBeforeIn", { notBeforeIn: 0 }],
+      ["notBeforeAt", { notBeforeAt: new Date(0) }],
+      ["issuedAt", { issuedAt: true }],
+    ] as const)("refuses %s with a string or bytes payload", (name, options) => {
+      for (const payload of ["text", textEncoder.encode("bytes")]) {
+        const error = (() => {
+          try {
+            computeJwtTimeClaims(payload, options);
+          } catch (error_) {
+            return error_;
+          }
+          return undefined;
+        })();
+        expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+        expect((error as JWTError).message).toContain(`"${name}" needs a JSON payload`);
+      }
     });
 
     it("throws when both expiresIn and expiresAt are provided", () => {
@@ -300,7 +312,7 @@ describe("digestUrl", () => {
 
     const { payload, protectedHeader } = await verify<{ ath: string }>(
       proof,
-      (header) => header.jwk,
+      ({ header }) => header.jwk,
       { algorithms: ["ES256"], typ: "dpop+jwt", maxTokenAge: "60s" },
     );
     const access = await verify(accessToken, serverKey.publicKey, { typ: "at+jwt" });
@@ -645,15 +657,15 @@ describe("inferJWSAllowedAlgorithms", () => {
     expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
   });
 
-  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
+  it("counts oct entries of a JWKSet and skips a non-oct entry carrying k", () => {
     const set = {
       keys: [
         { kty: "EC", crv: "P-256", x: "", y: "" },
         { kty: "oct", k: "x", alg: "HS256" },
+        { kty: "EC", crv: "P-384", x: "", y: "", k: "x" },
       ],
     };
-    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256"]);
-    expect(inferJWSAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["ES256", "HS256"]);
+    expect(inferJWSAllowedAlgorithms(set)).toEqual(["ES256", "HS256"]);
   });
 });
 
@@ -702,18 +714,22 @@ describe("inferJWEAllowedAlgorithms", () => {
     expect(inferJWEAllowedAlgorithms({ kty: "oct", k: "x" })).toBeUndefined();
   });
 
-  it("ignores oct entries of a JWKSet unless symmetric material is admitted", () => {
-    const set = { keys: [{ kty: "oct", k: "x", alg: "A256KW" }] };
-    expect(inferJWEAllowedAlgorithms(set)).toBeUndefined();
-    expect(inferJWEAllowedAlgorithms(set, { allowSymmetric: true })).toEqual(["A256KW"]);
+  it("counts oct entries of a JWKSet and skips a non-oct entry carrying k", () => {
+    const set = {
+      keys: [
+        { kty: "oct", k: "x", alg: "A256KW" },
+        { kty: "RSA", n: "x", e: "AQAB", alg: "RSA-OAEP-256", k: "x" },
+      ],
+    };
+    expect(inferJWEAllowedAlgorithms(set)).toEqual(["A256KW"]);
   });
 
   it("infers from CryptoKeys across JWE alg families (delegates to privateKey on pairs)", async () => {
     const kw = await generateKey("A128KW");
-    expect(inferJWEAllowedAlgorithms(kw)).toEqual(["A128KW", "dir"]);
+    expect(inferJWEAllowedAlgorithms(kw)).toEqual(["A128KW"]);
 
     const gcm = await generateKey("A192GCM");
-    expect(inferJWEAllowedAlgorithms(gcm)).toEqual(["A192GCMKW", "dir"]);
+    expect(inferJWEAllowedAlgorithms(gcm)).toEqual(["A192GCMKW"]);
 
     const rsaOaep = await generateKey("RSA-OAEP-384", { modulusLength: 2048 });
     expect(inferJWEAllowedAlgorithms(rsaOaep.privateKey)).toEqual(["RSA-OAEP-384"]);
@@ -845,13 +861,6 @@ describe("base64 tooling", () => {
         expect(base64Parse(text, { returnAs: "bytes" })).toEqual(input);
       }
     });
-  });
-
-  it("keeps the deprecated aliases pointing at the new functions", () => {
-    expect(base64UrlEncode).toBe(base64UrlStringify);
-    expect(base64UrlDecode).toBe(base64UrlParse);
-    expect(base64Encode).toBe(base64Stringify);
-    expect(base64Decode).toBe(base64Parse);
   });
 });
 

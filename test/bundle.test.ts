@@ -59,7 +59,6 @@ const MARKERS = {
   thumbprint: "JWK thumbprint",
   cookieEs: "cookie-es",
   h3Import: 'from"h3',
-  elysiaImport: 'from"elysia"',
   dpop: "ERR_DPOP_",
 } as const;
 
@@ -72,8 +71,6 @@ interface Entry {
   measured: { min: number; gzip: number };
   /** Strings that must not appear in the bundle. */
   absent: ReadonlyArray<string>;
-  /** Imports left out of the bundle, as the build leaves out an adapter's framework. */
-  external?: ReadonlyArray<string>;
 }
 
 const ENTRIES: ReadonlyArray<Entry> = [
@@ -81,44 +78,44 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["verify"],
     module: "core/jws/index.ts",
-    measured: { min: 24413, gzip: 8105 },
+    measured: { min: 24768, gzip: 8250 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   {
     imports: ["sign"],
     module: "core/jws/index.ts",
-    measured: { min: 20205, gzip: 6911 },
+    measured: { min: 21102, gzip: 7192 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   {
     imports: ["decrypt"],
     module: "core/jwe/index.ts",
-    measured: { min: 36242, gzip: 11532 },
+    measured: { min: 36739, gzip: 11663 },
     absent: [MARKERS.thumbprint],
   },
   {
     imports: ["encrypt"],
     module: "core/jwe/index.ts",
-    measured: { min: 31960, gzip: 10334 },
+    measured: { min: 32505, gzip: 10510 },
     absent: [MARKERS.thumbprint],
   },
   {
     imports: ["importKey"],
     module: "core/jwk/index.ts",
-    measured: { min: 7431, gzip: 2904 },
+    measured: { min: 7755, gzip: 3015 },
     absent: [MARKERS.pem],
   },
   // the thumbprint is the default `kid` of every JWK it emits
   {
     imports: ["generateKey"],
     module: "core/jwk/index.ts",
-    measured: { min: 12259, gzip: 4521 },
+    measured: { min: 12265, gzip: 4539 },
     absent: [MARKERS.pem],
   },
   {
     imports: ["importPEM"],
     module: "core/jwk/index.ts",
-    measured: { min: 11146, gzip: 4325 },
+    measured: { min: 11146, gzip: 4320 },
     absent: [],
   },
   {
@@ -143,73 +140,51 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["createDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 27761, gzip: 9165 },
+    measured: { min: 28294, gzip: 9328 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "ERR_DPOP_REPLAY"],
   },
   {
     imports: ["verifyDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 32339, gzip: 10610 },
+    measured: { min: 32695, gzip: 10739 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes, "randomUUID"],
   },
   {
     imports: ["createDPoPProof", "verifyDPoPProof"],
     module: "dpop/index.ts",
-    measured: { min: 42525, gzip: 13314 },
+    measured: { min: 43161, gzip: 13506 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.randomBytes],
   },
   {
     imports: ["sign", "verify"],
     module: "core/jws/index.ts",
-    measured: { min: 32171, gzip: 10328 },
+    measured: { min: 32807, gzip: 10518 },
     absent: [MARKERS.pem, MARKERS.pbes2, MARKERS.thumbprint],
   },
   {
     imports: ["encrypt", "decrypt"],
     module: "core/jwe/index.ts",
-    measured: { min: 52903, gzip: 16000 },
+    measured: { min: 53619, gzip: 16239 },
     absent: [MARKERS.thumbprint],
   },
   {
     imports: ["generateJWK", "exportJWK"],
     module: "core/jwk/index.ts",
-    measured: { min: 12626, gzip: 4618 },
+    measured: { min: 12632, gzip: 4630 },
     absent: [MARKERS.pem],
   },
   // the Web entry imports no framework, and carries the cookie parser it uses
   {
     imports: ["defineJWSSession"],
     module: "session/index.ts",
-    measured: { min: 54702, gzip: 17628 },
-    absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
+    measured: { min: 60046, gzip: 19427 },
+    absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
   {
     imports: ["defineJWESession"],
     module: "session/index.ts",
-    measured: { min: 76531, gzip: 24087 },
-    absent: [MARKERS.cookieEs, MARKERS.h3Import, MARKERS.elysiaImport],
-  },
-  {
-    imports: ["defineJWSSession"],
-    module: "adapters/h3/index.ts",
-    measured: { min: 48495, gzip: 15645 },
-    absent: [MARKERS.cookieEs, MARKERS.elysiaImport],
-    external: ["h3"],
-  },
-  // cookie-es is bundled, so the adapter must carry the parser rather than import it
-  {
-    imports: ["useJWSSession"],
-    module: "adapters/h3v1/index.ts",
-    measured: { min: 49510, gzip: 16008 },
-    absent: [MARKERS.cookieEs],
-    external: ["h3v1"],
-  },
-  {
-    imports: ["jwsSession"],
-    module: "adapters/elysia/index.ts",
-    measured: { min: 48708, gzip: 15728 },
+    measured: { min: 80205, gzip: 25451 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
-    external: ["elysia"],
   },
 ];
 
@@ -264,7 +239,6 @@ async function bundleImport(entry: Entry): Promise<string> {
     platform: "neutral",
     treeshake: true,
     logLevel: "silent",
-    external: entry.external ? [...entry.external] : undefined,
     plugins: [
       {
         name: "virtual-entry",

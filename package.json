@@ -80,27 +80,12 @@
     "./internal": {
       "types": "./dist/core/internal.d.mts",
       "default": "./dist/core/internal.mjs"
-    },
-    "./adapters/h3": {
-      "types": "./dist/adapters/h3/index.d.mts",
-      "default": "./dist/adapters/h3/index.mjs"
-    },
-    "./adapters/h3v1": {
-      "types": "./dist/adapters/h3v1/index.d.mts",
-      "default": "./dist/adapters/h3v1/index.mjs"
-    },
-    "./adapters/h3v2": {
-      "types": "./dist/adapters/h3/index.d.mts",
-      "default": "./dist/adapters/h3/index.mjs"
-    },
-    "./adapters/elysia": {
-      "types": "./dist/adapters/elysia/index.d.mts",
-      "default": "./dist/adapters/elysia/index.mjs"
     }
   },
   "scripts": {
     "build": "obuild",
     "dev": "pnpm --dir playgrounds/h3 dev",
+    "docs": "pnpm --filter unjwt-docs dev",
     "dev:nuxt": "pnpm --dir playgrounds/nuxt-4 dev",
     "dev:nitro": "pnpm --dir playgrounds/nitro dev",
     "dev:prepare": "obuild --stub && pnpm --dir playgrounds/nuxt-4 prepare && pnpm simple-git-hooks",
@@ -110,7 +95,7 @@
     "prepack": "pnpm build",
     "test": "vitest run --slowTestThreshold=1000",
     "test:coverage": "vitest run --coverage --slowTestThreshold=1000",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples && tsc --noEmit -p test/examples",
     "bench": "vitest bench --run"
   },
   "devDependencies": {
@@ -119,9 +104,8 @@
     "@vitest/coverage-v8": "^5.0.4",
     "automd": "^0.4.3",
     "cookie-es": "^3.1.1",
-    "elysia": "^1.4.30",
     "h3": "^2.0.5",
-    "h3v1": "npm:h3@^1.15.11",
+    "hono": "^4.13.13",
     "jose": "^6.2.12",
     "obuild": "^0.4.45",
     "oxfmt": "^0.73.0",
@@ -133,18 +117,6 @@
     "typescript": "^7.0.2",
     "unsecure": "^0.3.4",
     "vitest": "^5.0.4"
-  },
-  "peerDependencies": {
-    "elysia": "^1.4.29",
-    "h3": "^1.15.4 || ^2.0.1"
-  },
-  "peerDependenciesMeta": {
-    "elysia": {
-      "optional": true
-    },
-    "h3": {
-      "optional": true
-    }
   },
   "simple-git-hooks": {
     "pre-commit": "pnpm build --stub && pnpm lint && pnpm typecheck"

@@ -28,19 +28,7 @@ import {
 import { loadSession } from "./read.ts";
 import { assertTokenSource, assertWritable } from "./transport.ts";
 
-/** Issue the session as a compact token without writing it; fresh `jti` if no ID, empty session without a token source. */
-export async function encodeSession<TEvent, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TEvent, Config>,
-): Promise<string> {
-  const { config, codec, store, transport } = binding;
-  await codec.assertKeys(config);
-  const issue = codec.issuer(config);
-  const session =
-    storedSession(store) || (transport.read ? await loadSession(binding) : emptySession(binding));
-  return issue(session.id === undefined ? { ...session, id: mintSessionId(config) } : session);
-}
-
-/** Update the session data (if provided) and reissue the token; `options.maxAge` overrides this token's lifetime. */
+/** Merges `update` into the data and issues a token. `options.maxAge` overrides its lifetime. A failed issue or cookie write restores the session. */
 export async function issueSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -52,7 +40,7 @@ export async function issueSession<
   options?: SessionIssueOptions,
   trigger: SessionUpdateTrigger = "update",
 ): Promise<SessionState<T, MaxAge> & { id: string; token: string }> {
-  const { config, driver, store, args, transport } = binding;
+  const { config, keys, driver, store, args, transport } = binding;
 
   assertWritable(transport, { operation: "update", prefix: driver.prefix });
 
@@ -78,9 +66,11 @@ export async function issueSession<
 
   let issued: SessionState<T, MaxAge> & { id: string; token: string };
   try {
-    const token = await encodeSession(binding);
+    await keys.assertKeys();
+    const token = await keys.issue(session);
     transport.write?.(token, sessionCookie(binding, { expiresAt: session.expiresAt }));
-    issued = Object.assign(session, { id, token });
+    binding.held.set(token);
+    issued = Object.assign(session, { id, token, error: undefined });
   } catch (error_) {
     Object.assign(session, {
       id: oldSession.id,
@@ -109,7 +99,7 @@ export async function issueSession<
   return issued;
 }
 
-/** Drop the session cookie, where the event takes one, and leave an empty session for the rest of the request. */
+/** Expires the session cookie where the event has one, and leaves an empty session for the rest of the request. */
 export async function dropSession<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
 ): Promise<void> {
@@ -123,18 +113,20 @@ export async function dropSession<TEvent, Config extends SessionCoreConfig>(
     session = await session[kSessionPending];
   }
   const oldSession =
-    session && (session.id !== undefined || session.token !== undefined)
+    session &&
+    (session.id !== undefined || session.token !== undefined || session.error !== undefined)
       ? snapshotSession(session)
       : undefined;
 
   store.set(emptySession(binding));
+  binding.held.set(undefined);
 
   transport.drop?.(sessionCookie(binding));
 
   await config.hooks?.onClear?.({ oldSession, ...args, config });
 }
 
-/** The session manager handed to callers: live getters over the stored state. */
+/** The session manager returned to callers: live getters over the stored state. */
 export function sessionManager<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -160,6 +152,12 @@ export function sessionManager<
     get token() {
       return sessionToken(binding);
     },
+    get source() {
+      return binding.transport.source;
+    },
+    get error() {
+      return state()?.error;
+    },
     update: async (update?: SessionUpdate<T>, options?: SessionIssueOptions) => {
       await issueSession<T, MaxAge, TEvent, Config>(binding, update, options);
       return manager;
@@ -173,7 +171,7 @@ export function sessionManager<
   return manager;
 }
 
-/** What a binding needs from this module; passed to `bindSession` by every adapter. */
+/** The write side a binding calls from the read path, passed to `bindSession`. */
 export function sessionActions<TEvent, Config extends SessionCoreConfig>(): SessionActions<
   TEvent,
   Config
@@ -186,7 +184,7 @@ export function sessionActions<TEvent, Config extends SessionCoreConfig>(): Sess
   };
 }
 
-/** A session with a deep copy of its data as a token carries it, unaffected by later changes to the live one. */
+/** A copy of the session with its data deep-copied through JSON, unaffected by later changes to the live one. */
 function snapshotSession<S extends { data: Record<string, unknown> }>(session: S): S {
   return { ...session, data: safeJsonParse(JSON.stringify(session.data)) };
 }

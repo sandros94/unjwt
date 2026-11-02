@@ -4,11 +4,9 @@ export * from "./jws.ts";
 export * from "./jwe.ts";
 
 /**
- * A time duration, expressed as an integer number of seconds or a human-readable
- * shorthand like `"10m"`, `"2h"`, `"7D"`.
- *
- * Shared base type for every duration-valued option in the library:
- * {@link ExpiresIn}, {@link NotBeforeIn}, {@link MaxTokenAge}.
+ * A duration: an integer number of seconds, or a string such as `"10m"`, `"2h"` or `"7D"`.
+ * A string without a unit counts seconds. `"M"` is 30 days and `"Y"` is 365 days.
+ * A non-integer number or an unparsed string throws `ERR_INVALID_OPTION`.
  */
 export type Duration =
   | number
@@ -36,11 +34,11 @@ export type Duration =
       | "year"
       | "years"}`;
 
-/** Duration until `exp` — the `expiresIn` option on {@link sign} / {@link encrypt}. */
+/** The `expiresIn` option of `sign` and `encrypt`: `exp` is the current time plus this positive duration. */
 export type ExpiresIn = Duration;
 
-/** Duration from `iat` for `nbf` — the `notBeforeIn` option on {@link sign} / {@link encrypt}. */
+/** The `notBeforeIn` option of `sign` and `encrypt`: `nbf` is the current time plus this duration, zero or more. */
 export type NotBeforeIn = Duration;
 
-/** Duration for `maxTokenAge` validation on {@link verify} / {@link decrypt}. */
+/** The `maxTokenAge` option of `verify` and `decrypt`: the oldest `iat` accepted, as a positive duration. */
 export type MaxTokenAge = Duration;

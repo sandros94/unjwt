@@ -30,12 +30,7 @@ import {
   getPlaintextBytes,
   validateCriticalHeadersJWE,
 } from "../_internal/jwt.ts";
-import {
-  JWE_ALG_CTX,
-  checkJWEAlgSupported,
-  checkJWEEncAllowed,
-  isJWEAlgSupported,
-} from "./_internal/algorithms.ts";
+import { JWE_ALG_CTX, checkJWEAlgSupported, checkJWEEncAllowed } from "./_internal/algorithms.ts";
 import {
   checkProtectedTyp,
   assertProducerCrit,
@@ -50,7 +45,7 @@ import {
   serializeProtectedHeader,
   decodeSegment,
 } from "../_internal/headers.ts";
-import { assertEntryLimit, resolveLimit } from "../_internal/limits.ts";
+import { assertEntryLimit, createKeyAttemptBudget, resolveLimit } from "../_internal/limits.ts";
 import {
   assertNoZipOption,
   assertProducerCEK,
@@ -84,9 +79,18 @@ import {
 } from "./_internal/multi.ts";
 
 /**
- * Encrypt a payload to multiple recipients as JWE General JSON Serialization (RFC 7516 §7.2.1).
- * Each recipient's `alg` comes from `key.alg` (`ERR_JWE_RECIPIENT_ALG_INFERENCE` when absent);
- * `dir` and bare `ECDH-ES` throw `ERR_JWE_ALG_FORBIDDEN_IN_MULTI`.
+ * Encrypts `payload` once for several recipients and returns a JWE General JSON Serialization (RFC 7516 §7.2.1).
+ * Each recipient's `alg` comes from its JWK's `alg`. `enc` defaults to `A256GCM`.
+ * A non-empty `aad` is authenticated with the content and written as the `aad` member.
+ *
+ * @throws `ERR_JWE_INVALID` if `recipients` is empty or not an array, or `enc` is unsupported.
+ * @throws `ERR_JWE_RECIPIENT_ALG_INFERENCE` if a recipient key is not a JWK or has no `alg`.
+ * @throws `ERR_JWE_ALG_FORBIDDEN_IN_MULTI` if a recipient uses `dir` or bare `ECDH-ES`.
+ * @throws `ERR_JWE_ALG_NOT_ALLOWED` if a recipient `alg` is not a supported key management algorithm.
+ * @throws `ERR_JWE_HEADER_PARAMS_NOT_DISJOINT` if one parameter is set in more than one header.
+ * @throws `ERR_JWK_INVALID` if a recipient key cannot serve its `alg`.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, a header sets `zip`, `cek` or `contentEncryptionIV` has the wrong length, or a time option is set on a string or bytes payload.
+ * @throws `ERR_JWT_CLAIM_INVALID` if both members of a time option pair are set, or `cnf.jwk` is not a public JWK.
  */
 export async function encryptMulti(
   payload: JOSEPayload,
@@ -191,7 +195,7 @@ export async function encryptMulti(
   let aadEncoded: string | undefined;
   let aadForCipher: string = protectedHeaderEncoded;
   const aadBytes = typeof options.aad === "string" ? textEncoder.encode(options.aad) : options.aad;
-  // RFC 7516 §7.2.1 — the "aad" member is present only for a non-empty JWE AAD.
+  // RFC 7516 §7.2.1: the "aad" member is present only for a non-empty JWE AAD.
   if (aadBytes !== undefined && aadBytes.length > 0) {
     aadEncoded = base64UrlStringify(aadBytes);
     aadForCipher = `${protectedHeaderEncoded}.${aadEncoded}`;
@@ -222,24 +226,31 @@ export async function encryptMulti(
 }
 
 /**
- * Decrypt a JWE General (RFC 7516 §7.2.1) or Flattened (§7.2.2) JSON Serialization.
- * Recipients are tried in order; per-recipient failures surface only when none unwraps.
- * `strictRecipientMatch` skips recipients the key cannot open and throws
- * `ERR_JWE_NO_MATCHING_RECIPIENT` when none qualifies; a JWK Set with no `kid` candidate
- * throws `ERR_JWK_KEY_NOT_FOUND`. The payload type follows `options.payload`.
+ * Decrypts a JWE General (RFC 7516 §7.2.1) or Flattened (§7.2.2) JSON Serialization and returns the first recipient that opens.
+ * The protected header, the shared unprotected header and the content segments are checked first and throw at once.
+ * Recipients are then tried in order, and a failure scoped to one recipient moves on to the next.
+ * Once a recipient opens, a payload or claim failure throws at once.
+ * The payload type follows `options.payload`.
+ *
+ * @throws its own error if the only recipient fails, as `decrypt` would.
+ * @throws `ERR_JWE_DECRYPTION_FAILED` if none of several recipients opens, with one `JWTError` per recipient as `cause`, in order.
+ * @throws `ERR_JWE_NO_MATCHING_RECIPIENT` if `strictRecipientMatch` is set and no recipient fits the key.
+ * @throws `ERR_JWE_INVALID_SERIALIZATION` if the object is not a General or Flattened JWE.
+ * @throws `ERR_JWE_INVALID` if the recipients exceed `limits.recipients`, or a shared header or content segment is invalid.
+ * @throws `ERR_JWE_ALG_NOT_ALLOWED` if `enc` is outside `encryptionAlgorithms`.
+ * @throws `ERR_JWK_KEY_NOT_FOUND` if the key trials exceed `limits.keyAttempts`.
+ * @throws `ERR_INVALID_OPTION` if an option is malformed, a claim option is set where claims are not validated, or `returnCek` meets a non-extractable CEK.
+ * @throws `ERR_JWT_EXPIRED` if `exp` has passed or the token is older than `maxTokenAge`.
+ * @throws `ERR_JWT_NBF` if `nbf` is in the future.
+ * @throws `ERR_JWT_CLAIM_INVALID` if a claim does not match its option or has the wrong type.
+ * @throws `ERR_JWT_CLAIM_MISSING` if a claim in `requiredClaims` or one an option checks is absent.
  */
 export async function decryptMulti<T extends object = JWTClaims>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,
-  options?: JWEMultiDecryptOptions<"json"> & { forceUint8Array?: false },
+  options?: JWEMultiDecryptOptions<"json">,
 ): Promise<JWEMultiDecryptResult<T>>;
-/** @deprecated `forceUint8Array` is replaced by `payload: "bytes"`; removed in v0.9.0. */
-export async function decryptMulti(
-  jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
-  keyOrLookup: JWEMultiDecryptKey,
-  options: JWEMultiDecryptOptions & { forceUint8Array: true },
-): Promise<JWEMultiDecryptResult<Uint8Array<ArrayBuffer>>>;
-/** Decrypts a JWE JSON Serialization whose plaintext decodes under `options.payload`; see {@link PayloadOf}. */
+/** Decrypts a JWE JSON Serialization whose plaintext decodes under `options.payload`. See {@link PayloadOf}. */
 export async function decryptMulti<Mode extends JOSEPayloadMode = JOSEPayloadMode>(
   jwe: JWEGeneralSerialization | JWEFlattenedSerialization,
   keyOrLookup: JWEMultiDecryptKey,
@@ -254,6 +265,7 @@ export async function decryptMulti(
   const payloadMode = resolvePayloadMode(options);
   const recipientLimit = resolveLimit(options.limits, "recipients");
   const keyCandidates = resolveLimit(options.limits, "keyCandidates");
+  const keyAttempts = createKeyAttemptBudget(resolveLimit(options.limits, "keyAttempts"));
   const pbes2Budget = createPBES2Budget(resolveLimit(options.limits, "pbes2Iterations"));
 
   const general = _normalizeSerialization(jwe);
@@ -298,7 +310,7 @@ export async function decryptMulti(
   if (sharedError) throw sharedError;
   _assertDisjointHeaders(protectedHeader, sharedUnprotected, undefined);
 
-  // RFC 7516 §7.2.1 — `enc` never sits in a per-recipient header.
+  // RFC 7516 §7.2.1: `enc` is read from the protected or shared unprotected header, never a per-recipient one.
   const enc = protectedHeader.enc ?? sharedUnprotected?.enc;
   if (!enc) {
     throw new JWTError(
@@ -325,12 +337,12 @@ export async function decryptMulti(
   const segmentError = checkJWEContentSegments(enc, ivBytes, tagBytes);
   if (segmentError) throw segmentError;
 
-  // RFC 7516 §5.2 step 15 — a present `aad` member takes part even when empty.
+  // RFC 7516 §5.2 step 15: a present `aad` member is part of the AAD even when empty.
   const contentAadBytes = textEncoder.encode(
     general.aad === undefined ? protectedHeaderEncoded : `${protectedHeaderEncoded}.${general.aad}`,
   );
 
-  let lastError: JWTError | undefined;
+  const failures: JWTError[] = [];
   let cryptoAttempted = false;
   for (let i = 0; i < general.recipients.length; i++) {
     const shapeError = checkSerializationEntry(general.recipients[i], {
@@ -340,7 +352,7 @@ export async function decryptMulti(
       strings: ["encrypted_key"],
     });
     if (shapeError) {
-      lastError = shapeError;
+      failures.push(shapeError);
       continue;
     }
     const wireRecipient = general.recipients[i];
@@ -351,34 +363,34 @@ export async function decryptMulti(
 
     const recipientError = checkJWEUnprotectedCrit(recipientHeader) ?? checkJWEZip(recipientHeader);
     if (recipientError) {
-      lastError = recipientError;
+      failures.push(recipientError);
       continue;
     }
 
     try {
       _assertDisjointHeaders(protectedHeader, sharedUnprotected, recipientHeader);
     } catch (err) {
-      lastError = asDecryptionError(err);
+      failures.push(asDecryptionError(err));
       continue;
     }
 
     const effective = _mergeHeaders(protectedHeader, sharedUnprotected, recipientHeader);
     const alg = effective.alg;
     if (!alg) {
-      lastError = new JWTError(
-        `Recipient[${i}] has no "alg" in the effective header.`,
-        "ERR_JWE_INVALID",
+      failures.push(
+        new JWTError(`Recipient[${i}] has no "alg" in the effective header.`, "ERR_JWE_INVALID"),
       );
       continue;
     }
 
-    if (!isJWEAlgSupported(alg)) {
-      lastError = checkJWEAlgSupported(alg);
+    const supportError = checkJWEAlgSupported(alg);
+    if (supportError) {
+      failures.push(supportError);
       continue;
     }
     const directKeyError = checkJWEDirectEncryptedKey(alg, wireRecipient.encrypted_key);
     if (directKeyError) {
-      lastError = directKeyError;
+      failures.push(directKeyError);
       continue;
     }
 
@@ -390,17 +402,16 @@ export async function decryptMulti(
         what: `recipient[${i}]`,
       });
     } catch (err) {
-      lastError = asKeyLookupError(err, `recipient[${i}]`);
+      failures.push(asKeyLookupError(err, `recipient[${i}]`));
       continue;
     }
 
     const algError = checkAlgAllowed(alg, rawKeyMaterial, {
       ctx: JWE_ALG_CTX,
       algorithms: options.algorithms,
-      allowSymmetric: options.allowSymmetricJWKSet,
     });
     if (algError) {
-      lastError = algError;
+      failures.push(algError);
       continue;
     }
 
@@ -408,9 +419,14 @@ export async function decryptMulti(
       options.strictRecipientMatch &&
       !keyMatchesHeader(effective, rawKeyMaterial, {
         ctx: JWE_ALG_CTX,
-        allowSymmetric: options.allowSymmetricJWKSet,
       })
     ) {
+      failures.push(
+        new JWTError(
+          `JWE recipient[${i}] does not match the key under strictRecipientMatch.`,
+          "ERR_JWE_NO_MATCHING_RECIPIENT",
+        ),
+      );
       continue;
     }
 
@@ -421,7 +437,7 @@ export async function decryptMulti(
         what: "Encrypted key",
       });
     } catch (err) {
-      lastError = asDecryptionError(err);
+      failures.push(asDecryptionError(err));
       continue;
     }
 
@@ -440,12 +456,13 @@ export async function decryptMulti(
         tag: tagBytes,
         aad: contentAadBytes,
         kid: effective.kid,
-        allowSymmetric: options.allowSymmetricJWKSet,
         keyCandidates,
         pbes2Budget,
+        keyAttempts,
       }));
     } catch (err) {
-      lastError = asDecryptionError(err);
+      if (keyAttempts.exhausted) throw keyAttempts.exhausted;
+      failures.push(asDecryptionError(err));
       continue;
     }
 
@@ -473,12 +490,14 @@ export async function decryptMulti(
       "ERR_JWE_NO_MATCHING_RECIPIENT",
     );
   }
-  throw lastError ?? new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED");
+  if (failures.length === 1) throw failures[0];
+  throw new JWTError("JWE decryption failed.", "ERR_JWE_DECRYPTION_FAILED", failures);
 }
 
 /**
- * Convert a single-recipient General JWE to the Flattened form (RFC 7516 §7.2.2).
- * Throws `ERR_JWE_INVALID_SERIALIZATION` for zero or multiple recipients.
+ * Converts a General JWE with exactly one recipient to the Flattened form (RFC 7516 §7.2.2).
+ *
+ * @throws `ERR_JWE_INVALID_SERIALIZATION` if the input has no `recipients` array, or not exactly one recipient.
  */
 export function generalToFlattened(jwe: JWEGeneralSerialization): JWEFlattenedSerialization {
   assertSerializationObject(jwe, "JWE");

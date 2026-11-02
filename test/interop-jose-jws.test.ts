@@ -137,9 +137,13 @@ describe.concurrent("interop with jose: JWS JSON serialization", () => {
       .setProtectedHeader({ alg: "RS256", kid: "rs" })
       .setUnprotectedHeader({ x: 1 });
     const jws = (await sig.sign()) as JWSGeneralSerialization;
-    const outcomes = await verifyMultiAll(jws, (h) => (h.kid === "es" ? es.pub : rs.pub), {
-      payload: "bytes",
-    });
+    const outcomes = await verifyMultiAll(
+      jws,
+      ({ header }) => (header.kid === "es" ? es.pub : rs.pub),
+      {
+        payload: "bytes",
+      },
+    );
     expect(outcomes.map((o) => o.verified)).toEqual([true, true]);
     const one = await verifyMulti(jws, rs.pub as JWSVerifyJWK, { payload: "bytes" });
     expect(one).toMatchObject({ payload: bytes, signerIndex: 1, signerHeader: { x: 1 } });

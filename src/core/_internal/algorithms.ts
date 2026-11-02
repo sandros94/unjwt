@@ -13,10 +13,7 @@ import type { JWKSetOperation } from "./keys.ts";
 import { buildJWKSetFilter } from "./keys.ts";
 
 export interface AlgCheckContext {
-  infer: (
-    key: unknown,
-    options?: { allowSymmetric?: boolean },
-  ) => readonly JWKAlgorithm[] | undefined;
+  infer: (key: unknown) => readonly JWKAlgorithm[] | undefined;
   /** An `oct` JWK's `alg` names a role, not the header `alg` (JWE). */
   octRoles: boolean;
   errorCode: "ERR_JWS_ALG_NOT_ALLOWED" | "ERR_JWE_ALG_NOT_ALLOWED";
@@ -32,24 +29,30 @@ export const JWS_ALG_CTX: AlgCheckContext = /* @__PURE__ */ Object.freeze({
   op: "sig",
 });
 
-/** Check the header `alg` against the allowlist, else the JWK's own `alg`, else the key-shape inference. */
+/**
+ * Returns an error when the header `alg` is not allowed. The policy is `algorithms` when set,
+ * else the JWK's own `alg`, else the algorithms inferred from the key shape.
+ * Without `algorithms` or a JWK `alg`, a missing key is `ERR_JWK_INVALID`.
+ */
 export function checkAlgAllowed<A extends JWKAlgorithm>(
   alg: A,
   key: unknown,
   options: {
     ctx: AlgCheckContext;
     algorithms?: readonly A[];
-    allowSymmetric?: boolean;
   },
 ): JWTError | undefined {
-  const { ctx, algorithms, allowSymmetric } = options;
+  const { ctx, algorithms } = options;
   if (algorithms !== undefined) {
     return algorithms.includes(alg) ? undefined : notAllowed(alg, ctx);
   }
   if (isJWK(key) && typeof key.alg === "string" && (!ctx.octRoles || key.kty !== "oct")) {
     return isSameAlgorithm(key.alg, alg) ? undefined : notAllowed(alg, ctx);
   }
-  const inferred = ctx.infer(key, { allowSymmetric });
+  if (key === undefined || key === null) {
+    return new JWTError("A key is required.", "ERR_JWK_INVALID");
+  }
+  const inferred = ctx.infer(key);
   if (!inferred) {
     return new JWTError(
       'Cannot infer allowed algorithms from this key, pass "algorithms".',
@@ -63,17 +66,15 @@ function notAllowed(alg: JWKAlgorithm, ctx: AlgCheckContext): JWTError {
   return new JWTError(`${ctx.label} not allowed: ${alg}`, ctx.errorCode);
 }
 
-/** Whether key material could be the one the header was produced for (RFC 7515 §4.1.4 / RFC 7516 §4.1.6 `kid` hint). */
+/** Whether key material can serve the header's `alg` (RFC 7515 §4.1.4, RFC 7516 §4.1.6 `kid` hint). A JWK Set with no candidate matches. */
 export function keyMatchesHeader(
   header: { alg?: JWKAlgorithm; kid?: string; epk?: { crv?: string } },
   keyMaterial: unknown,
-  options: { ctx: AlgCheckContext; allowSymmetric?: boolean },
+  options: { ctx: AlgCheckContext },
 ): boolean {
-  const { ctx, allowSymmetric } = options;
+  const { ctx } = options;
   if (isJWKSet(keyMaterial)) {
-    const candidates = keyMaterial.keys.filter(
-      buildJWKSetFilter(header, { op: ctx.op, allowSymmetric }),
-    );
+    const candidates = keyMaterial.keys.filter(buildJWKSetFilter(header, { op: ctx.op }));
     return candidates.length === 0 || candidates.some((k) => keyServesHeaderAlg(header, k, ctx));
   }
   if (isJWK(keyMaterial)) return keyServesHeaderAlg(header, keyMaterial, ctx);

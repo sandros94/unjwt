@@ -19,6 +19,7 @@ import type {
   JWK_Pair,
   JWK_RSA_Private,
   JWKSet,
+  JWSHeaderParameters,
   JWSVerifyJWK,
 } from "../src/core/types/index.ts";
 
@@ -472,18 +473,11 @@ describe.concurrent("JWS Utilities", () => {
       expect((error as JWTError).cause).toMatchObject({ jti: "test-jti-age", iat });
     });
 
-    it("should not include computed `exp`", async () => {
+    it("refuses a time claim option with a string payload", async () => {
       const key = await generateKey("HS256", { toJWK: true });
-      const jws = await sign(payloadString, key, {
-        expiresIn: 60, // 1 minute expiration
-      });
-      const [headerEncoded, payload] = jws.split(".");
-      const header = JSON.parse(base64UrlParse(headerEncoded));
-      expect(header.alg).toBe("HS256");
-      expect(base64UrlParse(payload)).toEqual(payloadString);
-
-      const { payload: josePayload } = await jose.compactVerify(jws, key);
-      expect(textDecoder.decode(josePayload)).toEqual(payloadString);
+      const error = await sign(payloadString, key, { expiresIn: 60 }).catch((e) => e);
+      expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+      expect((error as JWTError).message).toMatch(/"expiresIn" needs a JSON payload/);
     });
 
     it("should throw if alg is missing", async () => {
@@ -491,6 +485,38 @@ describe.concurrent("JWS Utilities", () => {
       await expect(sign(payloadObj, key, {} as never)).rejects.toThrow(
         'JWS "alg" must be provided',
       );
+    });
+
+    it.each([
+      ["ES256", "ES256"],
+      ["ES384", "ES384"],
+      ["ES512", "ES512"],
+      ["Ed25519", "EdDSA"],
+    ] as const)(
+      "signs a %s JWK without alg under the alg its curve names",
+      async (generated, alg) => {
+        const { privateKey, publicKey } = await generateJWK(generated);
+        const { alg: _private, ...signing } = privateKey;
+        const { alg: _public, ...verifying } = publicKey;
+
+        const jws = await sign(payloadObj, signing);
+        expect(JSON.parse(base64UrlParse(jws.split(".")[0])).alg).toBe(alg);
+        expect((await verify(jws, verifying)).payload).toEqual(payloadObj);
+      },
+    );
+
+    it("signs an EC JWK without alg under an explicit alg only when the curve agrees", async () => {
+      const { alg: _alg, ...signing } = (await generateJWK("ES256")).privateKey;
+      const jws = await sign(payloadObj, signing, { alg: "ES256" });
+      expect(JSON.parse(base64UrlParse(jws.split(".")[0])).alg).toBe("ES256");
+      const error = await sign(payloadObj, signing, { alg: "ES384" }).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWK_INVALID")).toBe(true);
+    });
+
+    it("refuses an RSA JWK without alg, which serves several algorithms", async () => {
+      const { alg: _alg, ...signing } = (await generateJWK("RS256")).privateKey;
+      const error = await sign(payloadObj, signing).catch((e) => e);
+      expect(isJWTError(error, "ERR_JWS_ALG_MISSING")).toBe(true);
     });
 
     it("should throw ERR_INVALID_OPTION for invalid payload type", async () => {
@@ -648,7 +674,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "key2" },
       });
 
-      const { payload } = await verify(jws, jwkSet, { allowSymmetricJWKSet: true });
+      const { payload } = await verify(jws, jwkSet);
       expect(payload).toEqual(payloadObj);
     });
 
@@ -672,7 +698,7 @@ describe.concurrent("JWS Utilities", () => {
         protectedHeader: { kid: "key1" }, // Using "key1" kid for test purposes
       });
 
-      const keyLookup = (header: { kid?: string; alg?: string }) => {
+      const keyLookup = ({ header }: { header: { kid?: string; alg?: string } }) => {
         if (header.kid === "key1" && header.alg === "HS256") {
           return hs256Key;
         }
@@ -686,13 +712,28 @@ describe.concurrent("JWS Utilities", () => {
       expect(JSON.parse(textDecoder.decode(josePayload))).toEqual(payloadObj);
     });
 
+    it("passes the lookup the decoded header and the token", async () => {
+      const jws = await sign(payloadObj, hs256Key, {
+        alg: "HS256",
+        protectedHeader: { kid: "key1" },
+      });
+      const seen: { header: JWSHeaderParameters; token: string }[] = [];
+
+      await verify(jws, (lookup) => {
+        expectTypeOf(lookup).toEqualTypeOf<{ header: JWSHeaderParameters; token: string }>();
+        seen.push(lookup);
+        return hs256Key;
+      });
+      expect(seen).toEqual([{ header: { alg: "HS256", kid: "key1", typ: "JWT" }, token: jws }]);
+    });
+
     it("should verify with async key lookup function", async () => {
       const jws = await sign(payloadObj, hs256Key, {
         alg: "HS256",
         protectedHeader: { kid: "key2" },
       });
 
-      const keyLookup = async (header: { kid?: string; alg?: string }) => {
+      const keyLookup = async ({ header }: { header: { kid?: string; alg?: string } }) => {
         await Promise.resolve(); // Ensure async resolution
         if (header.kid === "key2" && header.alg === "HS256") {
           return hs256Key;
@@ -718,7 +759,7 @@ describe.concurrent("JWS Utilities", () => {
         return jwkSet;
       };
 
-      const { payload } = await verify(jws, keyLookup, { allowSymmetricJWKSet: true });
+      const { payload } = await verify(jws, keyLookup);
       expect(payload).toEqual(payloadObj);
     });
 
@@ -728,7 +769,7 @@ describe.concurrent("JWS Utilities", () => {
       const [jwk1, jwk2] = await Promise.all([exportJWK(raw1), exportJWK(raw2)]);
       const jws = await sign(payloadObj, raw2, { alg: "HS256" });
       const set: JWKSet = { keys: [jwk1, jwk2] };
-      const { payload } = await verify(jws, set, { allowSymmetricJWKSet: true });
+      const { payload } = await verify(jws, set);
       expect(payload).toEqual(payloadObj);
     });
 
@@ -739,44 +780,32 @@ describe.concurrent("JWS Utilities", () => {
         [rsaPair, otherRsaPair] = await Promise.all([generateJWK("RS256"), generateJWK("RS256")]);
       });
 
-      it("ignores an injected oct key unless the caller admits symmetric material", async () => {
+      it("counts an oct entry as a candidate and toward inference", async () => {
         const { publicKey, privateKey } = rsaPair;
-        const attackerSecret = await generateJWK("HS256");
-        const genuine = await sign(payloadObj, privateKey);
-        const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
+        const secret = await generateJWK("HS256");
+        const asymmetric = await sign(payloadObj, privateKey);
+        const symmetric = await sign({ ...payloadObj, sub: "admin" }, secret);
 
-        const poisoned: JWKSet = { keys: [publicKey, attackerSecret] };
+        const mixed: JWKSet = { keys: [publicKey, secret] };
 
-        const error = await verify(forgery, poisoned).catch((e) => e);
-        expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
-
-        // The genuine, asymmetric token is unaffected.
-        await expect(verify(genuine, poisoned)).resolves.toBeDefined();
-
-        // The set's owner can opt back in for an HMAC rotation set they control.
-        const { payload } = await verify(forgery, poisoned, {
-          allowSymmetricJWKSet: true,
-        });
+        await expect(verify(asymmetric, mixed)).resolves.toBeDefined();
+        const { payload } = await verify(symmetric, mixed);
         expect(payload.sub).toBe("admin");
       });
 
-      it('treats a non-oct entry carrying "k" as symmetric material', async () => {
+      it('skips a non-oct entry carrying "k" as malformed', async () => {
         const { publicKey } = rsaPair;
-        const attackerSecret = await generateJWK("HS256");
-        const forgery = await sign({ ...payloadObj, sub: "admin" }, attackerSecret);
-        const { kid, k } = attackerSecret;
+        const secret = await generateJWK("HS256");
+        const forgery = await sign({ ...payloadObj, sub: "admin" }, secret);
+        const { kid, k } = secret;
         const disguised = { kty: "EC", alg: "HS256", kid, k } as unknown as JWK;
         const poisoned: JWKSet = { keys: [publicKey, disguised] };
 
         const error = await verify(forgery, poisoned).catch((e) => e);
         expect(isJWTError(error, "ERR_JWS_ALG_NOT_ALLOWED")).toBe(true);
 
-        const admitted = await verify(forgery, poisoned, {
-          allowSymmetricJWKSet: true,
-          algorithms: ["HS256"],
-        }).catch((e) => e);
-        expect(isJWTError(admitted, "ERR_JWS_SIGNATURE_INVALID")).toBe(true);
-        expect(admitted.cause.map((c: JWTError) => c.code)).toEqual(["ERR_JWK_INVALID"]);
+        const named = await verify(forgery, poisoned, { algorithms: ["HS256"] }).catch((e) => e);
+        expect(isJWTError(named, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
 
         const single = await verify(forgery, disguised as JWSVerifyJWK, {
           algorithms: ["HS256"],
@@ -1527,7 +1556,7 @@ describe.concurrent("JWS Utilities", () => {
       const key = await generateKey("HS256", { toJWK: true });
       const jws = await sign(payloadObj, { ...key, kid: "key-1" });
       const jwkSet = { keys: [{ ...key, kid: "other-key" }] };
-      const error = await verify(jws, jwkSet, { allowSymmetricJWKSet: true }).catch((e) => e);
+      const error = await verify(jws, jwkSet).catch((e) => e);
       expect(error).toBeInstanceOf(JWTError);
       expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     });
@@ -1926,22 +1955,6 @@ describe.concurrent("JWS payload typing (compact)", () => {
     expect(textDecoder.decode(payload)).toBe("raw bytes");
   });
 
-  it('forceUint8Array is an alias of payload: "bytes"', async () => {
-    const jws = await sign(textEncoder.encode("raw bytes"), hs256Key, { alg: "HS256" });
-    const aliased = await verify(jws, hs256Key, { forceUint8Array: true });
-    const explicit = await verify(jws, hs256Key, { payload: "bytes" });
-    expect(aliased.payload).toEqual(explicit.payload);
-  });
-
-  it("rejects forceUint8Array contradicting payload", async () => {
-    const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
-    const error = await verify(jws, hs256Key, {
-      forceUint8Array: true,
-      payload: "json",
-    }).catch((e) => e);
-    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
-  });
-
   it("rejects an unknown payload mode", async () => {
     const jws = await sign({ sub: "u" }, hs256Key, { alg: "HS256" });
     const error = await verify(jws, hs256Key, { payload: "text" as never }).catch((e) => e);
@@ -2226,11 +2239,78 @@ describe.concurrent("JWS verification option gates", () => {
     const kid = `evil\nInjected: yes ${"x".repeat(200)}`;
     const signed = await sign({ sub: "u" }, { ...key, kid });
     const set: JWKSet = { keys: [{ ...key, kid: "other" }] };
-    const error = await verify(signed, set, { allowSymmetricJWKSet: true }).catch((e) => e);
+    const error = await verify(signed, set).catch((e) => e);
     expect(isJWTError(error, "ERR_JWK_KEY_NOT_FOUND")).toBe(true);
     expect(error.message).not.toContain("\n");
     expect(error.message).toContain(String.raw`with kid "evil\nInjected: yes x`);
     expect(error.message.length).toBeLessThan(120);
+  });
+});
+
+const CLAIM_OPTIONS = [
+  ["audience", { audience: "a" }],
+  ["issuer", { issuer: "i" }],
+  ["subject", { subject: "u" }],
+  ["maxTokenAge", { maxTokenAge: 60 }],
+  ["requiredClaims", { requiredClaims: ["sub"] }],
+] as const;
+const UNCHECKED_MODES = [
+  [{ payload: "string" }, "needs a JSON payload"],
+  [{ payload: "bytes" }, "needs a JSON payload"],
+  [{ validateClaims: false }, "needs claim validation"],
+] as const;
+const CLAIM_CASES = CLAIM_OPTIONS.flatMap(([name, option]) =>
+  UNCHECKED_MODES.map(([mode, reason]) => [name, mode, { ...option, ...mode }, reason] as const),
+);
+const TIME_CASES = (
+  [
+    ["expiresIn", { expiresIn: 60 }],
+    ["expiresAt", { expiresAt: new Date(4_000_000_000_000) }],
+    ["notBeforeIn", { notBeforeIn: 0 }],
+    ["notBeforeAt", { notBeforeAt: new Date(0) }],
+    ["issuedAt", { issuedAt: true }],
+  ] as const
+).flatMap(([name, option]) =>
+  [["a string", "text"] as const, ["bytes", new Uint8Array([1, 2])] as const].map(
+    ([label, payload]) => [name, label, payload, option] as const,
+  ),
+);
+
+describe.concurrent("JWS compact claim and time options need a JSON payload", () => {
+  let key: JWK_oct<"HS256">;
+  let token: string;
+
+  beforeAll(async () => {
+    key = await generateJWK("HS256");
+    token = await sign({ sub: "u", iss: "i", aud: "a" }, key, {
+      protectedHeader: { typ: "at+jwt" },
+    });
+  });
+
+  it.each(CLAIM_CASES)("verify refuses %s with %j", async (name, _mode, options, reason) => {
+    const error = await verify(token, key, options as never).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain(`"${name}" ${reason}`);
+  });
+
+  it("verify keeps header checks, the clock and validateClaims: false for any payload mode", async () => {
+    const { payload } = await verify(token, key, {
+      payload: "string",
+      typ: "at+jwt",
+      recognizedHeaders: ["app"],
+      currentDate: new Date(),
+      clockTolerance: 5,
+    });
+    expect(JSON.parse(payload)).toMatchObject({ sub: "u" });
+    await expect(
+      verify(token, key, { validateClaims: false, typ: "at+jwt" }),
+    ).resolves.toHaveProperty("payload.sub", "u");
+  });
+
+  it.each(TIME_CASES)("sign refuses %s with %s payload", async (name, _label, payload, option) => {
+    const error = await sign(payload, key, option).catch((e) => e);
+    expect(isJWTError(error, "ERR_INVALID_OPTION")).toBe(true);
+    expect(error.message).toContain(`"${name}" needs a JSON payload`);
   });
 });
 
@@ -2288,10 +2368,8 @@ describe("types", () => {
     ).returns.resolves.toEqualTypeOf<JWSVerifyResult<string | Uint8Array<ArrayBuffer>>>();
   });
 
-  it("keeps the deprecated forceUint8Array overload returning bytes", () => {
-    expectTypeOf(() => verify("", key, { forceUint8Array: true })).returns.resolves.toEqualTypeOf<
-      JWSVerifyResult<Uint8Array<ArrayBuffer>>
-    >();
+  it('takes the bytes mode from "payload" alone', () => {
+    expectTypeOf<JWSVerifyOptions>().not.toHaveProperty("forceUint8Array");
   });
 
   it("rejects an unknown payload mode and a claims type outside the json mode", () => {
@@ -2324,7 +2402,7 @@ async function signRawHeader(
   return `${signingInput}.${base64UrlStringify(new Uint8Array(signature))}`;
 }
 
-function failingKeyLookup(_header: { kid?: string; alg?: string }): never {
+function failingKeyLookup(_lookup: { header: { kid?: string; alg?: string } }): never {
   throw new Error("Key lookup failed");
 }
 
@@ -2335,5 +2413,25 @@ describe("JSON-only header input", () => {
       sign({ a: 1 }, key, { protectedHeader: { when: new Date(0) } }),
     ).rejects.toMatchObject({ code: "ERR_INVALID_OPTION", cause: { code: "INVALID_TYPE" } });
     expect(await sign({ when: new Date(0) }, key)).toEqual(expect.any(String));
+  });
+});
+
+describe("time claims keep a present iat", () => {
+  it("keeps iat: 0 when expiresIn is set", async () => {
+    const key = await generateJWK("HS256");
+    const token = await sign({ iat: 0, sub: "user_1a2b" }, key, { expiresIn: "1h" });
+    const { payload } = await verify(token, key);
+    expect(payload.iat).toBe(0);
+    expect(typeof payload.exp).toBe("number");
+  });
+});
+
+describe("missing key", () => {
+  it("verify without a key is ERR_JWK_INVALID", async () => {
+    const key = await generateJWK("HS256");
+    const token = await sign({ sub: "user_1a2b" }, key);
+    await expect(verify(token, undefined as never)).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
   });
 });

@@ -2,24 +2,26 @@ import type { ExpirableCookieAttributes } from "./chunked-cookie.ts";
 
 /** The cookies of one request and its response, as a framework exposes them. */
 export interface CookieJar<A extends ExpirableCookieAttributes = ExpirableCookieAttributes> {
-  /** The request's cookie. */
+  /** Returns the request's cookie `name`. */
   read(name: string): string | undefined;
-  /** The value this response already assigned to `name` (`""` once deleted), when the framework exposes it. */
+  /** Returns the value this response already set for `name` (`""` once deleted). Implement it when the framework exposes response cookies. */
   written?(name: string): string | undefined;
-  /** Absent when this event cannot take a `Set-Cookie` (a request without a response). */
+  /** Sets a response cookie. Omit it when the event cannot send a `Set-Cookie` (a request without a response): a cookie session is then read-only. */
   write?(name: string, value: string, attrs: A): void;
 }
 
-/** The primitives a framework supplies; the session core builds the cookie and header transports over them. */
+/** What a framework driver implements. The session reads its token and writes its cookie through these members. */
 export interface SessionDriver<TEvent> {
-  /** Message prefix for every error the adapter emits. */
+  /** Starts the message of every error the session throws. */
   prefix: string;
-  /** The per-request record session state and the session-name registry live in. */
+  /** Returns a record unique to the request, where session state and the name registry are stored. */
   state(event: TEvent): Record<string, unknown>;
+  /** Returns a request header by lowercase name. */
   header(event: TEvent, name: string): string | null | undefined;
+  /** Returns the cookie jar of the request and its response. */
   cookies(event: TEvent): CookieJar;
-  /** Platform signal that the response can still change (Node `headersSent`); absent = trust the jar. */
+  /** Returns `false` once the response was sent (Node `headersSent`): `update()` and `clear()` then throw `ERR_SESSION_READONLY_EVENT`. Omitted, the response stays writable. */
   writable?(event: TEvent): boolean;
-  /** A token the event carries directly, when it does: no cookie or header is consulted. */
+  /** Returns `{ token }` when the event holds the token itself. No cookie or header is read then, and the session's source is `"token"`. */
   handed?(event: TEvent): { token: string | undefined } | undefined;
 }

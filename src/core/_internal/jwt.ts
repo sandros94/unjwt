@@ -15,7 +15,7 @@ import { isPlainObject } from "../../utils/guards.ts";
 import { quoteTokenValue } from "../../utils/_internal/text.ts";
 import { computeDurationInSeconds, parseDurationSeconds } from "../../utils/jwt.ts";
 
-/** Set `typ: "JWT"` on a header without `typ` when the payload is an object (not a `Uint8Array`). */
+/** Sets `typ: "JWT"` on a header without `typ` when the payload is an object other than a `Uint8Array`. @throws `ERR_INVALID_OPTION` if `header.typ` is set and is not a string. */
 export function applyTypDefault<T extends { typ?: string }>(header: T, payload: unknown): T {
   const declared: unknown = header.typ;
   if (declared !== undefined && typeof declared !== "string") {
@@ -34,13 +34,13 @@ export function applyTypDefault<T extends { typ?: string }>(header: T, payload: 
 
 /** Options for {@link parsePayloadBytes} and {@link parsePayloadSegment}. */
 export interface ParsePayloadOptions<Mode extends JOSEPayloadMode = JOSEPayloadMode> {
-  /** How to interpret the payload bytes; the return type follows it. @default "json" */
+  /** How the payload bytes are read. The return type follows it. @default "json" */
   payload?: Mode;
-  /** Family the rejection is reported under (`ERR_JWS_INVALID` / `ERR_JWE_INVALID`). @default "JWS" */
+  /** The family a failure is reported under: `ERR_JWS_INVALID` or `ERR_JWE_INVALID`. @default "JWS" */
   family?: "JWS" | "JWE";
 }
 
-/** Parse payload bytes under the declared mode: `"json"` needs a UTF-8 JSON object, `"string"` UTF-8; throws `ERR_JWS_INVALID` / `ERR_JWE_INVALID`. */
+/** Reads payload bytes as a UTF-8 JSON object (`"json"`), UTF-8 text (`"string"`) or as is (`"bytes"`). @throws `ERR_JWS_INVALID` if the bytes do not fit the mode (`ERR_JWE_INVALID` under `family: "JWE"`). */
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- the claims type is the caller's return contract, as on verify
 export function parsePayloadBytes<T = JWTClaims>(
   bytes: Uint8Array<ArrayBuffer>,
@@ -63,7 +63,7 @@ export function parsePayloadBytes(
   return _parsePayloadObject(text, family);
 }
 
-/** Decode payload bytes as UTF-8; throws `ERR_JWS_INVALID` / `ERR_JWE_INVALID` otherwise. */
+/** Decodes payload bytes as strict UTF-8. @throws `ERR_JWS_INVALID` if they are not (`ERR_JWE_INVALID` under `family: "JWE"`). */
 export function parsePayloadText(
   bytes: Uint8Array<ArrayBuffer>,
   options?: Pick<ParsePayloadOptions, "family">,
@@ -80,7 +80,7 @@ export function parsePayloadText(
   }
 }
 
-/** {@link parsePayloadBytes} over a Base64URL-encoded payload segment. */
+/** {@link parsePayloadBytes} over a base64url payload segment. @throws `UnsecureError` if the segment is not base64url. */
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- the claims type is the caller's return contract, as on verify
 export function parsePayloadSegment<T = JWTClaims>(
   payloadEncoded: string,
@@ -97,7 +97,7 @@ export function parsePayloadSegment(
   return parsePayloadBytes(base64UrlParse(payloadEncoded, { returnAs: "uint8array" }), options);
 }
 
-/** Encode a payload to bytes; a non-serializable one throws `ERR_INVALID_OPTION`. */
+/** Encodes a payload as bytes: a `Uint8Array` as is, a string as UTF-8, an object as UTF-8 JSON. @throws `ERR_INVALID_OPTION` if the payload is none of these or `JSON.stringify` rejects it. */
 export function getPlaintextBytes(payload: JOSEPayload): Uint8Array<ArrayBuffer> {
   if (payload instanceof Uint8Array) return payload;
   if (typeof payload === "string") return textEncoder.encode(payload);
@@ -120,9 +120,13 @@ export function getPlaintextBytes(payload: JOSEPayload): Uint8Array<ArrayBuffer>
 export type ComputeJwtTimeClaimsOptions = JWTTimeClaimOptions;
 
 /**
- * Return a copy of an object payload with `iat` and the requested `exp` / `nbf`, or `undefined` when none applies.
- * `currentDate` is the clock: `iat` when written, and the base of `expiresIn` / `notBeforeIn`;
- * `issuedAt` writes `iat` alone, a `Date` as that instant. Both members of `expiresIn`/`expiresAt` or `notBeforeIn`/`notBeforeAt` throw `ERR_JWT_CLAIM_INVALID`.
+ * Returns a copy of an object payload with the requested `exp` and `nbf`, plus `iat`.
+ * Claims the payload already holds are kept, `iat: 0` included.
+ * Returns `undefined` when no option applies or every requested claim is present.
+ * `currentDate` is the default `iat` and the base of `expiresIn` and `notBeforeIn`.
+ * `issuedAt: true` requests `iat` with no other claim. A `Date` sets `iat` to that instant.
+ * @throws `ERR_JWT_CLAIM_INVALID` if both `expiresIn` and `expiresAt`, or both `notBeforeIn` and `notBeforeAt`, are set, or `notBeforeIn` is negative.
+ * @throws `ERR_INVALID_OPTION` if a time option is set for a non-object payload, or an option value is malformed.
  */
 export function computeJwtTimeClaims(
   payload: unknown,
@@ -151,7 +155,16 @@ export function computeJwtTimeClaims(
   const hasNbfHint = notBeforeIn !== undefined || notBeforeAt !== undefined;
   const hasIatHint = issuedAt === true || issuedAt instanceof Date;
   if (!hasExpHint && !hasNbfHint && !hasIatHint) return undefined;
-  if (!payload || typeof payload !== "object" || payload instanceof Uint8Array) return undefined;
+  if (!payload || typeof payload !== "object" || payload instanceof Uint8Array) {
+    const option =
+      Object.entries({ expiresIn, expiresAt, notBeforeIn, notBeforeAt }).find(
+        ([, value]) => value !== undefined,
+      )?.[0] ?? "issuedAt";
+    throw new JWTError(
+      `"${option}" needs a JSON payload: pass an object payload or drop the option.`,
+      "ERR_INVALID_OPTION",
+    );
+  }
 
   const wantsExp = hasExpHint && (!("exp" in payload) || payload.exp === undefined);
   const wantsNbf = hasNbfHint && (!("nbf" in payload) || payload.nbf === undefined);
@@ -160,7 +173,7 @@ export function computeJwtTimeClaims(
 
   const now = Math.floor((currentDate ?? new Date()).getTime() / 1000);
   const claims: JWTClaims = { ...payload };
-  claims.iat ||=
+  claims.iat ??=
     issuedAt instanceof Date ? Math.floor(_instantOf(issuedAt, "issuedAt") / 1000) : now;
 
   if (wantsExp) {
@@ -189,14 +202,14 @@ export function computeJwtTimeClaims(
   return claims;
 }
 
-// RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — extensions understood without opt-in.
+// RFC 7515 §4.1.11 and RFC 7516 §4.1.13: extensions understood without `recognizedHeaders`.
 const BASE_PROCESSED: Readonly<Record<"JWS" | "JWE", readonly string[]>> =
   /* @__PURE__ */ Object.freeze({
     JWS: ["b64"],
     JWE: [],
   });
 
-/** Validate critical headers in JWS semantics. */
+/** Checks a JWS `crit` (RFC 7515 §4.1.11): each entry is in the header and is `b64` or in `recognizedHeaders`. @throws `ERR_JWS_INVALID` if `crit` is malformed or an entry is absent or not understood. */
 export function validateCriticalHeadersJWS(
   protectedHeader: { crit?: string[] } & Record<string, unknown>,
   recognizedHeaders?: string[],
@@ -204,7 +217,7 @@ export function validateCriticalHeadersJWS(
   validateCriticalHeaders(protectedHeader, { family: "JWS", recognizedHeaders });
 }
 
-/** Validate critical headers in JWE semantics. */
+/** Checks a JWE `crit` (RFC 7516 §4.1.13): each entry is in the header and in `recognizedHeaders`. @throws `ERR_JWE_INVALID` if `crit` is malformed or an entry is absent or not understood. */
 export function validateCriticalHeadersJWE(
   protectedHeader: { crit?: string[] } & Record<string, unknown>,
   recognizedHeaders?: string[],
@@ -212,7 +225,7 @@ export function validateCriticalHeadersJWE(
   validateCriticalHeaders(protectedHeader, { family: "JWE", recognizedHeaders });
 }
 
-// RFC 7515 §4.1.11 — registered header names, forbidden in `crit`.
+// RFC 7515 §4.1.11: registered header names, forbidden in `crit`.
 const REGISTERED_HEADER_PARAMS = new Set([
   "alg",
   "enc",
@@ -236,7 +249,7 @@ const REGISTERED_HEADER_PARAMS = new Set([
   "p2c",
 ]);
 
-/** Assert `crit` is a non-empty string array with no registered header name (RFC 7515 §4.1.11 / RFC 7516 §4.1.13). */
+/** Asserts `crit` is a non-empty string array with no registered header name (RFC 7515 §4.1.11, RFC 7516 §4.1.13). @throws `ERR_JWS_INVALID` or `ERR_JWE_INVALID` by `family`, or `code` when given. */
 export function assertCritShape(
   crit: unknown,
   options: { family: "JWS" | "JWE"; code?: JWTErrorCode },
@@ -268,10 +281,10 @@ function _instantOf(value: Date, name: "issuedAt" | "expiresAt" | "notBeforeAt")
   return ms;
 }
 
-// RFC 7515 §2 / RFC 7516 §2 — payload text is strict UTF-8.
+// RFC 7515 §2 and RFC 7516 §2: payload text is strict UTF-8.
 const _utf8Decoder = /* @__PURE__ */ new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
-/** RFC 7519 §3 — a JWT payload is a JSON object. */
+/** RFC 7519 §3: a JWT payload is a JSON object. */
 function _parsePayloadObject(text: string, family: "JWS" | "JWE"): JWTClaims {
   const code = `ERR_${family}_INVALID` as JWTErrorCode;
   const message = `Invalid ${family}: Payload is not a JSON object.`;
@@ -287,7 +300,7 @@ function _parsePayloadObject(text: string, family: "JWS" | "JWE"): JWTClaims {
   return parsed;
 }
 
-/** RFC 7515 §4.1.11 / RFC 7516 §4.1.13 — each `crit` entry is present and understood. */
+/** RFC 7515 §4.1.11 and RFC 7516 §4.1.13: each `crit` entry is present and understood. */
 function validateCriticalHeaders(
   protectedHeader: { crit?: string[] } & Record<string, unknown>,
   options: { family: "JWS" | "JWE"; recognizedHeaders: string[] | undefined },

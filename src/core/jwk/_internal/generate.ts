@@ -8,6 +8,7 @@ import type {
 import { JWTError } from "../../../error.ts";
 import { ECDSA_CURVES, aesBitsOf, jwsHashOf, rsaOaepHashOf } from "../../_crypto/_key-algorithm.ts";
 
+/** Returns the Web Crypto generation parameters and key usages for `alg`. An unknown `alg` or curve is `ERR_JWK_UNSUPPORTED`. */
 export function getGenerateKeyParams(
   alg: GenerateKeyAlgorithm,
   options?: Omit<GenerateKeyOptions, "toJWK">,
@@ -91,7 +92,7 @@ export function getGenerateKeyParams(
     case "A192GCMKW":
     case "A256GCMKW": {
       algorithm = { name: "AES-GCM", length: aesBitsOf(alg) };
-      // RFC 7518 §4.7: AES-GCMKW wraps by encrypting, so the key encrypts rather than wraps.
+      // RFC 7518 §4.7: AES-GCMKW wraps by encrypting, so the default usages are `encrypt` and `decrypt`.
       keyUsages = usage(KEY_ENCRYPTION_USAGES, ["encrypt", "decrypt"]);
       break;
     }
@@ -159,7 +160,7 @@ export function getGenerateKeyParams(
   return { algorithm, keyUsages };
 }
 
-/** A `namedCurve` contradicting the curve `alg` fixes is refused, not ignored. */
+/** A `namedCurve` other than the curve `alg` defines is `ERR_INVALID_OPTION`. */
 function assertNamedCurve(
   requested: string | undefined,
   expected: string,
@@ -172,7 +173,7 @@ function assertNamedCurve(
   );
 }
 
-/** RSA public exponents are big-endian byte strings — RFC 7518 §6.3.1.2. */
+/** RFC 7518 §6.3.1.2: an RSA public exponent is a non-empty big-endian byte string. @default 65537 */
 function assertPublicExponent(
   publicExponent: Uint8Array<ArrayBuffer> | undefined,
 ): Uint8Array<ArrayBuffer> {
@@ -186,14 +187,14 @@ function assertPublicExponent(
   return publicExponent;
 }
 
-/** `key_ops` each algorithm family admits — a caller's `keyUsage` may narrow it. */
+/** The usages each algorithm family admits. A caller's `keyUsage` may narrow them. */
 const SIGNATURE_USAGES: readonly KeyUsage[] = ["sign", "verify"];
 const KEY_WRAPPING_USAGES: readonly KeyUsage[] = ["wrapKey", "unwrapKey"];
 const KEY_ENCRYPTION_USAGES: readonly KeyUsage[] = ["encrypt", "decrypt", "wrapKey", "unwrapKey"];
 const DERIVATION_USAGES: readonly KeyUsage[] = ["deriveBits", "deriveKey"];
 export const CONTENT_ENCRYPTION_USAGES: readonly KeyUsage[] = ["encrypt", "decrypt"];
 
-/** The caller's `keyUsage` when given (each entry one `alg` admits), else the default. */
+/** Returns the caller's `keyUsage`, else the default. An empty list or a usage `alg` cannot serve is `ERR_INVALID_OPTION`. */
 export function resolveKeyUsage(
   requested: KeyUsage[] | undefined,
   options: { allowed: readonly KeyUsage[]; fallback: KeyUsage[]; alg: JWKAlgorithm },
@@ -213,7 +214,7 @@ export function resolveKeyUsage(
   return requested;
 }
 
-/** The half of a generated pair each usage belongs to — RFC 7517 §4.3. */
+/** RFC 7517 §4.3: the half of a generated pair each usage belongs to. */
 const PRIVATE_KEY_USAGES: readonly KeyUsage[] = [
   "sign",
   "decrypt",
@@ -223,7 +224,7 @@ const PRIVATE_KEY_USAGES: readonly KeyUsage[] = [
 ];
 const PUBLIC_KEY_USAGES: readonly KeyUsage[] = ["verify", "encrypt", "wrapKey"];
 
-/** Each pair half the default populates must keep a usage; ECDH public keys carry none. */
+/** Each pair half the default gives a usage must keep one, else `ERR_INVALID_OPTION`. An ECDH public key has none. */
 function assertPairUsages(
   usages: KeyUsage[],
   options: { fallback: KeyUsage[]; alg: JWKAlgorithm },
@@ -243,7 +244,7 @@ function assertPairUsages(
   return usages;
 }
 
-/** RFC 7518 §3.3 — an RSA key is 2048 bits or larger. */
+/** RFC 7518 §3.3: an RSA key is 2048 bits or larger. @default 2048 */
 function assertModulusLength(modulusLength: number | undefined): number {
   const length = modulusLength ?? 2048;
   if (!Number.isInteger(length) || length < 2048) {
@@ -252,7 +253,7 @@ function assertModulusLength(modulusLength: number | undefined): number {
   return length;
 }
 
-/** The JWK with `alg` set to the algorithm it was produced for; `A` must be one its family serves. */
+/** Returns the JWK with `alg` set to the algorithm it was generated for. `A` is one its family serves. */
 export function withAlg<J extends JWK, A extends NonNullable<J["alg"]>>(
   jwk: J,
   alg: A,
@@ -264,7 +265,7 @@ export function withAlg<J extends JWK, A extends NonNullable<J["alg"]>>(
 export function generatedPairAlgorithm(
   alg: GenerateKeyAlgorithm,
 ): Extract<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the pair shape fixes the family; `getGenerateKeyParams` maps each `alg` to one
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the pair shape fixes the family, and `getGenerateKeyParams` maps each `alg` to one
   return alg as Extract<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm>;
 }
 
@@ -272,6 +273,6 @@ export function generatedPairAlgorithm(
 export function generatedSecretAlgorithm(
   alg: GenerateKeyAlgorithm,
 ): Exclude<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the secret-key shape fixes the family; `getGenerateKeyParams` maps each `alg` to one
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the secret-key shape fixes the family, and `getGenerateKeyParams` maps each `alg` to one
   return alg as Exclude<GenerateKeyAlgorithm, JWK_Asymmetric_Algorithm>;
 }

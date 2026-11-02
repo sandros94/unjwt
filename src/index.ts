@@ -30,7 +30,6 @@ export {
   thumbprint,
   importKey,
   exportJWK,
-  exportKey,
   wrapKey,
   unwrapKey,
   deriveKeyFromPassword,

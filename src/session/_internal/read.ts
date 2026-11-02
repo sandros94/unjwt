@@ -4,28 +4,28 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
-import { isJWTError } from "../../error.ts";
+import { type JWTError, isJWTError } from "../../error.ts";
 import type { ExpiresIn } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
-import { expiredSessionError, isTokenFailure } from "./contract.ts";
+import { expiredSessionError } from "./contract.ts";
 import { dropSessionCookie } from "./bind.ts";
 import type { SessionBinding, SessionCoreConfig, StoredSession } from "./types.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
 import { emptySession, kSessionPending, storedSession } from "./core.ts";
 import { assertTokenSource } from "./transport.ts";
 
-/** Get (and lazily initialize) the session for the current request. */
+/** Returns the session of the current request, reading its token on the first call. */
 export async function loadSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
   TEvent,
   Config extends SessionCoreConfig,
 >(binding: SessionBinding<TEvent, Config>): Promise<SessionState<T, MaxAge>> {
-  const { config, codec, store, args, transport } = binding;
+  const { config, codec, keys, store, args, transport } = binding;
 
   // Key errors are misconfiguration: thrown, never reported through `onError`.
-  await codec.assertKeys(config);
-  const open = codec.opener(config, args);
+  await keys.assertKeys();
+  const open = keys.opener(args);
   assertTokenSource(transport, { prefix: binding.driver.prefix });
 
   const existing = storedSession<T, MaxAge>(store);
@@ -39,7 +39,13 @@ export async function loadSession<
       session.expiresAt < codec.now(config)
     ) {
       dropSessionCookie(binding);
+      const error = expiredSessionError({
+        id: session.id,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+      });
       const freshSession = emptySession<T, MaxAge, TEvent, Config>(binding);
+      freshSession.error = error;
       store.set(freshSession);
       await fireExpire(binding, {
         session: {
@@ -48,11 +54,7 @@ export async function loadSession<
           expiresAt: session.expiresAt,
           token: session.token,
         },
-        error: expiredSessionError({
-          id: session.id,
-          createdAt: session.createdAt,
-          expiresAt: session.expiresAt,
-        }),
+        error,
       });
       return freshSession;
     }
@@ -64,12 +66,14 @@ export async function loadSession<
   store.set(session);
 
   if (transport.malformed) {
+    session.error = transport.malformed;
     await fireError(binding, transport.malformed);
     return session;
   }
   const token = transport.read();
   if (!token) return session;
 
+  binding.held.set(token);
   session.token = token;
 
   // State settles before any hook runs, so a hook reading this session does not await itself.
@@ -93,6 +97,7 @@ export async function loadSession<
   const { failure } = await pending;
 
   if (failure) {
+    if (isJWTError(failure.error)) session.error = failure.error;
     if (isJWTError(failure.error, "ERR_JWT_EXPIRED")) {
       const { jti, iat, exp } = failure.error.cause;
       dropSessionCookie(binding);
@@ -106,16 +111,19 @@ export async function loadSession<
         error: failure.error,
       });
     } else {
-      // A token that cannot be read is dropped like an expired one; a lookup that threw keeps it.
-      if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID") && isTokenFailure(failure.error)) {
-        dropSessionCookie(binding);
-      }
+      // A token that fails its checks is dropped like an expired one. A read that failed keeps it.
+      if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID")) dropSessionCookie(binding);
       await fireError(binding, failure.error);
     }
     return session;
   }
 
-  await fireRead(binding, session);
+  try {
+    await fireRead(binding, session);
+  } catch (error_) {
+    store.set(emptySession<T, MaxAge, TEvent, Config>(binding));
+    throw error_;
+  }
   await rollSession(binding, session);
   return session;
 }
@@ -132,14 +140,14 @@ async function fireRead<TEvent, Config extends SessionCoreConfig>(
   });
 }
 
-/** Reissues the session just read when `rolling` asks, unless a hook replaced it; an event without a cookie or a sealed response leaves it to the next request. */
+/** Reissues a cookie session it read when `rolling` asks, unless a hook replaced it. A cookie session without a response, or with one already sent, leaves it to the next request. A header or token session never rolls. */
 async function rollSession<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
   session: StoredSession,
 ): Promise<void> {
   const { config, codec, transport, store } = binding;
   const { rolling } = config;
-  if (rolling === undefined || store.get() !== session) return;
+  if (rolling === undefined || transport.source !== "cookie" || store.get() !== session) return;
   if (session.token === undefined || session.expiresAt === undefined) return;
   if (rolling !== true) {
     const age = codec.now(config) - session.createdAt;
@@ -170,11 +178,11 @@ async function fireExpire<TEvent, Config extends SessionCoreConfig>(
       expiresAt: number | undefined;
       token: string;
     };
-    error: Error;
+    error: JWTError;
   },
 ): Promise<void> {
   await binding.config.hooks?.onExpire?.({
-    session: expired.session,
+    session: { ...expired.session, source: binding.transport.source },
     ...binding.args,
     error: expired.error,
     config: binding.config,

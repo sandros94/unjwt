@@ -1550,7 +1550,10 @@ describe.concurrent("JWK Utilities", () => {
       const kp = await generateKey("ECDH-ES", { namedCurve: "P-256" });
       await expect(
         deriveSharedSecret(kp.publicKey, kp.privateKey, { enc: "ECDH-ES" }),
-      ).rejects.toThrow("keyLength");
+      ).rejects.toMatchObject({
+        code: "ERR_INVALID_OPTION",
+        message: expect.stringContaining("keyLength"),
+      });
     });
 
     it("accepts explicit keyLength for ECDH-ES direct", async () => {
@@ -3167,5 +3170,85 @@ describe("JSON-only JWK input", () => {
         cause: expect.objectContaining({ code: "INVALID_TYPE" }),
       }),
     );
+  });
+});
+
+describe("importKey algorithm hint against kty", () => {
+  it("refuses an oct JWK without alg under an asymmetric alg", async () => {
+    const oct = await generateJWK("HS256");
+    const { alg: _alg, ...bare } = oct;
+    await expect(importKey(bare, { alg: "ES256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "RSA-OAEP-256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "HS384" })).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it("refuses an EC JWK without alg under a symmetric or RSA alg", async () => {
+    const pair = await generateJWK("ES256");
+    const { alg: _alg, ...bare } = pair.privateKey;
+    await expect(importKey(bare, { alg: "HS256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "RS256" })).rejects.toMatchObject({
+      code: "ERR_JWK_INVALID",
+    });
+    await expect(importKey(bare, { alg: "ES256" })).resolves.toBeDefined();
+  });
+});
+
+describe("deriveSharedSecret with mismatched keys", () => {
+  it("is ERR_JWK_INVALID with the platform error as cause", async () => {
+    const [p256, p384] = await Promise.all([
+      crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]),
+      crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-384" }, true, ["deriveBits"]),
+    ]);
+    await expect(
+      deriveSharedSecret(p256.publicKey, p384.privateKey, { enc: "A256GCM" }),
+    ).rejects.toMatchObject({ code: "ERR_JWK_INVALID", cause: expect.any(Error) });
+  });
+});
+
+describe("deriveSharedSecret with OKP JWKs", () => {
+  it("takes X25519 pairs from generateJWK without narrowing", async () => {
+    const [alice, bob] = await Promise.all([
+      generateJWK("ECDH-ES", { namedCurve: "X25519" }),
+      generateJWK("ECDH-ES", { namedCurve: "X25519" }),
+    ]);
+    const [fromAlice, fromBob] = await Promise.all([
+      deriveSharedSecret(bob.publicKey, alice.privateKey, { enc: "A256GCM" }),
+      deriveSharedSecret(alice.publicKey, bob.privateKey, { enc: "A256GCM" }),
+    ]);
+    expect(fromAlice).toEqual(fromBob);
+    expect(fromAlice.length).toBe(32);
+  });
+});
+
+describe("unwrapKey with a content key that is not an AES-GCM key", () => {
+  it("is ERR_JWE_INVALID without unwrappedKeyAlgorithm, and raw bytes still work", async () => {
+    const wrappingKey = await generateKey("A256KW");
+    const cbcKey = crypto.getRandomValues(new Uint8Array(64));
+    const { encryptedKey } = await wrapKey(cbcKey, wrappingKey, { alg: "A256KW" });
+    await expect(
+      unwrapKey(encryptedKey, wrappingKey, { alg: "A256KW", enc: "A256CBC-HS512" }),
+    ).rejects.toMatchObject({ code: "ERR_JWE_INVALID" });
+    await expect(
+      unwrapKey(encryptedKey, wrappingKey, { alg: "A256KW", format: "raw" }),
+    ).resolves.toEqual(cbcKey);
+  });
+});
+
+describe("deriveKeyFromPassword keyUsage", () => {
+  it("refuses a usage an AES-KW key cannot have", async () => {
+    await expect(
+      deriveKeyFromPassword("correct horse battery staple", {
+        alg: "PBES2-HS256+A128KW",
+        salt: crypto.getRandomValues(new Uint8Array(16)),
+        iterations: 1000,
+        keyUsage: ["sign" as never],
+      }),
+    ).rejects.toMatchObject({ code: "ERR_INVALID_OPTION" });
   });
 });

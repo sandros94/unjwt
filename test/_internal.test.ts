@@ -78,10 +78,14 @@ describe.concurrent("_internal helpers", () => {
       expect(filter(wrongAlg)).toBe(false);
     });
 
-    it("drops oct entries unless the caller admits symmetric material", () => {
+    it("keeps oct entries like any other", () => {
       const header = { kid: "a", alg: "RS256" } as const;
-      expect(buildJWKSetFilter(header, { op: "sig" })(octKey)).toBe(false);
-      expect(buildJWKSetFilter(header, { op: "sig", allowSymmetric: true })(octKey)).toBe(true);
+      expect(buildJWKSetFilter(header, { op: "sig" })(octKey)).toBe(true);
+    });
+
+    it('drops a non-oct entry carrying "k" as malformed', () => {
+      const disguised = { kty: "EC", crv: "P-256", x: "x", y: "y", k: "x" } as unknown as JWK;
+      expect(buildJWKSetFilter({ alg: "ES256" }, { op: "sig" })(disguised)).toBe(false);
     });
 
     it("drops entries that are not JWKs", () => {
@@ -328,27 +332,6 @@ describe.concurrent("_internal helpers", () => {
       expect(resolvePayloadMode({ payload: "string" })).toBe("string");
     });
 
-    it("maps forceUint8Array onto the matching mode", () => {
-      expect(resolvePayloadMode({ forceUint8Array: true })).toBe("bytes");
-      expect(resolvePayloadMode({ forceUint8Array: false })).toBe("json");
-    });
-
-    it("accepts forceUint8Array that agrees with payload", () => {
-      expect(resolvePayloadMode({ forceUint8Array: true, payload: "bytes" })).toBe("bytes");
-      expect(resolvePayloadMode({ forceUint8Array: false, payload: "string" })).toBe("string");
-    });
-
-    it.each([
-      [true, "json"],
-      [true, "string"],
-      [false, "bytes"],
-    ] as const)("rejects forceUint8Array: %s with payload: %s", (forceUint8Array, payload) => {
-      expectThrowsJWTError(
-        () => resolvePayloadMode({ forceUint8Array, payload }),
-        "ERR_INVALID_OPTION",
-      );
-    });
-
     it("rejects an unknown mode", () => {
       expectThrowsJWTError(
         () => resolvePayloadMode({ payload: "utf8" as never }),
@@ -465,17 +448,9 @@ describe.concurrent("_internal helpers", () => {
     describe("JWK Set inference", () => {
       const rsaEntry: JWK = { kty: "RSA", n: "x", e: "AQAB", alg: "RS256" };
 
-      it("ignores oct entries unless symmetric material is admitted", () => {
+      it("counts oct entries toward inference", () => {
         const set = { keys: [rsaEntry, { kty: "oct", k: "x", alg: "HS256" } as JWK] };
-        expect(
-          isJWTError(
-            checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX })!,
-            "ERR_JWS_ALG_NOT_ALLOWED",
-          ),
-        ).toBe(true);
-        expect(
-          checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX, allowSymmetric: true }),
-        ).toBeUndefined();
+        expect(checkAlgAllowed("HS256", set, { ctx: JWS_ALG_CTX })).toBeUndefined();
       });
 
       it("skips entries it cannot infer instead of failing the whole set", () => {
@@ -503,9 +478,17 @@ describe.concurrent("_internal helpers", () => {
       });
 
       it("JWE: returns 'Cannot infer' with a more specific label", () => {
-        const err = checkAlgAllowed("A256KW", undefined, { ctx: JWE_ALG_CTX });
+        const err = checkAlgAllowed("A256KW", {}, { ctx: JWE_ALG_CTX });
         expect(isJWTError(err!, "ERR_JWE_ALG_NOT_ALLOWED")).toBe(true);
         expect(err!.message).toContain("Cannot infer allowed algorithms");
+      });
+
+      it("a missing key is ERR_JWK_INVALID, not an algorithm error", () => {
+        for (const key of [undefined, null]) {
+          const err = checkAlgAllowed("A256KW", key, { ctx: JWE_ALG_CTX });
+          expect(isJWTError(err!, "ERR_JWK_INVALID")).toBe(true);
+          expect(err!.message).toBe("A key is required.");
+        }
       });
 
       it("JWE: raw bytes carry no role and must be named by the caller", () => {

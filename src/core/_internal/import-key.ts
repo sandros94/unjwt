@@ -8,14 +8,14 @@ import type {
 } from "../types/index.ts";
 import { decodeSegment } from "./headers.ts";
 import { stringKeyError } from "./keys.ts";
-import { isCryptoKey, isJWK, isJWKSet } from "../../utils/guards.ts";
-import { jwkAlgServes } from "../../utils/algorithms.ts";
+import { hasMisplacedSecret, isCryptoKey, isJWK, isJWKSet } from "../../utils/guards.ts";
+import { jwkAlgServes, jwkKtyServes } from "../../utils/algorithms.ts";
 import { JWTError } from "../../error.ts";
 import { jwkTokey, assertOctKeyLength } from "../_crypto/index.ts";
 
 /**
- * Default JWK import cache, keyed by JWK object identity: a copied JWK misses it, and a JWK
- * mutated in place keeps serving the old `CryptoKey`. Rotate by replacing the object.
+ * The default JWK import cache, keyed by JWK object identity and `alg`. A copied JWK misses it.
+ * A JWK mutated in place keeps returning the old `CryptoKey`: rotate a key by replacing the object.
  */
 export class WeakMapJWKCache implements JWKCacheAdapter {
   private readonly _map = new WeakMap<object, Record<string, CryptoKey>>();
@@ -37,10 +37,10 @@ export class WeakMapJWKCache implements JWKCacheAdapter {
 let _activeCache: JWKCacheAdapter | false = new WeakMapJWKCache();
 
 /**
- * Replaces the JWK import cache used by `importKey`, or disables it with `false`.
+ * Replaces the JWK import cache `importKey` uses, or disables it with `false`.
  *
  * A cache shared across JWK objects keys on the RFC 7638 thumbprint, the pair half (`d` present)
- * and `alg`: the thumbprint covers public members only, and a `kid` may name different keys.
+ * and `alg`. The thumbprint covers public members only, and one `kid` may name different keys.
  * `get` and `set` may return promises.
  *
  * @example
@@ -65,38 +65,42 @@ export function clearJWKCache(): void {
   _activeCache = new WeakMapJWKCache();
 }
 
-/** Imports the secret of an `oct` JWK as a `CryptoKey` under `algorithm` and `usage`. */
+/**
+ * Imports the secret of an `oct` JWK as a `CryptoKey` under `algorithm` and `usage`.
+ * @throws `ERR_JWK_INVALID` if `algorithm` or `usage` is absent, or the secret is too short for the HMAC hash or the JWK `alg`.
+ */
 export async function importKey(
   key: JWK_oct,
   options: {
     asCryptoKey: true;
-    /** Algorithm to import the key as (e.g. `{ name: "AES-GCM", length: 256 }`). */
+    /** The Web Crypto algorithm to import the key as, such as `{ name: "AES-GCM", length: 256 }`. */
     algorithm: Parameters<typeof crypto.subtle.importKey>[2];
     usage: KeyUsage[];
-    /** Mark the key as extractable. Defaults to `false`. */
+    /** Whether the key is extractable. @default false */
     extractable?: boolean;
   },
 ): Promise<CryptoKey>;
 /**
- * Imports key material: a `CryptoKey` or `Uint8Array` is returned as is, an `oct` JWK as its raw
- * bytes, an asymmetric JWK as a `CryptoKey` under its own `alg` or the hint. A string throws
- * `ERR_JWK_INVALID`.
+ * Imports key material. A `CryptoKey` or `Uint8Array` is returned as is, an `oct` JWK as its raw
+ * bytes, an asymmetric JWK as a `CryptoKey` under its own `alg` or the requested one.
  *
- * `expect` and `extractable` apply to asymmetric keys only; `expect` rejects the other pair half
- * with `ERR_JWK_INVALID`. A JWK's `alg` is authoritative (RFC 7517 §4.4): a different requested
- * `alg` throws `ERR_JWK_INVALID`, except an `oct` JWK declaring a content encryption `alg` under
- * `"dir"`.
+ * A JWK's `alg` is authoritative (RFC 7517 §4.4). An `oct` JWK with a content encryption `alg`
+ * also serves `"dir"`. A JWK without `alg` must have a `kty` that can serve the requested `alg`.
+ * An `oct` secret must be long enough for its `alg`. A non-`oct` JWK must not have a `k` member.
+ * `expect` and `extractable` apply to asymmetric keys only. Passing `extractable` skips the import cache.
+ *
+ * @throws `ERR_JWK_INVALID` if `key` is a string or not key material, or breaks one of the rules above.
  */
 export async function importKey<K extends CryptoKey | JWK | Uint8Array<ArrayBuffer>>(
   key: K,
   options?:
     | JWKAlgorithm
     | {
-        /** Algorithm hint. Required when `key.alg` is absent on an asymmetric JWK. */
+        /** The algorithm to import under. Required for an asymmetric JWK without `alg`. */
         alg?: JWKAlgorithm;
-        /** Reject on shape mismatch instead of silently importing. */
+        /** The pair half the key must be. The other half is `ERR_JWK_INVALID`. */
         expect?: "public" | "private";
-        /** Defaults to `false` for private, `true` for public material; JWK `ext: false` wins. */
+        /** Whether the `CryptoKey` is extractable. A JWK `ext: false` overrides it. @default false for private keys, true for public keys */
         extractable?: boolean;
       },
 ): Promise<ImportedKey<K>>;
@@ -134,7 +138,7 @@ export async function importKey(
   }
 
   if (isJWK(key)) {
-    if (key.kty !== "oct" && Object.hasOwn(key, "k")) {
+    if (hasMisplacedSecret(key)) {
       throw new JWTError(
         `JWK "k" is defined only for "oct" keys, not "${key.kty}".`,
         "ERR_JWK_INVALID",
@@ -197,13 +201,18 @@ export async function importKey(
   throw new JWTError("Invalid key type provided to importKey", "ERR_JWK_INVALID");
 }
 
-/** RFC 7517 §4.4: a JWK's `alg` is authoritative, except an `oct` CEK consumed by `dir`. */
+/** RFC 7517 §4.4: a JWK's `alg` is authoritative, except an `oct` CEK used by `dir`. Without `alg`, `kty` must serve the request. */
 function assertJWKAlgAuthority(jwk: JWK, alg: JWKAlgorithm | undefined): void {
-  if (!alg || !jwk.alg || jwkAlgServes({ kty: jwk.kty, alg: jwk.alg }, alg)) return;
-  throw new JWTError(
-    `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
-    "ERR_JWK_INVALID",
-  );
+  if (!alg) return;
+  if (jwk.alg) {
+    if (jwkAlgServes({ kty: jwk.kty, alg: jwk.alg }, alg)) return;
+    throw new JWTError(
+      `JWK "alg" is "${jwk.alg}" but the operation requires "${alg}".`,
+      "ERR_JWK_INVALID",
+    );
+  }
+  if (jwkKtyServes(jwk.kty, alg)) return;
+  throw new JWTError(`JWK "kty" is "${jwk.kty}", which cannot serve "${alg}".`, "ERR_JWK_INVALID");
 }
 
 function assertIntentOnJWK(jwk: JWK, expect: "public" | "private" | undefined): void {
@@ -234,8 +243,9 @@ function assertIntentOnCryptoKey(key: CryptoKey, expect: "public" | "private" | 
 }
 
 /**
- * Returns the JWKs of a JWK Set, dropping non-JWK entries, optionally narrowed by `filter`.
- * An invalid set throws `ERR_JWK_INVALID`.
+ * Returns the JWKs of a JWK Set without its non-JWK entries, narrowed by `filter` when given.
+ *
+ * @throws `ERR_JWK_INVALID` if `jwkSet` is not a JWK Set.
  */
 export function getJWKsFromSet(jwkSet: JWKSet, filter?: (jwk: JWK) => boolean): JWK[] {
   if (!jwkSet || !isJWKSet(jwkSet)) {

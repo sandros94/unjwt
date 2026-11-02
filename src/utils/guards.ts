@@ -23,7 +23,7 @@ export function isJWK(key: unknown): key is JWK {
   );
 }
 
-/** Whether `key` is an object with a `keys` array. */
+/** Whether `key` is an object with a `keys` array. The entries are not checked. */
 export function isJWKSet(key: unknown): key is JWKSet {
   return typeof key === "object" && key !== null && "keys" in key && Array.isArray(key.keys);
 }
@@ -35,7 +35,10 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return prototype === Object.prototype || prototype === null;
 }
 
-/** Throws `ERR_INVALID_OPTION` when `value` is not a plain object. */
+/**
+ * Asserts that `value` is a plain object.
+ * @throws `ERR_INVALID_OPTION` if it is not, with `name` in the message.
+ */
 export function assertPlainObject(
   value: unknown,
   name: string,
@@ -45,20 +48,23 @@ export function assertPlainObject(
   }
 }
 
-/** Asserts that `key` is a `CryptoKey`; throws `ERR_JWK_INVALID` otherwise. */
+/**
+ * Asserts that `key` is a `CryptoKey`.
+ * @throws `ERR_JWK_INVALID` if it is not.
+ */
 export function assertCryptoKey(key: unknown): asserts key is CryptoKey {
   if (!isCryptoKey(key)) {
     throw new JWTError("CryptoKey instance expected", "ERR_JWK_INVALID");
   }
 }
 
-/** Whether `key` is a `CryptoKey`, checked via `Symbol.toStringTag` to work across realms. */
+/** Whether `key` is a `CryptoKey`. A key from another realm matches too. */
 export function isCryptoKey(key: unknown): key is CryptoKey {
   // @ts-expect-error indexing CryptoKey via Symbol.toStringTag isn't in the type.
   return key?.[Symbol.toStringTag] === "CryptoKey";
 }
 
-/** Whether `key` is a `CryptoKeyPair` of two CryptoKeys. */
+/** Whether `key` has a `CryptoKey` in both `publicKey` and `privateKey`. */
 export const isCryptoKeyPair = (key: unknown): key is CryptoKeyPair =>
   typeof key === "object" &&
   key !== null &&
@@ -67,14 +73,14 @@ export const isCryptoKeyPair = (key: unknown): key is CryptoKeyPair =>
   isCryptoKey(key.publicKey) &&
   isCryptoKey(key.privateKey);
 
-/** Whether the JWK is symmetric (`oct`); its `k` is always secret. */
+/** Whether the JWK is symmetric: `kty` is `oct` and `k` is a string. Its `k` is secret. */
 export function isSymmetricJWK<T extends JWK>(key: T): key is Extract<T, JWK_oct>;
 export function isSymmetricJWK(key: unknown): key is JWK_oct;
 export function isSymmetricJWK(key: unknown): boolean {
   return isJWK(key) && key.kty === "oct" && typeof key.k === "string";
 }
 
-/** Whether the JWK is asymmetric (RSA, EC, OKP). */
+/** Whether the JWK is asymmetric: `kty` is `RSA`, `EC` or `OKP`. */
 export function isAsymmetricJWK<T extends JWK>(key: T): key is Exclude<T, JWK_oct>;
 export function isAsymmetricJWK(key: unknown): key is Exclude<JWK, JWK_oct>;
 export function isAsymmetricJWK(key: unknown): boolean {
@@ -82,8 +88,9 @@ export function isAsymmetricJWK(key: unknown): boolean {
 }
 
 /**
- * Whether the JWK holds asymmetric private material (`d`). It is `false` for `oct` keys,
- * so `!isPrivateJWK(key)` is not a "safe to publish" check; use `isPublicJWK`.
+ * Whether the JWK is an asymmetric private key: it has a string `d`.
+ * It is `false` for `oct` keys, so `!isPrivateJWK(key)` does not mean safe to publish.
+ * Use `isPublicJWK` for that check.
  */
 export function isPrivateJWK<T extends JWK>(
   key: T,
@@ -94,7 +101,10 @@ export function isPrivateJWK(key: unknown): boolean {
   return "d" in key && typeof key.d === "string";
 }
 
-/** Whether the JWK is an asymmetric public key without `d`: the "safe to publish" check. */
+/**
+ * Whether the JWK is an asymmetric public key: no `d`, no `k`, and its public members present.
+ * Use it to check that a JWK is safe to publish.
+ */
 export function isPublicJWK<T extends JWK>(
   key: T,
 ): key is Exclude<Extract<T, JWK_EC_Public | JWK_OKP_Public | JWK_RSA_Public>, JWK_Private>;
@@ -107,7 +117,7 @@ export function isPublicJWK(key: unknown): boolean {
   return typeof key.n === "string" && typeof key.e === "string";
 }
 
-/** Whether the JWK carries a shared secret: an `oct` key, or any key with an own `k` member. */
-export function hasSymmetricSecret(key: JWK): boolean {
-  return key.kty === "oct" || Object.hasOwn(key, "k");
+/** Whether a non-`oct` JWK has an own `k` member, which only `oct` keys define (RFC 7518 §6.4.1). */
+export function hasMisplacedSecret(key: JWK): boolean {
+  return key.kty !== "oct" && Object.hasOwn(key, "k");
 }

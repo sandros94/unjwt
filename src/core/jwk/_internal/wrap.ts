@@ -50,7 +50,7 @@ export function assertWrappableCEK(
   );
 }
 
-/** RFC 7516 §11.5: every unwrap failure surfaces as one indistinguishable error. */
+/** RFC 7516 §11.5: every unwrap failure is the same `ERR_JWE_DECRYPTION_FAILED`. */
 export async function unwrapping<T>(operation: Promise<T>): Promise<T> {
   try {
     return await operation;
@@ -64,7 +64,7 @@ export function assertKeyBytesArg(value: unknown, name: string): void {
   throw new JWTError(`"${name}" must be a Uint8Array or a CryptoKey.`, "ERR_INVALID_OPTION");
 }
 
-/** RFC 7518 §4.6.1.2: attacker-supplied `apu`/`apv` feed the Concat KDF, so size is bounded. */
+/** RFC 7518 §4.6.1.2: a token's `apu` or `apv` above `MAX_PARTY_INFO_BYTES` is `ERR_JWE_INVALID`. */
 export function assertPartyInfoLength(name: "apu" | "apv", bytes: Uint8Array<ArrayBuffer>): void {
   if (bytes.length > MAX_PARTY_INFO_BYTES) {
     throw new JWTError(
@@ -88,7 +88,7 @@ export function assertKeyWrapSegmentLength(
   }
 }
 
-/** RSA-OAEP and ECDH-ES run on an asymmetric `CryptoKey`; raw bytes name no key pair. */
+/** RSA-OAEP and ECDH-ES need an asymmetric `CryptoKey`. Raw bytes are `ERR_JWK_INVALID`. */
 export function assertCryptoKeyFor(
   alg: JWK_RSA_ENC | JWK_ECDH_ES,
   key: CryptoKey | Uint8Array<ArrayBuffer>,
@@ -98,7 +98,7 @@ export function assertCryptoKeyFor(
   throw new JWTError(`${alg} requires the ${role} key to be a CryptoKey`, "ERR_JWK_INVALID");
 }
 
-/** An `unwrapKey` header parameter, given as its base64url header value or as the decoded bytes. */
+/** Returns an `unwrapKey` header parameter as bytes, from its base64url header value or as given. */
 export function segmentBytes(
   value: string | Uint8Array<ArrayBuffer>,
   name: "p2s" | "iv" | "tag" | "apu" | "apv",

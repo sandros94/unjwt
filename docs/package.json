@@ -4,11 +4,14 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "automd": "automd",
     "build": "undocs build",
     "dev": "undocs dev"
   },
   "devDependencies": {
-    "undocs": "npm:undocs-nightly@0.10.1-20260922-215730-10f5034"
+    "automd": "0.4.3",
+    "nitro": "npm:nitro-nightly@3.0.1-20261024-005652-6bccaad1",
+    "undocs": "npm:undocs-nightly@0.10.1-20261021-144810-60ffbf3"
   },
   "packageManager": "pnpm@12.11.2"
 }
