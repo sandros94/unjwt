@@ -21,7 +21,6 @@ import type {
   StoredSession,
 } from "./types.ts";
 import type { ResolvedSessionKeys } from "./key-algorithms.ts";
-import type { CookieAttributes } from "./cookie-attributes.ts";
 
 export type SessionPayload = JWTClaims & { jti: string; iat: number };
 
@@ -44,7 +43,6 @@ export interface SessionCodecSpec<
   family: "jws" | "jwe";
   prefix: string;
   defaultName: string;
-  defaultCookie: CookieAttributes;
   /** Returns the pinned `alg`, the session `typ` and the `currentDate` the session takes as the current time. */
   issueOptions: (
     config: Config,
@@ -118,7 +116,6 @@ export function createSessionCodec<
   return {
     family: spec.family,
     defaultName: spec.defaultName,
-    defaultCookie: spec.defaultCookie,
 
     now,
 

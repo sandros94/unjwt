@@ -8,7 +8,6 @@ import { type JWTError, isJWTError } from "../../error.ts";
 import type { ExpiresIn } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
 import { expiredSessionError, malformedHeaderError } from "./contract.ts";
-import { dropSessionCookie } from "./bind.ts";
 import type { SessionBinding, SessionCoreConfig, StoredSession } from "./types.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
 import { emptySession, kSessionPending, storedSession } from "./core.ts";
@@ -36,9 +35,9 @@ export async function loadSession<
     if (
       session.token !== undefined &&
       session.expiresAt !== undefined &&
-      session.expiresAt < codec.now(config)
+      session.expiresAt <= codec.now(config)
     ) {
-      dropSessionCookie(binding);
+      transport.drop?.();
       const error = expiredSessionError({
         id: session.id,
         createdAt: session.createdAt,
@@ -103,7 +102,7 @@ export async function loadSession<
     if (isJWTError(failure.error)) session.error = failure.error;
     if (isJWTError(failure.error, "ERR_JWT_EXPIRED")) {
       const { jti, iat, exp } = failure.error.cause;
-      dropSessionCookie(binding);
+      transport.drop?.();
       await fireExpire(binding, {
         session: {
           id: jti,
@@ -115,7 +114,7 @@ export async function loadSession<
       });
     } else {
       // A token that fails its checks is dropped like an expired one. A read that failed keeps it.
-      if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID")) dropSessionCookie(binding);
+      if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID")) transport.drop?.();
       await fireError(binding, failure.error);
     }
     return session;

@@ -1,4 +1,4 @@
-import { describe, it, expect, expectTypeOf, vi } from "vitest";
+import { afterEach, describe, it, expect, expectTypeOf, vi } from "vitest";
 import { type H3Event, H3, HTTPError } from "h3";
 
 import type {
@@ -40,6 +40,7 @@ import {
   type SessionTransport,
   type SessionTransportOptions,
   type WebSessionEvent,
+  DEFAULT_SESSION_COOKIE,
   assertSessionConfig,
   assertSessionTokenSource,
   assertSessionWritable,
@@ -50,6 +51,7 @@ import {
   parseCookie,
   resolveSessionTransport,
   serializeCookie,
+  sessionTransportOptions,
   webCookieJar,
   webSessionDriver,
 } from "../src/session/index.ts";
@@ -983,6 +985,34 @@ describe("unjwt/session bounds a token by maxAge", () => {
       expect(line).toContain(`Expires=${new Date(expiresAt).toUTCString()}`);
     },
   );
+
+  describe("at the instant it expires", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it.each(FAMILIES)("$family: a session is expired when expiresAt is now", async ({ define }) => {
+      vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2030, 0, 1) });
+      const onExpire = vi.fn();
+      const session = define({ maxAge: 60, hooks: { onExpire } });
+      const headers = new Headers();
+      const event = { req: get(), res: { headers } };
+      const issued = await session.use(event);
+      await issued.update({ user: "ada" });
+      const expiresAt = Number(issued.expiresAt);
+
+      vi.setSystemTime(expiresAt - 1);
+      expect((await session.use(event)).id).toBe(issued.id);
+      expect(onExpire).not.toHaveBeenCalled();
+
+      vi.setSystemTime(expiresAt);
+      const expired = await session.use(event);
+      expect(expired.id).toBeUndefined();
+      expect(isJWTError(expired.error, "ERR_JWT_EXPIRED")).toBe(true);
+      expect(onExpire).toHaveBeenCalledOnce();
+      expect(linesOf(headers, "web").at(-1)).toContain("Max-Age=0");
+    });
+  });
 
   it.each(FAMILIES)(
     "$family: without maxAge the token's exp alone decides",
@@ -3270,6 +3300,22 @@ describe("the session token transport", () => {
     expect(transport.read?.()).toBeUndefined();
   });
 
+  it.each([true, false])(
+    "write and drop return %j and write only when the response can change",
+    (writable) => {
+      const driver = defineSessionDriver({ ...webSessionDriver(), writable: () => writable });
+      const headers = new Headers();
+      const transport = resolveSessionTransport(
+        driver,
+        { req: get({ cookie: "web=abc" }), res: { headers } },
+        { name: "web", cookie },
+      );
+      expect(transport.write?.("def")).toBe(writable);
+      expect(transport.drop?.()).toBe(writable);
+      expect(headers.getSetCookie().length > 0).toBe(writable);
+    },
+  );
+
   it("has no token source without a cookie or a session header", () => {
     const transport = resolveSessionTransport(
       defaultWebSessionDriver,
@@ -3293,11 +3339,11 @@ describe("the session token transport", () => {
     expect(transport.read()).toBe("abc");
   });
 
-  it("types: write takes the token and an optional expiresAt, drop takes nothing", () => {
+  it("types: write takes the token and an optional expiresAt, drop takes nothing, both return whether they wrote", () => {
     expectTypeOf<NonNullable<SessionTransport["write"]>>().toEqualTypeOf<
-      (token: string, options?: { expiresAt?: number }) => void
+      (token: string, options?: { expiresAt?: number }) => boolean
     >();
-    expectTypeOf<NonNullable<SessionTransport["drop"]>>().toEqualTypeOf<() => void>();
+    expectTypeOf<NonNullable<SessionTransport["drop"]>>().toEqualTypeOf<() => boolean>();
     expectTypeOf<SessionTransportOptions["cookie"]>().toEqualTypeOf<
       false | { attrs: CookieAttributes; chunkMaxLength?: number }
     >();
@@ -3438,9 +3484,84 @@ describe("assertSessionConfig", () => {
     expect(thrownMessage).toContain(message);
   });
 
+  it("checks a cookie prefix over DEFAULT_SESSION_COOKIE without a defaultCookie", () => {
+    const options = { name: "__Host-web", prefix: "[mine]" };
+    expect(() => assertSessionConfig({}, options)).not.toThrow();
+    const { code, message = "" } = refusedWith(() =>
+      assertSessionConfig({ cookie: { secure: false } }, options),
+    );
+    expect(code).toBe("ERR_SESSION_CONFIG_INVALID");
+    expect(message.startsWith("[mine] ")).toBe(true);
+    expect(message).toContain('"__Host-" cookie must be Secure');
+  });
+
   it("types: a family config is a config it checks", () => {
     expectTypeOf<SessionConfigJWS>().toExtend<SessionConfigChecks>();
     expectTypeOf<SessionConfigJWE>().toExtend<SessionConfigChecks>();
+  });
+});
+
+describe("sessionTransportOptions", () => {
+  it("merges the config's cookie over DEFAULT_SESSION_COOKIE and sets chunkMaxLength apart", () => {
+    expect(
+      sessionTransportOptions(
+        { sessionHeader: true, cookie: { sameSite: "strict", chunkMaxLength: 1000 } },
+        { name: "web" },
+      ),
+    ).toEqual({
+      name: "web",
+      sessionHeader: true,
+      cookie: {
+        attrs: { ...DEFAULT_SESSION_COOKIE, sameSite: "strict" },
+        chunkMaxLength: 1000,
+      },
+    });
+  });
+
+  it("uses DEFAULT_SESSION_COOKIE as it is without a cookie config", () => {
+    expect(sessionTransportOptions({}, { name: "web" })).toEqual({
+      name: "web",
+      sessionHeader: undefined,
+      cookie: { attrs: { ...DEFAULT_SESSION_COOKIE }, chunkMaxLength: undefined },
+    });
+  });
+
+  it("merges the config's cookie over a given defaultCookie", () => {
+    const options = sessionTransportOptions(
+      { cookie: { httpOnly: true } },
+      { name: "web", defaultCookie: { path: "/app", secure: false } },
+    );
+    expect(options.cookie).toEqual({
+      attrs: { path: "/app", secure: false, httpOnly: true },
+      chunkMaxLength: undefined,
+    });
+  });
+
+  it("passes cookie false and the session header through", () => {
+    expect(
+      sessionTransportOptions({ sessionHeader: "x-token", cookie: false }, { name: "web" }),
+    ).toEqual({ name: "web", sessionHeader: "x-token", cookie: false });
+  });
+});
+
+describe("DEFAULT_SESSION_COOKIE", () => {
+  it("is path /, secure, httpOnly and sameSite lax", () => {
+    expect(DEFAULT_SESSION_COOKIE).toEqual({
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "lax",
+    });
+  });
+
+  it("is what a session cookie carries by default", async () => {
+    const session = defineJWSSession({ name: "web", key: jwsKey });
+    const headers = new Headers();
+    const manager = await session.use({ req: get(), res: { headers } });
+    await manager.update({ user: "ada" });
+    expect(headers.getSetCookie()).toEqual([
+      serializeCookie("web", String(manager.token), DEFAULT_SESSION_COOKIE),
+    ]);
   });
 });
 

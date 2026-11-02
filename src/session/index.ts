@@ -48,9 +48,10 @@ export {
   type SessionConfigChecks,
   assertSessionConfig,
   claimSessionName,
+  sessionTransportOptions,
 } from "./_internal/bind.ts";
 export type { CookieJar, SessionDriver } from "./_internal/driver.ts";
-export type { CookieAttributes } from "./_internal/cookie-attributes.ts";
+export { type CookieAttributes, DEFAULT_SESSION_COOKIE } from "./_internal/cookie-attributes.ts";
 
 export type * from "../core/types/index.ts";
 export {

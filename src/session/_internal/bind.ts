@@ -1,5 +1,5 @@
 import type { ExpiresIn } from "../../core/types/index.ts";
-import type { CookieAttributes } from "./cookie-attributes.ts";
+import { type CookieAttributes, DEFAULT_SESSION_COOKIE } from "./cookie-attributes.ts";
 import type { SessionDriver } from "./driver.ts";
 import { storedSession } from "./core.ts";
 import {
@@ -44,21 +44,41 @@ export interface SessionConfigChecks {
 
 /**
  * Checks what the config alone decides: its name, session header, cookie prefix over `defaultCookie`, and `rolling`.
+ * `defaultCookie` is {@link DEFAULT_SESSION_COOKIE} when unset.
  * @throws `ERR_SESSION_CONFIG_INVALID` if `name` is not a cookie name or ends in a dot and digits, `sessionHeader` is not a header name,
  * a `__Host-` or `__Secure-` cookie's attributes break its prefix rules, or `rolling` has no `maxAge` or is not shorter than it. The message starts with `prefix`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
  */
 export function assertSessionConfig(
   config: SessionConfigChecks,
-  options: { name: string; prefix: string; defaultCookie: CookieAttributes },
+  options: { name: string; prefix: string; defaultCookie?: CookieAttributes },
 ): void {
-  const { name, prefix } = options;
+  const { name, prefix, defaultCookie = DEFAULT_SESSION_COOKIE } = options;
   assertSessionName(name, { prefix });
   assertSessionHeader(config.sessionHeader, { prefix });
   if (config.cookie !== false) {
-    assertCookiePrefix(name, { ...options.defaultCookie, ...config.cookie }, { prefix });
+    assertCookiePrefix(name, { ...defaultCookie, ...config.cookie }, { prefix });
   }
   assertRolling(config, { prefix });
+}
+
+/**
+ * The transport options of a session config: its session header, and its cookie attributes over `defaultCookie` with `chunkMaxLength` set apart.
+ * `defaultCookie` is {@link DEFAULT_SESSION_COOKIE} when unset. `cookie: false` is no cookie.
+ */
+export function sessionTransportOptions(
+  config: Pick<SessionConfigChecks, "sessionHeader" | "cookie">,
+  options: { name: string; defaultCookie?: CookieAttributes },
+): SessionTransportOptions {
+  const { name, defaultCookie = DEFAULT_SESSION_COOKIE } = options;
+  const { sessionHeader } = config;
+  if (config.cookie === false) return { name, sessionHeader, cookie: false };
+  const { chunkMaxLength, ...configured } = config.cookie || {};
+  return {
+    name,
+    sessionHeader,
+    cookie: { attrs: { ...defaultCookie, ...configured }, chunkMaxLength },
+  };
 }
 
 /**
@@ -111,7 +131,7 @@ export function bindSession<TEvent, Config extends SessionCoreConfig>(
     args: { event },
     store: recordSlotStore(record, slot),
     held: heldTokenSlot(record, slot),
-    transport: resolveSessionTransport(driver, event, transportOptions(config, { name, codec })),
+    transport: resolveSessionTransport(driver, event, sessionTransportOptions(config, { name })),
   };
 }
 
@@ -142,31 +162,6 @@ export function recordSlotStore(record: Record<string, unknown>, slot: string): 
     set: (state) => {
       record[slot] = state;
     },
-  };
-}
-
-/** Expires the session cookie. A response already sent leaves it to the next request, which sends the same token. */
-export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
-  binding: SessionBinding<TEvent, Config>,
-): void {
-  const { transport } = binding;
-  if (!transport.drop || !transport.writable()) return;
-  transport.drop();
-}
-
-/** The config's token sources, and its cookie attributes over the codec's defaults. */
-function transportOptions<Config extends SessionCoreConfig>(
-  config: Config,
-  options: { name: string; codec: SessionCodec<Config> },
-): SessionTransportOptions {
-  const { name, codec } = options;
-  const { sessionHeader } = config;
-  if (config.cookie === false) return { name, sessionHeader, cookie: false };
-  const { chunkMaxLength, ...configured } = config.cookie || {};
-  return {
-    name,
-    sessionHeader,
-    cookie: { attrs: { ...codec.defaultCookie, ...configured }, chunkMaxLength },
   };
 }
 

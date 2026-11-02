@@ -23,7 +23,7 @@ export function defineSession<
 ): SessionDefinition<T, MaxAge, TEvent> {
   const { driver, codec } = options;
   const name = config.name || codec.defaultName;
-  assertSessionConfig(config, { name, prefix: driver.prefix, defaultCookie: codec.defaultCookie });
+  assertSessionConfig(config, { name, prefix: driver.prefix });
   const keys = codec.keys(config);
   const actions: SessionActions<TEvent, Config> = sessionActions();
   const bind = (event: TEvent) =>

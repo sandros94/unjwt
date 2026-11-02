@@ -19,3 +19,11 @@ export interface CookieAttributes {
   /** `Partitioned` (CHIPS). Requires `secure`. */
   partitioned?: boolean;
 }
+
+/** The attributes a session cookie gets unless its config sets them: `path` `"/"`, `secure`, `httpOnly` and `sameSite` `"lax"`. */
+export const DEFAULT_SESSION_COOKIE: Readonly<CookieAttributes> = /* @__PURE__ */ Object.freeze({
+  path: "/",
+  secure: true,
+  httpOnly: true,
+  sameSite: "lax",
+});

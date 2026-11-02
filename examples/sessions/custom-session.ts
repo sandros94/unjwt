@@ -1,13 +1,13 @@
 // #region docs
 import {
   type CookieAttributes,
-  type SessionTransportOptions,
   type WebSessionEvent,
   assertSessionConfig,
   assertSessionTokenSource,
   assertSessionWritable,
   claimSessionName,
   resolveSessionTransport,
+  sessionTransportOptions,
   webSessionDriver,
 } from "unjwt/session";
 import { base64UrlStringify, secureRandomBytes } from "unjwt/utils";
@@ -32,28 +32,18 @@ export interface StoredSessionConfig {
   /** Seconds a session lives after its last update. */
   maxAge?: number;
   sessionHeader?: boolean | string;
-  cookie?: false | CookieAttributes;
+  cookie?: false | (CookieAttributes & { chunkMaxLength?: number });
 }
 
 const driver = webSessionDriver({ prefix: "[app-session]" });
 const { prefix } = driver;
-const defaultCookie: CookieAttributes = {
-  path: "/",
-  secure: true,
-  httpOnly: true,
-  sameSite: "lax",
-};
 
 export function defineStoredSession<T extends Record<string, unknown>>(
   config: StoredSessionConfig,
 ) {
-  const { name, maxAge = 7 * 24 * 60 * 60, sessionHeader } = config;
-  assertSessionConfig(config, { name, prefix, defaultCookie });
-  const transportOptions: SessionTransportOptions = {
-    name,
-    sessionHeader,
-    cookie: config.cookie === false ? false : { attrs: { ...defaultCookie, ...config.cookie } },
-  };
+  const { name, maxAge = 7 * 24 * 60 * 60 } = config;
+  assertSessionConfig(config, { name, prefix });
+  const transportOptions = sessionTransportOptions(config, { name });
 
   return {
     async use(event: WebSessionEvent) {
@@ -67,7 +57,7 @@ export function defineStoredSession<T extends Record<string, unknown>>(
       const live = entry && entry.expiresAt > Date.now() ? entry : undefined;
       if (id !== undefined && !live) {
         await store.delete(id);
-        if (transport.drop && transport.writable()) transport.drop();
+        transport.drop?.();
       }
 
       const session = {

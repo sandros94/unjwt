@@ -76,13 +76,6 @@ export interface JWSCodecConfig extends SessionCoreConfig {
   };
 }
 
-export const JWS_DEFAULT_COOKIE = {
-  path: "/",
-  secure: true,
-  httpOnly: true,
-  sameSite: "lax",
-} as const;
-
 /** Signs session claims into a compact JWS and verifies them, checking claims, `typ` and the algorithms the keys serve. */
 export function createJWSCodec(options: {
   prefix: string;
@@ -94,7 +87,6 @@ export function createJWSCodec(options: {
     family: "jws",
     prefix,
     defaultName,
-    defaultCookie: JWS_DEFAULT_COOKIE,
 
     issueOptions: (config) => config.jws?.signOptions,
     openOptions: (config) => config.jws?.verifyOptions,

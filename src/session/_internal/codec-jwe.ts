@@ -77,13 +77,6 @@ export interface JWECodecConfig extends SessionCoreConfig {
   };
 }
 
-export const JWE_DEFAULT_COOKIE = {
-  path: "/",
-  secure: true,
-  httpOnly: true,
-  sameSite: "lax",
-} as const;
-
 /** Encrypts session claims into a compact JWE and decrypts them, checking claims, `typ` and the algorithms the keys serve. */
 export function createJWECodec(options: {
   prefix: string;
@@ -95,7 +88,6 @@ export function createJWECodec(options: {
     family: "jwe",
     prefix,
     defaultName,
-    defaultCookie: JWE_DEFAULT_COOKIE,
 
     issueOptions: (config) => config.jwe?.encryptOptions,
     openOptions: (config) => config.jwe?.decryptOptions,

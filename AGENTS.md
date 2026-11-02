@@ -44,7 +44,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - `unjwt/error` — `JWTError`/`isJWTError`, `UnsecureError`/`isUnsecureError` and the error code types
 - `unjwt/internal` — JOSE plumbing (`parsePayloadBytes`, `computeJwtTimeClaims`, `crit` checks, …) for tests and tooling; no semver guarantee, not re-exported from `unjwt`
 - `unjwt/dpop` — RFC 9449 proof creation and verification; explicit key pair and verification policy, optional replay callback; no HTTP or storage, no root re-export
-- `unjwt/session` (`src/session/`) — `defineJWSSession()`/`defineJWESession()` over a Web `Request` + response `Headers` or a token in hand, plus `defineSessionDriver()` and the `SessionDriver`/`CookieJar` types for a framework of your own (`{ driver }` option), the Web driver itself (`webSessionDriver({ prefix })`, its `webCookieJar()` and `parseCookie`/`serializeCookie`), and the token transport (`resolveSessionTransport()`) and config check (`assertSessionConfig()`) for a session kind of your own; no peer dependency
+- `unjwt/session` (`src/session/`) — `defineJWSSession()`/`defineJWESession()` over a Web `Request` + response `Headers` or a token in hand, plus `defineSessionDriver()` and the `SessionDriver`/`CookieJar` types for a framework of your own (`{ driver }` option), the Web driver itself (`webSessionDriver({ prefix })`, its `webCookieJar()` and `parseCookie`/`serializeCookie`), and the token transport (`resolveSessionTransport()`, its options from a config through `sessionTransportOptions()`), the config check (`assertSessionConfig()`) and the default cookie attributes (`DEFAULT_SESSION_COOKIE`) for a session kind of your own; no peer dependency
 
 ### Source layout
 
@@ -97,7 +97,7 @@ src/
       define-driver.ts  # defineSessionDriver(): the typed identity for a third-party driver
       contract.ts       # framework-agnostic session contract (error factories, reserved-claim stripping, name/cookie/rolling checks, typ/exp helpers)
       core.ts           # session state and the codec/store/binding contracts every session runs on
-      bind.ts           # bindSession: config checks, per-request name registry, store and transport of one session
+      bind.ts           # bindSession: config checks, transport options, per-request name registry, store and transport of one session
       read.ts           # load: token read, open, expiry, onRead/onExpire/onError, rolling
       write.ts          # issue/drop/encode with rollback, onUpdate/onClear, the manager's lazy getters
       definition.ts     # SessionDefinition + defineSession: one config bound to a driver and a codec (use/token/issue/open)
@@ -105,14 +105,14 @@ src/
       transport.ts      # core-owned cookie + header transports over a driver; sessionHeader rules
       types.ts          # internal contracts only (PendingSession/StoredSession, SessionCodec/Store/Actions/Binding, core config and hooks)
       codec.ts          # codec skeleton shared by both families: key checks, issue/open options, claims ↔ session
-      codec-jws.ts      # JWS half of a session: sign/verify, JWS config + cookie defaults
+      codec-jws.ts      # JWS half of a session: sign/verify, JWS config
       codec-jws-keys.ts # JWS session keys: JWSSessionKey, what a JWS key serves, the signing and verifying keys of a key, JWK Set or pair
       codec-jws-pair.ts # JWS session key pairs: what each half is, and a public half that verifies what the pair issues
-      codec-jwe.ts      # JWE half of a session: encrypt/decrypt, JWE config + cookie defaults
+      codec-jwe.ts      # JWE half of a session: encrypt/decrypt, JWE config
       codec-jwe-keys.ts # JWE session keys: JWESessionKey, what a JWE key serves, the enc of a dir key, the issuing key of a key or JWK Set
       key-algorithms.ts # definition checks of either family: the pin and the algorithms list against what the keys serve, the entries of a JWK Set key
       chunked-cookie.ts # framework-agnostic `__chunked__N` cookie layer (marker, 1-indexed parts, MAX_CHUNK_COUNT)
-      cookie-attributes.ts # CookieAttributes: the Set-Cookie attribute shape of a session cookie
+      cookie-attributes.ts # CookieAttributes: the Set-Cookie attribute shape of a session cookie; DEFAULT_SESSION_COOKIE, the attributes every session cookie defaults to
 ```
 
 ### Key design patterns

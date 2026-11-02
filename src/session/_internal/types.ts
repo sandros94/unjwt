@@ -1,6 +1,5 @@
 import type { ExpiresIn } from "../../core/types/index.ts";
 import type { kSessionPending } from "./core.ts";
-import type { CookieAttributes } from "./cookie-attributes.ts";
 import type { SessionDriver } from "./driver.ts";
 import type { SessionTransport } from "./transport.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
@@ -59,7 +58,6 @@ export interface SessionCodec<Config extends SessionCoreConfig> {
   /** Keeps a JWS and a JWE session that share a `name` apart. */
   family: "jws" | "jwe";
   defaultName: string;
-  defaultCookie: CookieAttributes;
   now: (config: Config) => number;
   /** Resolves the configured keys once. Throws `ERR_SESSION_KEY_INVALID` or `ERR_SESSION_CONFIG_INVALID` for a key the session cannot use. */
   keys: (config: Config) => SessionKeys;

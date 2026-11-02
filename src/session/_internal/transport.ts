@@ -30,13 +30,17 @@ export interface SessionTransport {
   /** The session header the request sent, by its lowercase name, when it holds neither a bare token nor `Bearer <token>`. The session decides how to report it. */
   malformed?: { header: string };
   /**
-   * Writes the token to the cookie, split into chunks past `chunkMaxLength`. With `expiresAt` (ms), the cookie gets that `expires` and no
-   * `maxAge`, which would take precedence (RFC 6265 §5.3). Present when the session reads its token from a cookie the event can write.
+   * Writes the token to the cookie, split into chunks past `chunkMaxLength`, and returns `true`. With `expiresAt` (ms), the cookie gets that `expires` and no
+   * `maxAge`, which would take precedence (RFC 6265 §5.3). Once the response was sent, writes nothing and returns `false`.
+   * Present when the session reads its token from a cookie the event can write.
    * @throws `ERR_SESSION_CONFIG_INVALID` if the token needs more than 16 cookie chunks.
    */
-  write?: (token: string, options?: { expiresAt?: number }) => void;
-  /** Expires the cookie and every chunk. Present when the session reads its token from a cookie the event can write. */
-  drop?: () => void;
+  write?: (token: string, options?: { expiresAt?: number }) => boolean;
+  /**
+   * Expires the cookie and every chunk, and returns `true`. Once the response was sent, writes nothing and returns `false`.
+   * Present when the session reads its token from a cookie the event can write.
+   */
+  drop?: () => boolean;
   /** The session reads its token from a cookie, but the event cannot write one (a request without a response). */
   readonly: boolean;
   /** Whether the response can still change. `false` once it was sent. */
@@ -77,14 +81,18 @@ export function resolveSessionTransport<TEvent>(
 
   const { attrs, chunkMaxLength } = cookie;
   transport.write = (token, { expiresAt } = {}) => {
+    if (!transport.writable()) return false;
     const written =
       expiresAt === undefined
         ? { ...attrs }
         : { ...attrs, expires: new Date(expiresAt), maxAge: undefined };
     writeChunked(store, name, token, { attrs: written, chunkMaxLength, prefix: driver.prefix });
+    return true;
   };
   transport.drop = () => {
+    if (!transport.writable()) return false;
     removeChunked(store, name, { attrs });
+    return true;
   };
   return transport;
 }
