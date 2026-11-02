@@ -2,7 +2,8 @@
 import { isJWTError, verifyDPoPProof, type DPoPVerifyResult } from "unjwt/dpop";
 import { generateJWK } from "unjwt/jwk";
 import { sign, verify } from "unjwt/jws";
-import { base64UrlStringify, digestUrl, secureRandomBytes } from "unjwt/utils";
+import { base64UrlStringify, secureRandomBytes } from "unjwt/utils";
+import { hash } from "unsecure/hash"; // WebCrypto API
 
 const ISSUER = "https://auth.example.com";
 const API = "https://api.example.com";
@@ -126,7 +127,7 @@ const seen = new Map<string, number>();
 
 /** Accepts each proof once, per key, for as long as its `iat` keeps it acceptable. */
 export async function consumeOnce({ payload, thumbprint }: DPoPVerifyResult) {
-  const id = await digestUrl(`${thumbprint}.${payload.jti}`);
+  const id = await hash(`${thumbprint}.${payload.jti}`);
   const now = Math.floor(Date.now() / 1000);
   for (const [key, expiresAt] of seen) if (expiresAt < now) seen.delete(key);
   if (seen.has(id)) return false;

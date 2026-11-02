@@ -56,7 +56,7 @@ describe("examples/sessions/custom-session", () => {
     expect(first.id).toBeUndefined();
     await first.update({ userId: "user_1a2b" });
     expect(first.token).toMatch(/^[\w-]{43}$/);
-    expect(first.id).toMatch(/^[\w-]{43}$/);
+    expect(first.id).toMatch(/^[\da-f]{64}$/);
     expect(first.id).not.toBe(first.token);
 
     const [line = ""] = headers.getSetCookie();
