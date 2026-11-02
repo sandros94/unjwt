@@ -8,9 +8,8 @@ import {
 } from "./chunked-cookie.ts";
 import type { CookieAttributes } from "./cookie-attributes.ts";
 import type { CookieJar, SessionDriver } from "./driver.ts";
-import type { JWTError } from "../../error.ts";
 import type { SessionSource } from "../types.ts";
-import { invalidConfigError, invalidTokenError, isToken, readOnlyEventError } from "./contract.ts";
+import { invalidConfigError, isToken, readOnlyEventError } from "./contract.ts";
 
 /** The token sources of one session, and the attributes its cookie is written with. */
 export interface SessionTransportOptions {
@@ -28,8 +27,8 @@ export interface SessionTransport {
   source: SessionSource;
   /** The token in hand, else the session header's, else the cookie this response wrote, else the request's. Absent without a token source. */
   read?: () => string | undefined;
-  /** The session header is present but holds neither a bare token nor `Bearer <token>`. */
-  malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID">;
+  /** The session header the request sent, by its lowercase name, when it holds neither a bare token nor `Bearer <token>`. The session decides how to report it. */
+  malformed?: { header: string };
   /**
    * Writes the token to the cookie, split into chunks past `chunkMaxLength`. With `expiresAt` (ms), the cookie gets that `expires` and no
    * `maxAge`, which would take precedence (RFC 6265 §5.3). Present when the session reads its token from a cookie the event can write.
@@ -147,12 +146,12 @@ export function headerToken(value: string | null | undefined): string | undefine
   return words.length === 1 && first ? first : undefined;
 }
 
-/** The session header that `sessionHeader` enables, when the request sends it. A value without a token is malformed. */
+/** The session header that `sessionHeader` enables, when the request sends it. A value without a token names the header as malformed. */
 function presentedHeader<TEvent>(
   driver: SessionDriver<TEvent>,
   event: TEvent,
   options: SessionTransportOptions,
-): { token: string | undefined; malformed?: JWTError<"ERR_SESSION_TOKEN_INVALID"> } | undefined {
+): { token: string | undefined; malformed?: { header: string } } | undefined {
   const { name, sessionHeader } = options;
   if (!readsHeader(options)) return undefined;
   const header = sessionHeaderName(name, sessionHeader);
@@ -160,12 +159,7 @@ function presentedHeader<TEvent>(
   if (typeof value !== "string") return undefined;
   const token = headerToken(value);
   if (token) return { token };
-  return {
-    token: undefined,
-    malformed: invalidTokenError(
-      `${driver.prefix} Invalid session token: the "${header}" header holds neither a token nor "Bearer <token>".`,
-    ),
-  };
+  return { token: undefined, malformed: { header } };
 }
 
 /** Reads the session header when `sessionHeader` enables it, and writes nothing back. */

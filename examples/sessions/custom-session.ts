@@ -6,6 +6,7 @@ import {
   assertSessionConfig,
   assertSessionTokenSource,
   assertSessionWritable,
+  claimSessionName,
   resolveSessionTransport,
   webSessionDriver,
 } from "unjwt/session";
@@ -55,6 +56,7 @@ export function defineStoredSession<T extends Record<string, unknown>>(
 
   return {
     async use(event: WebSessionEvent) {
+      claimSessionName(driver.state(event), { name, family: "stored", prefix });
       const transport = resolveSessionTransport(driver, event, transportOptions);
       assertSessionTokenSource(transport, { prefix });
 

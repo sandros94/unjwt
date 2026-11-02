@@ -61,6 +61,29 @@ export function assertSessionConfig(
   assertRolling(config, { prefix });
 }
 
+/**
+ * Claims a session name on one request: one name is one cookie, so the first family to claim a name on a request keeps it.
+ * `state` is `driver.state(event)`. The same family may claim a name again on the same request.
+ * @throws `ERR_SESSION_CONFIG_INVALID` if another family already claimed `name` on this request. The message starts with `prefix`.
+ */
+export function claimSessionName(
+  state: Record<string, unknown>,
+  options: { name: string; family: string; prefix: string },
+): void {
+  const { name, family, prefix } = options;
+  const holder: { [kSessionNames]?: Map<string, string> } = state;
+  const registry = (holder[kSessionNames] ||= new Map());
+  const held = registry.get(name);
+  if (held === undefined) {
+    registry.set(name, family);
+    return;
+  }
+  if (held === family) return;
+  throw invalidConfigError(
+    `${prefix} Session name "${name}" is already used by a ${held.toUpperCase()} session on this request.`,
+  );
+}
+
 /** Registers the session's name on the request and resolves its token transport. The config is checked when the session is defined. */
 export function bindSession<TEvent, Config extends SessionCoreConfig>(
   event: TEvent,
@@ -129,25 +152,6 @@ export function dropSessionCookie<TEvent, Config extends SessionCoreConfig>(
   const { transport } = binding;
   if (!transport.drop || !transport.writable()) return;
   transport.drop();
-}
-
-/** One name is one cookie: the first family to bind a name on a request keeps it. */
-function claimSessionName(
-  record: Record<string, unknown>,
-  options: { name: string; family: "jws" | "jwe"; prefix: string },
-): void {
-  const { name, family, prefix } = options;
-  const holder: { [kSessionNames]?: Map<string, "jws" | "jwe"> } = record;
-  const registry = (holder[kSessionNames] ||= new Map());
-  const held = registry.get(name);
-  if (held === undefined) {
-    registry.set(name, family);
-    return;
-  }
-  if (held === family) return;
-  throw invalidConfigError(
-    `${prefix} Session name "${name}" is already used by a ${held.toUpperCase()} session on this request.`,
-  );
 }
 
 /** The config's token sources, and its cookie attributes over the codec's defaults. */

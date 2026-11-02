@@ -44,7 +44,11 @@ export {
   assertSessionWritable,
   resolveSessionTransport,
 } from "./_internal/transport.ts";
-export { type SessionConfigChecks, assertSessionConfig } from "./_internal/bind.ts";
+export {
+  type SessionConfigChecks,
+  assertSessionConfig,
+  claimSessionName,
+} from "./_internal/bind.ts";
 export type { CookieJar, SessionDriver } from "./_internal/driver.ts";
 export type { CookieAttributes } from "./_internal/cookie-attributes.ts";
 

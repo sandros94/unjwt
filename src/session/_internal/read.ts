@@ -7,7 +7,7 @@
 import { type JWTError, isJWTError } from "../../error.ts";
 import type { ExpiresIn } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
-import { expiredSessionError } from "./contract.ts";
+import { expiredSessionError, malformedHeaderError } from "./contract.ts";
 import { dropSessionCookie } from "./bind.ts";
 import type { SessionBinding, SessionCoreConfig, StoredSession } from "./types.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
@@ -66,8 +66,11 @@ export async function loadSession<
   store.set(session);
 
   if (transport.malformed) {
-    session.error = transport.malformed;
-    await fireError(binding, transport.malformed);
+    const error = malformedHeaderError(transport.malformed.header, {
+      prefix: binding.driver.prefix,
+    });
+    session.error = error;
+    await fireError(binding, error);
     return session;
   }
   const token = transport.read();

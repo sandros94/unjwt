@@ -63,6 +63,16 @@ export function readFailedError(
   );
 }
 
+/** A session header the request sent holding neither a bare token nor `Bearer <token>`. */
+export function malformedHeaderError(
+  header: string,
+  options: { prefix: string },
+): JWTError<"ERR_SESSION_TOKEN_INVALID"> {
+  return invalidTokenError(
+    `${options.prefix} Invalid session token: the "${header}" header holds neither a token nor "Bearer <token>".`,
+  );
+}
+
 /** Passes `ERR_JWT_EXPIRED` and `ERR_SESSION_READ_FAILED` through. Any other error becomes `ERR_SESSION_TOKEN_INVALID`. */
 export function rethrowAsInvalidToken(error: unknown, options: { prefix: string }): never {
   if (isJWTError(error, "ERR_JWT_EXPIRED") || isJWTError(error, "ERR_SESSION_READ_FAILED")) {

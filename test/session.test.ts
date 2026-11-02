@@ -43,6 +43,7 @@ import {
   assertSessionConfig,
   assertSessionTokenSource,
   assertSessionWritable,
+  claimSessionName,
   defineJWESession,
   defineJWSSession,
   defineSessionDriver,
@@ -3159,8 +3160,18 @@ describe("the session token transport", () => {
     );
     expect(transport.source).toBe("header");
     expect(transport.read?.()).toBeUndefined();
-    expect(isJWTError(transport.malformed, "ERR_SESSION_TOKEN_INVALID")).toBe(true);
-    expect(transport.malformed?.message.startsWith("[unjwt/session] ")).toBe(true);
+    expect(transport.malformed).toEqual({ header: "x-web-session" });
+  });
+
+  it("names the header that sessionHeader names when it holds no token", () => {
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get({ "x-token": "Basic abc" }) },
+      { name: "web", sessionHeader: "X-Token", cookie },
+    );
+    expect(transport.source).toBe("header");
+    expect(transport.read?.()).toBeUndefined();
+    expect(transport.malformed).toEqual({ header: "x-token" });
   });
 
   it("is the cookie when the session header holds the cookie's token", () => {
@@ -3430,6 +3441,33 @@ describe("assertSessionConfig", () => {
   it("types: a family config is a config it checks", () => {
     expectTypeOf<SessionConfigJWS>().toExtend<SessionConfigChecks>();
     expectTypeOf<SessionConfigJWE>().toExtend<SessionConfigChecks>();
+  });
+});
+
+describe("claimSessionName", () => {
+  const claim = { name: "web", prefix: "[mine]" };
+
+  it("refuses a name another family claimed on the same request", () => {
+    const state: Record<string, unknown> = {};
+    claimSessionName(state, { ...claim, family: "stored" });
+    const { code, message = "" } = refusedWith(() =>
+      claimSessionName(state, { ...claim, family: "jwe" }),
+    );
+    expect(code).toBe("ERR_SESSION_CONFIG_INVALID");
+    expect(message).toBe(
+      '[mine] Session name "web" is already used by a STORED session on this request.',
+    );
+  });
+
+  it("lets the same family claim a name again", () => {
+    const state: Record<string, unknown> = {};
+    claimSessionName(state, { ...claim, family: "stored" });
+    expect(() => claimSessionName(state, { ...claim, family: "stored" })).not.toThrow();
+  });
+
+  it("keeps each request's names apart", () => {
+    claimSessionName({}, { ...claim, family: "stored" });
+    expect(() => claimSessionName({}, { ...claim, family: "jwe" })).not.toThrow();
   });
 });
 

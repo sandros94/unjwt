@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { generateJWK } from "unjwt/jwk";
+import { defineJWESession } from "unjwt/session";
 import { appSession, defineStoredSession } from "../../../examples/sessions/custom-session.ts";
 
 const APP = "https://app.example.com";
@@ -116,6 +118,13 @@ describe("examples/sessions/custom-session", () => {
     const session = await appSession.use({ req: request({ cookie }), res: { headers } });
     expect(session.id).toBeUndefined();
     expect(headers.getSetCookie()[0]).toContain("Max-Age=0");
+  });
+
+  it("refuses a JWE session of the same name on the same request", async () => {
+    const jweSession = defineJWESession({ name: NAME, key: await generateJWK("A128KW") });
+    const event = { req: request(), res: { headers: new Headers() }, context: {} };
+    await appSession.use(event);
+    expect(await codeOf(jweSession.use(event))).toBe("ERR_SESSION_CONFIG_INVALID");
   });
 
   it("refuses a __Host- name with secure: false when defined", () => {
