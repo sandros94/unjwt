@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/v*"]
   pull_request:
     types: [closed]
     branches: [main]
@@ -12,9 +12,15 @@ permissions: {}
 
 jobs:
   # 1. On every push to main: open/update a draft `release/vX.Y.Z` PR from the
-  #    conventional commits since the last tag.
+  #    conventional commits since the last tag. A push to that release branch
+  #    (a hand-edited version) updates the PR too.
   pr:
-    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: |
+      github.event_name == 'push'
+      && (
+        github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        || startsWith(github.ref, 'refs/heads/release/v')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: write
