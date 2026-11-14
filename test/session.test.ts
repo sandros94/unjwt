@@ -1214,6 +1214,25 @@ describe("unjwt/session types", () => {
     void narrowed.use(new Request("http://localhost/"));
   });
 
+  it("hands onRead rollDue as a boolean on both families", () => {
+    defineJWSSession({
+      key: jwsKey,
+      hooks: {
+        onRead: ({ rollDue }) => {
+          expectTypeOf(rollDue).toEqualTypeOf<boolean>();
+        },
+      },
+    });
+    defineJWESession({
+      key: jweKey,
+      hooks: {
+        onRead: ({ rollDue }) => {
+          expectTypeOf(rollDue).toEqualTypeOf<boolean>();
+        },
+      },
+    });
+  });
+
   it("takes a request event by its Request or its Headers, or a token, never an empty object", () => {
     expectTypeOf<{ req: Request }>().toExtend<SessionRequestEvent>();
     expectTypeOf<{ headers: Headers }>().toExtend<SessionRequestEvent>();

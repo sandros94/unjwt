@@ -119,7 +119,12 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
 export interface SessionHooks<TSession, TManager, TArgs extends Record<string, unknown>, TConfig> {
   /** Runs once per request, after a token is read and verified. A throw empties the session and rejects the read. */
   onRead?: (
-    args: TArgs & { session: TManager & { id: string; token: string }; config: TConfig },
+    args: TArgs & {
+      session: TManager & { id: string; token: string };
+      /** `true` when `rolling` reissues this session after the hook. An `update()` in the hook is that reissue, and a `clear()` cancels it. */
+      rollDue: boolean;
+      config: TConfig;
+    },
   ) => void | Promise<void>;
   /** Runs after `update()` or `rolling` issues a token and, on a cookie session, writes its cookie. A throw rejects the call and keeps the new session. */
   onUpdate?: (

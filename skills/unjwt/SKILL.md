@@ -37,7 +37,7 @@ The documentation site is the single source of truth, and every page is also ser
 | Sessions: what they are, which framework | `/raw/sessions.md` |
 | Configure a session (key, lifetime, cookie, header) | `/raw/sessions/configure.md` |
 | Read, update, clear, issue and open sessions | `/raw/sessions/use.md` |
-| Session hooks, revocation, key rotation | `/raw/sessions/hooks.md` |
+| Session hooks, revocation, refreshing data on a roll, key rotation | `/raw/sessions/hooks.md` |
 | Sessions without cookies: the session header, CLI and service-account clients, tokens in links | `/raw/sessions/api-clients.md` |
 | A session driver for another framework, the Web driver, cookie helpers (`webCookieJar`, `parseCookie`, `serializeCookie`) | `/raw/sessions/drivers.md`, recipe `/raw/examples/custom-driver.md` |
 | A session of your own (store-backed, random token) over the session transport and config checks | `/raw/sessions/custom-session.md` |

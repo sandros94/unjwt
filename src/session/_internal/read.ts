@@ -120,43 +120,51 @@ export async function loadSession<
     return session;
   }
 
+  const rollDue = isRollDue(binding, session);
   try {
-    await fireRead(binding, session);
+    await fireRead(binding, { session, rollDue });
   } catch (error_) {
     store.set(emptySession<T, MaxAge, TEvent, Config>(binding));
     throw error_;
   }
-  await rollSession(binding, { session, token });
+  if (rollDue) await rollSession(binding, { session, token });
   return session;
 }
 
 async function fireRead<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
-  session: StoredSession,
+  read: { session: StoredSession; rollDue: boolean },
 ): Promise<void> {
-  if (session.id === undefined || session.token === undefined) return;
+  if (read.session.id === undefined || read.session.token === undefined) return;
   await binding.config.hooks?.onRead?.({
     session: binding.actions.manager(binding),
     ...binding.args,
+    rollDue: read.rollDue,
     config: binding.config,
   });
 }
 
-/** Reissues a cookie session it read when `rolling` asks, unless `onRead` updates or clears it. A cookie session without a response, or with one already sent, leaves it to the next request. A header or token session never rolls. */
+/** Whether `rolling` reissues a cookie session it read: one old enough, on a response that can still change. A header or token session never rolls. */
+function isRollDue<TEvent, Config extends SessionCoreConfig>(
+  binding: SessionBinding<TEvent, Config>,
+  session: StoredSession,
+): boolean {
+  const { config, codec, transport } = binding;
+  const { rolling } = config;
+  if (rolling === undefined || transport.source !== "cookie") return false;
+  if (session.expiresAt === undefined) return false;
+  const age = codec.now(config) - session.createdAt;
+  if (rolling !== true && age < computeDurationInSeconds(rolling) * 1000) return false;
+  return !transport.readonly && transport.writable();
+}
+
+/** Reissues a session whose roll is due, unless `onRead` updates or clears it. A response sent during the hook leaves the roll to the next request. */
 async function rollSession<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
   read: { session: StoredSession; token: string },
 ): Promise<void> {
-  const { config, codec, transport, store } = binding;
-  const { rolling } = config;
-  const { session, token } = read;
-  if (rolling === undefined || transport.source !== "cookie" || store.get() !== session) return;
-  if (session.token !== token || session.expiresAt === undefined) return;
-  if (rolling !== true) {
-    const age = codec.now(config) - session.createdAt;
-    if (age < computeDurationInSeconds(rolling) * 1000) return;
-  }
-  if (transport.readonly || !transport.writable()) return;
+  if (binding.store.get() !== read.session || read.session.token !== read.token) return;
+  if (!binding.transport.writable()) return;
   await binding.actions.roll(binding);
 }
 

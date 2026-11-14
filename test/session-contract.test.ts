@@ -1754,6 +1754,76 @@ describe("session contract", () => {
       },
     );
 
+    const rollDueOf = (onRead: ReturnType<typeof vi.fn>) =>
+      onRead.mock.calls.map(([args]) => (args as { rollDue?: unknown }).rollDue);
+
+    it.each(familyCases())(
+      "$label: onRead gets rollDue true on a cookie read that rolling: true reissues once",
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
+        const onRead = vi.fn();
+        const onUpdate = vi.fn();
+        const response = await variant.serve(
+          { ...config, rolling: true, hooks: { onRead, onUpdate } },
+          opened,
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(response.body.token).not.toBe(token);
+        expect(rollDueOf(onRead)).toEqual([true]);
+        expect(onUpdate).toHaveBeenCalledTimes(1);
+        expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: with a rolling duration, rollDue is true once the token is that old",
+      async (variant) => {
+        const onRead = vi.fn();
+        const config = { ...expiringConfig(variant), rolling: "15m" };
+        const fresh = await mintToken(variant, config, { user: "alice" });
+        const issuedAt = nowSeconds() - 20 * 60;
+        const aged = await foreignToken(variant.family, {
+          jti: "aged",
+          iat: issuedAt,
+          exp: issuedAt + 3600,
+          user: "alice",
+        });
+
+        const hooked = { ...config, hooks: { onRead } };
+        await variant.serve(hooked, opened, { cookies: { [variant.name]: fresh } });
+        await variant.serve(hooked, opened, { cookies: { [variant.name]: aged } });
+
+        expect(rollDueOf(onRead)).toEqual([false, true]);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: rollDue is false without rolling, on a header or handed token, and without a response",
+      async (variant) => {
+        const onRead = vi.fn();
+        const token = await mintToken(variant, expiringConfig(variant), { user: "alice" });
+        const rolling = { ...expiringConfig(variant), rolling: true, hooks: { onRead } };
+        const header = `x-${variant.name}-session`;
+
+        await variant.serve({ ...expiringConfig(variant), hooks: { onRead } }, opened, {
+          cookies: { [variant.name]: token },
+        });
+        await variant.serve({ ...rolling, sessionHeader: true }, opened, {
+          headers: { [header]: token },
+        });
+        await definitionOf(variant, rolling).use({ token });
+        const request = new Request(
+          "http://localhost/",
+          requestInit({ cookies: { [variant.name]: token } }),
+        );
+        await OPENERS[variant.family]({ req: request }, rolling as never);
+
+        expect(rollDueOf(onRead)).toEqual([false, false, false, false]);
+      },
+    );
+
     it.each(familyCases())(
       "$label: a hook that clears the session on read stops the roll",
       async (variant) => {
@@ -2304,12 +2374,39 @@ describe("session contract", () => {
           expect(session.token).toBeTypeOf("string");
           expect(recorder.writes).toEqual([]);
           expect(hooks.onRead).toHaveBeenCalledOnce();
+          expect(hooks.onRead.mock.calls[0]?.[0]).toMatchObject({ rollDue: false });
           expect(hooks.onUpdate).not.toHaveBeenCalled();
           expect(hooks.onError).not.toHaveBeenCalled();
           expect(warn).not.toHaveBeenCalled();
         } finally {
           warn.mockRestore();
         }
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a response sent during onRead leaves the due roll to the next request",
+      async (family) => {
+        const state = { writable: true };
+        const onRead = vi.fn((_args: Record<string, unknown>) => {
+          state.writable = false;
+        });
+        const onUpdate = vi.fn();
+        const claims = { jti: "sent-in-hook", iat: nowSeconds() - 30, exp: nowSeconds() + 60 };
+        const recorder = recordingDriver(
+          Object.assign(state, { token: await foreignToken(family, claims) }),
+        );
+        const binding = coreBinding(family, recorder.driver, {
+          maxAge: 60,
+          rolling: true,
+          hooks: { onRead, onUpdate },
+        });
+        const session = await loadSession(binding);
+
+        expect(session.id).toBe("sent-in-hook");
+        expect(onRead.mock.calls[0]?.[0]).toMatchObject({ rollDue: true });
+        expect(onUpdate).not.toHaveBeenCalled();
+        expect(recorder.writes).toEqual([]);
       },
     );
 
