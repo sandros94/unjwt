@@ -2566,6 +2566,36 @@ describe("session contract", () => {
     );
 
     it.each(["jws", "jwe"] as const)(
+      "%s: a roll whose cookie write throws rejects the read, empties the session and keeps the cookie",
+      async (family) => {
+        const hooks = { onRead: vi.fn(), onUpdate: vi.fn(), onError: vi.fn() };
+        const claims = { jti: "failed-roll", iat: nowSeconds() - 30, exp: nowSeconds() + 60 };
+        const recorder = recordingDriver({
+          token: await foreignToken(family, { ...claims, user: "alice" }),
+        });
+        const binding = coreBinding(family, recorder.driver, {
+          maxAge: 60,
+          rolling: true,
+          cookie: { secure: false, chunkMaxLength: 8 },
+          hooks,
+        });
+
+        const error = await caught(() => loadSession(binding));
+        expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+        expect(hooks.onRead).toHaveBeenCalledOnce();
+        expect(hooks.onError).toHaveBeenCalledOnce();
+        expect(hooks.onError.mock.calls[0]?.[0].error).toBe(error);
+        expect(hooks.onUpdate).not.toHaveBeenCalled();
+
+        const session = await loadSession(binding);
+        expect(session.id).toBeUndefined();
+        expect(session.token).toBeUndefined();
+        expect(session.data).toEqual({});
+        expect(recorder.writes).toEqual([]);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
       "%s: a jar that cannot take a cookie clears without a write and refuses an update",
       async (family) => {
         const onClear = vi.fn();

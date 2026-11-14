@@ -123,11 +123,11 @@ export async function loadSession<
   const rollDue = isRollDue(binding, session);
   try {
     await fireRead(binding, { session, rollDue });
+    if (rollDue) await rollSession(binding, { session, token });
   } catch (error_) {
     store.set(emptySession<T, MaxAge, TEvent, Config>(binding));
     throw error_;
   }
-  if (rollDue) await rollSession(binding, { session, token });
   return session;
 }
 
