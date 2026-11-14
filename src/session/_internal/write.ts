@@ -28,7 +28,7 @@ import {
 import { loadSession } from "./read.ts";
 import { assertSessionTokenSource, assertSessionWritable } from "./transport.ts";
 
-/** Merges `update` into the data and issues a token. `options.maxAge` overrides its lifetime. A failed issue or cookie write restores the session. */
+/** Merges `update` into the data and issues a token. `options.maxAge` overrides its lifetime. A failed update leaves the session as it was. */
 export async function issueSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
@@ -49,20 +49,20 @@ export async function issueSession<
 
   const oldSession = snapshotSession(session);
 
-  const resolved = typeof update === "function" ? update(session.data) : update;
-  if (resolved) {
-    Object.assign(session.data, sanitizeSessionUpdate(resolved, { prefix: driver.prefix }));
-  }
-  for (const claim of RESERVED_CLAIMS) delete session.data[claim];
-
-  const maxAge = options?.maxAge ?? config.maxAge;
-  const createdAt = sessionInstant(binding);
-  const id = mintSessionId(config);
-  Object.assign(session, {
-    id,
-    createdAt,
-    expiresAt: resolveExpiresAt(createdAt, { maxAge }),
+  const { changes, createdAt, id, expiresAt } = restoringOnThrow(session, oldSession, () => {
+    const resolved = typeof update === "function" ? update(session.data) : update;
+    const instant = sessionInstant(binding);
+    return {
+      changes: resolved && sanitizeSessionUpdate(resolved, { prefix: driver.prefix }),
+      createdAt: instant,
+      id: mintSessionId(config),
+      expiresAt: resolveExpiresAt(instant, { maxAge: options?.maxAge ?? config.maxAge }),
+    };
   });
+
+  if (changes) Object.assign(session.data, changes);
+  for (const claim of RESERVED_CLAIMS) delete session.data[claim];
+  Object.assign(session, { id, createdAt, expiresAt });
 
   let issued: SessionState<T, MaxAge> & { id: string; token: string };
   try {
@@ -72,13 +72,7 @@ export async function issueSession<
     binding.held.set(token);
     issued = Object.assign(session, { id, token, error: undefined });
   } catch (error_) {
-    Object.assign(session, {
-      id: oldSession.id,
-      createdAt: oldSession.createdAt,
-      expiresAt: oldSession.expiresAt,
-      data: oldSession.data,
-    });
-    session.token = oldSession.token;
+    restoreSession(session, oldSession);
     await config.hooks?.onError?.({
       session: binding.actions.manager(binding),
       ...args,
@@ -188,3 +182,33 @@ export function sessionActions<TEvent, Config extends SessionCoreConfig>(): Sess
 function snapshotSession<S extends { data: Record<string, unknown> }>(session: S): S {
   return { ...session, data: safeJsonParse(JSON.stringify(session.data)) };
 }
+
+/** Runs `run`, and puts the session back as `oldSession` holds it when `run` throws. */
+function restoringOnThrow<S extends RestorableSession, R>(
+  session: S,
+  oldSession: S,
+  run: () => R,
+): R {
+  try {
+    return run();
+  } catch (error) {
+    restoreSession(session, oldSession);
+    throw error;
+  }
+}
+
+/** Puts the id, times, data and token of `oldSession` back on the live session. */
+function restoreSession<S extends RestorableSession>(session: S, oldSession: S): void {
+  Object.assign(session, {
+    id: oldSession.id,
+    createdAt: oldSession.createdAt,
+    expiresAt: oldSession.expiresAt,
+    data: oldSession.data,
+    token: oldSession.token,
+  });
+}
+
+type RestorableSession = Pick<
+  SessionState<SessionRecord, ExpiresIn | undefined>,
+  "id" | "createdAt" | "expiresAt" | "data" | "token"
+>;

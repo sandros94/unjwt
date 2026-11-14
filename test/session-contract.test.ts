@@ -5,7 +5,7 @@ import { generateJWK, generateKey } from "../src/core/jwk/index.ts";
 import { sign, verify } from "../src/core/jws/index.ts";
 import { encrypt, decrypt } from "../src/core/jwe/index.ts";
 import type { ExpiresIn } from "../src/core/types/index.ts";
-import { base64UrlParse } from "../src/utils/index.ts";
+import { base64UrlParse, computeDurationInSeconds } from "../src/utils/index.ts";
 import {
   MAX_CHUNK_COUNT,
   parseChunkCount,
@@ -32,7 +32,7 @@ import { bindSession } from "../src/session/_internal/bind.ts";
 import type { CookieJar, SessionDriver } from "../src/session/_internal/driver.ts";
 import { loadSession } from "../src/session/_internal/read.ts";
 import { dropSession, issueSession, sessionActions } from "../src/session/_internal/write.ts";
-import type { SessionManager } from "../src/session/types.ts";
+import type { SessionManager, SessionUpdate } from "../src/session/types.ts";
 
 const [jwsKey, jweKey, rsaSignPair, rsaEncPair] = await Promise.all([
   generateJWK("HS256"),
@@ -122,6 +122,32 @@ describe("session contract", () => {
 
         expect(body.data).toEqual({ user: "alice" });
         expect(body.id).not.toBe("forged");
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: an update function that changes the data in place issues that change",
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { cart: ["apple"] });
+        const updated = await variant.run(
+          baseConfig(variant),
+          async (open) => {
+            const session = await open();
+            await session.update((data) => {
+              (data.cart as string[]).push("pear");
+            });
+            return { token: session.token ?? null };
+          },
+          { cookies: { [variant.name]: token } },
+        );
+
+        const read = await variant.run(
+          baseConfig(variant),
+          async (open) => ({ data: { ...(await open()).data } }),
+          { cookies: { [variant.name]: updated.token as string } },
+        );
+
+        expect(read).toEqual({ data: { cart: ["apple", "pear"] } });
       },
     );
 
@@ -587,6 +613,135 @@ describe("session contract", () => {
           reported: true,
         });
         expect(onError).toHaveBeenCalledOnce();
+      },
+    );
+  });
+
+  describe("an update that fails before issuing", () => {
+    /** Reads a session from a valid cookie, then runs one `update()` under `config` that rejects. */
+    async function updateFrom(
+      variant: FamilyCase,
+      config: Record<string, unknown>,
+      options?: Record<string, unknown>,
+      update: SessionUpdate = { user: "mallory" },
+    ) {
+      const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
+      const onError = vi.fn();
+      const onUpdate = vi.fn();
+      const view = (session: SessionManager) => ({
+        id: session.id ?? null,
+        token: session.token ?? null,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt ?? null,
+        error: session.error ?? null,
+        data: { ...session.data },
+      });
+      let thrown: unknown;
+      const response = await variant.serve(
+        { ...baseConfig(variant), ...config, hooks: { onError, onUpdate } },
+        async (open) => {
+          const session = await open();
+          const before = view(session);
+          thrown = await caught(() => session.update(update, options));
+          return { before, after: view(session) };
+        },
+        { cookies: { [variant.name]: token } },
+      );
+      return { token, thrown, onError, onUpdate, ...response };
+    }
+
+    it.each(familyCases())(
+      "$label: a generateId that throws rejects the update and leaves the session as read",
+      async (variant) => {
+        const failure = new Error("no id");
+        const outcome = await updateFrom(variant, {
+          generateId: () => {
+            throw failure;
+          },
+        });
+        const claims = await claimsOf(variant.family, outcome.token);
+
+        expect(outcome.thrown).toBe(failure);
+        expect(outcome.body.after).toEqual(outcome.body.before);
+        expect(outcome.body.after).toMatchObject({
+          id: claims.jti,
+          token: outcome.token,
+          data: { user: "alice" },
+        });
+        expect(outcome.onError).not.toHaveBeenCalled();
+        expect(outcome.onUpdate).not.toHaveBeenCalled();
+        expect(outcome.cookies).toEqual([]);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: an issue lifetime that does not parse rejects the update and leaves the session as read",
+      async (variant) => {
+        const outcome = await updateFrom(variant, {}, { maxAge: "soon" });
+        const parsed = await caught(async () => computeDurationInSeconds("soon" as never));
+        const claims = await claimsOf(variant.family, outcome.token);
+
+        expect(isJWTError(outcome.thrown, "ERR_INVALID_OPTION")).toBe(true);
+        expect((outcome.thrown as Error).message).toBe((parsed as Error).message);
+        expect(outcome.body.after).toEqual(outcome.body.before);
+        expect(outcome.body.after).toMatchObject({
+          id: claims.jti,
+          token: outcome.token,
+          data: { user: "alice" },
+        });
+        expect(outcome.onError).not.toHaveBeenCalled();
+        expect(outcome.onUpdate).not.toHaveBeenCalled();
+        expect(outcome.cookies).toEqual([]);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: an update function that changes the data in place and throws leaves the session as read",
+      async (variant) => {
+        const failure = new Error("update failed");
+        const outcome = await updateFrom(variant, {}, undefined, (data) => {
+          data.user = "mallory";
+          throw failure;
+        });
+        const claims = await claimsOf(variant.family, outcome.token);
+
+        expect(outcome.thrown).toBe(failure);
+        expect(outcome.body.after).toEqual(outcome.body.before);
+        expect(outcome.body.after).toMatchObject({
+          id: claims.jti,
+          token: outcome.token,
+          data: { user: "alice" },
+        });
+        expect(outcome.onError).not.toHaveBeenCalled();
+        expect(outcome.onUpdate).not.toHaveBeenCalled();
+        expect(outcome.cookies).toEqual([]);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: a generateId that throws after an in-place update leaves the session as read",
+      async (variant) => {
+        const failure = new Error("no id");
+        const config = {
+          generateId: () => {
+            throw failure;
+          },
+        };
+        const outcome = await updateFrom(variant, config, undefined, (data) => {
+          data.user = "mallory";
+        });
+        const claims = await claimsOf(variant.family, outcome.token);
+
+        expect(outcome.thrown).toBe(failure);
+        expect(outcome.body.after).toEqual(outcome.body.before);
+        expect(outcome.body.after).toMatchObject({
+          id: claims.jti,
+          token: outcome.token,
+          data: { user: "alice" },
+        });
+        expect(outcome.onError).not.toHaveBeenCalled();
+        expect(outcome.onUpdate).not.toHaveBeenCalled();
+        expect(outcome.cookies).toEqual([]);
       },
     );
   });

@@ -27,7 +27,7 @@ export type SessionSource = "cookie" | "header" | "token";
 /** Why `onUpdate` ran: an `update()` call, or `rolling` reissuing a session that was read. */
 export type SessionUpdateTrigger = "update" | "rolling";
 
-/** What `update()` merges: a partial data object, or a function of the current data that returns one or `undefined`. */
+/** What `update()` merges: a partial data object, or a function of the current data that returns one, or changes that data in place and returns `undefined`. */
 export type SessionUpdate<T extends SessionRecord = SessionClaims> =
   | Partial<SessionData<T>>
   | ((oldData: SessionData<T>) => Partial<SessionData<T>> | undefined);
@@ -70,9 +70,9 @@ export interface SessionManager<
   /**
    * Merges `update` into the data and issues a token with a fresh `jti` and `iat`. `options.maxAge` overrides the config's `maxAge` for this token.
    * A `"cookie"` session writes the token to the response's cookie. A `"header"` or `"token"` session writes nothing: the token is on `token` alone, for you to send. Later requests read the data back through JSON.
-   * If issuing or the cookie write fails, the session is restored, `onError` runs and the call rejects. A throwing `onUpdate` rejects the call and keeps the new session.
+   * A failed update rejects and leaves the session as it was. When issuing or the cookie write fails, `onError` runs before it rejects. A throwing `onUpdate` rejects the call and keeps the new session.
    * @throws `ERR_SESSION_READONLY_EVENT` if a `"cookie"` session has no response, or the response was already sent.
-   * @throws `ERR_INVALID_OPTION` if the update is not a plain object or holds `__proto__`, `constructor` or `prototype`.
+   * @throws `ERR_INVALID_OPTION` if the update is not a plain object or holds `__proto__`, `constructor` or `prototype`, or `options.maxAge` is not a valid duration.
    * @throws `ERR_SESSION_CONFIG_INVALID` if a `"cookie"` session's token needs more than 16 cookie chunks.
    */
   update: (
