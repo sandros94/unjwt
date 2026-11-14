@@ -126,7 +126,7 @@ export async function loadSession<
     store.set(emptySession<T, MaxAge, TEvent, Config>(binding));
     throw error_;
   }
-  await rollSession(binding, session);
+  await rollSession(binding, { session, token });
   return session;
 }
 
@@ -142,15 +142,16 @@ async function fireRead<TEvent, Config extends SessionCoreConfig>(
   });
 }
 
-/** Reissues a cookie session it read when `rolling` asks, unless a hook replaced it. A cookie session without a response, or with one already sent, leaves it to the next request. A header or token session never rolls. */
+/** Reissues a cookie session it read when `rolling` asks, unless `onRead` updates or clears it. A cookie session without a response, or with one already sent, leaves it to the next request. A header or token session never rolls. */
 async function rollSession<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
-  session: StoredSession,
+  read: { session: StoredSession; token: string },
 ): Promise<void> {
   const { config, codec, transport, store } = binding;
   const { rolling } = config;
+  const { session, token } = read;
   if (rolling === undefined || transport.source !== "cookie" || store.get() !== session) return;
-  if (session.token === undefined || session.expiresAt === undefined) return;
+  if (session.token !== token || session.expiresAt === undefined) return;
   if (rolling !== true) {
     const age = codec.now(config) - session.createdAt;
     if (age < computeDurationInSeconds(rolling) * 1000) return;

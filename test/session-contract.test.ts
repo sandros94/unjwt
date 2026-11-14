@@ -1781,6 +1781,37 @@ describe("session contract", () => {
     );
 
     it.each(familyCases())(
+      "$label: a hook that updates the session on read stops the roll",
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
+        const updatedIds: (string | undefined)[] = [];
+        const onUpdate = vi.fn(({ session }: { session: SessionManager }) => {
+          updatedIds.push(session.id);
+        });
+        const response = await variant.serve(
+          {
+            ...config,
+            rolling: true,
+            hooks: {
+              onRead: async ({ session }: { session: SessionManager }) => {
+                await session.update({ seen: true });
+              },
+              onUpdate,
+            },
+          },
+          opened,
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(response.body.id).toBeTypeOf("string");
+        expect(onUpdate).toHaveBeenCalledTimes(1);
+        expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "update" });
+        expect(updatedIds).toEqual([response.body.id]);
+      },
+    );
+
+    it.each(familyCases())(
       "$label: rolling needs a maxAge and a true or duration value",
       async (variant) => {
         const codeOf = async (config: Record<string, unknown>) =>
