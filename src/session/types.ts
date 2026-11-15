@@ -70,7 +70,7 @@ export interface SessionManager<
   /**
    * Merges `update` into the data and issues a token with a fresh `jti` and `iat`. `options.maxAge` overrides the config's `maxAge` for this token.
    * A `"cookie"` session writes the token to the response's cookie. A `"header"` or `"token"` session writes nothing: the token is on `token` alone, for you to send. Later requests read the data back through JSON.
-   * A failed update rejects and leaves the session as it was. When issuing or the cookie write fails, `onError` runs before it rejects. A throwing `onUpdate` rejects the call and keeps the new session.
+   * A failed update rejects and leaves the session as it was. When issuing or the cookie write fails, `onError` runs before it rejects. A throwing `onUpdate` cancels the update the same way, without `onError`.
    * @throws `ERR_SESSION_READONLY_EVENT` if a `"cookie"` session has no response, or the response was already sent.
    * @throws `ERR_INVALID_OPTION` if the update is not a plain object or holds `__proto__`, `constructor` or `prototype`, or `options.maxAge` is not a valid duration.
    * @throws `ERR_SESSION_CONFIG_INVALID` if a `"cookie"` session's token needs more than 16 cookie chunks.
@@ -115,7 +115,7 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   generateId?: () => string;
 }
 
-/** Lifecycle hooks. `onRead`, `onExpire` and `onError` are mutually exclusive per token. `session` is the live manager, open to `update()` and `clear()`. `oldSession` is a snapshot. */
+/** Lifecycle hooks. `onRead`, `onExpire` and `onError` are mutually exclusive per token. In `onRead` and `onError`, `session` is the live manager, open to `update()` and `clear()`. `onUpdate`'s `session` and every `oldSession` are snapshots. */
 export interface SessionHooks<TSession, TManager, TArgs extends Record<string, unknown>, TConfig> {
   /** Runs once per request, after a token is read and verified. A throw empties the session and rejects the read. */
   onRead?: (
@@ -126,9 +126,10 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
       config: TConfig;
     },
   ) => void | Promise<void>;
-  /** Runs after `update()` or `rolling` issues a token and, on a cookie session, writes its cookie. A throw rejects the call and keeps the new session. */
+  /** Runs after `update()` or `rolling` issues a token, before it is written. A throw cancels the update: nothing is written, the session stays as it was, and the call rejects. */
   onUpdate?: (
     args: TArgs & {
+      /** The session just issued, its data deep-copied. */
       session: TSession & { id: string; token: string };
       /** The session before the update, its data deep-copied. */
       oldSession: TSession;
