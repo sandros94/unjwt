@@ -118,6 +118,9 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   generateId?: () => string;
 }
 
+/** The config a session holds once defined, as its hooks receive it: each property is read-only at every object level. Arrays, functions and `CryptoKey`, `Date` and typed array values keep their types. */
+export type ReadonlyConfig<T> = { readonly [K in keyof T]: ReadonlyConfigValue<T[K]> };
+
 /** Lifecycle hooks. A read ends in exactly one of `onRead`, `onExpire` and `onError`. In `onRead`, `session` is the live manager, open to `update()` and `clear()`. `onUpdate` and `onError` get copies, and every `oldSession` is a copy. */
 export interface SessionHooks<TSession, TManager, TArgs extends Record<string, unknown>, TConfig> {
   /** Runs once per request, after a token is read and verified. A throw empties the session and rejects the read. */
@@ -278,3 +281,15 @@ export interface SessionHandedToken {
 
 /** What the Web session driver accepts: a request event, or a token in hand. Any other shape throws `ERR_SESSION_INVALID`. */
 export type WebSessionEvent = SessionRequestEvent | SessionHandedToken;
+
+type ReadonlyConfigValue<V> = V extends
+  | ((...args: never) => unknown)
+  | CryptoKey
+  | Date
+  | ArrayBufferView
+  ? V
+  : V extends readonly unknown[]
+    ? { [K in keyof V]: ReadonlyConfigValue<V[K]> }
+    : V extends object
+      ? ReadonlyConfig<V>
+      : V;

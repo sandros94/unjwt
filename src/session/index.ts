@@ -1,5 +1,6 @@
 export type {
   OpenedSessionState,
+  ReadonlyConfig,
   SessionClaims,
   SessionData,
   SessionDefinition,
@@ -51,6 +52,7 @@ export {
   claimSessionName,
   sessionTransportOptions,
 } from "./_internal/bind.ts";
+export { frozenCopy } from "./_internal/core.ts";
 export type { CookieJar, SessionDriver } from "./_internal/driver.ts";
 export { type CookieAttributes, DEFAULT_SESSION_COOKIE } from "./_internal/cookie-attributes.ts";
 

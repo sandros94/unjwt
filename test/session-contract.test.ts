@@ -90,6 +90,8 @@ const EXPIRED_CLAIMS = {
   exp: nowSeconds() - 60,
 };
 
+const KEY_FORMS = await keyFormCases();
+
 describe("session contract", () => {
   // #region reads and updates
   describe("reads and updates", () => {
@@ -3609,6 +3611,316 @@ describe("session contract", () => {
     });
   });
   // #endregion
+
+  // #region the config a definition holds
+  describe("the config a definition holds", () => {
+    it.each(familyCases())(
+      "$label: changes to the object passed after defining leave the session as defined",
+      async (variant) => {
+        const other = await generateJWK(variant.family === "jws" ? "HS256" : "A128KW");
+        const updates: string[] = [];
+        const key = { ...(variant.key as Record<string, unknown>) };
+        const cookie = { secure: false, path: "/app" };
+        const hooks: Record<string, unknown> = {
+          onUpdate: () => {
+            updates.push("defined");
+          },
+        };
+        const config: Record<string, unknown> = {
+          name: variant.name,
+          key,
+          maxAge: 3600,
+          cookie,
+          hooks,
+          generateId: () => "defined-id",
+        };
+        const definition = definitionOf(variant, config);
+
+        config.maxAge = 60;
+        config.rolling = true;
+        cookie.path = "/changed";
+        hooks.onUpdate = () => {
+          updates.push("replaced");
+        };
+        config.generateId = () => "changed-id";
+        key.k = other.k;
+
+        const written = await serveRequest(async (event) => {
+          const session = await definition.use(event);
+          await session.update({ user: "alice" });
+          return { id: session.id ?? null, token: session.token ?? null };
+        });
+        const token = written.body.token as string;
+        const read = await serveRequest(
+          async (event) => ({ user: (await definition.use(event)).data.user ?? null }),
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(written.body.id).toBe("defined-id");
+        expect(updates).toEqual(["defined"]);
+        expect(cookieAttribute(liveSetCookie(written.cookies, variant.name)!, "path")).toBe("/app");
+        expect(read.body).toEqual({ user: "alice" });
+        expect(read.cookies).toEqual([]);
+        const claims = await claimsOf(variant.family, token);
+        expect((claims.exp as number) - (claims.iat as number)).toBe(3600);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: the object passed stays unfrozen and the caller's to change",
+      (variant) => {
+        const key = { ...(variant.key as Record<string, unknown>) };
+        const cookie: Record<string, unknown> = { secure: false };
+        const hooks: Record<string, unknown> = { onRead: () => {} };
+        const algorithms = [key.alg];
+        const options = { algorithms };
+        const config: Record<string, unknown> = {
+          name: variant.name,
+          key,
+          maxAge: 3600,
+          cookie,
+          hooks,
+          [variant.family]: {
+            [variant.family === "jws" ? "verifyOptions" : "decryptOptions"]: options,
+          },
+        };
+        definitionOf(variant, config);
+
+        const held = [config, config[variant.family], options, algorithms, key, cookie, hooks];
+        expect(held.map((value) => Object.isFrozen(value))).toEqual(held.map(() => false));
+        config.maxAge = 60;
+        cookie.secure = true;
+        hooks.onRead = undefined;
+        algorithms.push("none");
+        key.kid = "changed";
+        expect(config.maxAge).toBe(60);
+        expect(cookie.secure).toBe(true);
+        expect(hooks.onRead).toBeUndefined();
+        expect(algorithms).toEqual([key.alg, "none"]);
+        expect(key.kid).toBe("changed");
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: every hook receives one frozen copy of the config, its functions and CryptoKey as passed",
+      async (variant) => {
+        const { key, options, expired } = await cryptoKeyCase(variant);
+        const seen: { hook: string; config: Record<string, unknown> }[] = [];
+        const record = (hook: string) => (args: Record<string, unknown>) => {
+          seen.push({ hook, config: args.config as Record<string, unknown> });
+        };
+        const generateId = () => crypto.randomUUID();
+        const hooks: Record<string, (args: Record<string, unknown>) => unknown> = {
+          onRead: record("onRead"),
+          onUpdate: record("onUpdate"),
+          onClear: record("onClear"),
+          onExpire: record("onExpire"),
+          onError: record("onError"),
+          onKeyLookup: (args) => {
+            record("onKeyLookup")(args);
+            return (args.config as { key: unknown }).key;
+          },
+        };
+        const config: Record<string, unknown> = {
+          name: variant.name,
+          key,
+          maxAge: 3600,
+          cookie: { secure: false, path: "/" },
+          generateId,
+          hooks,
+          ...options,
+        };
+        const definition = definitionOf(variant, config);
+        const token = await definition.issue({ user: "alice" });
+        const read = (serveOptions?: ServeOptions) =>
+          serveRequest(async (event) => {
+            await definition.use(event);
+            return {};
+          }, serveOptions);
+
+        await serveRequest(async (event) => {
+          const session = await definition.use(event);
+          await session.update({ user: "bob" });
+          await session.clear();
+          return {};
+        });
+        await read({ cookies: { [variant.name]: token } });
+        await read({ cookies: { [variant.name]: expired } });
+        await read({ cookies: { [variant.name]: "not.a.token" } });
+
+        expect(new Set(seen.map(({ hook }) => hook))).toEqual(
+          new Set(["onRead", "onUpdate", "onClear", "onExpire", "onError", "onKeyLookup"]),
+        );
+        const copies = new Set(seen.map((entry) => entry.config));
+        expect(copies.size).toBe(1);
+        const [copy] = copies;
+        expect(copy).not.toBe(config);
+        expect(copy).toEqual(config);
+        const family = copy[variant.family] as Record<string, Record<string, unknown>>;
+        const opening = family[variant.family === "jws" ? "verifyOptions" : "decryptOptions"];
+        const issuing = family[variant.family === "jws" ? "signOptions" : "encryptOptions"];
+        const plain = [copy, copy.cookie, copy.hooks, family, opening, opening.algorithms, issuing];
+        expect(plain.map((value) => Object.isFrozen(value))).toEqual(plain.map(() => true));
+        expect(copy.key).toBe(key);
+        expect(copy.generateId).toBe(generateId);
+        const copiedHooks = copy.hooks as Record<string, unknown>;
+        for (const name of Object.keys(hooks)) expect(copiedHooks[name]).toBe(hooks[name]);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: an assignment to the config in a hook throws a TypeError, and the session keeps its config",
+      async (variant) => {
+        const thrown: unknown[] = [];
+        const attempt = (assign: () => void) => {
+          try {
+            assign();
+          } catch (error) {
+            thrown.push(error);
+          }
+        };
+        const config = {
+          ...expiringConfig(variant),
+          key: { ...(variant.key as Record<string, unknown>) },
+          hooks: {
+            onUpdate: ({ config: held }: { config: Record<string, unknown> }) => {
+              attempt(() => {
+                held.maxAge = 60;
+              });
+              attempt(() => {
+                (held.cookie as Record<string, unknown>).path = "/changed";
+              });
+              attempt(() => {
+                (held.key as Record<string, unknown>).k = "changed";
+              });
+              attempt(() => {
+                (held.hooks as Record<string, unknown>).onUpdate = undefined;
+              });
+            },
+          },
+        };
+        const definition = definitionOf(variant, config);
+        const update = () =>
+          serveRequest(async (event) => {
+            const session = await definition.use(event);
+            await session.update({ user: "alice" });
+            return { token: session.token ?? null };
+          });
+
+        const issued = [await update(), await update()];
+
+        expect(thrown).toHaveLength(8);
+        for (const error of thrown) expect(error).toBeInstanceOf(TypeError);
+        for (const { body, cookies } of issued) {
+          const claims = await claimsOf(variant.family, body.token as string);
+          expect((claims.exp as number) - (claims.iat as number)).toBe(3600);
+          expect(cookieAttribute(liveSetCookie(cookies, variant.name)!, "path")).toBe("/");
+        }
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: an assignment to the config in onRead rejects use() with its TypeError",
+      async (variant) => {
+        const config = {
+          ...expiringConfig(variant),
+          hooks: {
+            onRead: ({ config: held }: { config: Record<string, unknown> }) => {
+              held.maxAge = 60;
+            },
+          },
+        };
+        const definition = definitionOf(variant, config);
+        const token = await definition.issue({ user: "alice" });
+
+        const result = await serveRequest(
+          async (event) => {
+            const error = await caught(() => definition.use(event));
+            const session = await definition.use(event);
+            return { typeError: error instanceof TypeError, id: session.id ?? null };
+          },
+          { cookies: { [variant.name]: token } },
+        );
+        const claims = await claimsOf(variant.family, await definition.issue({ user: "bob" }));
+
+        expect(result.body).toEqual({ typeError: true, id: null });
+        expect((claims.exp as number) - (claims.iat as number)).toBe(3600);
+      },
+    );
+
+    it.each(KEY_FORMS)(
+      "$label: issues and reads back, its hooks holding a frozen copy of the key",
+      async ({ family, key, options, check }) => {
+        const variant = familyCase(family);
+        const held: unknown[] = [];
+        const definition = definitionOf(variant, {
+          ...baseConfig(variant),
+          key,
+          ...options,
+          hooks: {
+            onRead: ({ config }: { config: { key: unknown } }) => {
+              held.push(config.key);
+            },
+          },
+        });
+
+        const written = await serveRequest(async (event) => {
+          const session = await definition.use(event);
+          await session.update({ user: "alice" });
+          return {};
+        });
+        const read = await serveRequest(
+          async (event) => ({ user: (await definition.use(event)).data.user ?? null }),
+          { cookies: liveCookies(written.cookies) },
+        );
+
+        expect(read.body).toEqual({ user: "alice" });
+        expect(held).toHaveLength(1);
+        check(held[0]);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: a session over a driver of its own hands its hooks the same frozen copy",
+      async (variant) => {
+        const { driver } = recordingDriver({});
+        const seen: Record<string, unknown>[] = [];
+        const cookie = { secure: false };
+        const config = {
+          name: `core-${variant.family}`,
+          key: variant.key,
+          maxAge: 3600,
+          cookie,
+          hooks: {
+            onUpdate: ({ config: held }: { config: Record<string, unknown> }) => {
+              seen.push(held);
+            },
+          },
+        };
+        const definition =
+          variant.family === "jws"
+            ? defineJWSSession(config as never, { driver })
+            : defineJWESession(config as never, { driver });
+        config.maxAge = 60;
+        cookie.secure = true;
+
+        const session = await definition.use({});
+        await session.update({ user: "alice" });
+        await session.update({ user: "bob" });
+
+        expect(seen).toHaveLength(2);
+        expect(seen[0]).toBe(seen[1]);
+        const [copy] = seen;
+        expect(copy).not.toBe(config);
+        expect(Object.isFrozen(copy)).toBe(true);
+        expect(Object.isFrozen(copy.cookie)).toBe(true);
+        expect(copy.maxAge).toBe(3600);
+        expect(copy.cookie).toEqual({ secure: false });
+        expect(session.expiresAt! - session.createdAt).toBe(3600 * SECOND);
+      },
+    );
+  });
+  // #endregion
 });
 
 /** The attributes a `Set-Cookie` header carries, normalized for comparison. */
@@ -4074,4 +4386,114 @@ function decodeSegment(segment: string): Record<string, unknown> {
   const text = atob(segment.replaceAll("-", "+").replaceAll("_", "/"));
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a JWT payload the test just minted
   return JSON.parse(text) as Record<string, unknown>;
+}
+
+/** A `CryptoKey` session key of the family `variant` runs, the options that pin and list its algorithm, and an expired token it opens. */
+async function cryptoKeyCase(
+  variant: FamilyCase,
+): Promise<{ key: CryptoKey; options: Record<string, unknown>; expired: string }> {
+  const protectedHeader = { typ: "session+jwt" };
+  if (variant.family === "jws") {
+    const key = await generateKey("HS256");
+    return {
+      key,
+      options: { jws: { signOptions: { alg: "HS256" }, verifyOptions: { algorithms: ["HS256"] } } },
+      expired: await sign(EXPIRED_CLAIMS, key, { alg: "HS256", protectedHeader }),
+    };
+  }
+  const key = await generateKey("A128KW");
+  const pin = { alg: "A128KW", enc: "A128GCM" } as const;
+  return {
+    key,
+    options: { jwe: { encryptOptions: pin, decryptOptions: { algorithms: ["A128KW"] } } },
+    expired: await encrypt(EXPIRED_CLAIMS, key, { ...pin, protectedHeader }),
+  };
+}
+
+interface KeyFormCase {
+  label: string;
+  family: Family;
+  key: unknown;
+  options: Record<string, unknown>;
+  /** Checks the key a hook's config holds. */
+  check: (held: unknown) => void;
+}
+
+/** One definition per key form of each family, and how its hooks hold the key. */
+async function keyFormCases(): Promise<KeyFormCase[]> {
+  const [jwsCrypto, jweCrypto, otherJWS, otherJWE, otherPair] = await Promise.all([
+    generateKey("HS256"),
+    generateKey("A128KW"),
+    generateJWK("HS256"),
+    generateJWK("A128KW"),
+    generateJWK("RS256"),
+  ]);
+  const jwsSet = {
+    keys: [
+      { ...jwsKey, kid: "first" },
+      { ...otherJWS, kid: "second" },
+    ],
+  };
+  const jweSet = {
+    keys: [
+      { ...jweKey, kid: "first" },
+      { ...otherJWE, kid: "second" },
+    ],
+  };
+  const pair = {
+    privateKey: rsaSignPair.privateKey,
+    publicKey: [{ ...otherPair.publicKey, kid: "other" }, rsaSignPair.publicKey],
+  };
+  return [
+    { label: "jws: an oct JWK", family: "jws", key: jwsKey, options: {}, check: copied(jwsKey) },
+    {
+      label: "jws: a CryptoKey",
+      family: "jws",
+      key: jwsCrypto,
+      options: { jws: { signOptions: { alg: "HS256" } } },
+      check: (held) => expect(held).toBe(jwsCrypto),
+    },
+    { label: "jws: a JWK Set", family: "jws", key: jwsSet, options: {}, check: copiedSet(jwsSet) },
+    {
+      label: "jws: a key pair with a publicKey list",
+      family: "jws",
+      key: pair,
+      options: {},
+      check: (held) => {
+        copied(pair)(held);
+        const { privateKey, publicKey } = held as { privateKey: object; publicKey: object[] };
+        expect(Object.isFrozen(privateKey)).toBe(true);
+        expect(Object.isFrozen(publicKey)).toBe(true);
+        expect(publicKey.every((entry) => Object.isFrozen(entry))).toBe(true);
+      },
+    },
+    { label: "jwe: an oct JWK", family: "jwe", key: jweKey, options: {}, check: copied(jweKey) },
+    {
+      label: "jwe: a CryptoKey",
+      family: "jwe",
+      key: jweCrypto,
+      options: { jwe: { encryptOptions: { alg: "A128KW", enc: "A128GCM" } } },
+      check: (held) => expect(held).toBe(jweCrypto),
+    },
+    { label: "jwe: a JWK Set", family: "jwe", key: jweSet, options: {}, check: copiedSet(jweSet) },
+  ];
+}
+
+/** A check that the key a hook holds is a frozen copy of `passed`, equal to it. */
+function copied(passed: unknown): (held: unknown) => void {
+  return (held) => {
+    expect(held).not.toBe(passed);
+    expect(held).toEqual(passed);
+    expect(Object.isFrozen(held)).toBe(true);
+  };
+}
+
+/** {@link copied} for a JWK Set, its `keys` list and every entry frozen too. */
+function copiedSet(passed: { keys: object[] }): (held: unknown) => void {
+  return (held) => {
+    copied(passed)(held);
+    const { keys } = held as { keys: object[] };
+    expect(Object.isFrozen(keys)).toBe(true);
+    expect(keys.every((entry) => Object.isFrozen(entry))).toBe(true);
+  };
 }

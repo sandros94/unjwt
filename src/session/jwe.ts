@@ -7,6 +7,7 @@ import {
 import type { CookieAttributes } from "./_internal/cookie-attributes.ts";
 import type { SessionDriver } from "./_internal/driver.ts";
 import type {
+  ReadonlyConfig,
   SessionClaims,
   SessionDefinition,
   SessionHooks,
@@ -36,7 +37,7 @@ export interface SessionHooksJWE<
   SessionJWE<T, MaxAge>,
   SessionManager<T, MaxAge>,
   { event: TEvent },
-  SessionConfigJWE<T, MaxAge, TEvent>
+  ReadonlyConfig<SessionConfigJWE<T, MaxAge, TEvent>>
 > {
   /** Returns the key that decrypts an incoming token. See {@link JWESessionKeyLookup}. */
   onKeyLookup?: JWESessionKeyLookup<T, MaxAge, TEvent>;
@@ -59,7 +60,7 @@ export type JWESessionKeyLookup<
   TEvent = WebSessionEvent,
 > = (lookup: {
   header: JWEHeaderParameters;
-  config: SessionConfigJWE<T, MaxAge, TEvent>;
+  config: ReadonlyConfig<SessionConfigJWE<T, MaxAge, TEvent>>;
   event?: TEvent;
 }) =>
   | JWEDecryptJWK
@@ -81,7 +82,7 @@ export interface SessionConfigJWE<
 }
 
 /**
- * Defines a JWE session once: encrypted, so clients cannot read its data. `use`, `token`, `issue` and `open` serve every request.
+ * Defines a JWE session once: encrypted, so clients cannot read its data. `use`, `token`, `issue` and `open` serve every request. It keeps a frozen copy of `config`, so later changes to the object passed have no effect.
  * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jwe.encryptOptions.alg` and `enc`, or `jwe.decryptOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or a token of a JWK Set `key` entry without `kid` meets more than `jwe.decryptOptions.limits.keyCandidates` entries.
  * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, not an `oct` JWK, a JWK Set of them or a secret `CryptoKey`, an empty JWK Set or one holding a key that is not an `oct` JWK, serves no JWE algorithm, or cannot serve the pinned `alg` or `enc`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
@@ -92,7 +93,7 @@ export function defineJWESession<
   TEvent extends WebSessionEvent = WebSessionEvent,
 >(config: SessionConfigJWE<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 /**
- * Defines a JWE session over a framework driver of your own, passed as `{ driver }`.
+ * Defines a JWE session over a framework driver of your own, passed as `{ driver }`. It keeps a frozen copy of `config`, so later changes to the object passed have no effect.
  * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`) lacks a pinned `jwe.encryptOptions.alg` and `enc`, or `jwe.decryptOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or a token of a JWK Set `key` entry without `kid` meets more than `jwe.decryptOptions.limits.keyCandidates` entries.
  * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, asymmetric, not an `oct` JWK, a JWK Set of them or a secret `CryptoKey`, an empty JWK Set or one holding a key that is not an `oct` JWK, serves no JWE algorithm, or cannot serve the pinned `alg` or `enc`.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.

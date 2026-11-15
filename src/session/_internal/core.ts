@@ -6,6 +6,7 @@
 
 import { safeJsonParse } from "unsecure/sanitize";
 import type { ExpiresIn } from "../../core/types/index.ts";
+import { isPlainObject } from "../../utils/guards.ts";
 import { resolveExpiresAt } from "./contract.ts";
 import type {
   OpenedSession,
@@ -83,6 +84,12 @@ export function snapshotSession<S extends { data: Record<string, unknown> }>(ses
   return { ...session, data: safeJsonParse(JSON.stringify(session.data)) };
 }
 
+/** A copy of `value` whose plain objects and arrays are copied and frozen at every level. Functions and other objects stay as they are. */
+export function frozenCopy<T>(value: T): T {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the copy holds the same members as `value`
+  return frozenValue(value, new Map()) as T;
+}
+
 function typedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
   state: unknown,
 ): PendingSession<T, MaxAge> {
@@ -95,4 +102,23 @@ function typedOpened<T extends SessionRecord, MaxAge extends ExpiresIn | undefin
 ): OpenedSessionState<T, MaxAge> {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- codecs return session data untyped
   return opened as OpenedSessionState<T, MaxAge>;
+}
+
+function frozenValue(value: unknown, seen: Map<object, object>): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const known = seen.get(value);
+  if (known) return known;
+  if (Array.isArray(value)) {
+    const copy: unknown[] = [];
+    seen.set(value, copy);
+    for (const item of value) copy.push(frozenValue(item, seen));
+    return Object.freeze(copy);
+  }
+  if (!isPlainObject(value)) return value;
+  const copy: object = Object.create(Object.getPrototypeOf(value));
+  seen.set(value, copy);
+  for (const key of Object.keys(value)) {
+    Object.defineProperty(copy, key, { value: frozenValue(value[key], seen), enumerable: true });
+  }
+  return Object.freeze(copy);
 }

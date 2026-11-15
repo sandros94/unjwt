@@ -3,25 +3,26 @@ import type { SessionDriver } from "./driver.ts";
 import { resolveExpiresAt, sanitizeSessionUpdate } from "./contract.ts";
 import { assertSessionConfig, bindSession, transportToken } from "./bind.ts";
 import type { SessionActions, SessionCodec, SessionCoreConfig } from "./types.ts";
-import { mintSessionId, openSessionToken, sessionInstant } from "./core.ts";
+import { frozenCopy, mintSessionId, openSessionToken, sessionInstant } from "./core.ts";
 import { loadSession } from "./read.ts";
 import { sessionActions, sessionManager } from "./write.ts";
 import type { SessionDefinition, SessionRecord } from "../types.ts";
 
-/** Binds a config to a driver and a codec. Checks the config and resolves its keys at once. Key imports wait for the first `use()`, `issue()` or `open()`. */
+/** Binds a frozen copy of a config to a driver and a codec. Checks the copy and resolves its keys at once. Key imports wait for the first `use()`, `issue()` or `open()`. */
 export function defineSession<
   T extends SessionRecord,
   MaxAge extends ExpiresIn | undefined,
   TEvent,
   Config extends SessionCoreConfig,
 >(
-  config: Config,
+  configured: Config,
   options: {
     driver: SessionDriver<TEvent>;
     codec: SessionCodec<Config>;
   },
 ): SessionDefinition<T, MaxAge, TEvent> {
   const { driver, codec } = options;
+  const config = frozenCopy(configured);
   const name = config.name || codec.defaultName;
   assertSessionConfig(config, { name, prefix: driver.prefix });
   const keys = codec.keys(config);

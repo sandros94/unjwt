@@ -6,6 +6,7 @@ import {
   assertSessionTokenSource,
   assertSessionWritable,
   claimSessionName,
+  frozenCopy,
   resolveSessionTransport,
   sessionTransportOptions,
   webSessionDriver,
@@ -39,8 +40,9 @@ const driver = webSessionDriver({ prefix: "[app-session]" });
 const { prefix } = driver;
 
 export function defineStoredSession<T extends Record<string, unknown>>(
-  config: StoredSessionConfig,
+  configured: StoredSessionConfig,
 ) {
+  const config = frozenCopy(configured);
   const { name, maxAge = 7 * 24 * 60 * 60 } = config;
   assertSessionConfig(config, { name, prefix });
   const transportOptions = sessionTransportOptions(config, { name });

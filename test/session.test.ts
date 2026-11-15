@@ -6,7 +6,10 @@ import type {
   JWK_HMAC,
   JWK_oct,
   JWKSet,
+  JWSAlgorithm,
+  JWSAsymmetricPublicJWK,
   JWSHeaderParameters,
+  KeyManagementAlgorithm,
 } from "../src/core/types/index.ts";
 import { type KnownJWTErrorCode, JWTError, isJWTError } from "../src/error.ts";
 import { generateJWK, generateKey, importKey, importPEM } from "../src/core/jwk/index.ts";
@@ -26,6 +29,7 @@ import {
   type SessionConfigJWE,
   type SessionConfigJWS,
   type OpenedSessionState,
+  type ReadonlyConfig,
   type SessionClaims,
   type SessionDefinition,
   type SessionErrorTrigger,
@@ -49,6 +53,7 @@ import {
   defineJWESession,
   defineJWSSession,
   defineSessionDriver,
+  frozenCopy,
   parseCookie,
   resolveSessionTransport,
   serializeCookie,
@@ -1343,6 +1348,94 @@ describe("unjwt/session types", () => {
     expectTypeOf<{ token: string }>().toExtend<SessionHandedToken>();
     expectTypeOf<{ token: undefined }>().toExtend<SessionHandedToken>();
     expectTypeOf<{}>().not.toExtend<WebSessionEvent>();
+  });
+
+  it("hands the hooks a config that refuses assignment at every level, its parts passing on as typed", () => {
+    const takesJWSKey = (key: JWSSessionKey) => key;
+    const takesJWSAlgorithms = (algorithms: JWSAlgorithm[]) => algorithms;
+    const takesJWSConfig = (config: SessionConfigJWS<SessionClaims, 3600>) => config;
+    defineJWSSession<SessionClaims, 3600>({
+      name: "typed",
+      key: jwsKey,
+      maxAge: 3600,
+      cookie: { secure: false },
+      jws: { verifyOptions: { algorithms: ["HS256"] } },
+      hooks: {
+        onRead: ({ config }) => {
+          // @ts-expect-error the config a hook receives is read-only
+          config.maxAge = 3600;
+          // @ts-expect-error the config a hook receives is read-only
+          delete config.rolling;
+          if (config.cookie) {
+            // @ts-expect-error nested options are read-only too
+            config.cookie.secure = true;
+          }
+          if (config.jws?.verifyOptions) {
+            // @ts-expect-error nested options are read-only too
+            config.jws.verifyOptions.algorithms = ["HS384"];
+          }
+          if (config.hooks) {
+            // @ts-expect-error hooks are read-only too
+            config.hooks.onRead = undefined;
+          }
+          takesJWSKey(config.key);
+          takesJWSAlgorithms(config.jws?.verifyOptions?.algorithms ?? []);
+          takesJWSConfig(config);
+          expectTypeOf(config.jws?.verifyOptions?.algorithms).toEqualTypeOf<
+            JWSAlgorithm[] | undefined
+          >();
+          expectTypeOf(config.generateId).toEqualTypeOf<(() => string) | undefined>();
+        },
+        onKeyLookup: ({ config }) => {
+          // @ts-expect-error the config a key lookup receives is read-only
+          config.key = jwsKey;
+          return takesJWSKey(config.key) === jwsKey ? jwsKey : undefined;
+        },
+      },
+    });
+
+    type HeldKey = Parameters<NonNullable<SessionHooksJWS["onRead"]>>[0]["config"]["key"];
+    type HeldPublicList = Extract<
+      Extract<HeldKey, { privateKey: unknown }>["publicKey"],
+      readonly unknown[]
+    >;
+    expectTypeOf<HeldPublicList>().toExtend<JWSAsymmetricPublicJWK[]>();
+    void ((list: HeldPublicList) => {
+      // @ts-expect-error JWKs inside a list are read-only too
+      list[0].alg = "RS384";
+      list.push(list[0]);
+    });
+
+    const takesJWEKey = (key: JWESessionKey) => key;
+    const takesJWEAlgorithms = (algorithms: KeyManagementAlgorithm[]) => algorithms;
+    const takesJWEConfig = (config: SessionConfigJWE<SessionClaims, 3600>) => config;
+    defineJWESession<SessionClaims, 3600>({
+      key: jweKey,
+      maxAge: 3600,
+      jwe: { decryptOptions: { algorithms: ["A128KW"] } },
+      hooks: {
+        onUpdate: ({ config }) => {
+          // @ts-expect-error the config a hook receives is read-only
+          config.maxAge = 3600;
+          if (config.jwe?.decryptOptions) {
+            // @ts-expect-error nested options are read-only too
+            config.jwe.decryptOptions.algorithms = [];
+          }
+          if ("keys" in config.key) {
+            // @ts-expect-error JWKs inside a JWK Set are read-only too
+            config.key.keys[0].k = "";
+          }
+          takesJWEKey(config.key);
+          takesJWEAlgorithms(config.jwe?.decryptOptions?.algorithms ?? []);
+          takesJWEConfig(config);
+        },
+        onKeyLookup: ({ config }) => {
+          // @ts-expect-error the config a key lookup receives is read-only
+          config.jwe = undefined;
+          return takesJWEKey(config.key) === jweKey ? jweKey : undefined;
+        },
+      },
+    });
   });
 
   it("takes an HMAC JWK, a CryptoKey or a pair as a JWS session key", () => {
@@ -2899,11 +2992,11 @@ describe("key rotation through onKeyLookup", () => {
     type JWELookup = NonNullable<SessionHooksJWE["onKeyLookup"]>;
     expectTypeOf<JWSLookup>().toEqualTypeOf<JWSSessionKeyLookup>();
     expectTypeOf<JWELookup>().toEqualTypeOf<JWESessionKeyLookup>();
-    expectTypeOf<Parameters<JWSLookup>[0]>().toEqualTypeOf<{
+    expectTypeOf<Omit<Parameters<JWSLookup>[0], "config">>().toEqualTypeOf<{
       header: JWSHeaderParameters;
-      config: SessionConfigJWS;
       event?: WebSessionEvent;
     }>();
+    expectTypeOf<Parameters<JWSLookup>[0]["config"]>().toExtend<SessionConfigJWS>();
     expectTypeOf<JWK_oct<JWK_HMAC> | CryptoKey | JWKSet>().toExtend<ReturnType<JWSLookup>>();
     expectTypeOf<Promise<CryptoKey>>().toExtend<ReturnType<JWSLookup>>();
     expectTypeOf<JWESessionOctJWK | CryptoKey | JWKSet>().toExtend<ReturnType<JWELookup>>();
@@ -3726,6 +3819,54 @@ describe("DEFAULT_SESSION_COOKIE", () => {
     expect(headers.getSetCookie()).toEqual([
       serializeCookie("web", String(manager.token), DEFAULT_SESSION_COOKIE),
     ]);
+  });
+});
+
+describe("frozenCopy", () => {
+  it("copies and freezes plain objects and arrays at every level, leaving the original as it is", () => {
+    const original = { cookie: { attrs: { path: "/" } }, list: [{ alg: "HS256" }, ["nested"]] };
+    const copy = frozenCopy(original);
+
+    expect(copy).toEqual(original);
+    expect(copy).not.toBe(original);
+    for (const value of [
+      copy,
+      copy.cookie,
+      copy.cookie.attrs,
+      copy.list,
+      copy.list[0],
+      copy.list[1],
+    ]) {
+      expect(Object.isFrozen(value)).toBe(true);
+    }
+    expect(copy.cookie).not.toBe(original.cookie);
+    expect(copy.list[0]).not.toBe(original.list[0]);
+    for (const value of [original, original.cookie, original.cookie.attrs, original.list]) {
+      expect(Object.isFrozen(value)).toBe(false);
+    }
+  });
+
+  it("keeps a function and a CryptoKey by reference", async () => {
+    const onRead = () => {};
+    const key = await generateKey("HS256");
+    const copy = frozenCopy({ hooks: { onRead }, key });
+
+    expect(copy.hooks.onRead).toBe(onRead);
+    expect(copy.key).toBe(key);
+    expect(Object.isFrozen(key)).toBe(false);
+  });
+
+  it("types the config a hook receives as read-only at every object level", () => {
+    type Config = ReadonlyConfig<{ cookie: { attrs: { path: string } }; key: CryptoKey }>;
+    expectTypeOf<Config["cookie"]["attrs"]>().toEqualTypeOf<{ readonly path: string }>();
+    expectTypeOf<Config["key"]>().toEqualTypeOf<CryptoKey>();
+    const config: ReadonlyConfig<{ cookie: { attrs: { path: string } } }> = frozenCopy({
+      cookie: { attrs: { path: "/" } },
+    });
+    expect(() => {
+      // @ts-expect-error a nested property of the config is read-only
+      config.cookie.attrs.path = "/admin";
+    }).toThrow(TypeError);
   });
 });
 

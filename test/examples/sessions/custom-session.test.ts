@@ -127,6 +127,35 @@ describe("examples/sessions/custom-session", () => {
     expect(await codeOf(jweSession.use(event))).toBe("ERR_SESSION_CONFIG_INVALID");
   });
 
+  it("keeps the config it was defined with when the caller changes the object afterwards", async () => {
+    const config = {
+      name: "web",
+      maxAge: 60,
+      sessionHeader: false as boolean | string,
+      cookie: { path: "/app", chunkMaxLength: 4000 },
+    };
+    const session = defineStoredSession<{ userId: string }>(config);
+    config.name = "other";
+    config.maxAge = 1;
+    config.sessionHeader = "x-other";
+    config.cookie.path = "/other";
+
+    const headers = new Headers();
+    const first = await session.use({ req: request(), res: { headers } });
+    await first.update({ userId: "user_1a2b" });
+    const [line = ""] = headers.getSetCookie();
+    expect(line.startsWith(`web=${first.token};`)).toBe(true);
+    expect(line).toContain("Path=/app");
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 30 * 1000);
+    const next = await session.use({
+      req: request({ "cookie": cookieFrom(headers), "x-other": "Bearer unknown" }),
+    });
+    expect(next.source).toBe("cookie");
+    expect(next.data).toEqual({ userId: "user_1a2b" });
+  });
+
   it("refuses a __Host- name with secure: false when defined", () => {
     const { code, message = "" } = refusal(() =>
       defineStoredSession({ name: "__Host-app", cookie: { secure: false } }),

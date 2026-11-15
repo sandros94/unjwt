@@ -7,6 +7,7 @@ import {
 import type { CookieAttributes } from "./_internal/cookie-attributes.ts";
 import type { SessionDriver } from "./_internal/driver.ts";
 import type {
+  ReadonlyConfig,
   SessionClaims,
   SessionDefinition,
   SessionHooks,
@@ -36,7 +37,7 @@ export interface SessionHooksJWS<
   SessionJWS<T, MaxAge>,
   SessionManager<T, MaxAge>,
   { event: TEvent },
-  SessionConfigJWS<T, MaxAge, TEvent>
+  ReadonlyConfig<SessionConfigJWS<T, MaxAge, TEvent>>
 > {
   /** Returns the key that verifies an incoming token. See {@link JWSSessionKeyLookup}. */
   onKeyLookup?: JWSSessionKeyLookup<T, MaxAge, TEvent>;
@@ -59,7 +60,7 @@ export type JWSSessionKeyLookup<
   TEvent = WebSessionEvent,
 > = (lookup: {
   header: JWSHeaderParameters;
-  config: SessionConfigJWS<T, MaxAge, TEvent>;
+  config: ReadonlyConfig<SessionConfigJWS<T, MaxAge, TEvent>>;
   event?: TEvent;
 }) =>
   | JWSVerifyJWK
@@ -81,7 +82,7 @@ export interface SessionConfigJWS<
 }
 
 /**
- * Defines a JWS session once: signed, not encrypted, so clients can read its data. `use`, `token`, `issue` and `open` serve every request.
+ * Defines a JWS session once: signed, not encrypted, so clients can read its data. `use`, `token`, `issue` and `open` serve every request. It keeps a frozen copy of `config`, so later changes to the object passed have no effect.
  * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`, a pair when neither half names one) lacks a pinned `jws.signOptions.alg`, or `jws.verifyOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or names none of those a `publicKey` entry without `alg` carries, or a token of a JWK Set `key` entry without `kid` meets more than `jws.verifyOptions.limits.keyCandidates` entries.
  * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, a lone asymmetric key, not an HMAC `oct` JWK, a JWK Set of them, a secret `CryptoKey` or a key pair, an empty JWK Set or one holding a key that is not an `oct` JWK, a pair with a half that is not what it is named, serves no JWS algorithm, or cannot serve the pinned `alg` or, for a pair's half that names none, the one its other half names, or a pair whose single `publicKey` names another algorithm than the one it issues under, or whose `publicKey` list or JWK Set holds no key that serves it.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
@@ -92,7 +93,7 @@ export function defineJWSSession<
   TEvent extends WebSessionEvent = WebSessionEvent,
 >(config: SessionConfigJWS<T, MaxAge, TEvent>): SessionDefinition<T, MaxAge, TEvent>;
 /**
- * Defines a JWS session over a framework driver of your own, passed as `{ driver }`.
+ * Defines a JWS session over a framework driver of your own, passed as `{ driver }`. It keeps a frozen copy of `config`, so later changes to the object passed have no effect.
  * @throws `ERR_SESSION_CONFIG_INVALID` if `name`, `sessionHeader`, a `__Host-` or `__Secure-` cookie's attributes or `rolling` is invalid, or a key that names no algorithm (a `CryptoKey`, an `oct` JWK without `alg`, a pair when neither half names one) lacks a pinned `jws.signOptions.alg`, or `jws.verifyOptions.algorithms` is empty or lists one no key serves without `onKeyLookup`, or names none of those a `publicKey` entry without `alg` carries, or a token of a JWK Set `key` entry without `kid` meets more than `jws.verifyOptions.limits.keyCandidates` entries.
  * @throws `ERR_SESSION_KEY_INVALID` if `key` is missing, a string, a lone asymmetric key, not an HMAC `oct` JWK, a JWK Set of them, a secret `CryptoKey` or a key pair, an empty JWK Set or one holding a key that is not an `oct` JWK, a pair with a half that is not what it is named, serves no JWS algorithm, or cannot serve the pinned `alg` or, for a pair's half that names none, the one its other half names, or a pair whose single `publicKey` names another algorithm than the one it issues under, or whose `publicKey` list or JWK Set holds no key that serves it.
  * @throws `ERR_INVALID_OPTION` if `rolling` is neither `true` nor a duration.
