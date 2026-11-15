@@ -138,8 +138,8 @@ describe("Hooks: what a throw does", async () => {
     const manager = await session.use({ req: request(), res: { headers: new Headers() } });
     await manager.update({ userId: "user_1a2b" });
     const error = await errorOf(manager.update({ notes: "x".repeat(70_000) }));
-    expect((error as { code: string }).code).toBe("ERR_SESSION_CONFIG_INVALID");
-    expect(seen).toEqual(["ERR_SESSION_CONFIG_INVALID"]);
+    expect((error as { code: string }).code).toBe("ERR_SESSION_INVALID");
+    expect(seen).toEqual(["ERR_SESSION_INVALID"]);
     expect(manager.data).toEqual({ userId: "user_1a2b" });
   });
 

@@ -2,6 +2,7 @@ import { quoteTokenValue } from "../../utils/_internal/text.ts";
 import {
   type ChunkedCookieStore,
   type ExpirableCookieAttributes,
+  countChunks,
   readChunked,
   removeChunked,
   writeChunked,
@@ -33,9 +34,14 @@ export interface SessionTransport {
    * Writes the token to the cookie, split into chunks past `chunkMaxLength`, and returns `true`. With `expiresAt` (ms), the cookie gets that `expires` and no
    * `maxAge`, which would take precedence (RFC 6265 §5.3). Once the response was sent, writes nothing and returns `false`.
    * Present when the session reads its token from a cookie the event can write.
-   * @throws `ERR_SESSION_CONFIG_INVALID` if the token needs more than 16 cookie chunks.
+   * @throws `ERR_SESSION_INVALID` if the token needs more than 16 cookie chunks.
    */
   write?: (token: string, options?: { expiresAt?: number }) => boolean;
+  /**
+   * Checks that `write` can take the token, and writes nothing. Present when `write` is.
+   * @throws `ERR_SESSION_INVALID` if the token needs more than 16 cookie chunks.
+   */
+  assertFits?: (token: string) => void;
   /**
    * Expires the cookie and every chunk, and returns `true`. Once the response was sent, writes nothing and returns `false`.
    * Present when the session reads its token from a cookie the event can write.
@@ -88,6 +94,9 @@ export function resolveSessionTransport<TEvent>(
         : { ...attrs, expires: new Date(expiresAt), maxAge: undefined };
     writeChunked(store, name, token, { attrs: written, chunkMaxLength, prefix: driver.prefix });
     return true;
+  };
+  transport.assertFits = (token) => {
+    countChunks(token, { chunkMaxLength, prefix: driver.prefix });
   };
   transport.drop = () => {
     if (!transport.writable()) return false;

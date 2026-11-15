@@ -185,14 +185,12 @@ describe("Configure a session: inline settings", async () => {
     expect(await session.issue({ userId: "user_1a2b" })).toMatch(/^[\w-]+(\.[\w-]*){4}$/);
   });
 
-  it("a token past 16 chunks fails the update with ERR_SESSION_CONFIG_INVALID and rolls back", async () => {
+  it("a token past 16 chunks fails the update with ERR_SESSION_INVALID and rolls back", async () => {
     const session = defineJWESession({ key });
     const manager = await session.use({ req: request(), res: { headers: new Headers() } });
     await manager.update({ userId: "user_1a2b" });
     const id = manager.id;
-    expect(await codeOf(manager.update({ notes: "x".repeat(70_000) }))).toBe(
-      "ERR_SESSION_CONFIG_INVALID",
-    );
+    expect(await codeOf(manager.update({ notes: "x".repeat(70_000) }))).toBe("ERR_SESSION_INVALID");
     expect(manager.id).toBe(id);
     expect(manager.data).toEqual({ userId: "user_1a2b" });
   });

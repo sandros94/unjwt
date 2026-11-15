@@ -1,5 +1,5 @@
 import type { SessionDriver } from "./driver.ts";
-import { invalidConfigError } from "./contract.ts";
+import { invalidSessionError } from "./contract.ts";
 import { webCookieJar } from "./cookie.ts";
 import type { SessionHandedToken, SessionRequestEvent, WebSessionEvent } from "../types.ts";
 
@@ -44,21 +44,23 @@ export const defaultWebSessionDriver: SessionDriver<WebSessionEvent> =
 function isHanded(event: WebSessionEvent, prefix: string): event is SessionHandedToken {
   if ("req" in event || "headers" in event) return false;
   if ("token" in event) return true;
-  throw invalidConfigError(`${prefix} use() got neither a request event nor a token.`);
+  throw invalidSessionError(`${prefix} use() got neither a request event nor a token.`);
 }
 
 /** `req` first, so an event's own `Request` keys the state. An event with `headers` alone is a request by its headers. */
 function requestHeaders(event: SessionRequestEvent, prefix: string): Headers {
   if (event.req) return webRequest(event.req, prefix).headers;
   if (event.headers) return event.headers;
-  throw invalidConfigError(`${prefix} use() got a request event with neither "req" nor "headers".`);
+  throw invalidSessionError(
+    `${prefix} use() got a request event with neither "req" nor "headers".`,
+  );
 }
 
 /** The event's `Request`. A `req` without Web `Headers` (a Node request) is refused. */
 function webRequest(req: Request, prefix: string): Request {
   const headers: unknown = req.headers;
   if (typeof headers === "object" && headers !== null && "get" in headers) return req;
-  throw invalidConfigError(`${prefix} use() got an event whose "req" is not a web Request.`);
+  throw invalidSessionError(`${prefix} use() got an event whose "req" is not a web Request.`);
 }
 
 /** The `unjwt` slot of a context, created on first use: an existing object is reused, never replaced. */

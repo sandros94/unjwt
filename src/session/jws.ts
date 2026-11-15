@@ -27,7 +27,7 @@ export interface SessionJWS<
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,
 > extends SessionState<T, MaxAge> {}
 
-/** JWS session hooks. `onRead`, `onExpire` and `onError` are mutually exclusive per token. */
+/** JWS session hooks. A read ends in exactly one of `onRead`, `onExpire` and `onError`. */
 export interface SessionHooksJWS<
   T extends SessionRecord = SessionClaims,
   MaxAge extends ExpiresIn | undefined = ExpiresIn | undefined,

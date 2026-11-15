@@ -219,7 +219,7 @@ describe("session contract", () => {
         session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
       );
 
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect(isJWTError(error, "ERR_SESSION_INVALID")).toBe(true);
       expect((error as Error).message).toContain(String(MAX_CHUNK_COUNT));
     });
 
@@ -575,7 +575,7 @@ describe("session contract", () => {
   // #endregion
 
   // #region writes that fail
-  describe("a cookie write that fails", () => {
+  describe("an issued token that does not fit its cookie", () => {
     it.each(familyCases())(
       "$label: rolls the session back and reports to onError",
       async (variant) => {
@@ -596,23 +596,66 @@ describe("session contract", () => {
               session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
             );
             return {
-              config: isJWTError(error, "ERR_SESSION_CONFIG_INVALID"),
+              code: isJWTError(error, "ERR_SESSION_INVALID"),
               unchanged: session.id === before.id && session.token === before.token,
               user: session.data.user,
               pad: "pad" in session.data,
-              reported: isJWTError(onError.mock.calls[0]?.[0].error, "ERR_SESSION_CONFIG_INVALID"),
+              reported: isJWTError(onError.mock.calls[0]?.[0].error, "ERR_SESSION_INVALID"),
             };
           },
         );
 
         expect(body).toEqual({
-          config: true,
+          code: true,
           unchanged: true,
           user: "alice",
           pad: false,
           reported: true,
         });
         expect(onError).toHaveBeenCalledOnce();
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: an update whose token does not fit its cookie rejects before onUpdate and leaves the session as read",
+      async (variant) => {
+        const chunkMaxLength = 64;
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
+        const onError = vi.fn();
+        const onUpdate = vi.fn();
+        const view = (session: SessionManager) => ({
+          id: session.id ?? null,
+          token: session.token ?? null,
+          createdAt: session.createdAt,
+          expiresAt: session.expiresAt ?? null,
+          error: session.error ?? null,
+          data: { ...session.data },
+        });
+        let thrown: unknown;
+        const response = await variant.serve(
+          {
+            ...baseConfig(variant),
+            cookie: { secure: false, chunkMaxLength },
+            hooks: { onError, onUpdate },
+          },
+          async (open) => {
+            const session = await open();
+            const before = view(session);
+            thrown = await caught(() =>
+              session.update(bulkyData(MAX_CHUNK_COUNT + 14, chunkMaxLength)),
+            );
+            return { before, after: view(session) };
+          },
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(isJWTError(thrown, "ERR_SESSION_INVALID")).toBe(true);
+        expect(onUpdate).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledOnce();
+        expect(onError.mock.calls[0]?.[0].error).toBe(thrown);
+        expect(response.body.after).toEqual(response.body.before);
+        expect(response.body.before).toMatchObject({ token, data: { user: "alice" } });
+        expect(response.cookies).toEqual([]);
       },
     );
   });
@@ -2726,7 +2769,7 @@ describe("session contract", () => {
     );
 
     it.each(["jws", "jwe"] as const)(
-      "%s: a roll whose cookie write throws rejects the read, empties the session and keeps the cookie",
+      "%s: a roll whose token does not fit its cookie rejects the read before onUpdate, empties the session and keeps the cookie",
       async (family) => {
         const hooks = { onRead: vi.fn(), onUpdate: vi.fn(), onError: vi.fn() };
         const claims = { jti: "failed-roll", iat: nowSeconds() - 30, exp: nowSeconds() + 60 };
@@ -2741,11 +2784,11 @@ describe("session contract", () => {
         });
 
         const error = await caught(() => loadSession(binding));
-        expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+        expect(isJWTError(error, "ERR_SESSION_INVALID")).toBe(true);
         expect(hooks.onRead).toHaveBeenCalledOnce();
         expect(hooks.onError).toHaveBeenCalledOnce();
         expect(hooks.onError.mock.calls[0]?.[0].error).toBe(error);
-        expect(hooks.onUpdate).toHaveBeenCalledOnce();
+        expect(hooks.onUpdate).not.toHaveBeenCalled();
 
         const session = await loadSession(binding);
         expect(session.id).toBeUndefined();
@@ -2866,6 +2909,419 @@ describe("session contract", () => {
         expect(onClear).not.toHaveBeenCalled();
         expect((await loadSession(binding)).id).toBe("too-late");
         expect(recorder.writes).toEqual([]);
+      },
+    );
+  });
+  // #endregion
+
+  // #region what onError receives
+  describe("what onError receives", () => {
+    it.each(["jws", "jwe"] as const)(
+      "%s: a write that fails after onUpdate hands onError the issued session, the session before and the live one through use()",
+      async (family) => {
+        const state = { writable: true };
+        const token = await foreignToken(family, {
+          jti: "before",
+          iat: nowSeconds(),
+          user: "alice",
+        });
+        const recorder = recordingDriver(Object.assign(state, { token }));
+        const event = {};
+        let live: ReturnType<typeof sessionView> | undefined;
+        const onUpdate = vi.fn((_args: ErrorHookArgs) => {
+          state.writable = false;
+        });
+        const onError = vi.fn(async (_args: ErrorHookArgs) => {
+          live = sessionView(await definition.use(event));
+        });
+        const definition = driverDefinition(family, recorder.driver, {
+          hooks: { onUpdate, onError },
+        });
+
+        const manager = await definition.use(event);
+        const error = await caught(() => manager.update({ user: "bob" }));
+
+        expect(alreadySent(error)).toBe(true);
+        expect(onError).toHaveBeenCalledOnce();
+        const issued = onUpdate.mock.calls[0][0].session;
+        const args = onError.mock.calls[0][0];
+        expect(args.trigger).toBe("update");
+        expect(args.error).toBe(error);
+        expect(args.event).toBe(event);
+        expect(args.session).toMatchObject({
+          id: issued.id,
+          token: issued.token,
+          data: { user: "bob" },
+          error: undefined,
+        });
+        expect(args.session.id).not.toBe("before");
+        expect(args.session.token).toBeTypeOf("string");
+        expect(args.oldSession).toMatchObject({ id: "before", token, data: { user: "alice" } });
+        expect(live).toMatchObject({ id: "before", token, data: { user: "alice" } });
+        expect(recorder.writes).toEqual([]);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a first update that fails after onUpdate hands onError an oldSession without an id",
+      async (family) => {
+        const state = { writable: true };
+        const recorder = recordingDriver(state);
+        const onUpdate = vi.fn((_args: ErrorHookArgs) => {
+          state.writable = false;
+        });
+        const onError = vi.fn((_args: ErrorHookArgs) => {});
+        const definition = driverDefinition(family, recorder.driver, {
+          hooks: { onUpdate, onError },
+        });
+
+        const manager = await definition.use({});
+        const error = await caught(() => manager.update({ user: "bob" }));
+
+        expect(alreadySent(error)).toBe(true);
+        const args = onError.mock.calls[0][0];
+        expect(args.trigger).toBe("update");
+        expect(args.session).toMatchObject({
+          id: onUpdate.mock.calls[0][0].session.id,
+          token: onUpdate.mock.calls[0][0].session.token,
+          data: { user: "bob" },
+        });
+        expect(args.oldSession).toBeTypeOf("object");
+        expect(args.oldSession).toMatchObject({ id: undefined, token: undefined, data: {} });
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a token that does not fit its cookies hands onError the new id without a token, and onUpdate does not run",
+      async (family) => {
+        const token = await foreignToken(family, {
+          jti: "before",
+          iat: nowSeconds(),
+          user: "alice",
+        });
+        const recorder = recordingDriver({ token });
+        const onUpdate = vi.fn((_args: ErrorHookArgs) => {});
+        const onError = vi.fn((_args: ErrorHookArgs) => {});
+        const binding = coreBinding(family, recorder.driver, {
+          generateId: () => "fresh-id",
+          cookie: { secure: false, chunkMaxLength: 8 },
+          hooks: { onUpdate, onError },
+        });
+
+        await loadSession(binding);
+        const error = await caught(() => issueSession(binding, { user: "bob" }));
+
+        expect(isJWTError(error, "ERR_SESSION_INVALID")).toBe(true);
+        expect(onUpdate).not.toHaveBeenCalled();
+        const args = onError.mock.calls[0][0];
+        expect(args.trigger).toBe("update");
+        expect(args.session).toMatchObject({
+          id: "fresh-id",
+          token: undefined,
+          data: { user: "bob" },
+        });
+        expect(args.oldSession).toMatchObject({ id: "before", token, data: { user: "alice" } });
+        expect((await loadSession(binding)).id).toBe("before");
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: keys that cannot issue hand onError the new id without a token, and onUpdate does not run",
+      async (family) => {
+        const failure = new Error("cannot issue");
+        const token = await foreignToken(family, {
+          jti: "before",
+          iat: nowSeconds(),
+          user: "alice",
+        });
+        const recorder = recordingDriver({ token });
+        const onUpdate = vi.fn((_args: ErrorHookArgs) => {});
+        const onError = vi.fn((_args: ErrorHookArgs) => {});
+        const binding = coreBinding(family, recorder.driver, {
+          generateId: () => "fresh-id",
+          hooks: { onUpdate, onError },
+        });
+        binding.keys = { ...binding.keys, issue: () => Promise.reject(failure) };
+
+        await loadSession(binding);
+        const error = await caught(() => issueSession(binding, { user: "bob" }));
+
+        expect(error).toBe(failure);
+        expect(onUpdate).not.toHaveBeenCalled();
+        const args = onError.mock.calls[0][0];
+        expect(args).toMatchObject({ trigger: "update", error: failure });
+        expect(args.session).toMatchObject({
+          id: "fresh-id",
+          token: undefined,
+          data: { user: "bob" },
+        });
+        expect(args.oldSession).toMatchObject({ id: "before", token });
+        expect(recorder.writes).toEqual([]);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a roll that fails hands onError the rolling trigger and the session as read",
+      async (family) => {
+        const claims = { jti: "as-read", iat: nowSeconds() - 30, exp: nowSeconds() + 60 };
+        const token = await foreignToken(family, { ...claims, user: "alice" });
+        const recorder = recordingDriver({ token });
+        const event = {};
+        let live: ReturnType<typeof sessionView> | undefined;
+        const onError = vi.fn(async (_args: ErrorHookArgs) => {
+          live = sessionView(await definition.use(event));
+        });
+        const definition = driverDefinition(family, recorder.driver, {
+          maxAge: 60,
+          rolling: true,
+          cookie: { secure: false, chunkMaxLength: 8 },
+          hooks: { onError },
+        });
+
+        const error = await caught(() => definition.use(event));
+
+        expect(isJWTError(error, "ERR_SESSION_INVALID")).toBe(true);
+        const args = onError.mock.calls[0][0];
+        expect(args).toMatchObject({ trigger: "rolling", error });
+        expect(args.session.id).toBeTypeOf("string");
+        expect(args.session.id).not.toBe("as-read");
+        expect(args.session).toMatchObject({ token: undefined, data: { user: "alice" } });
+        expect(args.oldSession).toMatchObject({ id: "as-read", token, data: { user: "alice" } });
+        expect(live).toMatchObject({ id: "as-read", token, data: { user: "alice" } });
+      },
+    );
+
+    const readFailures: {
+      label: string;
+      code: "ERR_SESSION_TOKEN_INVALID" | "ERR_SESSION_READ_FAILED";
+      config: { sessionHeader?: boolean; hooks?: Record<string, unknown> };
+      request: (variant: FamilyCase) => Promise<ServeOptions>;
+    }[] = [
+      {
+        label: "a token that does not open",
+        code: "ERR_SESSION_TOKEN_INVALID",
+        config: {},
+        request: async (variant) => ({ cookies: { [variant.name]: "not.a.token" } }),
+      },
+      {
+        label: "a malformed session header",
+        code: "ERR_SESSION_TOKEN_INVALID",
+        config: { sessionHeader: true },
+        request: async (variant) => ({ headers: { [`x-${variant.name}-session`]: "Basic abc" } }),
+      },
+      {
+        label: "a key lookup that throws",
+        code: "ERR_SESSION_READ_FAILED",
+        config: {
+          hooks: {
+            onKeyLookup: () => {
+              throw new Error("key store unavailable");
+            },
+          },
+        },
+        request: async (variant) => ({
+          cookies: { [variant.name]: await mintToken(variant, baseConfig(variant), { user: "a" }) },
+        }),
+      },
+    ];
+    const readCases = () =>
+      familyCases().flatMap((variant) =>
+        readFailures.map((failure) => ({ variant, failure, label: variant.label })),
+      );
+
+    it.each(readCases())(
+      "$label, $failure.label: onError gets the read trigger, an empty copy and no oldSession",
+      async ({ variant, failure }) => {
+        let args: ErrorHookArgs | undefined;
+        let live: ReturnType<typeof sessionView> | undefined;
+        const config: Record<string, unknown> = {
+          ...baseConfig(variant),
+          ...failure.config,
+          hooks: {
+            ...failure.config.hooks,
+            onError: async (received: ErrorHookArgs) => {
+              args = received;
+              live = sessionView(await variant.reopen({ event: received.event }, config));
+            },
+          },
+        };
+
+        const body = await variant.run(
+          config,
+          async (open) => ({ code: (await open()).error?.code ?? null }),
+          await failure.request(variant),
+        );
+
+        expect(args?.trigger).toBe("read");
+        expect(isJWTError(args?.error, failure.code)).toBe(true);
+        expect(args?.session).toMatchObject({ id: undefined, token: undefined, data: {} });
+        expect(args?.session.error).toBe(args?.error);
+        expect(args?.oldSession).toBeUndefined();
+        expect(live).toMatchObject({ id: null, token: null, data: {} });
+        expect(live?.error).toBe(args?.error);
+        expect(body).toEqual({ code: failure.code });
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: clear() on the session use() returns inside onError expires the cookie a read failure keeps",
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
+        const config: Record<string, unknown> = {
+          ...baseConfig(variant),
+          hooks: {
+            onKeyLookup: () => {
+              throw new Error("key store unavailable");
+            },
+            onError: async (args: ErrorHookArgs) => {
+              await (await variant.reopen({ event: args.event }, config)).clear();
+            },
+          },
+        };
+
+        const response = await variant.serve(
+          config,
+          async (open) => ({ id: (await open()).id ?? null }),
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(response.body).toEqual({ id: null });
+        expect(expiredSetCookie(response.cookies, variant.name)).toMatch(/Max-Age=0/);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: the sessions onError receives are copies without update or clear",
+      async (family) => {
+        const state = { writable: true };
+        const token = await foreignToken(family, {
+          jti: "before",
+          iat: nowSeconds(),
+          user: "alice",
+        });
+        const recorder = recordingDriver(Object.assign(state, { token }));
+        const event = {};
+        let live: ReturnType<typeof sessionView> | undefined;
+        const onError = vi.fn(async (args: ErrorHookArgs) => {
+          args.session.data.user = "mallory";
+          args.session.id = "forged";
+          args.oldSession!.data.user = "mallory";
+          args.oldSession!.id = "forged";
+          live = sessionView(await definition.use(event));
+        });
+        const definition = driverDefinition(family, recorder.driver, {
+          hooks: {
+            onUpdate: () => {
+              state.writable = false;
+            },
+            onError,
+          },
+        });
+
+        const manager = await definition.use(event);
+        await caught(() => manager.update({ user: "bob" }));
+
+        const args = onError.mock.calls[0][0];
+        expect(args.session).not.toHaveProperty("update");
+        expect(args.session).not.toHaveProperty("clear");
+        expect(args.oldSession).not.toHaveProperty("update");
+        expect(args.oldSession).not.toHaveProperty("clear");
+        expect(live).toMatchObject({ id: "before", token, data: { user: "alice" } });
+        expect(sessionView(manager)).toMatchObject({ id: "before", data: { user: "alice" } });
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: the session a read failure hands onError is a copy without update or clear",
+      async (variant) => {
+        let live: ReturnType<typeof sessionView> | undefined;
+        let session: SessionCopy | undefined;
+        const config: Record<string, unknown> = {
+          ...baseConfig(variant),
+          hooks: {
+            onError: async (args: ErrorHookArgs) => {
+              session = args.session;
+              args.session.id = "forged";
+              args.session.data.user = "mallory";
+              live = sessionView(await variant.reopen({ event: args.event }, config));
+            },
+          },
+        };
+
+        await variant.run(config, async (open) => ({ id: (await open()).id ?? null }), {
+          cookies: { [variant.name]: "not.a.token" },
+        });
+
+        expect(session).not.toHaveProperty("update");
+        expect(session).not.toHaveProperty("clear");
+        expect(live).toMatchObject({ id: null, data: {} });
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: an onUpdate that changes its oldSession and throws leaves the live session as it was",
+      async (family) => {
+        const failure = new Error("hook failed");
+        const token = await foreignToken(family, {
+          jti: "before",
+          iat: nowSeconds(),
+          user: "alice",
+        });
+        const recorder = recordingDriver({ token });
+        const event = {};
+        const definition = driverDefinition(family, recorder.driver, {
+          hooks: {
+            onUpdate: ({ oldSession }: ErrorHookArgs) => {
+              tamper(oldSession!);
+              throw failure;
+            },
+          },
+        });
+
+        const manager = await definition.use(event);
+        const before = sessionView(manager);
+        expect(await caught(() => manager.update({ user: "bob" }))).toBe(failure);
+
+        expect(sessionView(await definition.use(event))).toEqual(before);
+        expect(before).toMatchObject({ id: "before", token, data: { user: "alice" } });
+        expect(recorder.writes).toEqual([]);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: an onUpdate that changes its oldSession leaves the restore after a failed write and the oldSession of onError as they were",
+      async (family) => {
+        const state = { writable: true };
+        const token = await foreignToken(family, {
+          jti: "before",
+          iat: nowSeconds(),
+          user: "alice",
+        });
+        const recorder = recordingDriver(Object.assign(state, { token }));
+        const event = {};
+        const onError = vi.fn((_args: ErrorHookArgs) => {});
+        const definition = driverDefinition(family, recorder.driver, {
+          hooks: {
+            onUpdate: ({ oldSession }: ErrorHookArgs) => {
+              tamper(oldSession!);
+              state.writable = false;
+            },
+            onError,
+          },
+        });
+
+        const manager = await definition.use(event);
+        const before = sessionView(manager);
+        expect(alreadySent(await caught(() => manager.update({ user: "bob" })))).toBe(true);
+
+        expect(sessionView(await definition.use(event))).toEqual(before);
+        expect(onError.mock.calls[0][0].oldSession).toMatchObject({
+          id: "before",
+          token,
+          error: undefined,
+          data: { user: "alice" },
+        });
+        expect(onError.mock.calls[0][0].oldSession?.data).not.toHaveProperty("injected");
       },
     );
   });
@@ -3454,6 +3910,44 @@ function recordingDriver(options: { token?: string; write?: boolean; writable?: 
     writable: () => options.writable ?? true,
   };
   return { driver, writes };
+}
+
+/** A copy of a session as a hook receives it. */
+interface SessionCopy {
+  id: string | undefined;
+  token: string | undefined;
+  error: unknown;
+  data: Record<string, unknown>;
+}
+
+/** What `onError` receives, and what `onUpdate` shares with it. */
+interface ErrorHookArgs {
+  trigger: string;
+  session: SessionCopy;
+  oldSession: SessionCopy | undefined;
+  error: unknown;
+  event: object;
+}
+
+/** Changes every field of a session copy a hook received. */
+function tamper(copy: SessionCopy): void {
+  copy.id = "forged";
+  copy.token = "forged.token";
+  copy.error = new Error("forged");
+  copy.data.user = "mallory";
+  copy.data.injected = true;
+}
+
+/** A session of `family` defined over `driver`, under the family's key. */
+function driverDefinition(
+  family: Family,
+  driver: SessionDriver<object>,
+  config: Record<string, unknown>,
+): SessionDefinition<Record<string, unknown>, ExpiresIn | undefined, object> {
+  const bound = { name: `core-${family}`, key: family === "jws" ? jwsKey : jweKey, ...config };
+  return family === "jws"
+    ? defineJWSSession(bound as never, { driver })
+    : defineJWESession(bound as never, { driver });
 }
 
 /** A session of `family` bound to `driver` straight through the session core. */

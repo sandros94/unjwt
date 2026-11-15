@@ -4,7 +4,6 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
-import { safeJsonParse } from "unsecure/sanitize";
 import type { ExpiresIn } from "../../core/types/index.ts";
 import type {
   SessionIssueOptions,
@@ -23,6 +22,7 @@ import {
   kSessionPending,
   mintSessionId,
   sessionInstant,
+  snapshotSession,
   storedSession,
 } from "./core.ts";
 import { loadSession } from "./read.ts";
@@ -47,9 +47,9 @@ export async function issueSession<
   const session =
     storedSession<T, MaxAge>(store) || (await loadSession<T, MaxAge, TEvent, Config>(binding));
 
-  const oldSession = snapshotSession(session);
+  const restorePoint = snapshotSession(session);
 
-  const { changes, createdAt, id, expiresAt } = restoringOnThrow(session, oldSession, () => {
+  const { changes, createdAt, id, expiresAt } = restoringOnThrow(session, restorePoint, () => {
     const resolved = typeof update === "function" ? update(session.data) : update;
     const instant = sessionInstant(binding);
     return {
@@ -64,10 +64,16 @@ export async function issueSession<
   for (const claim of RESERVED_CLAIMS) delete session.data[claim];
   Object.assign(session, { id, createdAt, expiresAt });
 
-  const reportFailure = async (error: unknown): Promise<never> => {
-    restoreSession(session, oldSession);
+  const reportFailure = async (
+    error: unknown,
+    failed: { token: string | undefined },
+  ): Promise<never> => {
+    const failedSession = { ...session, token: failed.token, error: undefined };
+    restoreSession(session, restorePoint);
     await config.hooks?.onError?.({
-      session: binding.actions.manager(binding),
+      session: snapshotSession(failedSession),
+      oldSession: snapshotSession(restorePoint),
+      trigger,
       ...args,
       error,
       config,
@@ -78,19 +84,23 @@ export async function issueSession<
   const token = await keys
     .assertKeys()
     .then(() => keys.issue(session))
-    .catch(reportFailure);
+    .then((issuedToken) => {
+      transport.assertFits?.(issuedToken);
+      return issuedToken;
+    })
+    .catch((error: unknown) => reportFailure(error, { token: undefined }));
   const issued = Object.assign(session, { id, token, error: undefined });
 
   try {
     await config.hooks?.onUpdate?.({
       session: snapshotSession(issued),
-      oldSession,
+      oldSession: snapshotSession(restorePoint),
       trigger,
       ...args,
       config,
     });
   } catch (error_) {
-    restoreSession(session, oldSession);
+    restoreSession(session, restorePoint);
     throw error_;
   }
 
@@ -99,7 +109,7 @@ export async function issueSession<
     transport.write?.(token, { expiresAt: issued.expiresAt });
     binding.held.set(token);
   } catch (error_) {
-    return reportFailure(error_);
+    return reportFailure(error_, { token });
   }
 
   return issued;
@@ -188,11 +198,6 @@ export function sessionActions<TEvent, Config extends SessionCoreConfig>(): Sess
       await issueSession(binding, undefined, undefined, "rolling");
     },
   };
-}
-
-/** A copy of the session with its data deep-copied through JSON, unaffected by later changes to the live one. */
-function snapshotSession<S extends { data: Record<string, unknown> }>(session: S): S {
-  return { ...session, data: safeJsonParse(JSON.stringify(session.data)) };
 }
 
 /** Runs `run`, and puts the session back as `oldSession` holds it when `run` throws. */

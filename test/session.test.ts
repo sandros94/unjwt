@@ -28,6 +28,7 @@ import {
   type OpenedSessionState,
   type SessionClaims,
   type SessionDefinition,
+  type SessionErrorTrigger,
   type SessionDriver,
   type SessionHandedToken,
   type SessionHooksJWE,
@@ -55,6 +56,7 @@ import {
   webCookieJar,
   webSessionDriver,
 } from "../src/session/index.ts";
+import { MAX_CHUNK_COUNT } from "../src/session/_internal/chunked-cookie.ts";
 import { defaultWebSessionDriver } from "../src/session/_internal/web-driver.ts";
 
 const [jwsKey, jweKey] = await Promise.all([generateJWK("HS256"), generateJWK("A128KW")]);
@@ -381,7 +383,7 @@ describe("unjwt/session over a Web request", () => {
       expect(asRequest.data).toEqual({ user: "ada" });
 
       const error = await caught(session.use({} as never));
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect(isJWTError(error, "ERR_SESSION_INVALID")).toBe(true);
       expect((error as Error).message).toContain("neither");
     },
   );
@@ -391,8 +393,19 @@ describe("unjwt/session over a Web request", () => {
     async ({ define }) => {
       const h3v1Like = { req: { headers: { cookie: "web=x" } }, context: {} };
       const error = await caught(define().use(h3v1Like as never));
-      expect(isJWTError(error, "ERR_SESSION_CONFIG_INVALID")).toBe(true);
+      expect(isJWTError(error, "ERR_SESSION_INVALID")).toBe(true);
       expect((error as Error).message).toContain('got an event whose "req" is not a web Request');
+    },
+  );
+
+  it.each(FAMILIES)(
+    "$family: refuses a request event with neither req nor headers",
+    async ({ define }) => {
+      const error = await caught(define().use({ req: undefined } as never));
+      expect(isJWTError(error, "ERR_SESSION_INVALID")).toBe(true);
+      expect((error as Error).message).toContain(
+        'use() got a request event with neither "req" nor "headers".',
+      );
     },
   );
 
@@ -1268,6 +1281,54 @@ describe("unjwt/session types", () => {
     });
   });
 
+  it("hands onError a copy of the session, and an oldSession only when an update or a roll fails, on both families", () => {
+    expectTypeOf<SessionErrorTrigger>().toEqualTypeOf<"read" | "update" | "rolling">();
+    defineJWSSession<SessionClaims, 3600>({
+      key: jwsKey,
+      maxAge: 3600,
+      hooks: {
+        onError: (args) => {
+          expectTypeOf(args.trigger).toEqualTypeOf<SessionErrorTrigger>();
+          expectTypeOf(args.session).toExtend<SessionJWS<SessionClaims, 3600>>();
+          expectTypeOf(args.session).not.toHaveProperty("update");
+          expectTypeOf(args.session).not.toHaveProperty("clear");
+          // @ts-expect-error oldSession is undefined on a read
+          void args.oldSession.id;
+          if (args.trigger === "read") {
+            expectTypeOf(args.oldSession).toEqualTypeOf<undefined>();
+            expectTypeOf(args.session).toEqualTypeOf<SessionJWS<SessionClaims, 3600>>();
+          } else {
+            expectTypeOf(args.trigger).toEqualTypeOf<"update" | "rolling">();
+            expectTypeOf(args.oldSession).toEqualTypeOf<SessionJWS<SessionClaims, 3600>>();
+            expectTypeOf(args.session.id).toEqualTypeOf<string>();
+          }
+        },
+      },
+    });
+    defineJWESession<SessionClaims, 3600>({
+      key: jweKey,
+      maxAge: 3600,
+      hooks: {
+        onError: (args) => {
+          expectTypeOf(args.trigger).toEqualTypeOf<SessionErrorTrigger>();
+          expectTypeOf(args.session).toExtend<SessionJWE<SessionClaims, 3600>>();
+          expectTypeOf(args.session).not.toHaveProperty("update");
+          expectTypeOf(args.session).not.toHaveProperty("clear");
+          // @ts-expect-error oldSession is undefined on a read
+          void args.oldSession.id;
+          if (args.trigger === "read") {
+            expectTypeOf(args.oldSession).toEqualTypeOf<undefined>();
+            expectTypeOf(args.session).toEqualTypeOf<SessionJWE<SessionClaims, 3600>>();
+          } else {
+            expectTypeOf(args.trigger).toEqualTypeOf<"update" | "rolling">();
+            expectTypeOf(args.oldSession).toEqualTypeOf<SessionJWE<SessionClaims, 3600>>();
+            expectTypeOf(args.session.id).toEqualTypeOf<string>();
+          }
+        },
+      },
+    });
+  });
+
   it("takes a request event by its Request or its Headers, or a token, never an empty object", () => {
     expectTypeOf<{ req: Request }>().toExtend<SessionRequestEvent>();
     expectTypeOf<{ headers: Headers }>().toExtend<SessionRequestEvent>();
@@ -1753,13 +1814,13 @@ describe("a session read that fails", () => {
   );
 
   it.each(FAMILIES)(
-    "$family: clear() in onError on a read failure expires the cookie",
+    "$family: clear() on the session use() returns in onError on a read failure expires the cookie",
     async ({ define }) => {
-      const session = define({
+      const session: Definition = define({
         hooks: {
           onKeyLookup: throwing(new Error("boom")),
-          onError: async ({ session: manager }: { session: SessionManager }) => {
-            await manager.clear();
+          onError: async ({ event }: { event: WebSessionEvent }) => {
+            await (await session.use(event)).clear();
           },
         },
       });
@@ -3062,7 +3123,7 @@ describe("webSessionDriver", () => {
     ];
     for (const run of refusals) {
       const { code, message } = refusedWith(run);
-      expect(code).toBe("ERR_SESSION_CONFIG_INVALID");
+      expect(code).toBe("ERR_SESSION_INVALID");
       expect(message?.startsWith("[app] use() got ")).toBe(true);
     }
   });
@@ -3329,6 +3390,55 @@ describe("the session token transport", () => {
       "web.3=ij",
     ]);
     expect(transport.read?.()).toBe("abcdefghij");
+  });
+
+  it.each([
+    {
+      label: "a token in hand",
+      event: { token: "abc" },
+      options: { name: "web", cookie },
+      writes: false,
+    },
+    {
+      label: "a session header",
+      event: { req: get({ "x-web-session": "abc" }), res: { headers: new Headers() } },
+      options: sendsHeader,
+      writes: false,
+    },
+    {
+      label: "a cookie without a response",
+      event: { headers: new Headers({ cookie: "web=abc" }) },
+      options: { name: "web", cookie },
+      writes: false,
+    },
+    {
+      label: "a cookie with a response",
+      event: { req: get(), res: { headers: new Headers() } },
+      options: { name: "web", cookie },
+      writes: true,
+    },
+  ])("$label: offers assertFits exactly when it offers write", ({ event, options, writes }) => {
+    const transport = resolveSessionTransport(defaultWebSessionDriver, event, options);
+    expect(transport.write !== undefined).toBe(writes);
+    expect(transport.assertFits !== undefined).toBe(writes);
+  });
+
+  it("assertFits refuses a token past the chunk limit with the error write throws, and writes nothing", async () => {
+    const headers = new Headers();
+    const transport = resolveSessionTransport(
+      defaultWebSessionDriver,
+      { req: get(), res: { headers } },
+      { name: "web", cookie: { ...cookie, chunkMaxLength: 4 } },
+    );
+    const oversized = "x".repeat(4 * MAX_CHUNK_COUNT + 1);
+
+    expect(() => transport.assertFits?.("x".repeat(4 * MAX_CHUNK_COUNT))).not.toThrow();
+    const refused = await caught(Promise.resolve().then(() => transport.assertFits?.(oversized)));
+    expect(headers.getSetCookie()).toEqual([]);
+    const written = await caught(Promise.resolve().then(() => transport.write?.(oversized)));
+    expect(isJWTError(refused, "ERR_SESSION_INVALID")).toBe(true);
+    expect((refused as Error).message).toBe((written as Error).message);
+    expect(headers.getSetCookie()).toEqual([]);
   });
 
   it("drops the base cookie and every chunk", () => {

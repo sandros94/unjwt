@@ -59,6 +59,7 @@ export type KnownJWTErrorCode =
   | "ERR_DPOP_NONCE_INVALID" // the expected nonce is missing or different
   | "ERR_DPOP_REPLAY" // the replay callback rejected the proof or threw
   // Sessions
+  | "ERR_SESSION_INVALID" // an event `use()` cannot use, or a token too large for its cookies
   | "ERR_SESSION_TOKEN_INVALID" // the incoming session token failed verification or decryption
   | "ERR_SESSION_READ_FAILED" // `onKeyLookup` threw, or returned a key that cannot be used, while the incoming session token was read
   | "ERR_SESSION_READONLY_EVENT" // `update` with no writable cookie, or `update`/`clear` after the response is sent

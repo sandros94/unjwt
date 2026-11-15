@@ -3,6 +3,7 @@ export type {
   SessionClaims,
   SessionData,
   SessionDefinition,
+  SessionErrorTrigger,
   SessionHandedToken,
   SessionIssueOptions,
   SessionManager,

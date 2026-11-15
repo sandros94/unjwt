@@ -28,6 +28,10 @@ export function invalidConfigError(
   return new JWTError(message, "ERR_SESSION_CONFIG_INVALID", cause);
 }
 
+export function invalidSessionError(message: string): JWTError<"ERR_SESSION_INVALID"> {
+  return new JWTError(message, "ERR_SESSION_INVALID");
+}
+
 export function invalidTokenError(
   message: string,
   cause?: unknown,

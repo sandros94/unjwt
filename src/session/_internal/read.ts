@@ -10,7 +10,7 @@ import { computeDurationInSeconds } from "../../utils/jwt.ts";
 import { expiredSessionError, malformedHeaderError } from "./contract.ts";
 import type { SessionBinding, SessionCoreConfig, StoredSession } from "./types.ts";
 import type { SessionRecord, SessionState } from "../types.ts";
-import { emptySession, kSessionPending, storedSession } from "./core.ts";
+import { emptySession, kSessionPending, snapshotSession, storedSession } from "./core.ts";
 import { assertSessionTokenSource } from "./transport.ts";
 
 /** Returns the session of the current request, reading its token on the first call. */
@@ -69,7 +69,7 @@ export async function loadSession<
       prefix: binding.driver.prefix,
     });
     session.error = error;
-    await fireError(binding, error);
+    await fireError(binding, { session, error });
     return session;
   }
   const token = transport.read();
@@ -115,7 +115,7 @@ export async function loadSession<
     } else {
       // A token that fails its checks is dropped like an expired one. A read that failed keeps it.
       if (isJWTError(failure.error, "ERR_SESSION_TOKEN_INVALID")) transport.drop?.();
-      await fireError(binding, failure.error);
+      await fireError(binding, { session, error: failure.error });
     }
     return session;
   }
@@ -170,12 +170,14 @@ async function rollSession<TEvent, Config extends SessionCoreConfig>(
 
 async function fireError<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
-  error: unknown,
+  failure: { session: StoredSession; error: unknown },
 ): Promise<void> {
   await binding.config.hooks?.onError?.({
-    session: binding.actions.manager(binding),
+    session: snapshotSession(failure.session),
+    oldSession: undefined,
+    trigger: "read",
     ...binding.args,
-    error,
+    error: failure.error,
     config: binding.config,
   });
 }

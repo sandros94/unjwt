@@ -1,4 +1,4 @@
-import { invalidConfigError } from "./contract.ts";
+import { invalidSessionError } from "./contract.ts";
 
 /** Value prefix marking the base cookie of a chunked set, followed by the chunk count. */
 export const CHUNK_MARKER = "__chunked__";
@@ -49,15 +49,9 @@ export function writeChunked<A extends ExpirableCookieAttributes>(
   value: string,
   options: { attrs: A; chunkMaxLength?: number; prefix: string },
 ): void {
-  const { attrs, chunkMaxLength, prefix } = options;
-  const max = chunkMaxLength && chunkMaxLength > 0 ? chunkMaxLength : DEFAULT_CHUNK_MAX_LENGTH;
-  const chunkCount = Math.ceil(value.length / max);
-
-  if (chunkCount > MAX_CHUNK_COUNT) {
-    throw invalidConfigError(
-      `${prefix} Session token requires ${chunkCount} cookie chunks, exceeding the limit of ${MAX_CHUNK_COUNT}.`,
-    );
-  }
+  const { attrs, chunkMaxLength } = options;
+  const max = chunkLength(chunkMaxLength);
+  const chunkCount = countChunks(value, options);
 
   const previousCount = parseChunkCount(store.read(name));
   const firstSurplus = chunkCount <= 1 ? 1 : chunkCount + 1;
@@ -74,6 +68,20 @@ export function writeChunked<A extends ExpirableCookieAttributes>(
   for (let index = 1; index <= chunkCount; index++) {
     store.write(chunkName(name, index), value.slice((index - 1) * max, index * max), attrs);
   }
+}
+
+/** The number of cookies `value` takes at `chunkMaxLength`. Throws `ERR_SESSION_INVALID` past `MAX_CHUNK_COUNT`. */
+export function countChunks(
+  value: string,
+  options: { chunkMaxLength?: number; prefix: string },
+): number {
+  const chunkCount = Math.ceil(value.length / chunkLength(options.chunkMaxLength));
+  if (chunkCount > MAX_CHUNK_COUNT) {
+    throw invalidSessionError(
+      `${options.prefix} Session token requires ${chunkCount} cookie chunks, exceeding the limit of ${MAX_CHUNK_COUNT}.`,
+    );
+  }
+  return chunkCount;
 }
 
 /** Expires the base cookie and every chunk the current value names. */
@@ -127,6 +135,10 @@ export function parseChunkCount(main: string | undefined): number {
   const count = Number.parseInt(suffix, 10);
   if (count < 1 || count > MAX_CHUNK_COUNT) return 0;
   return count;
+}
+
+function chunkLength(chunkMaxLength: number | undefined): number {
+  return chunkMaxLength && chunkMaxLength > 0 ? chunkMaxLength : DEFAULT_CHUNK_MAX_LENGTH;
 }
 
 /** RFC 6265 §5.2.2: `Max-Age=0`, plus the epoch `Expires` for clients that ignore `Max-Age`. */

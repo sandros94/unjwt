@@ -27,6 +27,9 @@ export type SessionSource = "cookie" | "header" | "token";
 /** Why `onUpdate` ran: an `update()` call, or `rolling` reissuing a session that was read. */
 export type SessionUpdateTrigger = "update" | "rolling";
 
+/** Why `onError` ran: `"read"` when the request's token could not be opened, else the {@link SessionUpdateTrigger} of the update that failed. */
+export type SessionErrorTrigger = "read" | SessionUpdateTrigger;
+
 /** What `update()` merges: a partial data object, or a function of the current data that returns one, or changes that data in place and returns `undefined`. */
 export type SessionUpdate<T extends SessionRecord = SessionClaims> =
   | Partial<SessionData<T>>
@@ -73,7 +76,7 @@ export interface SessionManager<
    * A failed update rejects and leaves the session as it was. When issuing or the cookie write fails, `onError` runs before it rejects. A throwing `onUpdate` cancels the update the same way, without `onError`.
    * @throws `ERR_SESSION_READONLY_EVENT` if a `"cookie"` session has no response, or the response was already sent.
    * @throws `ERR_INVALID_OPTION` if the update is not a plain object or holds `__proto__`, `constructor` or `prototype`, or `options.maxAge` is not a valid duration.
-   * @throws `ERR_SESSION_CONFIG_INVALID` if a `"cookie"` session's token needs more than 16 cookie chunks.
+   * @throws `ERR_SESSION_INVALID` if a `"cookie"` session's token needs more than 16 cookie chunks.
    */
   update: (
     update?: SessionUpdate<T>,
@@ -115,7 +118,7 @@ export interface SessionBaseConfig<MaxAge extends ExpiresIn | undefined = Expire
   generateId?: () => string;
 }
 
-/** Lifecycle hooks. `onRead`, `onExpire` and `onError` are mutually exclusive per token. In `onRead` and `onError`, `session` is the live manager, open to `update()` and `clear()`. `onUpdate`'s `session` and every `oldSession` are snapshots. */
+/** Lifecycle hooks. A read ends in exactly one of `onRead`, `onExpire` and `onError`. In `onRead`, `session` is the live manager, open to `update()` and `clear()`. `onUpdate` and `onError` get copies, and every `oldSession` is a copy. */
 export interface SessionHooks<TSession, TManager, TArgs extends Record<string, unknown>, TConfig> {
   /** Runs once per request, after a token is read and verified. A throw empties the session and rejects the read. */
   onRead?: (
@@ -160,17 +163,35 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
     },
   ) => void | Promise<void>;
   /**
-   * Runs when a token fails to open for a reason other than expiry, and when an issue or cookie write fails. The session is empty after a read.
+   * Runs when the request's token fails to open for a reason other than expiry, and when an `update()` or a roll fails to issue or write its token. `trigger` names which.
+   * `session` and `oldSession` are copies, and `use(event)` returns the live session. The session is empty after a read.
    * - `ERR_SESSION_TOKEN_INVALID`: the token failed its checks, or `onKeyLookup` found no key for it. Its cookie is expired.
-   * - `ERR_SESSION_READ_FAILED`: `onKeyLookup` threw, its error as `cause`, or returned a key that cannot be used, an `ERR_JWK_INVALID` as `cause`. The cookie is kept, and `clear()` expires it.
+   * - `ERR_SESSION_READ_FAILED`: `onKeyLookup` threw, its error as `cause`, or returned a key that cannot be used, an `ERR_JWK_INVALID` as `cause`. The cookie is kept, and `clear()` on the session `use(event)` returns expires it.
    */
   onError?: (
-    args: TArgs & {
-      session: TManager;
-      // oxlint-disable-next-line typescript/no-explicit-any -- a write-path failure is whatever the cookie write or token issue threw
-      error: any;
-      config: TConfig;
-    },
+    args: TArgs &
+      (
+        | {
+            /** The session the failed update produced, its data deep-copied. `token` is set when `onUpdate` ran for it. */
+            session: TSession & { id: string };
+            /** The session before the update, its data deep-copied. */
+            oldSession: TSession;
+            /** The operation that failed: an `update()` call, or the reissue by `rolling`. */
+            trigger: SessionUpdateTrigger;
+          }
+        | {
+            /** An empty copy of the session, with the read's `error`. */
+            session: TSession;
+            /** `undefined`: a read has no session before it. */
+            oldSession: undefined;
+            /** The operation that failed: the read of the request's token. */
+            trigger: "read";
+          }
+      ) & {
+        // oxlint-disable-next-line typescript/no-explicit-any -- a write-path failure is whatever the cookie write or token issue threw
+        error: any;
+        config: TConfig;
+      },
   ) => void | Promise<void>;
 }
 
@@ -215,6 +236,7 @@ export interface SessionDefinition<
    * Reads the request's session and returns its manager. Later calls on the same request share that state.
    * @throws `ERR_SESSION_CONFIG_INVALID` if the session has no token source, or a session of the other family uses its name on this request.
    * @throws `ERR_SESSION_KEY_INVALID` if a configured key fails to import.
+   * @throws `ERR_SESSION_INVALID` if the event is not one the driver can use, or a roll issues a token that needs more than 16 cookie chunks.
    */
   use: (event: TEvent) => Promise<SessionManager<T, MaxAge>>;
   /**
@@ -254,5 +276,5 @@ export interface SessionHandedToken {
   token: string | undefined;
 }
 
-/** What the Web session driver accepts: a request event, or a token in hand. Any other shape throws `ERR_SESSION_CONFIG_INVALID`. */
+/** What the Web session driver accepts: a request event, or a token in hand. Any other shape throws `ERR_SESSION_INVALID`. */
 export type WebSessionEvent = SessionRequestEvent | SessionHandedToken;

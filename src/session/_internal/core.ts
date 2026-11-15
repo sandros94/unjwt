@@ -4,6 +4,7 @@
  * @license MIT https://github.com/h3js/h3/blob/b4dce71c256911335f3402d09f30ffad120ad61a/LICENSE
  */
 
+import { safeJsonParse } from "unsecure/sanitize";
 import type { ExpiresIn } from "../../core/types/index.ts";
 import { resolveExpiresAt } from "./contract.ts";
 import type {
@@ -65,13 +66,21 @@ export function blankSession<T extends SessionRecord, MaxAge extends ExpiresIn |
   return typedSession<T, MaxAge>({ expiresAt: undefined, data: {} });
 }
 
-export function openSessionToken<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
+export async function openSessionToken<
+  T extends SessionRecord,
+  MaxAge extends ExpiresIn | undefined,
+>(
   keys: SessionKeys,
   options: { token: string; args: Record<string, unknown> },
 ): Promise<OpenedSessionState<T, MaxAge>> {
   return keys
     .open(options.token, options.args)
     .then((opened) => typedOpened<T, MaxAge>({ ...opened, source: "token" }));
+}
+
+/** A copy of the session with its data deep-copied through JSON, unaffected by later changes to the live one. */
+export function snapshotSession<S extends { data: Record<string, unknown> }>(session: S): S {
+  return { ...session, data: safeJsonParse(JSON.stringify(session.data)) };
 }
 
 function typedSession<T extends SessionRecord, MaxAge extends ExpiresIn | undefined>(
