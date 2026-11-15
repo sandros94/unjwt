@@ -71,9 +71,10 @@ function _dedent(lines: string[]): string[] {
   return lines.map((l) => l.slice(cut));
 }
 
-// `pnpm automd` writes every generated block into the Markdown sources, so the
-// committed pages, the `/raw/*.md` endpoints and `llms.txt` all carry the real
-// code; the build-time pass in undocs then only re-confirms them.
+// `pnpm docs:automd`, run from the repository root, writes every generated block
+// into the Markdown sources, so the committed pages, the `/raw/*.md` endpoints
+// and `llms-full.txt` all carry the real code. The build-time pass in undocs
+// then only re-confirms them.
 export default {
   input: ["**/*.md"],
   ignore: ["**/node_modules", "**/.output", "**/.*"],

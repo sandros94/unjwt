@@ -15,9 +15,7 @@ ignoredBuiltDependencies:
   - "@tailwindcss/oxide"
   - esbuild
   - vue-demi
-minimumReleaseAgeExclude:
-  - unsecure
-  - undocs-nightly@0.10.1-20261021-144810-60ffbf3
+
 onlyBuiltDependencies:
   - better-sqlite3
   - simple-git-hooks

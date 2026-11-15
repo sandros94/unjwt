@@ -86,6 +86,7 @@
     "build": "obuild",
     "dev": "pnpm --dir playgrounds/h3 dev",
     "docs": "pnpm --filter unjwt-docs dev",
+    "docs:automd": "automd --dir docs",
     "dev:nuxt": "pnpm --dir playgrounds/nuxt-4 dev",
     "dev:nitro": "pnpm --dir playgrounds/nitro dev",
     "dev:prepare": "obuild --stub && pnpm --dir playgrounds/nuxt-4 prepare && pnpm simple-git-hooks",

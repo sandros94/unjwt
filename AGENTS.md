@@ -28,6 +28,7 @@ When a task involves design decisions, ambiguity, or changes to the project visi
 - **Lint:** `pnpm lint` (oxlint + oxfmt --check)
 - **Size:** `pnpm size` prints what each use case ships, minified and gzipped, against the sizes recorded in `test/bundle.test.ts` (3% slack); a deliberate change updates the row
 - **Format:** `pnpm fmt` (automd + oxlint --fix + oxfmt)
+- **Docs blocks:** `pnpm docs:automd` refills the generated blocks of the docs pages from `examples/` and the package version. The site renders its pages from fresh blocks at build time, but `/raw/*.md` and `llms-full.txt` serve the committed copies, so run it after changing an example or after a release
 - **Benchmarks:** `pnpm bench`
 - **Example:** `pnpm dev` runs the h3 playground
 - **Playgrounds:** `playgrounds/{h3,nuxt-4,nitro}/`, workspace packages on the root lockfile depending on `unjwt` as `workspace:*` (a link to the root, so `dist/` must exist: the `pnpm dev:prepare` stub runs from `src`, or `pnpm build`). All three run on `unjwt/session`. `pnpm dev` runs the h3 one (h3 v2), `pnpm dev:nuxt` the Nuxt 4 one (h3 v1 under `nuxt/server`, the session key from `runtimeConfig.sessionKey`, WebSockets), `pnpm dev:nitro` the Nitro 3 one (same routes and key source, a static `index.html`). They are usage examples, not tests: `test/` covers behaviour.
