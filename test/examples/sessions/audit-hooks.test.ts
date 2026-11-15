@@ -95,14 +95,14 @@ describe("Hooks: what a throw does", async () => {
     expect(await errorOf(session.use({ token }))).toBe(boom);
   });
 
-  it("onUpdate: update() rejects, the new token and cookie stay", async () => {
+  it("onUpdate: update() rejects, the session stays as it was and no cookie is written", async () => {
     const session = defineJWSSession({ key, hooks: { onUpdate: fail } });
     const headers = new Headers();
     const manager = await session.use({ req: request(), res: { headers } });
     expect(await errorOf(manager.update({ userId: "user_1a2b" }))).toBe(boom);
-    expect(manager.id).toEqual(expect.any(String));
-    expect(manager.data).toEqual({ userId: "user_1a2b" });
-    expect(headers.getSetCookie()).toHaveLength(1);
+    expect(manager.id).toBeUndefined();
+    expect(manager.data).toEqual({});
+    expect(headers.getSetCookie()).toEqual([]);
   });
 
   it("onClear: clear() rejects, the session is already empty and the cookie expired", async () => {

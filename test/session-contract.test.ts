@@ -1038,7 +1038,12 @@ describe("session contract", () => {
       familyCases()
         .filter((variant) => variant.family === "jws")
         .flatMap((variant) =>
-          hookMatrix().map((entry) => ({ ...entry, variant, label: variant.label })),
+          hookMatrix()
+            .filter(
+              ({ hook, operation }) =>
+                hook !== "onUpdate" || !UNSUPPORTED_IN_ONUPDATE.includes(operation),
+            )
+            .map((entry) => ({ ...entry, variant, label: variant.label })),
         );
 
     it.each(matrixCases())(
@@ -1627,32 +1632,187 @@ describe("session contract", () => {
   // #region update hooks and payload round trip
   describe("update hooks and the data round trip", () => {
     it.each(familyCases())(
-      "$label: an onUpdate hook that throws rejects the update, which stays issued",
+      "$label: onUpdate sees the issued session before its cookie and the held token change",
       async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
+        const seen: Record<string, unknown>[] = [];
+        const config: Record<string, unknown> = { ...baseConfig(variant) };
+        config.hooks = {
+          onUpdate: (args: {
+            session: { id: string; token: string; data: Record<string, unknown> };
+            event: { res: { headers: Headers } };
+          }) => {
+            seen.push({
+              id: args.session.id,
+              token: args.session.token,
+              data: { ...args.session.data },
+              held: definitionOf(variant, config).token(args.event as WebSessionEvent),
+              written: args.event.res.headers.getSetCookie(),
+            });
+          },
+        };
+        const response = await variant.serve(
+          config,
+          async (open) => {
+            const session = await open();
+            await session.update({ user: "bob" });
+            return { id: session.id ?? null, token: session.token ?? null };
+          },
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(response.body.token).not.toBe(token);
+        expect(seen).toEqual([
+          {
+            id: response.body.id,
+            token: response.body.token,
+            data: { user: "bob" },
+            held: token,
+            written: [],
+          },
+        ]);
+        expect(liveCookies(response.cookies)[variant.name]).toBe(response.body.token);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: onUpdate receives a copy of the issued session that neither changes the live one nor follows it",
+      async (variant) => {
+        const kept: { id: string; token: string; data: Record<string, unknown> }[] = [];
+        const config: Record<string, unknown> = { ...baseConfig(variant) };
+        config.hooks = {
+          onUpdate: (args: {
+            session: { id: string; token: string; data: Record<string, unknown> };
+          }) => {
+            args.session.data.role = "admin";
+            kept.push(args.session);
+          },
+        };
+        const response = await variant.serve(config, async (open) => {
+          const session = await open();
+          await session.update({ user: "bob" });
+          const first = { id: session.id, token: session.token, data: { ...session.data } };
+          await session.update({ user: "carol" });
+          return { first, last: { id: session.id ?? null, token: session.token ?? null } };
+        });
+        const { first, last } = response.body as {
+          first: { id: string; token: string; data: Record<string, unknown> };
+          last: { id: string; token: string };
+        };
+        const written = liveCookies(response.cookies)[variant.name] ?? "";
+
+        expect(first.data).toEqual({ user: "bob" });
+        expect(kept.map(({ id, token }) => ({ id, token }))).toEqual([
+          { id: first.id, token: first.token },
+          { id: last.id, token: last.token },
+        ]);
+        expect(kept[0]?.data).toEqual({ user: "bob", role: "admin" });
+        expect(written).toBe(last.token);
+        expect((await definitionOf(variant, config).open(written)).data).toEqual({ user: "carol" });
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: a throwing onUpdate cancels a first update, which rejects with its error and writes nothing",
+      async (variant) => {
+        const failure = new Error("hook failed");
         const onError = vi.fn();
         const config = {
           ...baseConfig(variant),
           hooks: {
             onUpdate: () => {
-              throw new Error("hook failed");
+              throw failure;
             },
             onError,
           },
         };
+        let thrown: unknown;
         const response = await variant.serve(config, async (open) => {
           const session = await open();
-          const error = await caught(() => session.update({ user: "alice" }));
-          return {
-            message: (error as Error).message,
-            id: session.id ?? null,
-            user: session.data.user ?? null,
-            token: session.token ?? null,
-          };
+          const before = sessionView(session);
+          thrown = await caught(() => session.update({ user: "alice" }));
+          return { before, after: sessionView(session) };
         });
 
-        expect(response.body).toMatchObject({ message: "hook failed", user: "alice" });
-        expect(response.body.id).toBeTypeOf("string");
-        expect(liveCookies(response.cookies)[variant.name]).toBe(response.body.token);
+        expect(thrown).toBe(failure);
+        expect(response.body.after).toEqual(response.body.before);
+        expect(response.body.after).toMatchObject({ id: null, token: null, data: {} });
+        expect(response.cookies).toEqual([]);
+        expect(onError).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: a throwing onUpdate cancels an update of a session read from its cookie, which stays as read",
+      async (variant) => {
+        const token = await mintToken(variant, baseConfig(variant), { user: "alice" });
+        const failure = new Error("hook failed");
+        const onError = vi.fn();
+        const config = {
+          ...baseConfig(variant),
+          hooks: {
+            onUpdate: () => {
+              throw failure;
+            },
+            onError,
+          },
+        };
+        let thrown: unknown;
+        const response = await variant.serve(
+          config,
+          async (open) => {
+            const session = await open();
+            const before = sessionView(session);
+            thrown = await caught(() => session.update({ user: "bob" }));
+            return { before, after: sessionView(session) };
+          },
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(thrown).toBe(failure);
+        expect(response.body.after).toEqual(response.body.before);
+        expect(response.body.after).toMatchObject({ token, data: { user: "alice" } });
+        expect(response.cookies).toEqual([]);
+        expect(onError).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: a throwing onUpdate leaves the token of a header or token session as it was",
+      async (variant) => {
+        const failure = new Error("hook failed");
+        const onError = vi.fn();
+        const definition = definitionOf(variant, {
+          ...baseConfig(variant),
+          sessionHeader: true,
+          hooks: {
+            onUpdate: () => {
+              throw failure;
+            },
+            onError,
+          },
+        });
+        const token = await definition.issue({ user: "alice" });
+        const headers = new Headers();
+        const request = new Request(
+          "http://localhost/",
+          requestInit({ headers: { [`x-${variant.name}-session`]: token } }),
+        );
+        const events: WebSessionEvent[] = [{ token }, { req: request, res: { headers } }];
+        const sources: string[] = [];
+
+        for (const event of events) {
+          const session = await definition.use(event);
+          const before = sessionView(session);
+          sources.push(session.source);
+          expect(await caught(() => session.update({ user: "bob" }))).toBe(failure);
+          expect(sessionView(session)).toEqual(before);
+          expect(session.token).toBe(token);
+          expect(definition.token(event)).toBe(token);
+        }
+
+        expect(sources).toEqual(["token", "header"]);
+        expect(headers.getSetCookie()).toEqual([]);
         expect(onError).not.toHaveBeenCalled();
       },
     );
@@ -2011,7 +2171,7 @@ describe("session contract", () => {
         const config = expiringConfig(variant);
         const token = await mintToken(variant, config, { user: "alice" });
         const updatedIds: (string | undefined)[] = [];
-        const onUpdate = vi.fn(({ session }: { session: SessionManager }) => {
+        const onUpdate = vi.fn(({ session }: { session: { id: string } }) => {
           updatedIds.push(session.id);
         });
         const response = await variant.serve(
@@ -2585,13 +2745,80 @@ describe("session contract", () => {
         expect(hooks.onRead).toHaveBeenCalledOnce();
         expect(hooks.onError).toHaveBeenCalledOnce();
         expect(hooks.onError.mock.calls[0]?.[0].error).toBe(error);
-        expect(hooks.onUpdate).not.toHaveBeenCalled();
+        expect(hooks.onUpdate).toHaveBeenCalledOnce();
 
         const session = await loadSession(binding);
         expect(session.id).toBeUndefined();
         expect(session.token).toBeUndefined();
         expect(session.data).toEqual({});
         expect(recorder.writes).toEqual([]);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a roll whose onUpdate throws rejects the read, writes nothing and empties the session",
+      async (family) => {
+        const failure = new Error("hook failed");
+        const hooks = {
+          onRead: vi.fn(),
+          onUpdate: vi.fn((_args: Record<string, unknown>) => {
+            throw failure;
+          }),
+          onError: vi.fn(),
+        };
+        const claims = { jti: "cancelled-roll", iat: nowSeconds() - 30, exp: nowSeconds() + 60 };
+        const recorder = recordingDriver({
+          token: await foreignToken(family, { ...claims, user: "alice" }),
+        });
+        const binding = coreBinding(family, recorder.driver, {
+          maxAge: 60,
+          rolling: true,
+          hooks,
+        });
+
+        expect(await caught(() => loadSession(binding))).toBe(failure);
+        expect(hooks.onRead).toHaveBeenCalledOnce();
+        expect(hooks.onUpdate).toHaveBeenCalledOnce();
+        expect(hooks.onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
+        expect(hooks.onError).not.toHaveBeenCalled();
+
+        const session = await loadSession(binding);
+        expect(session.id).toBeUndefined();
+        expect(session.token).toBeUndefined();
+        expect(session.data).toEqual({});
+        expect(recorder.writes).toEqual([]);
+      },
+    );
+
+    it.each(["jws", "jwe"] as const)(
+      "%s: a response sent while onUpdate runs rejects the update with ERR_SESSION_READONLY_EVENT and restores the session",
+      async (family) => {
+        const state = { writable: true };
+        const onError = vi.fn();
+        const onUpdate = vi.fn((_args: Record<string, unknown>) => {
+          state.writable = false;
+        });
+        const claims = { jti: "sent-in-update", iat: nowSeconds(), user: "alice" };
+        const recorder = recordingDriver(
+          Object.assign(state, { token: await foreignToken(family, claims) }),
+        );
+        const binding = coreBinding(family, recorder.driver, { hooks: { onUpdate, onError } });
+        const view = (session: { id?: string; token?: string; data: object }) => ({
+          id: session.id,
+          token: session.token,
+          data: { ...session.data },
+        });
+
+        const before = view(await loadSession(binding));
+        const error = await caught(() => issueSession(binding, { user: "bob" }));
+
+        expect(alreadySent(error)).toBe(true);
+        expect(onUpdate).toHaveBeenCalledOnce();
+        expect(onError).toHaveBeenCalledOnce();
+        expect(onError.mock.calls[0]?.[0].error).toBe(error);
+        expect(recorder.writes).toEqual([]);
+        expect(view(await loadSession(binding))).toEqual(before);
+        expect(before).toMatchObject({ id: "sent-in-update", data: { user: "alice" } });
       },
     );
 
@@ -3172,6 +3399,18 @@ function expiredSetCookie(setCookies: string[], name: string): string | undefine
   );
 }
 
+/** The state of a session manager as a test compares it, `null` for each unset member. */
+function sessionView(session: SessionManager) {
+  return {
+    id: session.id ?? null,
+    token: session.token ?? null,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt ?? null,
+    error: session.error ?? null,
+    data: { ...session.data },
+  };
+}
+
 /** The refusal an update or clear meets once the response was sent. */
 function alreadySent(error: unknown): boolean {
   return (
@@ -3252,6 +3491,9 @@ function cookieHeader(cookies: Record<string, string> | undefined): Record<strin
 
 const HOOK_NAMES = ["onRead", "onUpdate", "onClear", "onExpire", "onError"] as const;
 const HOOK_OPERATIONS = ["read", "update", "clear", "token"] as const;
+
+/** The operations `onUpdate` does not support on its own session: its `session` offers neither. */
+const UNSUPPORTED_IN_ONUPDATE: readonly MatrixEntry["operation"][] = ["update", "clear"];
 
 interface MatrixEntry {
   hook: (typeof HOOK_NAMES)[number];

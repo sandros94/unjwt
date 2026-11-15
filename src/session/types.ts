@@ -129,7 +129,7 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
   /** Runs after `update()` or `rolling` issues a token and, on a cookie session, writes its cookie. A throw rejects the call and keeps the new session. */
   onUpdate?: (
     args: TArgs & {
-      session: TManager & { id: string; token: string };
+      session: TSession & { id: string; token: string };
       /** The session before the update, its data deep-copied. */
       oldSession: TSession;
       trigger: SessionUpdateTrigger;

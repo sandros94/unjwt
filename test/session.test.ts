@@ -1214,6 +1214,41 @@ describe("unjwt/session types", () => {
     void narrowed.use(new Request("http://localhost/"));
   });
 
+  it("hands onUpdate the session state with an id and a token on both families", () => {
+    defineJWSSession<SessionClaims, 3600>({
+      key: jwsKey,
+      maxAge: 3600,
+      hooks: {
+        onUpdate: ({ session, oldSession }) => {
+          expectTypeOf(session).toEqualTypeOf<
+            SessionJWS<SessionClaims, 3600> & { id: string; token: string }
+          >();
+          expectTypeOf(session).toExtend<typeof oldSession>();
+          expectTypeOf(session).not.toHaveProperty("update");
+          expectTypeOf(session).not.toHaveProperty("clear");
+          expectTypeOf(session.id).toEqualTypeOf<string>();
+          expectTypeOf(session.token).toEqualTypeOf<string>();
+        },
+      },
+    });
+    defineJWESession<SessionClaims, 3600>({
+      key: jweKey,
+      maxAge: 3600,
+      hooks: {
+        onUpdate: ({ session, oldSession }) => {
+          expectTypeOf(session).toEqualTypeOf<
+            SessionJWE<SessionClaims, 3600> & { id: string; token: string }
+          >();
+          expectTypeOf(session).toExtend<typeof oldSession>();
+          expectTypeOf(session).not.toHaveProperty("update");
+          expectTypeOf(session).not.toHaveProperty("clear");
+          expectTypeOf(session.id).toEqualTypeOf<string>();
+          expectTypeOf(session.token).toEqualTypeOf<string>();
+        },
+      },
+    });
+  });
+
   it("hands onRead rollDue as a boolean on both families", () => {
     defineJWSSession({
       key: jwsKey,
