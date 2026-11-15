@@ -177,20 +177,20 @@ const ENTRIES: ReadonlyArray<Entry> = [
   {
     imports: ["defineJWSSession"],
     module: "session/index.ts",
-    measured: { min: 60046, gzip: 19427 },
+    measured: { min: 61512, gzip: 19851 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
   {
     imports: ["defineJWESession"],
     module: "session/index.ts",
-    measured: { min: 80205, gzip: 25451 },
+    measured: { min: 81666, gzip: 25909 },
     absent: [MARKERS.cookieEs, MARKERS.h3Import],
   },
   // the Web driver and the cookie helpers carry no codec, key import or CSPRNG
   {
     imports: ["webSessionDriver"],
     module: "session/index.ts",
-    measured: { min: 7368, gzip: 2844 },
+    measured: { min: 7357, gzip: 2836 },
     absent: [
       MARKERS.cookieEs,
       MARKERS.h3Import,
