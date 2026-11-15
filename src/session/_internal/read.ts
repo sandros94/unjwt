@@ -9,7 +9,7 @@ import type { ExpiresIn } from "../../core/types/index.ts";
 import { computeDurationInSeconds } from "../../utils/jwt.ts";
 import { expiredSessionError, malformedHeaderError } from "./contract.ts";
 import type { SessionBinding, SessionCoreConfig, StoredSession } from "./types.ts";
-import type { SessionRecord, SessionState } from "../types.ts";
+import type { SessionRecord, SessionRoll, SessionState } from "../types.ts";
 import { emptySession, kSessionPending, snapshotSession, storedSession } from "./core.ts";
 import { assertSessionTokenSource } from "./transport.ts";
 
@@ -120,10 +120,17 @@ export async function loadSession<
     return session;
   }
 
-  const rollDue = isRollDue(binding, session);
+  const due = isRollDue(binding, session);
+  let skipped = false;
+  const roll: SessionRoll = {
+    due,
+    skip: () => {
+      skipped = true;
+    },
+  };
   try {
-    await fireRead(binding, { session, rollDue });
-    if (rollDue) await rollSession(binding, { session, token });
+    await fireRead(binding, { session, roll });
+    if (due && !skipped) await rollSession(binding, { session, token });
   } catch (error_) {
     store.set(emptySession<T, MaxAge, TEvent, Config>(binding));
     throw error_;
@@ -133,13 +140,13 @@ export async function loadSession<
 
 async function fireRead<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
-  read: { session: StoredSession; rollDue: boolean },
+  read: { session: StoredSession; roll: SessionRoll },
 ): Promise<void> {
   if (read.session.id === undefined || read.session.token === undefined) return;
   await binding.config.hooks?.onRead?.({
     session: binding.actions.manager(binding),
     ...binding.args,
-    rollDue: read.rollDue,
+    roll: read.roll,
     config: binding.config,
   });
 }
@@ -158,7 +165,7 @@ function isRollDue<TEvent, Config extends SessionCoreConfig>(
   return !transport.readonly && transport.writable();
 }
 
-/** Reissues a session whose roll is due, unless `onRead` updates or clears it. A response sent during the hook leaves the roll to the next request. */
+/** Reissues a session whose roll is due and that `onRead` did not skip, unless the hook updates or clears it. A response sent during the hook leaves the roll to the next request. */
 async function rollSession<TEvent, Config extends SessionCoreConfig>(
   binding: SessionBinding<TEvent, Config>,
   read: { session: StoredSession; token: string },

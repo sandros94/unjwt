@@ -30,6 +30,14 @@ export type SessionUpdateTrigger = "update" | "rolling";
 /** Why `onError` ran: `"read"` when the request's token could not be opened, else the {@link SessionUpdateTrigger} of the update that failed. */
 export type SessionErrorTrigger = "read" | SessionUpdateTrigger;
 
+/** The roll `onRead` receives: whether `rolling` reissues the session after the hook, and a way to keep its token on this request. */
+export interface SessionRoll {
+  /** `true` when `rolling` reissues this session after the hook. An `update()` in the hook is that reissue, and a `clear()` cancels it. */
+  readonly due: boolean;
+  /** Keeps `rolling` from reissuing the session after the hook on this request. The next request finds the roll due again. Does nothing when no roll is due, or once the hook has returned. */
+  readonly skip: () => void;
+}
+
 /** What `update()` merges: a partial data object, or a function of the current data that returns one, or changes that data in place and returns `undefined`. */
 export type SessionUpdate<T extends SessionRecord = SessionClaims> =
   | Partial<SessionData<T>>
@@ -127,8 +135,8 @@ export interface SessionHooks<TSession, TManager, TArgs extends Record<string, u
   onRead?: (
     args: TArgs & {
       session: TManager & { id: string; token: string };
-      /** `true` when `rolling` reissues this session after the hook. An `update()` in the hook is that reissue, and a `clear()` cancels it. */
-      rollDue: boolean;
+      /** Whether `rolling` reissues this session after the hook, and `skip()` to hold that reissue back on this request. */
+      roll: SessionRoll;
       config: TConfig;
     },
   ) => void | Promise<void>;

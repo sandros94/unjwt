@@ -32,7 +32,7 @@ import { bindSession } from "../src/session/_internal/bind.ts";
 import type { CookieJar, SessionDriver } from "../src/session/_internal/driver.ts";
 import { loadSession } from "../src/session/_internal/read.ts";
 import { dropSession, issueSession, sessionActions } from "../src/session/_internal/write.ts";
-import type { SessionManager, SessionUpdate } from "../src/session/types.ts";
+import type { SessionManager, SessionRoll, SessionUpdate } from "../src/session/types.ts";
 
 const [jwsKey, jweKey, rsaSignPair, rsaEncPair] = await Promise.all([
   generateJWK("HS256"),
@@ -2114,11 +2114,11 @@ describe("session contract", () => {
       },
     );
 
-    const rollDueOf = (onRead: ReturnType<typeof vi.fn>) =>
-      onRead.mock.calls.map(([args]) => (args as { rollDue?: unknown }).rollDue);
+    const dueOf = (onRead: ReturnType<typeof vi.fn>) =>
+      onRead.mock.calls.map(([args]) => (args as { roll?: SessionRoll }).roll?.due);
 
     it.each(familyCases())(
-      "$label: onRead gets rollDue true on a cookie read that rolling: true reissues once",
+      "$label: onRead gets roll.due true on a cookie read that rolling: true reissues once",
       async (variant) => {
         const config = expiringConfig(variant);
         const token = await mintToken(variant, config, { user: "alice" });
@@ -2131,14 +2131,14 @@ describe("session contract", () => {
         );
 
         expect(response.body.token).not.toBe(token);
-        expect(rollDueOf(onRead)).toEqual([true]);
+        expect(dueOf(onRead)).toEqual([true]);
         expect(onUpdate).toHaveBeenCalledTimes(1);
         expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
       },
     );
 
     it.each(familyCases())(
-      "$label: with a rolling duration, rollDue is true once the token is that old",
+      "$label: with a rolling duration, roll.due is true once the token is that old",
       async (variant) => {
         const onRead = vi.fn();
         const config = { ...expiringConfig(variant), rolling: "15m" };
@@ -2155,12 +2155,12 @@ describe("session contract", () => {
         await variant.serve(hooked, opened, { cookies: { [variant.name]: fresh } });
         await variant.serve(hooked, opened, { cookies: { [variant.name]: aged } });
 
-        expect(rollDueOf(onRead)).toEqual([false, true]);
+        expect(dueOf(onRead)).toEqual([false, true]);
       },
     );
 
     it.each(familyCases())(
-      "$label: rollDue is false without rolling, on a header or handed token, and without a response",
+      "$label: roll.due is false without rolling, on a header or handed token, and without a response",
       async (variant) => {
         const onRead = vi.fn();
         const token = await mintToken(variant, expiringConfig(variant), { user: "alice" });
@@ -2180,7 +2180,208 @@ describe("session contract", () => {
         );
         await OPENERS[variant.family]({ req: request }, rolling as never);
 
-        expect(rollDueOf(onRead)).toEqual([false, false, false, false]);
+        expect(dueOf(onRead)).toEqual([false, false, false, false]);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: roll.skip() does nothing on a read with no roll due",
+      async (variant) => {
+        const skips: unknown[] = [];
+        const onRead = vi.fn(({ roll }: { roll: SessionRoll }) => {
+          skips.push(roll.skip());
+        });
+        const token = await mintToken(variant, expiringConfig(variant), { user: "alice" });
+        const rolling = { ...expiringConfig(variant), rolling: true, hooks: { onRead } };
+        const header = `x-${variant.name}-session`;
+        const cookies = { [variant.name]: token };
+
+        const responses = [
+          await variant.serve({ ...expiringConfig(variant), hooks: { onRead } }, opened, {
+            cookies,
+          }),
+          await variant.serve({ ...rolling, rolling: "15m" }, opened, { cookies }),
+          await variant.serve({ ...rolling, sessionHeader: true }, opened, {
+            headers: { [header]: token },
+          }),
+        ];
+        const handed = await definitionOf(variant, rolling).use({ token });
+        const request = new Request("http://localhost/", requestInit({ cookies }));
+        const unwritable = (await OPENERS[variant.family](
+          { req: request },
+          rolling as never,
+        )) as SessionManager;
+
+        expect(dueOf(onRead)).toEqual([false, false, false, false, false]);
+        expect(skips).toEqual([undefined, undefined, undefined, undefined, undefined]);
+        for (const response of responses) {
+          expect(response.status).toBe(200);
+          expect(response.body.token).toBe(token);
+          expect(response.cookies).toEqual([]);
+        }
+        expect(handed.token).toBe(token);
+        expect(unwritable.token).toBe(token);
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: roll.skip() keeps a due session as it was on that request alone, and roll.due stays true",
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
+        const cookies = { [variant.name]: token };
+        const viewed = async (open: () => Promise<SessionManager>) => sessionView(await open());
+        const dueAfterSkip: boolean[] = [];
+        let skipping = true;
+        const onUpdate = vi.fn();
+        const onRead = vi.fn(({ roll }: { roll: SessionRoll }) => {
+          if (!skipping) return;
+          roll.skip();
+          dueAfterSkip.push(roll.due);
+        });
+        const hooked = { ...config, rolling: true, hooks: { onRead, onUpdate } };
+
+        const unrolled = await variant.serve(config, viewed, { cookies });
+        const kept = await variant.serve(hooked, viewed, { cookies });
+        expect(kept.body).toEqual(unrolled.body);
+        expect(kept.body.token).toBe(token);
+        expect(kept.cookies).toEqual([]);
+        expect(onUpdate).not.toHaveBeenCalled();
+        expect(dueAfterSkip).toEqual([true]);
+
+        skipping = false;
+        const rolled = await variant.serve(hooked, viewed, { cookies });
+        expect(dueOf(onRead)).toEqual([true, true]);
+        expect(rolled.body.token).not.toBe(token);
+        expect(rolled.cookies.length).toBeGreaterThan(0);
+        expect(onUpdate).toHaveBeenCalledTimes(1);
+        expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: roll.skip() keeps the roll from running when destructured from roll",
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
+        const onUpdate = vi.fn();
+        const response = await variant.serve(
+          {
+            ...config,
+            rolling: true,
+            hooks: {
+              onRead: ({ roll: { skip } }: { roll: SessionRoll }) => {
+                skip();
+              },
+              onUpdate,
+            },
+          },
+          opened,
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(response.body.token).toBe(token);
+        expect(response.cookies).toEqual([]);
+        expect(onUpdate).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: an update() after roll.skip() in onRead is still issued once",
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
+        const onUpdate = vi.fn();
+        const response = await variant.serve(
+          {
+            ...config,
+            rolling: true,
+            hooks: {
+              onRead: async ({ session, roll }: { session: SessionManager; roll: SessionRoll }) => {
+                roll.skip();
+                await session.update({ seen: true });
+              },
+              onUpdate,
+            },
+          },
+          opened,
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(response.body.token).not.toBe(token);
+        expect(response.body.data).toEqual({ user: "alice", seen: true });
+        expect(response.cookies.length).toBeGreaterThan(0);
+        expect(onUpdate).toHaveBeenCalledTimes(1);
+        expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "update" });
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: a clear() after roll.skip() in onRead still clears the session",
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
+        const onUpdate = vi.fn();
+        const onClear = vi.fn();
+        const response = await variant.serve(
+          {
+            ...config,
+            rolling: true,
+            hooks: {
+              onRead: async ({ session, roll }: { session: SessionManager; roll: SessionRoll }) => {
+                roll.skip();
+                await session.clear();
+              },
+              onUpdate,
+              onClear,
+            },
+          },
+          opened,
+          { cookies: { [variant.name]: token } },
+        );
+
+        expect(response.body.id).toBeNull();
+        expect(response.body.token).toBeNull();
+        expect(expiredSetCookie(response.cookies, variant.name)).toBeDefined();
+        expect(onClear).toHaveBeenCalledTimes(1);
+        expect(onUpdate).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(familyCases())(
+      "$label: roll.skip() called once onRead has returned does nothing and the roll runs",
+      async (variant) => {
+        const config = expiringConfig(variant);
+        const token = await mintToken(variant, config, { user: "alice" });
+        let release = () => {};
+        const later = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let captured: (() => void) | undefined;
+        const onUpdate = vi.fn();
+        const response = await variant.serve(
+          {
+            ...config,
+            rolling: true,
+            hooks: {
+              onRead: ({ roll }: { roll: SessionRoll }) => {
+                captured = roll.skip;
+                void later.then(roll.skip);
+              },
+              onUpdate,
+            },
+          },
+          opened,
+          { cookies: { [variant.name]: token } },
+        );
+        release();
+        await later;
+
+        expect(() => captured?.()).not.toThrow();
+        expect(response.body.token).not.toBe(token);
+        expect(response.cookies.length).toBeGreaterThan(0);
+        expect(onUpdate).toHaveBeenCalledTimes(1);
+        expect(onUpdate.mock.calls[0]?.[0]).toMatchObject({ trigger: "rolling" });
       },
     );
 
@@ -2734,7 +2935,7 @@ describe("session contract", () => {
           expect(session.token).toBeTypeOf("string");
           expect(recorder.writes).toEqual([]);
           expect(hooks.onRead).toHaveBeenCalledOnce();
-          expect(hooks.onRead.mock.calls[0]?.[0]).toMatchObject({ rollDue: false });
+          expect(hooks.onRead.mock.calls[0]?.[0]).toMatchObject({ roll: { due: false } });
           expect(hooks.onUpdate).not.toHaveBeenCalled();
           expect(hooks.onError).not.toHaveBeenCalled();
           expect(warn).not.toHaveBeenCalled();
@@ -2764,7 +2965,7 @@ describe("session contract", () => {
         const session = await loadSession(binding);
 
         expect(session.id).toBe("sent-in-hook");
-        expect(onRead.mock.calls[0]?.[0]).toMatchObject({ rollDue: true });
+        expect(onRead.mock.calls[0]?.[0]).toMatchObject({ roll: { due: true } });
         expect(onUpdate).not.toHaveBeenCalled();
         expect(recorder.writes).toEqual([]);
       },

@@ -9,6 +9,7 @@ export type {
   SessionIssueOptions,
   SessionManager,
   SessionRequestEvent,
+  SessionRoll,
   SessionSource,
   SessionUpdate,
   SessionUpdateTrigger,

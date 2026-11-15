@@ -41,6 +41,7 @@ import {
   type SessionJWE,
   type SessionJWS,
   type SessionRequestEvent,
+  type SessionRoll,
   type SessionSource,
   type SessionTransport,
   type SessionTransportOptions,
@@ -1267,20 +1268,30 @@ describe("unjwt/session types", () => {
     });
   });
 
-  it("hands onRead rollDue as a boolean on both families", () => {
+  it("hands onRead a read-only roll with a due flag and a detachable skip on both families", () => {
+    expectTypeOf<SessionRoll>().toEqualTypeOf<{
+      readonly due: boolean;
+      readonly skip: () => void;
+    }>();
     defineJWSSession({
       key: jwsKey,
       hooks: {
-        onRead: ({ rollDue }) => {
-          expectTypeOf(rollDue).toEqualTypeOf<boolean>();
+        onRead: ({ roll, roll: { due, skip } }) => {
+          expectTypeOf(roll).toEqualTypeOf<SessionRoll>();
+          expectTypeOf(due).toEqualTypeOf<boolean>();
+          expectTypeOf(skip).toEqualTypeOf<() => void>();
+          // @ts-expect-error due is read-only
+          roll.due = false;
         },
       },
     });
     defineJWESession({
       key: jweKey,
       hooks: {
-        onRead: ({ rollDue }) => {
-          expectTypeOf(rollDue).toEqualTypeOf<boolean>();
+        onRead: ({ roll, roll: { due, skip } }) => {
+          expectTypeOf(roll).toEqualTypeOf<SessionRoll>();
+          expectTypeOf(due).toEqualTypeOf<boolean>();
+          expectTypeOf(skip).toEqualTypeOf<() => void>();
         },
       },
     });

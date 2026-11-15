@@ -18,14 +18,14 @@ export const appSession = defineJWESession<AppSession, "7D">({
   maxAge: "7D",
   rolling: "1D",
   hooks: {
-    async onRead({ session, rollDue }) {
+    async onRead({ session, roll }) {
       // The primary on a roll, a replica otherwise
-      const user = await findUser(session.data.userId, { primary: rollDue });
+      const user = await findUser(session.data.userId, { primary: roll.due });
       if (!user || user.blocked) {
         await session.clear();
         return;
       }
-      if (rollDue) await session.update({ grants: user.grants });
+      if (roll.due) await session.update({ grants: user.grants });
     },
   },
 });
